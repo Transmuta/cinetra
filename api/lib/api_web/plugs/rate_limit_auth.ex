@@ -24,9 +24,9 @@ defmodule ApiWeb.Plugs.RateLimitAuth do
   # Janelas e limites. ATENÇÃO: o Hammer quer `scale` em **milissegundos** (`hit(key, scale_ms,
   # limite)`), não em segundos — passar 60 daria uma janela de 60ms (bug que só a app viva pegou;
   # o teste in-process passava por caber nos 60ms). `:timer.minutes/1` = minutos em ms.
-  #   e-mail: 5 pedidos / 1 min (bombardear um alvo)
-  #   IP:     10 pedidos / 2 min (um IP disparando para vários e-mails)
-  @email_scale :timer.minutes(1)
+  #   e-mail: 5 pedidos / 15 min (bombardear um alvo)
+  #   IP:     10 pedidos / 2 min  (um IP disparando para vários e-mails)
+  @email_scale :timer.minutes(15)
   @email_limit 5
   @ip_scale :timer.minutes(2)
   @ip_limit 10
