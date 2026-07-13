@@ -59,7 +59,10 @@ defmodule Api.Accounts.Clinic do
   attributes do
     uuid_v7_primary_key :id
 
-    attribute :nome, :string, allow_nil?: false, public?: true
+    # max_length casado com o maxlength do form de onboarding (web). Vazio já é barrado
+    # pelo default do tipo (allow_empty? false); o limite superior fecha a fronteira HTTP,
+    # já que o cap do client não vale para quem bate direto na API (09 §8).
+    attribute :nome, :string, allow_nil?: false, public?: true, constraints: [max_length: 160]
 
     # ADR-009: timezone canônico da clínica. "Hoje"/"já começou" resolvem aqui.
     attribute :timezone, :string, allow_nil?: false, default: "America/Sao_Paulo", public?: true
