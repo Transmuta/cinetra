@@ -30,6 +30,9 @@ defmodule ApiWeb.AuthController do
   def magic_link_callback(conn, %{"token" => token}) do
     case Accounts.sign_in_with_magic_link(token) do
       {:ok, user} ->
+        # Primeiro acesso do convidado ativa seus vínculos pendentes (D24).
+        _ = Api.Accounts.Invites.activate_pending(user)
+
         conn
         |> Helpers.store_in_session(user)
         |> redirect(external: Api.web_app_url())

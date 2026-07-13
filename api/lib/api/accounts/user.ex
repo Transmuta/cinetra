@@ -152,10 +152,19 @@ defmodule Api.Accounts.User do
       authorize_if always()
     end
 
-    # Um usuário só enxerga a si mesmo. A visão multi-tenant (memberships) é filtrada
-    # pelas policies de `Membership` (ponto 4).
+    # Um usuário enxerga a si mesmo; além disso, owner/admin de uma clínica enxergam os
+    # usuários que são membros dela (a tela de Equipe & acessos precisa de nome/e-mail dos
+    # demais). Continua sendo isolamento por tenant: só se vê quem compartilha uma clínica
+    # onde o actor é owner/admin ativo.
     policy action_type(:read) do
       authorize_if expr(id == ^actor(:id))
+
+      authorize_if expr(
+                     exists(
+                       memberships.clinic.memberships,
+                       user_id == ^actor(:id) and papel in [:owner, :admin] and status == :ativo
+                     )
+                   )
     end
   end
 

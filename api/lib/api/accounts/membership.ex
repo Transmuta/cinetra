@@ -46,6 +46,22 @@ defmodule Api.Accounts.Membership do
              )
     end
 
+    # Convites pendentes de um usuário — ativados no primeiro acesso (ADR-015). Leitura de
+    # sistema (authorize?: false) do `Invites.activate_pending/1`.
+    read :pending_for_user do
+      argument :user_id, :uuid, allow_nil?: false
+      filter expr(user_id == ^arg(:user_id) and status == :pendente)
+    end
+
+    # Todos os vínculos de uma clínica (a tela de Equipe & acessos). O `user` vem
+    # carregado porque a lista mostra nome/e-mail; a policy de leitura garante que só
+    # owner/admin da clínica enxergam todos (os demais só a si mesmos).
+    read :for_clinic do
+      argument :clinic_id, :uuid, allow_nil?: false
+      filter expr(clinic_id == ^arg(:clinic_id))
+      prepare build(load: [:user], sort: [inserted_at: :asc])
+    end
+
     # Convite: cria pendente; ativa no primeiro acesso (magic link/Google, ADR-015).
     create :invite do
       accept [:papel, :professional_id]
@@ -55,9 +71,27 @@ defmodule Api.Accounts.Membership do
       change manage_relationship(:clinic_id, :clinic, type: :append)
     end
 
+    # Convite por e-mail (D24): acha-ou-cria o `User` do convidado a partir do e-mail,
+    # cria o vínculo pendente e dispara o magic link. O `clinic_id` vem do escopo (09 §8).
+    create :invite_by_email do
+      accept [:papel, :professional_id]
+      argument :email, :ci_string, allow_nil?: false
+      argument :nome, :string, allow_nil?: true
+      argument :clinic_id, :uuid, allow_nil?: false
+
+      change manage_relationship(:clinic_id, :clinic, type: :append)
+      change Api.Accounts.Membership.Changes.ResolveInvitedUser
+      # D: professional_id (UUID mole) precisa ser da clínica do convite.
+      validate {Api.Accounts.Membership.Validations.ProfessionalInClinic, []}
+    end
+
     update :update do
       accept [:papel, :professional_id]
       require_atomic? false
+      # D23: só owner promove/altera owners (barra takeover por admin).
+      validate {Api.Accounts.Membership.Validations.RestrictOwnerRole, []}
+      # D: professional_id precisa ser da clínica do vínculo.
+      validate {Api.Accounts.Membership.Validations.ProfessionalInClinic, []}
     end
 
     update :accept_invite do
@@ -68,6 +102,8 @@ defmodule Api.Accounts.Membership do
 
     destroy :revoke_access do
       require_atomic? false
+      # D23: só owner revoga owners.
+      validate {Api.Accounts.Membership.Validations.RestrictOwnerRole, []}
     end
   end
 
@@ -87,7 +123,7 @@ defmodule Api.Accounts.Membership do
     end
 
     # Convidar: owner/admin da clínica alvo (clinic_id vem como argumento do convite).
-    policy action(:invite) do
+    policy action([:invite, :invite_by_email]) do
       authorize_if {Api.Accounts.Checks.HasClinicRole,
                     roles: [:owner, :admin], clinic_from: {:argument, :clinic_id}}
     end
@@ -108,7 +144,10 @@ defmodule Api.Accounts.Membership do
     end
   end
 
-  # ADR-016 — invariante ">=1 owner por tenant" (não-atômica; ver o módulo).
+  # ADR-016 — invariante ">=1 owner por tenant" (não-atômica; ver o módulo). Global em
+  # update/destroy: é no-op no `accept_invite` (não mexe em papel). A regra "só owner
+  # gerencia owners" (D23) NÃO fica aqui — ela é específica das ações de gestão de papel
+  # (`:update`/`:revoke_access`), senão barraria o `accept_invite` de um convite de owner.
   validations do
     validate {Api.Accounts.Membership.Validations.NotLastOwner, []}, on: [:update, :destroy]
   end

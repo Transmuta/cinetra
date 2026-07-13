@@ -12,6 +12,9 @@ defmodule ApiWeb.AuthStrategyController do
 
   @impl true
   def success(conn, _activity, user, _token) do
+    # Primeiro acesso do convidado (por Google) ativa seus vínculos pendentes (D24).
+    _ = Api.Accounts.Invites.activate_pending(user)
+
     conn
     |> Helpers.store_in_session(user)
     |> redirect(external: Api.web_app_url())

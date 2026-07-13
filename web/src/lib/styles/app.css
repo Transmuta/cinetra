@@ -27,6 +27,8 @@
 	--mv-shadow-1: 0 1px 1px rgba(20, 24, 30, 0.03);
 	--mv-shadow-card: 0 12px 40px rgba(20, 24, 30, 0.08);
 	--mv-shadow-pop: 0 8px 24px rgba(8, 10, 12, 0.18);
+	/* brilho teal da marca (quadrado do rail, :1310) */
+	--mv-shadow-teal: 0 2px 8px rgba(15, 181, 166, 0.35);
 
 	/* Semânticas compartilhadas claro/escuro (:311) */
 	--mv-success: #2da160;
@@ -57,6 +59,10 @@
 	--mv-teal-subtle: #e5f7f4;
 	--mv-teal-border: #7fdacd;
 	--mv-card-shadow: var(--mv-shadow-card);
+
+	/* Rail (barra de ícones) — escura nos dois temas (:305) */
+	--mv-rail: #16181c;
+	--mv-rail-item: #26292f;
 }
 
 /* ---- Tema escuro (theme() com d=true) ---- */
@@ -76,6 +82,9 @@
 	--mv-teal-subtle: rgba(15, 181, 166, 0.16);
 	--mv-teal-border: rgba(127, 218, 205, 0.45);
 	--mv-card-shadow: none; /* sombra do card só no claro (:1683) */
+
+	--mv-rail: #08090a;
+	--mv-rail-item: #1a1d22;
 }
 
 /* Respeita o SO quando não há escolha explícita de tema. */
@@ -96,6 +105,8 @@
 		--mv-teal-subtle: rgba(15, 181, 166, 0.16);
 		--mv-teal-border: rgba(127, 218, 205, 0.45);
 		--mv-card-shadow: none;
+		--mv-rail: #08090a;
+		--mv-rail-item: #1a1d22;
 	}
 }
 
@@ -114,6 +125,7 @@
 	--shadow-sm: var(--mv-shadow-1);
 	--shadow-card: var(--mv-card-shadow);
 	--shadow-pop: var(--mv-shadow-pop);
+	--shadow-teal: var(--mv-shadow-teal);
 
 	/* superfícies → bg-canvas, bg-surface, bg-surface-2 */
 	--color-canvas: var(--mv-canvas);
@@ -138,6 +150,10 @@
 	--color-teal-text: var(--mv-teal-text);
 	--color-teal-subtle: var(--mv-teal-subtle);
 	--color-teal-border: var(--mv-teal-border);
+
+	/* rail escuro (barra de ícones) → bg-rail / bg-rail-item */
+	--color-rail: var(--mv-rail);
+	--color-rail-item: var(--mv-rail-item);
 
 	--color-success: var(--mv-success);
 	--color-warning: var(--mv-warning);

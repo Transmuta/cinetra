@@ -1,5 +1,19 @@
 import { fail, type RequestEvent } from '@sveltejs/kit';
 import { apiFetch } from './api';
+import type { Me } from '$lib/session';
+
+// Carrega a sessão (`/api/auth/me`) pelo BFF. Retorna `null` quando não há sessão válida.
+// Usado pela home e pelo layout do app (guarda de auth). ADR-005: server-to-server.
+export async function loadMe(event: RequestEvent): Promise<Me | null> {
+	try {
+		const res = await apiFetch(event, '/api/auth/me', { headers: { accept: 'application/json' } });
+		if (!res.ok) return null;
+		const body = await res.json();
+		return body?.user ? (body as Me) : null;
+	} catch {
+		return null;
+	}
+}
 
 // Action compartilhada por /entrar e /criar-conta: pede o magic link (ADR-015). O BFF só
 // repassa para a API; a resposta é sempre neutra (não revela se o e-mail tem conta).

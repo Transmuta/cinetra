@@ -61,6 +61,13 @@ defmodule ApiWeb.Router do
 
     # Token efêmero de WebSocket (ADR-014, 09 §8).
     get "/realtime/token", AuthController, :realtime_token
+
+    # Gestão de membros (Fatia 10 / Equipe & acessos). RBAC owner/admin no controller +
+    # policies do Membership; clinic_id sempre do escopo.
+    get "/members", MembersController, :index
+    post "/members", MembersController, :create
+    patch "/members/:id", MembersController, :update
+    delete "/members/:id", MembersController, :delete
   end
 
   # Máquina OAuth do AshAuthentication (Assent): request + callback do Google. Chama
