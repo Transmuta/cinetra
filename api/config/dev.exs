@@ -57,14 +57,13 @@ config :api, ApiWeb.Endpoint, url: [host: "localhost", port: 4010, scheme: "http
 
 # Google OAuth (ADR-015). Sem credenciais reais em dev por padrão — o fluxo Google só
 # funciona setando GOOGLE_CLIENT_ID/SECRET. Magic link funciona sem isso.
+# `redirect_uri` é a BASE (o AshAuthentication anexa "/user/google/callback") e aponta para o
+# WEB/BFF, não para a API — o mesmo valor cadastrado no console do Google. `runtime.exs` também
+# lê GOOGLE_REDIRECT_URI (em todos os envs); manter os defaults iguais para não divergir.
 config :api, :google_oauth,
   client_id: System.get_env("GOOGLE_CLIENT_ID", ""),
   client_secret: System.get_env("GOOGLE_CLIENT_SECRET", ""),
-  redirect_uri:
-    System.get_env(
-      "GOOGLE_REDIRECT_URI",
-      "http://localhost:4010/api/auth/strategy/user/google/callback"
-    )
+  redirect_uri: System.get_env("GOOGLE_REDIRECT_URI", "http://localhost:5173/auth")
 
 # Frontend (BFF SvelteKit) — destino do redirect após login bem-sucedido.
 config :api, :web_app_url, System.get_env("WEB_APP_URL", "http://localhost:5173")

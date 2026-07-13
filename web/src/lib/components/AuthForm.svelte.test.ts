@@ -29,10 +29,11 @@ describe('AuthForm', () => {
 
 		expect(getByLabelText('E-mail')).toBeInTheDocument();
 		expect(getByRole('button', { name: 'Enviar link de acesso' })).toBeInTheDocument();
-		expect(getByRole('link', { name: 'Entrar com Google' })).toHaveAttribute(
-			'href',
-			'/auth/google'
-		);
+
+		const google = getByRole('link', { name: 'Entrar com Google' });
+		expect(google).toHaveAttribute('href', '/auth/google');
+		// /auth/google é endpoint +server (sem +page): sem reload, o clique 404a no client router.
+		expect(google).toHaveAttribute('data-sveltekit-reload');
 	});
 
 	it('erro de validação: exibe a mensagem retornada pela action', () => {

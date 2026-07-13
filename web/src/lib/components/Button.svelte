@@ -5,12 +5,17 @@
 		variant = 'primary',
 		type = 'button',
 		href = undefined,
+		reload = false,
 		disabled = false,
 		children
 	}: {
 		variant?: 'primary' | 'ghost';
 		type?: 'button' | 'submit';
 		href?: string;
+		// Força navegação completa do browser (data-sveltekit-reload) em vez de roteamento
+		// client-side. Necessário para links a endpoints `+server` (ex.: /auth/google), que
+		// não têm `+page` e 404am se o client router tentar resolvê-los como página.
+		reload?: boolean;
 		disabled?: boolean;
 		children: Snippet;
 	} = $props();
@@ -25,7 +30,9 @@
 </script>
 
 {#if href}
-	<a {href} class="{base} {variants[variant]}">{@render children()}</a>
+	<a {href} data-sveltekit-reload={reload ? '' : undefined} class="{base} {variants[variant]}"
+		>{@render children()}</a
+	>
 {:else}
 	<button {type} {disabled} class="{base} {variants[variant]}">{@render children()}</button>
 {/if}

@@ -22,6 +22,22 @@ describe('Button', () => {
 		expect(getByRole('link', { name: 'Google' })).toHaveAttribute('href', '/auth/google');
 	});
 
+	it('com reload, marca o link com data-sveltekit-reload (força navegação completa)', () => {
+		// Endpoints +server (sem +page) 404am na navegação client-side do SvelteKit; o
+		// data-sveltekit-reload força um GET completo do browser, que bate no endpoint.
+		const { getByRole } = render(Button, {
+			props: { href: '/auth/google', reload: true, children: label('Google') }
+		});
+		expect(getByRole('link', { name: 'Google' })).toHaveAttribute('data-sveltekit-reload');
+	});
+
+	it('sem reload, o link NÃO tem data-sveltekit-reload', () => {
+		const { getByRole } = render(Button, {
+			props: { href: '/dashboard', children: label('Ir') }
+		});
+		expect(getByRole('link', { name: 'Ir' })).not.toHaveAttribute('data-sveltekit-reload');
+	});
+
 	it('fica desabilitado com disabled', () => {
 		const { getByRole } = render(Button, {
 			props: { disabled: true, children: label('Enviando…') }

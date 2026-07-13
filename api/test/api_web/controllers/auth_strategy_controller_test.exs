@@ -39,7 +39,7 @@ defmodule ApiWeb.AuthStrategyControllerTest do
 
     assert conn.status == 401
     assert [location] = get_resp_header(conn, "location")
-    assert location =~ "/login?erro=oauth"
+    assert location =~ "/entrar?erro=oauth"
   end
 
   test "sign_out/2 limpa a sessão e redireciona ao app web", %{conn: conn} do

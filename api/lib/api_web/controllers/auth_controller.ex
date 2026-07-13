@@ -40,7 +40,7 @@ defmodule ApiWeb.AuthController do
       {:error, _reason} ->
         conn
         |> put_status(:unauthorized)
-        |> redirect(external: Api.web_app_url() <> "/login?erro=magic_link")
+        |> redirect(external: Api.web_app_url() <> "/entrar?erro=magic_link")
     end
   end
 

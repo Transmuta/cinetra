@@ -24,7 +24,7 @@ defmodule ApiWeb.AuthStrategyController do
   def failure(conn, _activity, _reason) do
     conn
     |> put_status(:unauthorized)
-    |> redirect(external: Api.web_app_url() <> "/login?erro=oauth")
+    |> redirect(external: Api.web_app_url() <> "/entrar?erro=oauth")
   end
 
   @impl true

@@ -80,7 +80,9 @@
 		<span class="h-px flex-1 bg-edge"></span>
 	</div>
 
-	<Button variant="ghost" href={googleHref}>
+	<!-- reload: /auth/google é endpoint +server (sem +page); sem navegação completa o client
+	     router do SvelteKit 404a. -->
+	<Button variant="ghost" href={googleHref} reload>
 		<GoogleIcon />
 		{googleLabel}
 	</Button>

@@ -59,7 +59,7 @@ defmodule ApiWeb.AuthControllerTest do
       conn = get(conn, ~p"/api/auth/magic-link/callback?token=lixo")
       assert conn.status == 401
       assert [location] = get_resp_header(conn, "location")
-      assert location =~ "/login?erro=magic_link"
+      assert location =~ "/entrar?erro=magic_link"
     end
   end
 
