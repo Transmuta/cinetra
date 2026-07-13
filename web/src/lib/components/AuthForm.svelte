@@ -10,12 +10,15 @@
 		form = null,
 		submitLabel,
 		googleLabel,
-		googleHref = '/auth/google'
+		googleHref = '/auth/google',
+		collectName = false
 	}: {
-		form?: { sent?: boolean; email?: string; error?: string } | null;
+		form?: { sent?: boolean; email?: string; nome?: string; error?: string } | null;
 		submitLabel: string;
 		googleLabel: string;
 		googleHref?: string;
+		// Cadastro por magic link coleta o nome; login (/entrar) não.
+		collectName?: boolean;
 	} = $props();
 
 	let submitting = $state(false);
@@ -53,6 +56,18 @@
 			};
 		}}
 	>
+		{#if collectName}
+			<Field
+				label="Nome"
+				name="nome"
+				value={form?.nome ?? ''}
+				placeholder="Seu nome"
+				required
+				autocomplete="name"
+				maxlength={160}
+			/>
+		{/if}
+
 		<Field
 			label="E-mail"
 			name="email"

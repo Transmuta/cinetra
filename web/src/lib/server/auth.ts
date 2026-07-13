@@ -20,16 +20,18 @@ export async function loadMe(event: RequestEvent): Promise<Me | null> {
 export async function requestMagicLink(event: RequestEvent) {
 	const data = await event.request.formData();
 	const email = String(data.get('email') ?? '').trim();
+	// Nome só existe no cadastro (/criar-conta); em /entrar o campo nem é renderizado.
+	const nome = String(data.get('nome') ?? '').trim();
 
 	if (email === '') {
-		return fail(400, { email, error: 'Informe seu e-mail.' });
+		return fail(400, { email, nome, error: 'Informe seu e-mail.' });
 	}
 
 	try {
 		await apiFetch(event, '/api/auth/magic-link', {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ email })
+			body: JSON.stringify(nome ? { email, nome } : { email })
 		});
 	} catch {
 		// Falha de rede não vira erro visível: resposta neutra (ADR-015).

@@ -43,4 +43,24 @@ describe('AuthForm', () => {
 
 		expect(getByText('Informe seu e-mail.')).toBeInTheDocument();
 	});
+
+	it('sem collectName (login): não renderiza campo de nome', () => {
+		const { queryByLabelText, getByLabelText } = render(AuthForm, {
+			props: { ...baseProps, form: null }
+		});
+
+		expect(getByLabelText('E-mail')).toBeInTheDocument();
+		expect(queryByLabelText('Nome')).toBeNull();
+	});
+
+	it('collectName (cadastro): renderiza campo de nome e ecoa o valor no erro', () => {
+		const { getByLabelText } = render(AuthForm, {
+			props: { ...baseProps, collectName: true, form: { nome: 'Ana', error: 'Informe seu e-mail.' } }
+		});
+
+		const nome = getByLabelText('Nome') as HTMLInputElement;
+		expect(nome).toBeInTheDocument();
+		expect(nome).toBeRequired();
+		expect(nome.value).toBe('Ana');
+	});
 });

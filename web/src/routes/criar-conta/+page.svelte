@@ -9,7 +9,7 @@
 <svelte:head><title>Criar conta · Movimento</title></svelte:head>
 
 <AuthCard title="Criar sua conta" subtitle="Comece a encher a sua agenda." theme={data.theme}>
-	<AuthForm {form} submitLabel="Criar minha conta" googleLabel="Criar conta com Google" />
+	<AuthForm {form} collectName submitLabel="Criar minha conta" googleLabel="Criar conta com Google" />
 
 	{#snippet footer()}
 		Já tem conta? <a href="/entrar" class="font-semibold text-teal-text">Entrar</a>

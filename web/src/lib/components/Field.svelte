@@ -8,7 +8,8 @@
 		value = $bindable(''),
 		placeholder = '',
 		required = false,
-		autocomplete = undefined
+		autocomplete = undefined,
+		maxlength = undefined
 	}: {
 		label: string;
 		name: string;
@@ -17,6 +18,7 @@
 		placeholder?: string;
 		required?: boolean;
 		autocomplete?: HTMLInputAttributes['autocomplete'];
+		maxlength?: number;
 	} = $props();
 </script>
 
@@ -29,6 +31,7 @@
 		{placeholder}
 		{required}
 		{autocomplete}
+		{maxlength}
 		bind:value
 		class="h-[38px] w-full rounded-md border border-edge-strong bg-surface px-[11px] text-[13.5px] text-ink placeholder:text-faint"
 	/>

@@ -16,10 +16,12 @@ defmodule ApiWeb.AuthController do
   # o e-mail existe), ADR-015 / 09 §8.
   def request_magic_link(conn, params) do
     email = params["email"] || get_in(params, ["user", "email"])
+    # Nome opcional (só no cadastro por magic link); viaja assinado no token.
+    nome = params["nome"] || get_in(params, ["user", "nome"])
 
     if is_binary(email) and email != "" do
       # Best-effort: erros (e-mail inválido etc.) não vazam existência de conta.
-      _ = Accounts.request_magic_link(email)
+      _ = Accounts.request_magic_link(email, %{nome: nome})
     end
 
     json(conn, %{ok: true})

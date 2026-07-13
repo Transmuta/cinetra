@@ -47,6 +47,18 @@ defmodule ApiWeb.AuthControllerTest do
       assert json_response(conn, 200) == %{"ok" => true}
       refute_receive {:email, _}, 200
     end
+
+    test "cadastro com nome: o nome atravessa o token e vira o nome do User", %{conn: conn} do
+      addr = "user-#{System.unique_integer([:positive])}@example.com"
+      conn = post(conn, ~p"/api/auth/magic-link", %{email: addr, nome: "Bianca Souza"})
+
+      assert json_response(conn, 200) == %{"ok" => true}
+      assert_receive {:email, mail}, 1_000
+      [_, token] = Regex.run(~r/token=([\w.\-]+)/, mail.text_body)
+
+      {:ok, user} = Accounts.sign_in_with_magic_link(token)
+      assert user.nome == "Bianca Souza"
+    end
   end
 
   describe "GET /api/auth/magic-link/callback" do

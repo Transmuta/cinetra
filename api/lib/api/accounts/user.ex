@@ -103,7 +103,9 @@ defmodule Api.Accounts.User do
 
       # Uses the information from the token to create or sign in the user
       change AshAuthentication.Strategy.MagicLink.SignInChange
-      # Registro auth-first não traz nome; defaulta pela parte local do e-mail.
+      # O nome do cadastro chega como claim assinado do token (quando informado em
+      # "criar conta"); só na ausência dele defaultamos pela parte local do e-mail.
+      change Api.Accounts.User.Changes.SetNomeFromToken
       change Api.Accounts.User.Changes.DefaultNomeFromEmail
 
       change {AshAuthentication.Strategy.RememberMe.MaybeGenerateTokenChange,
@@ -134,7 +136,11 @@ defmodule Api.Accounts.User do
         allow_nil? false
       end
 
-      run AshAuthentication.Strategy.MagicLink.Request
+      # Nome (opcional) informado no cadastro por magic link. Viaja assinado no token para
+      # virar o nome do User no primeiro acesso (ver Api.Accounts.User.RequestMagicLink).
+      argument :nome, :string, allow_nil?: true
+
+      run Api.Accounts.User.RequestMagicLink
     end
   end
 

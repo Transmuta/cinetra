@@ -5,9 +5,10 @@ vi.mock('$env/dynamic/private', () => ({ env: {} }));
 import { requestMagicLink } from './auth';
 import { SESSION_COOKIE } from './api';
 
-function fakeEvent(email: string, fetchImpl?: ReturnType<typeof vi.fn>) {
+function fakeEvent(email: string, fetchImpl?: ReturnType<typeof vi.fn>, nome?: string) {
 	const fd = new FormData();
 	fd.set('email', email);
+	if (nome !== undefined) fd.set('nome', nome);
 	const request = new Request('http://web/entrar', { method: 'POST', body: fd });
 	const fetch = fetchImpl ?? vi.fn().mockResolvedValue(new Response('{"ok":true}'));
 	return {
@@ -45,6 +46,24 @@ describe('requestMagicLink (action compartilhada, resposta neutra)', () => {
 		expect(url).toBe('http://localhost:4000/api/auth/magic-link');
 		expect(init.method).toBe('POST');
 		expect(JSON.parse(init.body as string)).toEqual({ email: 'ana@example.com' });
+	});
+
+	it('cadastro com nome: inclui nome (com trim) no corpo', async () => {
+		const { event, fetch } = fakeEvent('ana@example.com', undefined, '  Ana Paula  ');
+		const result = await requestMagicLink(event);
+
+		expect(result).toEqual({ sent: true, email: 'ana@example.com' });
+		expect(JSON.parse(fetch.mock.calls[0][1].body as string)).toEqual({
+			email: 'ana@example.com',
+			nome: 'Ana Paula'
+		});
+	});
+
+	it('login sem nome: corpo NÃO carrega a chave nome', async () => {
+		const { event, fetch } = fakeEvent('ana@example.com', undefined, '   ');
+		await requestMagicLink(event);
+
+		expect(JSON.parse(fetch.mock.calls[0][1].body as string)).toEqual({ email: 'ana@example.com' });
 	});
 
 	it('faz trim do e-mail antes de mandar', async () => {
