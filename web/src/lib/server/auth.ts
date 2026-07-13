@@ -1,4 +1,4 @@
-import { fail, type RequestEvent } from '@sveltejs/kit';
+import { fail, redirect, type RequestEvent } from '@sveltejs/kit';
 import { apiFetch } from './api';
 import type { Me } from '$lib/session';
 
@@ -13,6 +13,28 @@ export async function loadMe(event: RequestEvent): Promise<Me | null> {
 	} catch {
 		return null;
 	}
+}
+
+// Para onde um usuário AUTENTICADO deve aterrissar: sem clínica ativa cai no onboarding
+// (/comecar); com clínica, na home. Fonte ÚNICA do destino pós-login — usada pela guarda
+// das páginas de auth e pelo próprio onboarding, para não duplicar essa regra.
+export function landingPath(me: Me): string {
+	return me.active_clinic_id ? '/' : '/comecar';
+}
+
+// Guarda das páginas protegidas fora do shell (ex.: /comecar): exige sessão. Sem sessão,
+// manda para /entrar; com sessão, devolve o `me` já carregado (evita um segundo /me).
+export async function requireSession(event: RequestEvent): Promise<Me> {
+	const me = await loadMe(event);
+	if (!me) redirect(303, '/entrar');
+	return me;
+}
+
+// Guarda das páginas de autenticação (/entrar, /criar-conta): quem já tem sessão não vê o
+// formulário de novo — vai para onde pertence (home ou onboarding).
+export async function redirectIfAuthenticated(event: RequestEvent): Promise<void> {
+	const me = await loadMe(event);
+	if (me) redirect(303, landingPath(me));
 }
 
 // Action compartilhada por /entrar e /criar-conta: pede o magic link (ADR-015). O BFF só

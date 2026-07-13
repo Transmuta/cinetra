@@ -3,11 +3,11 @@ import type { LayoutServerLoad } from './$types';
 import { loadMe } from '$lib/server/auth';
 
 // Guarda de auth do shell administrativo: sem sessão, volta para /entrar. Com sessão mas
-// sem clínica ativa, volta para a home (que trata o estado "sem clínica"). ADR-005: o BFF
-// resolve `me` server-to-server.
+// sem clínica ativa, vai para o onboarding (/comecar) — o shell exige um tenant. ADR-005: o
+// BFF resolve `me` server-to-server.
 export const load: LayoutServerLoad = async (event) => {
 	const me = await loadMe(event);
 	if (!me) redirect(303, '/entrar');
-	if (!me.active_clinic_id) redirect(303, '/');
+	if (!me.active_clinic_id) redirect(303, '/comecar');
 	return { me };
 };

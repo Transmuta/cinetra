@@ -15,9 +15,9 @@ describe('guarda do shell (app)/+layout.server', () => {
 		await expect(run()).rejects.toMatchObject({ status: 303, location: '/entrar' });
 	});
 
-	it('com sessão mas sem clínica ativa → redirect 303 para /', async () => {
+	it('com sessão mas sem clínica ativa → redirect 303 para /comecar', async () => {
 		loadMe.mockResolvedValueOnce({ active_clinic_id: null });
-		await expect(run()).rejects.toMatchObject({ status: 303, location: '/' });
+		await expect(run()).rejects.toMatchObject({ status: 303, location: '/comecar' });
 	});
 
 	it('com sessão e clínica ativa → devolve me', async () => {

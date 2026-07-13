@@ -40,8 +40,6 @@
 					</span>
 					<span class="text-muted">papel: <strong class="text-ink">{me.papel}</strong></span>
 				</div>
-			{:else}
-				<p class="mt-4 text-[13px] text-muted">Nenhuma clínica ativa ainda.</p>
 			{/if}
 		</div>
 	{:else}

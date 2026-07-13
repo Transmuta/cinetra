@@ -55,6 +55,9 @@ defmodule ApiWeb.Router do
 
     get "/health", HealthController, :show
 
+    # Onboarding do primeiro acesso: cria a clínica + owner (ADR-016). clinic_id nasce aqui.
+    post "/clinics", ClinicController, :onboard
+
     get "/auth/magic-link/callback", AuthController, :magic_link_callback
     get "/auth/me", AuthController, :me
     delete "/auth/sign-out", AuthController, :sign_out

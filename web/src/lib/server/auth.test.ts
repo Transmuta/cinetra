@@ -2,8 +2,25 @@ import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('$env/dynamic/private', () => ({ env: {} }));
 
-import { requestMagicLink } from './auth';
+import {
+	requestMagicLink,
+	landingPath,
+	requireSession,
+	redirectIfAuthenticated
+} from './auth';
 import { SESSION_COOKIE } from './api';
+
+function json(body: unknown, status = 200) {
+	return new Response(JSON.stringify(body), {
+		status,
+		headers: { 'content-type': 'application/json' }
+	});
+}
+
+// Evento com o /me (via loadMe) resolvendo para `res`. Sem cookie de sessão no repasse.
+function meEvent(res: Response) {
+	return { fetch: vi.fn().mockResolvedValue(res), cookies: { get: () => undefined } } as never;
+}
 
 function fakeEvent(email: string, fetchImpl?: ReturnType<typeof vi.fn>, nome?: string) {
 	const fd = new FormData();
@@ -87,5 +104,51 @@ describe('requestMagicLink (action compartilhada, resposta neutra)', () => {
 		await requestMagicLink(event);
 		expect((fetch.mock.calls[0][1].headers as Headers).get('cookie')).toBeNull();
 		expect(SESSION_COOKIE).toBe('_api_key');
+	});
+});
+
+describe('landingPath (destino pós-login)', () => {
+	it('com clínica ativa → home', () => {
+		expect(landingPath({ active_clinic_id: 'c1' } as never)).toBe('/');
+	});
+
+	it('sem clínica ativa → onboarding', () => {
+		expect(landingPath({ active_clinic_id: null } as never)).toBe('/comecar');
+	});
+});
+
+describe('requireSession (guarda de páginas protegidas)', () => {
+	it('sem sessão (401 no /me) → redirect 303 para /entrar', async () => {
+		await expect(requireSession(meEvent(json({ error: 'x' }, 401)))).rejects.toMatchObject({
+			status: 303,
+			location: '/entrar'
+		});
+	});
+
+	it('com sessão → devolve o me carregado', async () => {
+		const me = { user: { nome: 'Ana' }, active_clinic_id: 'c1' };
+		expect(await requireSession(meEvent(json(me)))).toMatchObject({ active_clinic_id: 'c1' });
+	});
+});
+
+describe('redirectIfAuthenticated (guarda das páginas de auth)', () => {
+	it('logado com clínica → redirect 303 para a home', async () => {
+		const event = meEvent(json({ user: { nome: 'Ana' }, active_clinic_id: 'c1' }));
+		await expect(redirectIfAuthenticated(event)).rejects.toMatchObject({
+			status: 303,
+			location: '/'
+		});
+	});
+
+	it('logado sem clínica → redirect 303 para /comecar', async () => {
+		const event = meEvent(json({ user: { nome: 'Ana' }, active_clinic_id: null }));
+		await expect(redirectIfAuthenticated(event)).rejects.toMatchObject({
+			status: 303,
+			location: '/comecar'
+		});
+	});
+
+	it('sem sessão → não redireciona (deixa ver o formulário)', async () => {
+		await expect(redirectIfAuthenticated(meEvent(json({ error: 'x' }, 401)))).resolves.toBeUndefined();
 	});
 });

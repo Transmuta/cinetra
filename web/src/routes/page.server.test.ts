@@ -27,15 +27,26 @@ function fakeEvent(routes: Record<string, Response>) {
 }
 
 describe('load /(+page.server) — BFF carrega /me', () => {
-	it('sessão ativa: devolve o me', async () => {
+	it('sessão com clínica ativa: devolve o me', async () => {
 		const event = fakeEvent({
-			'/api/auth/me': json({ user: { id: 'u1', nome: 'Ana', email: 'ana@x.com' } })
+			'/api/auth/me': json({
+				user: { id: 'u1', nome: 'Ana', email: 'ana@x.com' },
+				active_clinic_id: 'c1'
+			})
 		});
 
 		expect((await runLoad(event)).me?.user?.nome).toBe('Ana');
 	});
 
-	it('sem sessão (401 no /me): me vira null', async () => {
+	it('sessão SEM clínica: redirect 303 para /comecar (fecha o beco)', async () => {
+		const event = fakeEvent({
+			'/api/auth/me': json({ user: { id: 'u1', nome: 'Ana', email: 'ana@x.com' }, active_clinic_id: null })
+		});
+
+		await expect(load(event)).rejects.toMatchObject({ status: 303, location: '/comecar' });
+	});
+
+	it('sem sessão (401 no /me): me vira null (mostra a landing)', async () => {
 		const event = fakeEvent({ '/api/auth/me': json({ error: 'not_authenticated' }, 401) });
 		expect((await runLoad(event)).me).toBeNull();
 	});
