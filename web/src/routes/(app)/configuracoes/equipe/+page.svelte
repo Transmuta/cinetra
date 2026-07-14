@@ -10,12 +10,14 @@
 	import RoleBadge from '$lib/components/members/RoleBadge.svelte';
 	import StatusBadge from '$lib/components/members/StatusBadge.svelte';
 	import MemberModal from '$lib/components/members/MemberModal.svelte';
+	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import {
 		linkedProfessionalName,
 		professionalsWithoutAccess,
 		type Member
 	} from '$lib/members';
 	import { initials } from '$lib/format';
+	import { toast } from '$lib/toast.svelte';
 	import type { PageData, ActionData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -31,16 +33,17 @@
 			: null
 	);
 
-	// Mensagem de topo (flash) por resultado de ação.
-	const flash = $derived(
-		form?.ok
-			? { kind: 'ok' as const, text: flashText(form.action) }
-			: form?.error
-				? { kind: 'err' as const, text: form.error }
-				: null
-	);
+	// Resultado de ação vira toast (protótipo :1030): sucesso sempre; erro só nas ações
+	// disparadas fora de modal (revoke/resend) — erro de convite/edição aparece dentro
+	// do próprio modal (modalError acima).
+	$effect(() => {
+		if (!form) return;
+		if (form.ok) toast(toastText(form.action));
+		else if (form.error && (form.action === 'revoke' || form.action === 'resend'))
+			toast(form.error);
+	});
 
-	function flashText(action?: string): string {
+	function toastText(action?: string): string {
 		if (action === 'invite') return 'Convite enviado.';
 		if (action === 'update') return 'Membro atualizado.';
 		if (action === 'revoke') return 'Acesso removido.';
@@ -48,9 +51,19 @@
 		return 'Feito.';
 	}
 
-	const confirmRevoke: SubmitFunction = ({ cancel }) => {
-		if (!confirm('Remover o acesso deste membro?')) cancel();
-		return async ({ update }) => update();
+	// Remoção de acesso confirma num modal fiel ao protótipo (não no confirm() nativo).
+	// O POST sai de um form escondido, submetido quando o usuário confirma.
+	let revoking = $state<Member | null>(null);
+	let revokeForm: HTMLFormElement | undefined;
+	let revokeSubmitting = $state(false);
+
+	const revokeSubmit: SubmitFunction = () => {
+		revokeSubmitting = true;
+		return async ({ update }) => {
+			revokeSubmitting = false;
+			revoking = null;
+			await update();
+		};
 	};
 </script>
 
@@ -78,30 +91,17 @@
 	>
 		<Pencil size={14} />
 	</button>
-	<form method="POST" action="?/revoke" use:enhance={confirmRevoke}>
-		<input type="hidden" name="id" value={m.id} />
-		<button
-			type="submit"
-			title="Remover acesso"
-			class="grid size-8 place-items-center rounded-md border border-edge bg-surface text-danger hover:bg-surface-2"
-		>
-			<Trash2 size={14} />
-		</button>
-	</form>
+	<button
+		type="button"
+		title="Remover acesso"
+		onclick={() => (revoking = m)}
+		class="grid size-8 place-items-center rounded-md border border-edge bg-surface text-danger hover:bg-surface-2"
+	>
+		<Trash2 size={14} />
+	</button>
 {/snippet}
 
 <div class="mx-auto max-w-[920px] px-4 py-4 md:px-6">
-	{#if flash}
-		<div
-			role="status"
-			class="mb-3 rounded-md border px-3 py-2 text-[13px] {flash.kind === 'ok'
-				? 'border-teal-border bg-teal-subtle text-teal-text'
-				: 'border-danger/40 bg-danger/10 text-danger'}"
-		>
-			{flash.text}
-		</div>
-	{/if}
-
 	<!-- Membros da organização -->
 	<section class="mb-3 rounded-lg border border-edge bg-surface p-4">
 		<div class="mb-3.5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -239,4 +239,28 @@
 		error={modalError}
 		onClose={() => (modal = null)}
 	/>
+{/if}
+
+<!-- form escondido do revoke: o ConfirmDialog só decide se ele é submetido -->
+<form
+	bind:this={revokeForm}
+	method="POST"
+	action="?/revoke"
+	use:enhance={revokeSubmit}
+	class="hidden"
+>
+	<input type="hidden" name="id" value={revoking?.id ?? ''} />
+</form>
+
+{#if revoking}
+	<ConfirmDialog
+		title="Remover acesso"
+		confirmLabel="Remover acesso"
+		submitting={revokeSubmitting}
+		onConfirm={() => revokeForm?.requestSubmit()}
+		onClose={() => (revoking = null)}
+	>
+		Remover o acesso de <strong>{revoking.nome}</strong>? A pessoa não vai mais conseguir entrar
+		nesta clínica. Dá para convidar de novo quando quiser.
+	</ConfirmDialog>
 {/if}

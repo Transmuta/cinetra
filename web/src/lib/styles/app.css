@@ -29,6 +29,9 @@
 	--mv-shadow-pop: 0 8px 24px rgba(8, 10, 12, 0.18);
 	/* brilho teal da marca (quadrado do rail, :1310) */
 	--mv-shadow-teal: 0 2px 8px rgba(15, 181, 166, 0.35);
+	/* toast (:3494) e painel de modal (:1901) — iguais nos dois temas */
+	--mv-shadow-toast: 0 8px 24px rgba(8, 10, 12, 0.3);
+	--mv-shadow-modal: 0 24px 60px rgba(8, 10, 12, 0.4);
 
 	/* Semânticas compartilhadas claro/escuro (:311) */
 	--mv-success: #2da160;
@@ -126,6 +129,8 @@
 	--shadow-card: var(--mv-card-shadow);
 	--shadow-pop: var(--mv-shadow-pop);
 	--shadow-teal: var(--mv-shadow-teal);
+	--shadow-toast: var(--mv-shadow-toast);
+	--shadow-modal: var(--mv-shadow-modal);
 
 	/* superfícies → bg-canvas, bg-surface, bg-surface-2 */
 	--color-canvas: var(--mv-canvas);
@@ -164,7 +169,8 @@
 /* As animações do protótipo viram tokens --animate-* → animate-* */
 @theme {
 	--animate-fade: mvFade 0.18s ease-out;
-	--animate-scale: mvScale 0.25s ease-out;
+	/* .18s como no modal do protótipo (:1901); os menus lá usam até menos (.13s) */
+	--animate-scale: mvScale 0.18s ease-out;
 
 	@keyframes mvFade {
 		from {

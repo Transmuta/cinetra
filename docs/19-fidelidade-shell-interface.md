@@ -118,6 +118,61 @@ Testes acompanham cada mudança (TDD; ver `.claude/rules/testes.md`): `clinics.t
      de aparecer). O convite **pendente** continua sinalizado ("Convite pendente"), pois não é "ativo" e
      indica quem ainda não entrou.
 
+## Toast e modal de confirmação (3ª rodada)
+
+Feedback de ação e confirmação destrutiva não seguiam o protótipo: o resultado de ação era um
+**banner estático** no topo da página de equipe (não sumia sozinho, só existia ali) e a remoção de
+acesso usava o **`confirm()` nativo** do browser. O shell de modal existia apenas embutido no
+`MemberModal`, com desvios pequenos (raio 14px, borda que o protótipo não tem, sombra rasa,
+animação mais lenta).
+
+### Toast (protótipo: `toast()` :1030 + `renderToast()` :3491)
+
+| Aspecto | Protótipo | Antes | Depois |
+| --- | --- | --- | --- |
+| Forma | Pill flutuante bottom-center, some em 2,8s | Banner no topo da página, persistente | Pill bottom-center, 2800ms ✅ |
+| Cores | Invertidas por tema (`#16181C`/branco no claro; `#ECEEF0`/escuro no escuro) | Teal-subtle (ok) / danger (erro) | `bg-primary text-on-primary` — os tokens já eram exatamente esses hex ✅ |
+| Ícone | `Check` 15px teal fixo, sem variantes | — | Igual ✅ (até erro de revoke/resend usa o mesmo visual, como no protótipo :538) |
+| Concorrência | Um por vez; toast novo substitui e reinicia o relógio | — | Igual ✅ |
+| Alcance | Global (app inteiro) | Só na página equipe | Montado no layout do shell ✅ |
+
+- `lib/toast.svelte.ts` — **novo**: estado global em runas (`toast(msg)`, `dismissToast()`,
+  `currentToast()`, `TOAST_DURATION_MS = 2800`).
+- `lib/components/Toast.svelte` — **novo**: a casca visual (sombra `--mv-shadow-toast`, raio 10px,
+  13px/600, `animate-fade`). Um wrapper flex centraliza e o pill anima — animar o próprio elemento
+  centralizado por `translateX` faria o pill pular no fim (o `mvFade` termina em `transform: none`;
+  o protótipo tem esse glitch latente).
+- Na página de equipe, o resultado do `form` vira toast num `$effect`; **erro de formulário continua
+  dentro do modal** (como já era), erro de revoke/reenvio vira toast.
+
+### Modal e confirmação (protótipo: `modalShell` :1898 + `modalPkgCancelar` :680)
+
+| Aspecto | Protótipo | Antes | Depois |
+| --- | --- | --- | --- |
+| Shell | `modalShell` reutilizável | Embutido no `MemberModal` | `Modal.svelte` reutilizável ✅ |
+| Overlay | `rgba(8,10,12,.42)`, clique-fora e Esc fecham | `bg-black/40`, idem | Verbatim ✅ |
+| Painel | Raio **12px**, **sem borda**, sombra `0 24px 60px .4`, `mvScale .18s` | Raio 14px, com borda, `shadow-pop`, .25s | Verbatim (`--mv-shadow-modal`, token `animate-scale` → .18s) ✅ |
+| Header/corpo/rodapé | 15px/18px + título 15.5/700 + X de 30px; corpo 18px rola; rodapé 13px/18px | px-5 py-4, título 16px | Verbatim (o corpo rola sozinho; rodapé fixo via `form=` nos botões) ✅ |
+| Botões | btnS: borda sutil, texto `text`, 13.5px/600 · ação: 9×16px | borda densa, texto muted, 13px | Verbatim ✅ |
+| Confirmação destrutiva | Modal 440px com callout danger (`TriangleAlert`, fundo/borda translúcidos) + "Voltar" + botão sólido danger | `confirm()` nativo | `ConfirmDialog.svelte` no molde do `modalPkgCancelar` ✅ |
+
+- `lib/components/Modal.svelte` — **novo**: shell (overlay + painel + header com X; `children` +
+  snippet `footer` opcional; Esc e clique-fora fecham).
+- `lib/components/ConfirmDialog.svelte` — **novo**: confirmação destrutiva sobre o `Modal`.
+- `MemberModal.svelte` — refatorado para usar o shell; os botões do rodapé vivem fora do `<form>`
+  e se associam por `form=` (corpo rola, rodapé fica).
+- `configuracoes/equipe/+page.svelte` — lixeira abre o `ConfirmDialog`; o POST `?/revoke` sai de um
+  form escondido submetido só na confirmação. O `confirm()` nativo e o banner morreram.
+
+**Desvio consciente**: no protótipo, remover membro **não confirma** (remove e toasta). Mantivemos
+a confirmação — ação destrutiva sobre acesso de terceiros — usando o padrão visual de confirmação
+que o próprio protótipo usa para cancelar pacote.
+
+Validação: TDD (13 testes novos em `toast.svelte.test.ts`, `Toast.svelte.test.ts`,
+`Modal.svelte.test.ts`, `ConfirmDialog.svelte.test.ts`; 177 no total, cobertura 96,6% stmts) +
+fluxo real no browser (magic link → convite → toast; lixeira → dialog → revoke → toast; claro e
+escuro).
+
 ## Pendências conscientes
 
 - **Badge de contagem na Fila** (o protótipo mostra um número): adiado — não há fonte de dados de fila

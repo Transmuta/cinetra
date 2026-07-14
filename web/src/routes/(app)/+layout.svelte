@@ -4,6 +4,7 @@
 	import Rail from '$lib/components/shell/Rail.svelte';
 	import Sidebar from '$lib/components/shell/Sidebar.svelte';
 	import Topbar from '$lib/components/shell/Topbar.svelte';
+	import Toast from '$lib/components/Toast.svelte';
 	import { activeMembership } from '$lib/session';
 	import type { LayoutData } from './$types';
 
@@ -36,6 +37,9 @@
 		</main>
 	</div>
 </div>
+
+<!-- Toast global do shell (feedback de ações; $lib/toast.svelte.ts) -->
+<Toast />
 
 <!-- Mobile (<lg): gaveta com rail + sidebar sobre um backdrop. -->
 {#if drawerOpen}
