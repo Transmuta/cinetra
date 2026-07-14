@@ -108,8 +108,8 @@ describe('requestMagicLink (action compartilhada, resposta neutra)', () => {
 });
 
 describe('landingPath (destino pós-login)', () => {
-	it('com clínica ativa → home', () => {
-		expect(landingPath({ active_clinic_id: 'c1' } as never)).toBe('/');
+	it('com clínica ativa → home do app (shell)', () => {
+		expect(landingPath({ active_clinic_id: 'c1' } as never)).toBe('/configuracoes/equipe');
 	});
 
 	it('sem clínica ativa → onboarding', () => {
@@ -132,11 +132,11 @@ describe('requireSession (guarda de páginas protegidas)', () => {
 });
 
 describe('redirectIfAuthenticated (guarda das páginas de auth)', () => {
-	it('logado com clínica → redirect 303 para a home', async () => {
+	it('logado com clínica → redirect 303 para a home do app (shell)', async () => {
 		const event = meEvent(json({ user: { nome: 'Ana' }, active_clinic_id: 'c1' }));
 		await expect(redirectIfAuthenticated(event)).rejects.toMatchObject({
 			status: 303,
-			location: '/'
+			location: '/configuracoes/equipe'
 		});
 	});
 

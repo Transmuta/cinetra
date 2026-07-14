@@ -4,10 +4,6 @@ vi.mock('$env/dynamic/private', () => ({ env: {} }));
 
 import { load } from './+page.server';
 
-// O tipo de retorno de PageServerLoad inclui `void`; nos testes sabemos a forma concreta.
-type LoadResult = { me: { user?: { nome?: string; email?: string } } | null };
-const runLoad = async (event: never): Promise<LoadResult> => (await load(event)) as LoadResult;
-
 function json(body: unknown, status = 200) {
 	return new Response(JSON.stringify(body), {
 		status,
@@ -15,7 +11,7 @@ function json(body: unknown, status = 200) {
 	});
 }
 
-// Roteia o fetch do BFF por fragmento de path (só /api/auth/me — o Ping foi removido, doc 13).
+// Roteia o fetch do BFF por fragmento de path (só /api/auth/me neste load).
 function fakeEvent(routes: Record<string, Response>) {
 	const fetch = vi.fn((url: string) => {
 		for (const [frag, res] of Object.entries(routes)) {
@@ -26,42 +22,27 @@ function fakeEvent(routes: Record<string, Response>) {
 	return { fetch, cookies: { get: () => undefined } } as never;
 }
 
-describe('load /(+page.server) — BFF carrega /me', () => {
-	it('sessão com clínica ativa: devolve o me', async () => {
-		const event = fakeEvent({
-			'/api/auth/me': json({
-				user: { id: 'u1', nome: 'Ana', email: 'ana@x.com' },
-				active_clinic_id: 'c1'
-			})
-		});
-
-		expect((await runLoad(event)).me?.user?.nome).toBe('Ana');
-	});
-
-	it('sessão SEM clínica: redirect 303 para /comecar (fecha o beco)', async () => {
-		const event = fakeEvent({
-			'/api/auth/me': json({ user: { id: 'u1', nome: 'Ana', email: 'ana@x.com' }, active_clinic_id: null })
-		});
-
-		await expect(load(event)).rejects.toMatchObject({ status: 303, location: '/comecar' });
-	});
-
-	it('sem sessão (401 no /me): me vira null (mostra a landing)', async () => {
+// A raiz não renderiza: sempre redireciona conforme o estado da sessão.
+describe('load / (hub de redirecionamento)', () => {
+	it('sem sessão → 307 para /entrar', async () => {
 		const event = fakeEvent({ '/api/auth/me': json({ error: 'not_authenticated' }, 401) });
-		expect((await runLoad(event)).me).toBeNull();
+		await expect(load(event)).rejects.toMatchObject({ status: 307, location: '/entrar' });
 	});
 
-	it('resposta 200 mas sem user: me null (não confia em corpo vazio)', async () => {
-		const event = fakeEvent({ '/api/auth/me': json({}) });
-		expect((await runLoad(event)).me).toBeNull();
+	it('logado sem clínica → 307 para /comecar', async () => {
+		const event = fakeEvent({
+			'/api/auth/me': json({ user: { id: 'u1', nome: 'Ana' }, active_clinic_id: null })
+		});
+		await expect(load(event)).rejects.toMatchObject({ status: 307, location: '/comecar' });
 	});
 
-	it('exceção de rede: me vira null (catch)', async () => {
-		const event = {
-			fetch: vi.fn().mockRejectedValue(new Error('ECONNREFUSED')),
-			cookies: { get: () => undefined }
-		} as never;
-
-		expect((await runLoad(event)).me).toBeNull();
+	it('logado com clínica → 307 para a home do app (shell)', async () => {
+		const event = fakeEvent({
+			'/api/auth/me': json({ user: { id: 'u1', nome: 'Ana' }, active_clinic_id: 'c1' })
+		});
+		await expect(load(event)).rejects.toMatchObject({
+			status: 307,
+			location: '/configuracoes/equipe'
+		});
 	});
 });

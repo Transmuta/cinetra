@@ -15,11 +15,16 @@ export async function loadMe(event: RequestEvent): Promise<Me | null> {
 	}
 }
 
+// A "casa" do app hoje: a primeira tela construída do shell administrativo. Vira o
+// dashboard/agenda quando existirem — troca-se só aqui. (Mesma ideia do /configuracoes,
+// que leva à primeira seção pronta.)
+export const APP_HOME = '/configuracoes/equipe';
+
 // Para onde um usuário AUTENTICADO deve aterrissar: sem clínica ativa cai no onboarding
-// (/comecar); com clínica, na home. Fonte ÚNICA do destino pós-login — usada pela guarda
-// das páginas de auth e pelo próprio onboarding, para não duplicar essa regra.
+// (/comecar); com clínica, na home do app (dentro do shell). Fonte ÚNICA do destino
+// pós-login — usada pela raiz, pela guarda das páginas de auth e pelo onboarding.
 export function landingPath(me: Me): string {
-	return me.active_clinic_id ? '/' : '/comecar';
+	return me.active_clinic_id ? APP_HOME : '/comecar';
 }
 
 // Guarda das páginas protegidas fora do shell (ex.: /comecar): exige sessão. Sem sessão,
