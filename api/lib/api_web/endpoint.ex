@@ -1,13 +1,15 @@
 defmodule ApiWeb.Endpoint do
   use Phoenix.Endpoint, otp_app: :api
 
-  # The session will be stored in the cookie and signed,
-  # this means its contents can be read but not tampered with.
-  # Set :encryption_salt if you would also like to encrypt it.
+  # Sessão no cookie, CIFRADA e assinada (AEAD). Sem o :encryption_salt o cookie era só
+  # assinado: íntegro, mas legível por base64 puro (a chave `user_token` e o JWT inteiro
+  # à mostra para quem tivesse o valor). Os salts não são segredo — só derivam chaves
+  # distintas do secret_key_base; trocá-los derruba as sessões ativas (doc 14 §2).
   @session_options [
     store: :cookie,
     key: "_api_key",
     signing_salt: "QExDiC7H",
+    encryption_salt: "319wcRWM",
     same_site: "Lax"
   ]
 

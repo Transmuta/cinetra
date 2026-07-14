@@ -37,8 +37,11 @@ defmodule Api.Accounts.User.RequestMagicLink do
     )
     |> Ash.read_one()
     |> case do
-      {:error, error} -> {:error, error}
-      {:ok, user_or_nil} -> send_link(strategy, identity, nome, user_or_nil, context, context_opts)
+      {:error, error} ->
+        {:error, error}
+
+      {:ok, user_or_nil} ->
+        send_link(strategy, identity, nome, user_or_nil, context, context_opts)
     end
   end
 
@@ -73,7 +76,9 @@ defmodule Api.Accounts.User.RequestMagicLink do
     opts = Keyword.merge(opts, token_lifetime: strategy.token_lifetime, purpose: :magic_link)
 
     case Jwt.token_for_resource(strategy.resource, claims, opts, context) do
-      {:ok, token, _claims} -> {:ok, token}
+      # O JWT nunca sai cru: viaja selado (cifrado) na URL do e-mail, para não expor
+      # e-mail/nome a quem vir o link (ver Api.Accounts.User.MagicLinkToken).
+      {:ok, token, _claims} -> {:ok, Api.Accounts.User.MagicLinkToken.seal(token)}
       :error -> :error
     end
   end

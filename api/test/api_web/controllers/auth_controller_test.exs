@@ -73,6 +73,35 @@ defmodule ApiWeb.AuthControllerTest do
       assert [location] = get_resp_header(conn, "location")
       assert location =~ "/entrar?erro=magic_link"
     end
+
+    # O cookie de sessão é assinado E cifrado (encryption_salt no endpoint): assinatura
+    # sozinha só garante integridade — sem cifra, base64-decode puro do payload revelava
+    # a chave `user_token` e o JWT inteiro a quem tivesse o valor do cookie.
+    test "o _api_key emitido não é legível por base64 puro (cifrado, não só assinado)",
+         %{conn: conn} do
+      addr = "user-#{System.unique_integer([:positive])}@example.com"
+      :ok = Accounts.request_magic_link(addr)
+      assert_receive {:email, mail}, 1_000
+      [_, token] = Regex.run(~r/token=([\w.\-]+)/, mail.text_body)
+
+      conn = get(conn, ~p"/api/auth/magic-link/callback?token=#{token}")
+      assert redirected_to(conn) =~ Api.web_app_url()
+      assert %{value: cookie} = conn.resp_cookies["_api_key"]
+
+      decodable =
+        cookie
+        |> String.split(".")
+        |> Enum.flat_map(fn seg ->
+          case Base.url_decode64(seg, padding: false) do
+            {:ok, bin} -> [bin]
+            :error -> []
+          end
+        end)
+        |> Enum.join()
+
+      refute decodable =~ "user_token"
+      refute decodable =~ "eyJ"
+    end
   end
 
   describe "GET /api/auth/me" do

@@ -101,6 +101,9 @@ defmodule Api.Accounts.User do
       upsert_identity :unique_email
       upsert_fields [:email]
 
+      # O token chega SELADO (cifrado na URL do e-mail); abre o selo e reescreve o
+      # argumento :token com o JWT antes dos changes que o verificam.
+      change Api.Accounts.User.Changes.UnsealMagicLinkToken
       # Uses the information from the token to create or sign in the user
       change AshAuthentication.Strategy.MagicLink.SignInChange
       # O nome do cadastro chega como claim assinado do token (quando informado em

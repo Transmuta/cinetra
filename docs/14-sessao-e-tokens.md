@@ -19,11 +19,19 @@ São quatro, com papéis distintos. Os defaults saem do AshAuthentication e da n
 
 | Token | Vida | Uso | Assinatura | Único uso? |
 |---|---|---|---|---|
-| **Magic link** | **10 min** | provar posse do e-mail (login/registro) | JWT HS256 (`token_signing_secret`) | sim |
+| **Magic link** (= convite) | **10 min** | provar posse do e-mail (login/registro/convite) | JWT HS256, **selado** (cifrado) na URL | sim |
 | **Sessão** (JWT) | **14 dias** | autenticar cada request | JWT HS256 (`token_signing_secret`) | não |
 | **Remember-me** | 30 dias | re-emitir sessão | JWT | **instalado mas inativo** (§6) |
 | **Realtime (WS)** | **15 min** | `join` do Phoenix Channel | `Phoenix.Token` (`secret_key_base`) | não |
 
+- O JWT do magic link **não sai cru no link**: viaja **selado** — cifra autenticada
+  (`Plug.Crypto`, XChaCha20-Poly1305) com chave derivada do **`secret_key_base`** (o segredo
+  do *envelope*, como no cookie — separado do de assinatura) + salt próprio
+  ([`MagicLinkToken`](../api/lib/api/accounts/user/magic_link_token.ex)). Sem o selo,
+  qualquer um que visse o link (caixa de e-mail, histórico, log de proxy) lia os claims
+  `identity` (e-mail) e `nome` — PII sob LGPD. O `sign_in_with_magic_link` é **estrito**:
+  abre o selo antes de verificar ([`UnsealMagicLinkToken`](../api/lib/api/accounts/user/changes/unseal_magic_link_token.ex))
+  e **JWT cru não autentica**. O web repassa o blob opaco sem tocar nele.
 - Magic link e sessão usam a **mesma** secret de assinatura (`token_signing_secret`), via
   [`Api.Secrets`](../api/lib/api/secrets.ex). O realtime usa o `secret_key_base` do endpoint
   (segredo **separado**), em [`AuthController.realtime_token`](../api/lib/api_web/controllers/auth_controller.ex).
@@ -33,11 +41,15 @@ São quatro, com papéis distintos. Os defaults saem do AshAuthentication e da n
 ## 2. Onde cada coisa é armazenada
 
 - **Cookie `_api_key`** (a sessão): cookie de sessão do Phoenix (`store: :cookie`),
-  **assinado** com o `secret_key_base` (íntegro, não-adulterável), `HttpOnly` + `SameSite=Lax`.
-  Como configuramos `require_token_presence_for_authentication? true` em
+  **cifrado e assinado** (AEAD XChaCha20-Poly1305; chaves derivadas do `secret_key_base`
+  pelos salts `encryption_salt`/`signing_salt` do endpoint — os salts não são segredo),
+  `HttpOnly` + `SameSite=Lax`. Antes era só assinado: íntegro, mas o payload era base64
+  puro — a chave `user_token` e o JWT inteiro legíveis por quem tivesse o valor. Como
+  configuramos `require_token_presence_for_authentication? true` em
   [`User`](../api/lib/api/accounts/user.ex), o que vai **dentro** do cookie é o **JWT inteiro**
-  (sob a chave de sessão `user_token`). Ou seja: cookie assinado *contendo* um JWT assinado —
-  dupla integridade.
+  (sob a chave de sessão `user_token`). Ou seja: cookie cifrado+assinado *contendo* um JWT
+  assinado — sigilo no envelope, integridade nas duas camadas. Trocar qualquer salt (ou o
+  `secret_key_base`) derruba as sessões ativas — corte seco, re-login barato.
 - **Tabela `tokens`** (Postgres, [`Api.Accounts.Token`](../api/lib/api/accounts/token.ex)): com
   `store_all_tokens? true`, todo token emitido grava `jti` + `subject` + `expires_at` + `purpose`.
   É o que permite **revogar do servidor**.
@@ -72,7 +84,7 @@ re-emissão no domínio do web é o `reemitSession` no mesmo arquivo, usado pelo
 Pipeline `:authenticated` do [router](../api/lib/api_web/router.ex): `:fetch_session` →
 `:load_from_session` → `VerifyTokenSubject` → `LoadScope`.
 
-1. **Assinatura do cookie** (Phoenix, `secret_key_base`).
+1. **Decifra e verifica o cookie** (Phoenix; chaves derivadas do `secret_key_base`).
 2. **Assinatura do JWT** (HS256, `token_signing_secret`) + `exp`/`nbf`/`iss`/`aud`.
 3. **`jti` não revogado** (`validate_jti` → `valid_jti?` na tabela `tokens`).
 4. **Presença do `jti`** (allowlist): `get_token(jti, purpose: "user")` — o token precisa
@@ -115,13 +127,17 @@ o `sub` da vítima. Duas barreiras além da assinatura contêm isso:
 
 | Barreira | O que exige a mais | Efeito |
 |---|---|---|
-| **Envelope do cookie** | o JWT trafega **dentro** do cookie assinado com o **`secret_key_base`** (segredo *separado*); só aceitamos sessão, **não** `Bearer` | sem o `secret_key_base` o atacante não consegue **entregar** o JWT forjado |
+| **Envelope do cookie** | o JWT trafega **dentro** do cookie cifrado+assinado com chaves derivadas do **`secret_key_base`** (segredo *separado*); só aceitamos sessão, **não** `Bearer` | sem o `secret_key_base` o atacante não consegue **entregar** o JWT forjado |
 | **Presença do `jti`** | `require_token_presence` + `store_all_tokens`: o `jti` precisa **existir** na tabela | JWT forjado do nada (jti aleatório) → **rejeitado** |
 
 Raio de dano por cenário:
 
 - **Só o `token_signing_secret`**: praticamente inócuo — falta o `secret_key_base` (envelope) e
-  um `jti` real (presença).
+  um `jti` real (presença). Vale também para o caminho **magic link/convite**: o atacante assina
+  um JWT válido para qualquer e-mail, mas **não sela** (a chave do selo deriva do
+  `secret_key_base`) e o sign-in estrito rejeita — provado por teste. Sem o selo em segredo
+  separado, este seria o caminho mais fraco: um magic link forjado vira sessão legítima
+  emitida pelo próprio servidor, onde presença/binding não ajudam.
 - **`token_signing_secret` + `secret_key_base`** (vazamento de config típico): forjam o envelope
   com um JWT arbitrário — mas o `jti` forjado não está na tabela.
 - **O ataque sutil (jti/sub confusion):** o atacante, sendo um usuário legítimo qualquer, tem
@@ -145,6 +161,18 @@ validado contra os memberships pelo `LoadScope`.
 
 - **Binding `jti`↔`sub`** (`VerifyTokenSubject`) — fecha a jti/sub confusion. Provado por teste
   (forja `{jti_A + sub_B}` → 401) e ao vivo (sessão legítima passa).
+- **Cifra do cookie de sessão** (§2) — `encryption_salt` no `Plug.Session`: o `_api_key`
+  deixou de ser "assinado porém legível" (base64 puro expunha `user_token` + JWT) e virou
+  AEAD opaco. Provado por teste (decode do cookie não revela nada) e ao vivo (cookie novo
+  `XCP.…` autentica; o formato antigo só-assinado cai para 401). A virada derrubou as
+  sessões ativas (esperado).
+- **Selo do magic link/convite** (§1) — o token na URL do e-mail é cifrado (opaco) e o
+  sign-in só aceita o formato selado: JWT pescado de log/histórico não autentica e os
+  claims (e-mail/nome) não vazam no link. Provado por teste (peek do link falha; JWT cru →
+  `InvalidToken`; selo adulterado → erro limpo; selo forjado com a secret de assinatura →
+  rejeitado). A chave do selo deriva do `secret_key_base` (segredo do envelope, §7): forjar
+  convite exige vazar os **dois** segredos. Rotacionar o `secret_key_base` invalida links
+  em trânsito (vida de 10 min — custo ~zero) junto com as sessões.
 - **Sign-out revoga o token no servidor** (`revoke_session_tokens`) — mesmo um cookie capturado
   deixa de valer. Provado ao vivo: o mesmo cookie cai para 401 após o sign-out.
 - **`maxAge` ↔ `exp`** alinhados (14 dias).
