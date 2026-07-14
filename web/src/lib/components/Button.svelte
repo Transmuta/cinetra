@@ -6,7 +6,9 @@
 		type = 'button',
 		href = undefined,
 		reload = false,
+		loading = false,
 		disabled = false,
+		onclick = undefined,
 		children
 	}: {
 		variant?: 'primary' | 'ghost';
@@ -16,7 +18,11 @@
 		// client-side. Necessário para links a endpoints `+server` (ex.: /auth/google), que
 		// não têm `+page` e 404am se o client router tentar resolvê-los como página.
 		reload?: boolean;
+		// Carregando: sinaliza aria-busy e trava o clique. Num link de navegação completa
+		// (ex.: Google), evita o duplo-clique enquanto o browser sai da página.
+		loading?: boolean;
 		disabled?: boolean;
+		onclick?: (event: MouseEvent) => void;
 		children: Snippet;
 	} = $props();
 
@@ -30,9 +36,16 @@
 </script>
 
 {#if href}
-	<a {href} data-sveltekit-reload={reload ? '' : undefined} class="{base} {variants[variant]}"
+	<a
+		{href}
+		{onclick}
+		data-sveltekit-reload={reload ? '' : undefined}
+		aria-busy={loading ? 'true' : undefined}
+		class="{base} {variants[variant]} {loading ? 'pointer-events-none opacity-70' : ''}"
 		>{@render children()}</a
 	>
 {:else}
-	<button {type} {disabled} class="{base} {variants[variant]}">{@render children()}</button>
+	<button {type} {onclick} disabled={disabled || loading} class="{base} {variants[variant]}"
+		>{@render children()}</button
+	>
 {/if}

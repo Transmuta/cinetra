@@ -16,7 +16,7 @@
 	const CONFIG_ICONS = [Stethoscope, Clock, CalendarOff, SlidersHorizontal, Users];
 </script>
 
-<aside class="hidden w-64 shrink-0 flex-col border-r border-edge bg-surface md:flex">
+<aside class="flex w-64 shrink-0 flex-col border-r border-edge bg-surface">
 	<div class="px-4 pb-1 pt-4">
 		<div class="text-[17px] font-extrabold tracking-tight">Movimento</div>
 		{#if clinicName}

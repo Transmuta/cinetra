@@ -1,14 +1,16 @@
 <script lang="ts">
+	import Activity from '@lucide/svelte/icons/activity';
 	import CalendarDays from '@lucide/svelte/icons/calendar-days';
 	import Users from '@lucide/svelte/icons/users';
 	import Stethoscope from '@lucide/svelte/icons/stethoscope';
 	import Clock4 from '@lucide/svelte/icons/clock-4';
 	import ChartBar from '@lucide/svelte/icons/chart-bar';
 	import Settings from '@lucide/svelte/icons/settings';
-	import LogOut from '@lucide/svelte/icons/log-out';
+	import Bell from '@lucide/svelte/icons/bell';
+	import ThemeToggle from '$lib/components/ThemeToggle.svelte';
 	import { sectionOf, RAIL_ITEMS, type Section } from './nav';
 
-	let { pathname }: { pathname: string } = $props();
+	let { pathname, theme }: { pathname: string; theme?: string | null } = $props();
 
 	const active = $derived(sectionOf(pathname));
 
@@ -26,11 +28,11 @@
 	aria-label="Navegação principal"
 	class="flex w-14 shrink-0 flex-col items-center gap-1 bg-rail py-3"
 >
-	<!-- Marca (quadrado teal) -->
+	<!-- Marca: pulso teal (fiel ao protótipo, não a letra "M"). -->
 	<div
-		class="mb-2.5 grid size-[34px] place-items-center rounded-[9px] bg-teal text-[15px] font-black text-white shadow-teal"
+		class="mb-2.5 grid size-[34px] place-items-center rounded-[9px] bg-teal text-white shadow-teal"
 	>
-		M
+		<Activity size={20} strokeWidth={2.4} />
 	</div>
 
 	{#each RAIL_ITEMS as item (item.section)}
@@ -53,14 +55,16 @@
 
 	<div class="flex-1"></div>
 
-	<!-- Sair: POST (proteção CSRF do SvelteKit, doc 13 causa E). -->
-	<form method="POST" action="/auth/sign-out">
-		<button
-			type="submit"
-			title="Sair"
-			class="grid size-10 place-items-center rounded-lg text-white/60 transition-colors hover:bg-rail-item/60 hover:text-white"
-		>
-			<LogOut size={18} />
-		</button>
-	</form>
+	<!-- Notificações (placeholder visual do protótipo; sem feature ainda). -->
+	<button
+		type="button"
+		title="Notificações"
+		class="relative grid size-10 place-items-center rounded-lg text-white/60 transition-colors hover:bg-rail-item/60 hover:text-white"
+	>
+		<Bell size={18} />
+		<span class="absolute right-[9px] top-[9px] size-[7px] rounded-full border-[1.5px] border-rail bg-teal"></span>
+	</button>
+
+	<!-- Tema: no rodapé do rail (o avatar do usuário mora no topbar). -->
+	<ThemeToggle initial={theme} variant="rail" />
 </nav>

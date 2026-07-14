@@ -17,11 +17,8 @@ describe('Rail', () => {
 		expect(getByTitle('Agenda')).not.toHaveAttribute('aria-current');
 	});
 
-	it('oferece Sair como POST (proteção CSRF)', () => {
-		const { getByTitle, container } = render(Rail, { props: { pathname: '/agenda' } });
-		expect(getByTitle('Sair')).toBeInTheDocument();
-		const form = container.querySelector('form');
-		expect(form).toHaveAttribute('method', 'POST');
-		expect(form).toHaveAttribute('action', '/auth/sign-out');
+	it('traz o toggle de tema no rodapé (o avatar do usuário mora no topbar)', () => {
+		const { getByRole } = render(Rail, { props: { pathname: '/agenda', theme: 'light' } });
+		expect(getByRole('button', { name: /tema/i })).toBeInTheDocument();
 	});
 });

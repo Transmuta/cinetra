@@ -56,6 +56,40 @@
 
 <svelte:head><title>Equipe & acessos · Movimento</title></svelte:head>
 
+<!-- Ações da linha (reusadas no card mobile e na grade desktop). -->
+{#snippet rowActions(m: Member)}
+	{#if m.status === 'pendente'}
+		<form method="POST" action="?/resend" use:enhance>
+			<input type="hidden" name="email" value={m.email} />
+			<button
+				type="submit"
+				title="Reenviar convite"
+				class="grid size-8 place-items-center rounded-md border border-edge bg-surface text-muted hover:bg-surface-2"
+			>
+				<Send size={14} />
+			</button>
+		</form>
+	{/if}
+	<button
+		type="button"
+		title="Editar"
+		onclick={() => (modal = { mode: 'edit', member: m })}
+		class="grid size-8 place-items-center rounded-md border border-edge bg-surface text-muted hover:bg-surface-2"
+	>
+		<Pencil size={14} />
+	</button>
+	<form method="POST" action="?/revoke" use:enhance={confirmRevoke}>
+		<input type="hidden" name="id" value={m.id} />
+		<button
+			type="submit"
+			title="Remover acesso"
+			class="grid size-8 place-items-center rounded-md border border-edge bg-surface text-danger hover:bg-surface-2"
+		>
+			<Trash2 size={14} />
+		</button>
+	</form>
+{/snippet}
+
 <div class="mx-auto max-w-[920px] px-4 py-4 md:px-6">
 	{#if flash}
 		<div
@@ -69,9 +103,9 @@
 	{/if}
 
 	<!-- Membros da organização -->
-	<section class="mb-3 rounded-lg border border-edge bg-surface p-4 shadow-card">
-		<div class="mb-3.5 flex items-start justify-between gap-3">
-			<div>
+	<section class="mb-3 rounded-lg border border-edge bg-surface p-4">
+		<div class="mb-3.5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+			<div class="min-w-0">
 				<h2 class="text-[14px] font-semibold">Membros da organização</h2>
 				<p class="mt-0.5 text-[12.5px] text-muted">
 					Quem tem login e acesso ao sistema. Cada acesso tem um papel e, se for profissional, um
@@ -81,96 +115,82 @@
 			<button
 				type="button"
 				onclick={() => (modal = { mode: 'invite', member: null })}
-				class="flex shrink-0 items-center gap-1.5 rounded-md bg-primary px-3.5 py-2 text-[13px] font-semibold text-on-primary hover:bg-primary-hover"
+				class="flex w-full items-center justify-center gap-1.5 rounded-md bg-primary px-3.5 py-2 text-[13px] font-semibold text-on-primary hover:bg-primary-hover sm:w-auto sm:shrink-0"
 			>
 				<UserPlus size={15} /> Convidar membro
 			</button>
 		</div>
 
-		<!-- cabeçalho (desktop) -->
+		<!-- cabeçalho (desktop). A coluna de ações é FIXA (112px) — se fosse `auto`, o cabeçalho
+		     (sem botões) e as linhas (2 ou 3 botões) resolveriam os `fr` sobre larguras diferentes
+		     e as colunas sairiam do lugar. Padding horizontal igual ao das linhas. -->
 		<div
-			class="hidden grid-cols-[2fr_1.3fr_1.3fr_auto] gap-2.5 px-1 pb-2 text-[11.5px] font-semibold text-faint md:grid"
+			class="hidden grid-cols-[minmax(0,2fr)_minmax(0,1.3fr)_minmax(0,1.3fr)_112px] gap-2.5 px-1 pb-2 text-[11.5px] font-semibold text-faint md:grid"
 		>
-			<span>Membro</span><span>Papel e status</span><span>Vínculo</span><span></span>
+			<span>Membro</span><span>Papel</span><span>Vínculo</span><span></span>
 		</div>
 
 		{#each data.members as m (m.id)}
 			{@const prof = linkedProfessionalName(m, data)}
+			<!-- <md: card empilhado; ≥md: grade de 4 colunas (mesmas trilhas do cabeçalho). -->
 			<div
-				class="flex flex-col gap-2.5 border-t border-edge py-3 md:grid md:grid-cols-[2fr_1.3fr_1.3fr_auto] md:items-center md:gap-2.5"
+				class="flex flex-col gap-2.5 border-t border-edge py-3 md:grid md:grid-cols-[minmax(0,2fr)_minmax(0,1.3fr)_minmax(0,1.3fr)_112px] md:items-center md:gap-2.5 md:px-1"
 			>
-				<!-- identidade -->
-				<span class="flex min-w-0 items-center gap-2.5">
-					<span
-						class="grid size-8 shrink-0 place-items-center rounded-full bg-surface-2 text-[11px] font-bold text-muted"
-					>
-						{initials(m.nome)}
+				<!-- identidade (com as ações à direita no mobile) -->
+				<div class="flex items-center gap-2.5">
+					<span class="flex min-w-0 flex-1 items-center gap-2.5">
+						<span
+							class="grid size-8 shrink-0 place-items-center rounded-full bg-surface-2 text-[11px] font-bold text-muted"
+						>
+							{initials(m.nome)}
+						</span>
+						<span class="min-w-0">
+							<span class="block truncate text-[13.5px] font-semibold">{m.nome}</span>
+							<span class="block truncate font-mono text-[11.5px] text-faint">{m.email}</span>
+						</span>
 					</span>
-					<span class="min-w-0">
-						<span class="block truncate text-[13.5px] font-semibold">{m.nome}</span>
-						<span class="block truncate font-mono text-[11.5px] text-faint">{m.email}</span>
-					</span>
-				</span>
+					<span class="flex shrink-0 gap-1 md:hidden">{@render rowActions(m)}</span>
+				</div>
 
-				<!-- papel + status -->
-				<span class="flex flex-col items-start gap-1.5">
+				<!-- papel (status "Ativo" é o padrão e fica implícito; só sinalizamos o convite pendente) -->
+				<span
+					class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 md:flex-col md:items-start md:gap-1.5"
+				>
 					<RoleBadge papel={m.papel} />
-					<StatusBadge status={m.status} />
+					{#if m.status === 'pendente'}
+						<StatusBadge status={m.status} />
+					{/if}
 				</span>
 
-				<!-- vínculo -->
-				<span class="text-[12.5px] text-muted">
+				<!-- vínculo (no mobile, oculto quando não há vínculo a mostrar) -->
+				<span
+					class="min-w-0 items-center gap-1.5 text-[12.5px] text-muted {m.papel === 'profissional'
+						? 'flex'
+						: 'hidden md:flex'}"
+				>
 					{#if m.papel !== 'profissional'}
 						<span class="text-faint">—</span>
-					{:else if prof}
-						{prof}
 					{:else}
-						<span class="inline-flex items-center gap-1 font-semibold text-danger">
-							<TriangleAlert size={13} /> Sem vínculo
-						</span>
+						<span class="shrink-0 text-faint md:hidden">Vínculo:</span>
+						{#if prof}
+							<span class="truncate">{prof}</span>
+						{:else}
+							<span class="inline-flex items-center gap-1 font-semibold text-danger">
+								<TriangleAlert size={13} /> Sem vínculo
+							</span>
+						{/if}
 					{/if}
 				</span>
 
-				<!-- ações -->
-				<span class="flex justify-start gap-1 md:justify-end">
-					{#if m.status === 'pendente'}
-						<form method="POST" action="?/resend" use:enhance>
-							<input type="hidden" name="email" value={m.email} />
-							<button
-								type="submit"
-								title="Reenviar convite"
-								class="grid size-8 place-items-center rounded-md border border-edge bg-surface text-muted hover:bg-surface-2"
-							>
-								<Send size={14} />
-							</button>
-						</form>
-					{/if}
-					<button
-						type="button"
-						title="Editar"
-						onclick={() => (modal = { mode: 'edit', member: m })}
-						class="grid size-8 place-items-center rounded-md border border-edge bg-surface text-muted hover:bg-surface-2"
-					>
-						<Pencil size={14} />
-					</button>
-					<form method="POST" action="?/revoke" use:enhance={confirmRevoke}>
-						<input type="hidden" name="id" value={m.id} />
-						<button
-							type="submit"
-							title="Remover acesso"
-							class="grid size-8 place-items-center rounded-md border border-edge bg-surface text-danger hover:bg-surface-2"
-						>
-							<Trash2 size={14} />
-						</button>
-					</form>
-				</span>
+				<!-- ações (desktop) -->
+				<span class="hidden justify-end gap-1 md:flex">{@render rowActions(m)}</span>
 			</div>
 		{/each}
 	</section>
 
 	<!-- Profissionais sem acesso -->
 	{#if semAcesso.length}
-		<section class="rounded-lg border border-edge bg-surface p-4 shadow-card">
+		<section class="rounded-lg border border-edge bg-surface p-4">
 			<div class="mb-1 flex items-center gap-2">
 				<KeyRound size={15} class="text-faint" />
 				<h2 class="text-[14px] font-semibold">Profissionais sem acesso</h2>

@@ -13,13 +13,21 @@ const me: Me = {
 };
 
 describe('Topbar', () => {
-	it('mostra o título da seção, a clínica e as iniciais do usuário', () => {
-		const { getByRole, getByText } = render(Topbar, {
-			props: { pathname: '/configuracoes/equipe', me, clinicName: 'Centro', theme: 'light' }
+	it('mostra o título da seção e o avatar do usuário (menu)', () => {
+		const { getByRole, getByTitle } = render(Topbar, {
+			props: { pathname: '/configuracoes/equipe', me }
 		});
 		expect(getByRole('heading', { name: 'Configurações' })).toBeInTheDocument();
-		expect(getByText('Centro')).toBeInTheDocument();
-		expect(getByText('AP')).toBeInTheDocument();
-		expect(getByText('ana@x.com')).toBeInTheDocument();
+		expect(getByTitle('Ana Paula')).toHaveTextContent('AP');
+	});
+
+	it('tem o hambúrguer para abrir o menu no mobile', () => {
+		const { getByRole } = render(Topbar, { props: { pathname: '/agenda', me } });
+		expect(getByRole('button', { name: 'Abrir menu' })).toBeInTheDocument();
+	});
+
+	it('não traz mais o toggle de tema (foi para o rail)', () => {
+		const { queryByRole } = render(Topbar, { props: { pathname: '/agenda', me } });
+		expect(queryByRole('button', { name: /tema/i })).toBeNull();
 	});
 });

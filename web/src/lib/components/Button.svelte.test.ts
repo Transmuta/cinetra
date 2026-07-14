@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import '@testing-library/jest-dom/vitest';
-import { render } from '@testing-library/svelte';
+import { render, fireEvent } from '@testing-library/svelte';
 import { createRawSnippet } from 'svelte';
 import Button from './Button.svelte';
 
@@ -36,6 +36,22 @@ describe('Button', () => {
 			props: { href: '/dashboard', children: label('Ir') }
 		});
 		expect(getByRole('link', { name: 'Ir' })).not.toHaveAttribute('data-sveltekit-reload');
+	});
+
+	it('loading: link fica aria-busy e sem pointer events (evita duplo-clique)', () => {
+		const { getByRole } = render(Button, {
+			props: { href: '/auth/google', loading: true, children: label('Google') }
+		});
+		const link = getByRole('link', { name: 'Google' });
+		expect(link).toHaveAttribute('aria-busy', 'true');
+		expect(link.className).toContain('pointer-events-none');
+	});
+
+	it('encaminha onclick ao clicar', async () => {
+		const onclick = vi.fn();
+		const { getByRole } = render(Button, { props: { onclick, children: label('Ir') } });
+		await fireEvent.click(getByRole('button', { name: 'Ir' }));
+		expect(onclick).toHaveBeenCalledOnce();
 	});
 
 	it('fica desabilitado com disabled', () => {

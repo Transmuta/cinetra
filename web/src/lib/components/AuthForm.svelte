@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import { page } from '$app/state';
-	import { Mail } from '@lucide/svelte';
+	import { Mail, LoaderCircle } from '@lucide/svelte';
 	import Field from './Field.svelte';
 	import Button from './Button.svelte';
 	import GoogleIcon from './GoogleIcon.svelte';
@@ -22,6 +22,9 @@
 	} = $props();
 
 	let submitting = $state(false);
+	// Google é navegação completa (reload) com um round-trip até a API montar a URL do Google;
+	// marcamos o carregamento no clique para dar feedback até o browser sair da página.
+	let googleLoading = $state(false);
 	// "Usar outro e-mail" volta à própria rota (SPA nav com JS, reload sem JS) — limpa `form`.
 	const resetHref = $derived(page.url.pathname);
 </script>
@@ -96,9 +99,20 @@
 	</div>
 
 	<!-- reload: /auth/google é endpoint +server (sem +page); sem navegação completa o client
-	     router do SvelteKit 404a. -->
-	<Button variant="ghost" href={googleHref} reload>
-		<GoogleIcon />
-		{googleLabel}
+	     router do SvelteKit 404a. loading: feedback enquanto o browser navega ao Google. -->
+	<Button
+		variant="ghost"
+		href={googleHref}
+		reload
+		loading={googleLoading}
+		onclick={() => (googleLoading = true)}
+	>
+		{#if googleLoading}
+			<LoaderCircle size={16} class="animate-spin" />
+			Conectando…
+		{:else}
+			<GoogleIcon />
+			{googleLabel}
+		{/if}
 	</Button>
 {/if}

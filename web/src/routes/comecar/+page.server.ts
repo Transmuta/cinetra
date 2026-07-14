@@ -1,15 +1,23 @@
 import { fail, redirect } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import { requireSession } from '$lib/server/auth';
-import { onboardClinic } from '$lib/server/clinics';
+import { onboardClinic, switchTenant } from '$lib/server/clinics';
 
-// Onboarding do primeiro acesso: SÓ para quem está logado e ainda não tem clínica. Quem já
-// tem uma — inclusive o convidado, cujo vínculo pendente é ativado no login (Invites) — vai
-// direto para a home. Fica FORA do grupo (app), cuja guarda exige clínica ativa.
+// `?nova=1`: dono multi-clínica criando OUTRA clínica pelo menu do usuário (a API aceita —
+// política `actor_present()`). Sem esse marcador, o onboarding é só do primeiro acesso.
+function novaFlow(url: URL): boolean {
+	return url.searchParams.get('nova') === '1';
+}
+
+// Onboarding: por padrão SÓ para quem está logado e ainda não tem clínica — quem já tem uma
+// (inclusive o convidado, ativado no login) vai direto para a home. A exceção é `?nova=1`,
+// que deixa um dono existente criar uma clínica adicional. Fica FORA do grupo (app), cuja
+// guarda exige clínica ativa.
 export const load: PageServerLoad = async (event) => {
 	const me = await requireSession(event);
-	if (me.active_clinic_id) redirect(303, '/');
-	return { nome: me.user.nome };
+	const nova = novaFlow(event.url);
+	if (me.active_clinic_id && !nova) redirect(303, '/');
+	return { nome: me.user.nome, nova };
 };
 
 export const actions: Actions = {
@@ -22,7 +30,11 @@ export const actions: Actions = {
 		const res = await onboardClinic(event, nome);
 		if (!res.ok) return fail(res.status || 400, { nome, error: res.error });
 
-		// Criada: o próximo /me já resolve a clínica como tenant ativo. Vai para a home.
+		// Primeiro acesso: o próximo /me resolve a nova clínica sozinho (único vínculo ativo).
+		// Fluxo "nova" (já era dono de outra): o tenant ativo continua o antigo — troca para a
+		// recém-criada para cair no shell dela.
+		if (novaFlow(event.url) && res.clinicId) await switchTenant(event, res.clinicId);
+
 		redirect(303, '/');
 	}
 };

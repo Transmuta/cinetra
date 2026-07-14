@@ -10,15 +10,20 @@
 	let submitting = $state(false);
 	// Primeiro nome, para um cumprimento pessoal sem poluir o card.
 	const primeiroNome = $derived(data.nome?.split(' ')[0] ?? '');
+	// `nova`: dono existente criando uma clínica adicional pelo menu — muda o texto e mostra
+	// um caminho de volta (ele já tem uma clínica ativa para onde voltar).
+	const nova = $derived(data.nova ?? false);
 </script>
 
-<svelte:head><title>Criar sua clínica · Movimento</title></svelte:head>
+<svelte:head><title>{nova ? 'Nova clínica' : 'Criar sua clínica'} · Movimento</title></svelte:head>
 
 <AuthCard
-	title="Vamos criar sua clínica"
-	subtitle={primeiroNome
-		? `Olá, ${primeiroNome}. Dê um nome à sua clínica para começar.`
-		: 'Dê um nome à sua clínica para começar.'}
+	title={nova ? 'Criar outra clínica' : 'Vamos criar sua clínica'}
+	subtitle={nova
+		? 'Dê um nome à nova clínica. Você entra nela assim que criar.'
+		: primeiroNome
+			? `Olá, ${primeiroNome}. Dê um nome à sua clínica para começar.`
+			: 'Dê um nome à sua clínica para começar.'}
 	theme={data.theme}
 >
 	<!-- Progressive enhancement: com JS envia sem reload; sem JS, submit nativo cai na mesma
@@ -54,6 +59,11 @@
 	</form>
 
 	{#snippet footer()}
-		Você será a <strong class="text-ink">dona</strong> desta clínica.
+		{#if nova}
+			Você será a <strong class="text-ink">dona</strong> desta clínica.
+			<a class="ml-1 text-teal-text hover:underline" href="/">Voltar</a>
+		{:else}
+			Você será a <strong class="text-ink">dona</strong> desta clínica.
+		{/if}
 	{/snippet}
 </AuthCard>

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import '@testing-library/jest-dom/vitest';
-import { render } from '@testing-library/svelte';
+import { render, fireEvent } from '@testing-library/svelte';
 
 // Módulos virtuais do SvelteKit que o AuthForm usa (enhance + page atual).
 vi.mock('$app/forms', () => ({ enhance: () => ({ destroy() {} }) }));
@@ -34,6 +34,15 @@ describe('AuthForm', () => {
 		expect(google).toHaveAttribute('href', '/auth/google');
 		// /auth/google é endpoint +server (sem +page): sem reload, o clique 404a no client router.
 		expect(google).toHaveAttribute('data-sveltekit-reload');
+	});
+
+	it('clicar no Google sinaliza carregamento (feedback de autenticação em curso)', async () => {
+		const { getByRole, getByText } = render(AuthForm, { props: { ...baseProps, form: null } });
+
+		await fireEvent.click(getByRole('link', { name: 'Entrar com Google' }));
+
+		// O botão troca o rótulo para o estado de carregando enquanto o browser navega ao Google.
+		expect(getByText('Conectando…')).toBeInTheDocument();
 	});
 
 	it('erro de validação: exibe a mensagem retornada pela action', () => {
