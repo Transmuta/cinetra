@@ -1,7 +1,7 @@
 // Tipos e metadados da tela de Equipe & acessos (Fatia 10). Sem dependência de Svelte —
 // usável no load, nos componentes e nos testes.
 
-import type { Papel } from './session';
+import { canManageMembers, type Papel } from './session';
 
 export type MemberStatus = 'ativo' | 'pendente';
 
@@ -47,6 +47,17 @@ export const ROLE_META: Record<Papel, { label: string; desc: string }> = {
 // Papéis oferecidos ao convidar/editar. `owner` não entra: a dona é definida no onboarding
 // e a gestão de owners é exclusiva de owner (ADR-016 / D23).
 export const INVITABLE_ROLES: Papel[] = ['admin', 'profissional', 'recepcao'];
+
+// Este membro é gerenciável (editar/remover) pelo actor? owner mexe em todos — inclusive
+// outro owner; admin só nos papéis abaixo dele (não mexe em owner nem em outro admin).
+// Espelho da hierarquia da API (RoleManagement) — a autoridade real é a policy; aqui é só
+// para esconder da UI o que o usuário não pode fazer.
+export function canManageMember(actorPapel: Papel | null | undefined, target: Member): boolean {
+	if (!canManageMembers(actorPapel)) return false;
+	if (actorPapel === 'owner') return true;
+	// admin:
+	return target.papel !== 'owner' && target.papel !== 'admin';
+}
 
 // Professionais ativos que ainda não têm um membro vinculado (card "sem acesso").
 export function professionalsWithoutAccess(data: MembersData): Professional[] {

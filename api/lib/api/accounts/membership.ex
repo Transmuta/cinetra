@@ -69,6 +69,8 @@ defmodule Api.Accounts.Membership do
       argument :clinic_id, :uuid, allow_nil?: false
       change manage_relationship(:user_id, :user, type: :append)
       change manage_relationship(:clinic_id, :clinic, type: :append)
+      # Só owner convida como owner (barra cunhagem de owner par por admin).
+      validate {Api.Accounts.Membership.Validations.RestrictOwnerInvite, []}
     end
 
     # Convite por e-mail (D24): acha-ou-cria o `User` do convidado a partir do e-mail,
@@ -83,13 +85,16 @@ defmodule Api.Accounts.Membership do
       change Api.Accounts.Membership.Changes.ResolveInvitedUser
       # D: professional_id (UUID mole) precisa ser da clínica do convite.
       validate {Api.Accounts.Membership.Validations.ProfessionalInClinic, []}
+      # Só owner convida como owner (barra cunhagem de owner par por admin).
+      validate {Api.Accounts.Membership.Validations.RestrictOwnerInvite, []}
     end
 
     update :update do
       accept [:papel, :professional_id]
       require_atomic? false
-      # D23: só owner promove/altera owners (barra takeover por admin).
-      validate {Api.Accounts.Membership.Validations.RestrictOwnerRole, []}
+      # Hierarquia (ADR-016): owner faz tudo; admin não promove a owner, não mexe em owner
+      # nem em outro admin (barra takeover por admin).
+      validate {Api.Accounts.Membership.Validations.RoleManagement, []}
       # D: professional_id precisa ser da clínica do vínculo.
       validate {Api.Accounts.Membership.Validations.ProfessionalInClinic, []}
     end
@@ -102,22 +107,24 @@ defmodule Api.Accounts.Membership do
 
     destroy :revoke_access do
       require_atomic? false
-      # D23: só owner revoga owners.
-      validate {Api.Accounts.Membership.Validations.RestrictOwnerRole, []}
+      # Hierarquia (ADR-016): só owner revoga owners; admin não revoga outro admin.
+      validate {Api.Accounts.Membership.Validations.RoleManagement, []}
     end
   end
 
   # ADR-016 — RBAC por tenant. As leituras de sistema do scope (active_for_user*) rodam
   # com authorize?: false e não passam por aqui.
   policies do
-    # Você vê o próprio vínculo; owner/admin da clínica veem todos os vínculos dela.
+    # Leitura para todos (D): qualquer membro ATIVO da clínica vê todos os vínculos dela —
+    # a gestão é que fica restrita a owner/admin. O primeiro clause cobre o próprio vínculo
+    # ainda PENDENTE (antes do primeiro acesso ativar), quando o segundo ainda não vale.
     policy action_type(:read) do
       authorize_if expr(user_id == ^actor(:id))
 
       authorize_if expr(
                      exists(
                        clinic.memberships,
-                       user_id == ^actor(:id) and papel in [:owner, :admin] and status == :ativo
+                       user_id == ^actor(:id) and status == :ativo
                      )
                    )
     end
@@ -145,8 +152,8 @@ defmodule Api.Accounts.Membership do
   end
 
   # ADR-016 — invariante ">=1 owner por tenant" (não-atômica; ver o módulo). Global em
-  # update/destroy: é no-op no `accept_invite` (não mexe em papel). A regra "só owner
-  # gerencia owners" (D23) NÃO fica aqui — ela é específica das ações de gestão de papel
+  # update/destroy: é no-op no `accept_invite` (não mexe em papel). A hierarquia de gestão
+  # (RoleManagement) NÃO fica aqui — é específica das ações de gestão de papel
   # (`:update`/`:revoke_access`), senão barraria o `accept_invite` de um convite de owner.
   validations do
     validate {Api.Accounts.Membership.Validations.NotLastOwner, []}, on: [:update, :destroy]

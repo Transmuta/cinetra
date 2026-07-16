@@ -14,13 +14,19 @@
 	import {
 		linkedProfessionalName,
 		professionalsWithoutAccess,
+		canManageMember,
 		type Member
 	} from '$lib/members';
+	import { canManageMembers } from '$lib/session';
 	import { initials } from '$lib/format';
 	import { toast } from '$lib/toast.svelte';
 	import type { PageData, ActionData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
+
+	// A lista é visível a todos os membros; só owner/admin veem as ações de gestão (a policy
+	// da API é a autoridade — aqui é só UX). `me` vem do layout do shell (app)/+layout.server.
+	const canManage = $derived(canManageMembers(data.me.papel));
 
 	let modal = $state<{ mode: 'invite' | 'edit'; member: Member | null } | null>(null);
 
@@ -112,13 +118,15 @@
 					vínculo com a agenda.
 				</p>
 			</div>
-			<button
-				type="button"
-				onclick={() => (modal = { mode: 'invite', member: null })}
-				class="flex w-full items-center justify-center gap-1.5 rounded-md bg-primary px-3.5 py-2 text-[13px] font-semibold text-on-primary hover:bg-primary-hover sm:w-auto sm:shrink-0"
-			>
-				<UserPlus size={15} /> Convidar membro
-			</button>
+			{#if canManage}
+				<button
+					type="button"
+					onclick={() => (modal = { mode: 'invite', member: null })}
+					class="flex w-full items-center justify-center gap-1.5 rounded-md bg-primary px-3.5 py-2 text-[13px] font-semibold text-on-primary hover:bg-primary-hover sm:w-auto sm:shrink-0"
+				>
+					<UserPlus size={15} /> Convidar membro
+				</button>
+			{/if}
 		</div>
 
 		<!-- cabeçalho (desktop). A coluna de ações é FIXA (112px) — se fosse `auto`, o cabeçalho
@@ -132,6 +140,7 @@
 
 		{#each data.members as m (m.id)}
 			{@const prof = linkedProfessionalName(m, data)}
+			{@const canManageRow = canManageMember(data.me.papel, m)}
 			<!-- <md: card empilhado; ≥md: grade de 4 colunas (mesmas trilhas do cabeçalho). -->
 			<div
 				class="flex flex-col gap-2.5 border-t border-edge py-3 md:grid md:grid-cols-[minmax(0,2fr)_minmax(0,1.3fr)_minmax(0,1.3fr)_112px] md:items-center md:gap-2.5 md:px-1"
@@ -149,7 +158,9 @@
 							<span class="block truncate font-mono text-[11.5px] text-faint">{m.email}</span>
 						</span>
 					</span>
-					<span class="flex shrink-0 gap-1 md:hidden">{@render rowActions(m)}</span>
+					{#if canManageRow}
+						<span class="flex shrink-0 gap-1 md:hidden">{@render rowActions(m)}</span>
+					{/if}
 				</div>
 
 				<!-- papel (status "Ativo" é o padrão e fica implícito; só sinalizamos o convite pendente) -->
@@ -182,14 +193,18 @@
 					{/if}
 				</span>
 
-				<!-- ações (desktop) -->
-				<span class="hidden justify-end gap-1 md:flex">{@render rowActions(m)}</span>
+				<!-- ações (desktop) — só quando o actor pode gerenciar este membro -->
+				{#if canManageRow}
+					<span class="hidden justify-end gap-1 md:flex">{@render rowActions(m)}</span>
+				{:else}
+					<span class="hidden md:block"></span>
+				{/if}
 			</div>
 		{/each}
 	</section>
 
-	<!-- Profissionais sem acesso -->
-	{#if semAcesso.length}
+	<!-- Profissionais sem acesso (conceder acesso é gestão → só owner/admin) -->
+	{#if canManage && semAcesso.length}
 		<section class="rounded-lg border border-edge bg-surface p-4">
 			<div class="mb-1 flex items-center gap-2">
 				<KeyRound size={15} class="text-faint" />

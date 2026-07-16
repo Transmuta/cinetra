@@ -164,17 +164,18 @@ defmodule Api.Accounts.User do
       authorize_if always()
     end
 
-    # Um usuário enxerga a si mesmo; além disso, owner/admin de uma clínica enxergam os
-    # usuários que são membros dela (a tela de Equipe & acessos precisa de nome/e-mail dos
-    # demais). Continua sendo isolamento por tenant: só se vê quem compartilha uma clínica
-    # onde o actor é owner/admin ativo.
+    # Um usuário enxerga a si mesmo; além disso, qualquer membro ATIVO de uma clínica
+    # enxerga os demais membros dela (a tela de Equipe & acessos é visível a todos e precisa
+    # de nome/e-mail dos co-membros). Continua sendo isolamento por tenant: só se vê quem
+    # compartilha uma clínica onde o actor é membro ativo — espelho da read policy do
+    # Membership.
     policy action_type(:read) do
       authorize_if expr(id == ^actor(:id))
 
       authorize_if expr(
                      exists(
                        memberships.clinic.memberships,
-                       user_id == ^actor(:id) and papel in [:owner, :admin] and status == :ativo
+                       user_id == ^actor(:id) and status == :ativo
                      )
                    )
     end

@@ -170,9 +170,44 @@ defmodule Api.Accounts.MembershipTest do
 
       assert membership.status == :pendente
     end
+
+    test "admin NÃO pode convidar alguém como owner (barra cunhagem de owner par)" do
+      {owner, clinic} = owner_and_clinic()
+      {admin, _m} = active_member(clinic, owner, :admin)
+      addr = email()
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               Accounts.invite_member_by_email(
+                 addr,
+                 %{papel: :owner, clinic_id: clinic.id},
+                 actor: admin
+               )
+
+      # e o convite recusado não pode ter criado o User fantasma (validação antes da escrita).
+      users =
+        Accounts.User
+        |> Ash.Query.filter(email == ^addr)
+        |> Ash.read!(authorize?: false)
+
+      assert users == []
+    end
+
+    test "owner PODE convidar alguém como owner" do
+      {owner, clinic} = owner_and_clinic()
+
+      assert {:ok, membership} =
+               Accounts.invite_member_by_email(
+                 email(),
+                 %{papel: :owner, clinic_id: clinic.id},
+                 actor: owner
+               )
+
+      assert membership.papel == :owner
+      assert membership.status == :pendente
+    end
   end
 
-  describe "RBAC de owner (D23 — só owner gerencia owners)" do
+  describe "RBAC de gestão de papéis (ADR-016 — hierarquia owner/admin)" do
     test "admin NÃO pode promover ninguém a owner" do
       {owner, clinic} = owner_and_clinic()
       {admin, _} = active_member(clinic, owner, :admin)
@@ -209,15 +244,44 @@ defmodule Api.Accounts.MembershipTest do
                Accounts.revoke_access(owner2_m, actor: admin)
     end
 
-    test "owner PODE promover a owner" do
+    test "admin NÃO pode rebaixar OUTRO admin" do
       {owner, clinic} = owner_and_clinic()
-      {_admin, admin_m} = active_member(clinic, owner, :admin)
+      {admin, _} = active_member(clinic, owner, :admin)
+      {_other_user, other_admin_m} = active_member(clinic, owner, :admin)
 
-      assert {:ok, updated} = Accounts.update_membership(admin_m, %{papel: :owner}, actor: owner)
-      assert updated.papel == :owner
+      assert {:error, %Ash.Error.Invalid{}} =
+               Accounts.update_membership(other_admin_m, %{papel: :recepcao}, actor: admin)
     end
 
-    test "admin ainda gerencia papéis não-owner (recepção → profissional)" do
+    test "admin NÃO pode revogar OUTRO admin" do
+      {owner, clinic} = owner_and_clinic()
+      {admin, _} = active_member(clinic, owner, :admin)
+      {_other_user, other_admin_m} = active_member(clinic, owner, :admin)
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               Accounts.revoke_access(other_admin_m, actor: admin)
+    end
+
+    test "admin PODE alterar o PRÓPRIO vínculo (rebaixar a si mesmo)" do
+      {owner, clinic} = owner_and_clinic()
+      {admin, admin_m} = active_member(clinic, owner, :admin)
+
+      assert {:ok, updated} =
+               Accounts.update_membership(admin_m, %{papel: :recepcao}, actor: admin)
+
+      assert updated.papel == :recepcao
+    end
+
+    test "admin PODE promover recepção a admin (só owner é vedado)" do
+      {owner, clinic} = owner_and_clinic()
+      {admin, _} = active_member(clinic, owner, :admin)
+      {_recep_user, recep_m} = active_member(clinic, owner, :recepcao)
+
+      assert {:ok, updated} = Accounts.update_membership(recep_m, %{papel: :admin}, actor: admin)
+      assert updated.papel == :admin
+    end
+
+    test "admin ainda gerencia papéis abaixo (recepção → profissional)" do
       {owner, clinic} = owner_and_clinic()
       {admin, _} = active_member(clinic, owner, :admin)
       {_recep_user, recep_m} = active_member(clinic, owner, :recepcao)
@@ -226,6 +290,54 @@ defmodule Api.Accounts.MembershipTest do
                Accounts.update_membership(recep_m, %{papel: :profissional}, actor: admin)
 
       assert updated.papel == :profissional
+    end
+
+    test "owner PODE promover a owner" do
+      {owner, clinic} = owner_and_clinic()
+      {_admin, admin_m} = active_member(clinic, owner, :admin)
+
+      assert {:ok, updated} = Accounts.update_membership(admin_m, %{papel: :owner}, actor: owner)
+      assert updated.papel == :owner
+    end
+
+    test "owner PODE rebaixar OUTRO owner (havendo outro owner)" do
+      {owner, clinic} = owner_and_clinic()
+      {_o2_user, owner2_m} = active_member(clinic, owner, :owner)
+
+      assert {:ok, updated} =
+               Accounts.update_membership(owner2_m, %{papel: :admin}, actor: owner)
+
+      assert updated.papel == :admin
+    end
+
+    test "owner PODE revogar OUTRO owner (havendo outro owner)" do
+      {owner, clinic} = owner_and_clinic()
+      {_o2_user, owner2_m} = active_member(clinic, owner, :owner)
+
+      assert :ok = Accounts.revoke_access(owner2_m, actor: owner)
+    end
+
+    test "owner NÃO pode rebaixar o ÚLTIMO owner (NotLastOwner)" do
+      {owner, clinic} = owner_and_clinic()
+      # o owner é o único membro/owner da clínica recém-criada.
+      [owner_m] = Accounts.list_clinic_members!(clinic.id, actor: owner)
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               Accounts.update_membership(owner_m, %{papel: :admin}, actor: owner)
+    end
+
+    test "owner NÃO pode revogar o ÚLTIMO owner (NotLastOwner)" do
+      {owner, clinic} = owner_and_clinic()
+      [owner_m] = Accounts.list_clinic_members!(clinic.id, actor: owner)
+
+      assert {:error, %Ash.Error.Invalid{}} = Accounts.revoke_access(owner_m, actor: owner)
+    end
+
+    test "admin PODE revogar o PRÓPRIO vínculo (self)" do
+      {owner, clinic} = owner_and_clinic()
+      {admin, admin_m} = active_member(clinic, owner, :admin)
+
+      assert :ok = Accounts.revoke_access(admin_m, actor: admin)
     end
   end
 
@@ -271,6 +383,20 @@ defmodule Api.Accounts.MembershipTest do
       assert Enum.all?(members, &match?(%Accounts.User{}, &1.user))
     end
 
+    test "qualquer membro ativo (recepção) vê todos os vínculos da clínica" do
+      {owner, clinic} = owner_and_clinic()
+      {recep, _} = active_member(clinic, owner, :recepcao)
+      {_prof, _} = active_member(clinic, owner, :profissional)
+
+      # recepção NÃO gerencia, mas VÊ todos (owner + recepção + profissional).
+      members = Accounts.list_clinic_members!(clinic.id, actor: recep)
+
+      assert length(members) == 3
+      assert Enum.all?(members, &(&1.clinic_id == clinic.id))
+      # e enxerga nome/e-mail dos co-membros (User read policy espelha a do Membership).
+      assert Enum.all?(members, &match?(%Accounts.User{}, &1.user))
+    end
+
     test "não vaza vínculos de outra clínica" do
       {owner_a, clinic_a} = owner_and_clinic()
       {_owner_b, clinic_b} = owner_and_clinic()
@@ -279,6 +405,17 @@ defmodule Api.Accounts.MembershipTest do
 
       assert Enum.all?(members, &(&1.clinic_id == clinic_a.id))
       refute Enum.any?(members, &(&1.clinic_id == clinic_b.id))
+    end
+
+    test "membro de uma clínica não enxerga membros de outra" do
+      # As duas clínicas ANTES de qualquer convite: `active_member` deixa um e-mail de
+      # convite na mailbox e um `owner_and_clinic` posterior capturaria esse e-mail velho.
+      {owner_a, clinic_a} = owner_and_clinic()
+      {_owner_b, clinic_b} = owner_and_clinic()
+      {recep_a, _} = active_member(clinic_a, owner_a, :recepcao)
+
+      # recepção da clínica A pede a lista da clínica B → policy não autoriza nenhuma linha.
+      assert [] = Accounts.list_clinic_members!(clinic_b.id, actor: recep_a)
     end
   end
 end

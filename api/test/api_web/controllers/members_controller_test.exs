@@ -24,6 +24,18 @@ defmodule ApiWeb.MembersControllerTest do
     |> AshAuthentication.Plug.Helpers.store_in_session(user)
   end
 
+  # Convida, ativa e devolve a SESSÃO real de um membro (para exercer o RBAC do controller).
+  defp active_member_session(owner, clinic, papel) do
+    addr = email()
+
+    {:ok, pending} =
+      Accounts.invite_member_by_email(addr, %{papel: papel, clinic_id: clinic.id}, actor: owner)
+
+    user = Accounts.get_user_by_email!(addr, authorize?: false)
+    {:ok, _} = Accounts.accept_invite(pending, actor: user)
+    sign_in(addr)
+  end
+
   setup %{conn: conn} do
     owner = sign_in(email())
 
@@ -49,20 +61,24 @@ defmodule ApiWeb.MembersControllerTest do
       assert base_conn |> get(~p"/api/members") |> json_response(401)
     end
 
-    test "recepção não acessa (403)", %{base_conn: base_conn, owner: owner, clinic: clinic} do
-      recep_addr = email()
+    test "autenticado sem clínica ativa devolve 403", %{base_conn: base_conn} do
+      # usuário logado, mas sem nenhuma clínica (não fez onboarding nem foi convidado):
+      # o scope não tem clinic_id, então `with_member_scope` barra (403, não 401).
+      orphan = sign_in(email())
 
-      {:ok, pending} =
-        Accounts.invite_member_by_email(recep_addr, %{papel: :recepcao, clinic_id: clinic.id},
-          actor: owner
-        )
+      assert base_conn |> authed(orphan) |> get(~p"/api/members") |> json_response(403)
+    end
 
-      recep = Accounts.get_user_by_email!(recep_addr, authorize?: false)
-      {:ok, _} = Accounts.accept_invite(pending, actor: recep)
-      # sessão real do convidado (já ativo como recepção) para exercer o RBAC do controller.
-      recep = sign_in(recep_addr)
+    test "qualquer membro autenticado vê os membros (recepção, 200)",
+         %{base_conn: base_conn, owner: owner, clinic: clinic} do
+      recep = active_member_session(owner, clinic, :recepcao)
 
-      assert base_conn |> authed(recep) |> get(~p"/api/members") |> json_response(403)
+      body = base_conn |> authed(recep) |> get(~p"/api/members") |> json_response(200)
+
+      papeis = Enum.map(body["members"], & &1["papel"])
+      # a recepção (não-gestora) enxerga todos os vínculos, inclusive o próprio e o do owner.
+      assert "recepcao" in papeis
+      assert "owner" in papeis
     end
   end
 
@@ -81,6 +97,16 @@ defmodule ApiWeb.MembersControllerTest do
       # o magic link de convite saiu para o convidado.
       assert_receive {:email, mail}, 1_000
       assert [{_, ^invitee}] = mail.to
+    end
+
+    test "recepção não pode convidar (403)",
+         %{base_conn: base_conn, owner: owner, clinic: clinic} do
+      recep = active_member_session(owner, clinic, :recepcao)
+
+      assert base_conn
+             |> authed(recep)
+             |> post(~p"/api/members", %{email: email(), papel: "recepcao"})
+             |> json_response(403)
     end
 
     test "papel inválido devolve 422", %{conn: conn} do

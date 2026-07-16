@@ -3,8 +3,9 @@ defmodule ApiWeb.MembersController do
   Gestão de membros da clínica (Fatia 10 / tela Equipe & acessos). Espelha o padrão do
   `ApiWeb.AuthController`: lê o `Api.Scope` do request, chama os code interfaces do
   domínio com `scope:` e monta o JSON. O `clinic_id` vem **sempre** do escopo, nunca do
-  corpo (09 §8); só owner/admin da clínica ativa acessam (RBAC ADR-016, defesa em
-  profundidade sobre as policies do `Membership`).
+  corpo (09 §8). RBAC ADR-016 (defesa em profundidade sobre as policies do `Membership`):
+  a **leitura** (GET) é liberada a qualquer membro ativo da clínica; a **gestão**
+  (POST/PATCH/DELETE) exige owner/admin.
   """
   use ApiWeb, :controller
 
@@ -20,9 +21,10 @@ defmodule ApiWeb.MembersController do
   }
 
   # GET /api/members — membros da clínica ativa + profissionais (para o vínculo e o card
-  # "profissionais sem acesso").
+  # "profissionais sem acesso"). Leitura para todos: qualquer membro da clínica vê a lista
+  # (a gestão é que exige owner/admin). A policy do `Membership` é a autoridade.
   def index(conn, _params) do
-    with_admin_scope(conn, fn scope ->
+    with_member_scope(conn, fn scope ->
       members = Accounts.list_clinic_members!(scope.clinic_id, scope: scope)
       # A leitura por-tenant (com o GUC de RLS) mora na camada de domínio, não aqui.
       professionals = Directory.list_clinic_professionals(scope)
@@ -93,10 +95,25 @@ defmodule ApiWeb.MembersController do
     end
   end
 
+  # Gestão (POST/PATCH/DELETE): exige owner/admin da clínica ativa.
   defp with_admin_scope(conn, fun) do
     case conn.assigns[:scope] do
       %Scope{clinic_id: cid, papel: papel} = scope
       when not is_nil(cid) and papel in [:owner, :admin] ->
+        fun.(scope)
+
+      %Scope{} ->
+        conn |> put_status(:forbidden) |> json(%{error: "forbidden"})
+
+      _ ->
+        conn |> put_status(:unauthorized) |> json(%{error: "unauthenticated"})
+    end
+  end
+
+  # Leitura (GET): qualquer membro de uma clínica ativa, independentemente do papel.
+  defp with_member_scope(conn, fun) do
+    case conn.assigns[:scope] do
+      %Scope{clinic_id: cid} = scope when not is_nil(cid) ->
         fun.(scope)
 
       %Scope{} ->
