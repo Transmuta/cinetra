@@ -139,6 +139,39 @@ defmodule Api.Accounts.AuthFlowTest do
       assert {:error, _} = Accounts.sign_in_with_magic_link(forged_seal)
     end
 
+    # Doc 14 §7: com os DOIS segredos vazados o atacante assina E sela — as barreiras do
+    # selo caem. A allowlist é o que sobra: o `jti` do link precisa EXISTIR na tabela
+    # (gravado no request_magic_link). Um link forjado offline tem jti que nunca foi
+    # emitido → rejeitado. Sem isto, o magic link vira impersonação de qualquer conta,
+    # driblando presença/binding da sessão — porque quem emite a sessão é o servidor.
+    test "link forjado offline (jti nunca emitido) é rejeitado mesmo com os dois segredos" do
+      addr = email()
+      Accounts.register_user!(addr, addr, authorize?: false)
+
+      signer = Joken.Signer.create("HS256", Application.fetch_env!(:api, :token_signing_secret))
+      now = System.system_time(:second)
+
+      {:ok, jwt, _} =
+        Joken.encode_and_sign(
+          %{
+            "act" => "sign_in_with_magic_link",
+            "identity" => addr,
+            "sub" => "user",
+            "iss" => "AshAuthentication v4.14.1",
+            "aud" => "~> 4.14",
+            "jti" => "forjado-#{System.unique_integer([:positive])}",
+            "iat" => now,
+            "nbf" => now,
+            "exp" => now + 600,
+            "purpose" => "magic_link"
+          },
+          signer
+        )
+
+      # O atacante tem o secret_key_base, então sela sem problema.
+      assert {:error, _} = Accounts.sign_in_with_magic_link(MagicLinkToken.seal(jwt))
+    end
+
     test "token selado adulterado é rejeitado (sem estourar 500)" do
       addr = email()
       sealed = request_and_capture_token(addr)

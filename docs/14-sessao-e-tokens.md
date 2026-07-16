@@ -128,18 +128,27 @@ o `sub` da vítima. Duas barreiras além da assinatura contêm isso:
 | Barreira | O que exige a mais | Efeito |
 |---|---|---|
 | **Envelope do cookie** | o JWT trafega **dentro** do cookie cifrado+assinado com chaves derivadas do **`secret_key_base`** (segredo *separado*); só aceitamos sessão, **não** `Bearer` | sem o `secret_key_base` o atacante não consegue **entregar** o JWT forjado |
-| **Presença do `jti`** | `require_token_presence` + `store_all_tokens`: o `jti` precisa **existir** na tabela | JWT forjado do nada (jti aleatório) → **rejeitado** |
+| **Presença do `jti`** | `require_token_presence` + `store_all_tokens`: o `jti` precisa **existir** na tabela — na sessão (pela lib) e na redenção do magic link (nossa, `RequireMagicLinkTokenPresence`) | JWT forjado do nada (jti aleatório) → **rejeitado** nas duas vias |
 
 Raio de dano por cenário:
 
 - **Só o `token_signing_secret`**: praticamente inócuo — falta o `secret_key_base` (envelope) e
   um `jti` real (presença). Vale também para o caminho **magic link/convite**: o atacante assina
   um JWT válido para qualquer e-mail, mas **não sela** (a chave do selo deriva do
-  `secret_key_base`) e o sign-in estrito rejeita — provado por teste. Sem o selo em segredo
-  separado, este seria o caminho mais fraco: um magic link forjado vira sessão legítima
-  emitida pelo próprio servidor, onde presença/binding não ajudam.
+  `secret_key_base`) e o sign-in estrito rejeita — provado por teste.
 - **`token_signing_secret` + `secret_key_base`** (vazamento de config típico): forjam o envelope
-  com um JWT arbitrário — mas o `jti` forjado não está na tabela.
+  com um JWT arbitrário — mas o `jti` forjado não está na tabela. Isso vale para as **duas**
+  vias, e a segunda foi um furo real achado ao vivo (2026-07-14):
+  - *Sessão forjada direto*: barrada pela presença (`get_token`, allowlist) + binding (§4.5) —
+    o atacante fica preso ao **próprio** usuário.
+  - *Magic link forjado*: o `SignInChange` só exige assinatura válida + não-revogado
+    (`validate_jti` checa apenas registro de *revogação*; a lib aplica
+    `require_token_presence` **só no pipeline da sessão**). Um `jti` forjado offline nunca foi
+    revogado → passava, e o servidor emitia uma sessão **legítima** para a vítima — presença e
+    binding não pegam, porque a sessão é real. Fechado com a allowlist do link
+    ([`RequireMagicLinkTokenPresence`](../api/lib/api/accounts/user/changes/require_magic_link_token_presence.ex)):
+    o `jti` precisa existir na tabela (`purpose: "magic_link"`, gravado na emissão). Forjar um
+    link passa a exigir **escrita no banco** — o cenário composto abaixo.
 - **O ataque sutil (jti/sub confusion):** o atacante, sendo um usuário legítimo qualquer, tem
   **um `jti` válido (o dele)**. Forja `{ jti = o meu, sub = da vítima }`. A presença olhava só
   o `jti` — que existe — e o `subject_to_user` confiava no `sub` do JWT. **Sem o binding do §4.5,
@@ -166,6 +175,10 @@ validado contra os memberships pelo `LoadScope`.
   AEAD opaco. Provado por teste (decode do cookie não revela nada) e ao vivo (cookie novo
   `XCP.…` autentica; o formato antigo só-assinado cai para 401). A virada derrubou as
   sessões ativas (esperado).
+- **Allowlist do magic link** (§7) — o `jti` do link precisa existir na tabela; a lib só exige
+  presença na sessão, então JWT bem assinado forjado offline logava como qualquer conta (com
+  os dois segredos, sem tocar o banco). Provado ao vivo antes e depois: forja logava → agora
+  rejeitada, com o link real do e-mail seguindo válido e single-use.
 - **Selo do magic link/convite** (§1) — o token na URL do e-mail é cifrado (opaco) e o
   sign-in só aceita o formato selado: JWT pescado de log/histórico não autentica e os
   claims (e-mail/nome) não vazam no link. Provado por teste (peek do link falha; JWT cru →
