@@ -25,9 +25,11 @@ defmodule Api.Accounts.Clinic do
 
     # ADR-016: o `onboard` cria a clínica E o Membership `owner` do usuário atual, na
     # mesma transação (ver o change). Garante a invariante "≥1 owner por tenant".
+    # Doc 20 (T3): e o catálogo de tipos de atendimento, sem o qual não se agenda.
     create :onboard do
       accept [:nome, :timezone, :cap_turma_padrao, :falta_consome_padrao, :slot_minutos]
       change Api.Accounts.Clinic.Changes.CreateOwnerMembership
+      change Api.Accounts.Clinic.Changes.SeedAppointmentTypes
     end
 
     update :update_settings do

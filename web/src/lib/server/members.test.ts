@@ -29,6 +29,14 @@ describe('fetchMembers', () => {
 		const r = await fetchMembers(event);
 		expect(r).toEqual({ status: 403, data: null });
 	});
+
+	// API fora / conexão recusada: NÃO pode propagar a exceção — o load da equipe faz
+	// `error(result.status || 502, …)`, que só funciona se recebermos status 0 (como o BFF de
+	// tipos já faz). Sem isto, a exceção sobe e vira 500 genérico em vez de 502 tratado.
+	it('exceção de rede → status 0, data null (não propaga)', async () => {
+		apiFetch.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+		expect(await fetchMembers(event)).toEqual({ status: 0, data: null });
+	});
 });
 
 describe('inviteMember', () => {
@@ -76,6 +84,19 @@ describe('updateMember / revokeMember', () => {
 			status: 0,
 			error: expect.any(String)
 		});
+	});
+
+	// O id vem de um campo de formulário (cliente). Escapado, um id forjado não escapa do
+	// caminho do recurso (`../../auth/sign-out` viraria outra chamada com a sessão do usuário).
+	// Simetria com o BFF de tipos, que já escapa.
+	it('escapa o id na URL (id forjado não troca de rota)', async () => {
+		apiFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
+		await revokeMember(event, '../../auth/sign-out');
+		expect(apiFetch).toHaveBeenCalledWith(
+			event,
+			'/api/members/..%2F..%2Fauth%2Fsign-out',
+			expect.anything()
+		);
 	});
 });
 

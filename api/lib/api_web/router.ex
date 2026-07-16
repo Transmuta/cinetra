@@ -71,6 +71,15 @@ defmodule ApiWeb.Router do
     post "/members", MembersController, :create
     patch "/members/:id", MembersController, :update
     delete "/members/:id", MembersController, :delete
+
+    # Catálogo de tipos de atendimento (doc 20). Leitura para todo membro, escrita só
+    # owner/admin (controller + policies); clinic_id sempre do escopo.
+    get "/appointment-types", AppointmentTypesController, :index
+    post "/appointment-types", AppointmentTypesController, :create
+    patch "/appointment-types/:id", AppointmentTypesController, :update
+    # Arquivar/restaurar são transição de estado, não destroy (T2/T10): POST /:id/<verbo>.
+    post "/appointment-types/:id/archive", AppointmentTypesController, :archive
+    post "/appointment-types/:id/restore", AppointmentTypesController, :restore
   end
 
   # Máquina OAuth do AshAuthentication (Assent): request + callback do Google. Chama

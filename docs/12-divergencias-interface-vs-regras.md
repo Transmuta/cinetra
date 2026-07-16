@@ -4,6 +4,14 @@
 > origem", ADR‑001) contra os documentos de regras/domínio (`00`, `01`, `02`, `09`, `10`, `11`).
 > Cada divergência foi **confirmada por verificação adversarial** relendo as linhas reais dos dois lados.
 > Gerado em 2026‑07‑11.
+>
+> **Adendo 2026‑07‑16 — um achado que esta auditoria não pegou.** O protótipo chama de "Tipo de
+> atendimento" **duas coisas diferentes**: o catálogo da clínica (`saveType` [`:1210`], `cfgTipos`
+> [`:3229`]) e a categoria comercial do paciente (`particular`/`reembolso`/`convenio`, [`:2146`],
+> [`:2790`]). Os docs modelam as duas separadas (`Directory.AppointmentType` × `Records.AttendanceType`)
+> e por isso a comparação doc↔protótipo nunca acusou nada — mas **nenhum doc registrava que elas
+> dividem um rótulo na UI**, o que é exatamente a armadilha que esta análise existe para evitar.
+> Registrado em [`20-tipos-de-atendimento.md §0`](20-tipos-de-atendimento.md).
 
 ## Sumário executivo
 

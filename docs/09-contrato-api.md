@@ -453,12 +453,21 @@ Notas de contrato que vêm direto do protótipo:
 | GET | `/professionals` | `:read` | todos | |
 | POST | `/professionals` | `:create` | admin | Coleta banco/PIX (sensível, ADR-007) |
 | PATCH | `/professionals/:id` | `:update` | admin; próprio p/ profissional (campos limitados por field policy) | Dados bancários só o próprio/admin |
-| GET | `/appointment-types` | `:read` | todos | |
-| POST/PATCH/DELETE | `/appointment-types[/:id]` | `:create`/`:update`/`:destroy` | admin | `grupo`, `cap`, `dur`, `cor` |
+| GET | `/appointment-types` | `:read` | todos | Ativos **e** arquivados; a tela separa |
+| POST/PATCH | `/appointment-types[/:id]` | `:create`/`:update` | admin | `nome`, `duracao_minutos`, `cor`, `icon`, `grupo`, `capacidade` |
+| POST | `/appointment-types/:id/archive` | `:archive` | admin | **Não há `DELETE`** — ver aviso abaixo |
+| POST | `/appointment-types/:id/restore` | `:restore` | admin | |
 | GET | `/clinic-hours` | `:read` | todos | Horário semanal da clínica |
 | PATCH | `/clinic-hours` | `:update` | admin | **Ver aviso abaixo** |
 | GET | `/holidays?filter[data][gte]=…` | `:read` | todos | Feriados e exceções de data |
 | POST/DELETE | `/holidays[/:id]` | `:create`/`:destroy` | admin | `tipo` ∈ {feriado, horario} |
+
+**Aviso: tipo de atendimento não se apaga, arquiva-se.** `Appointment`, `Package` e `PriceVersion`
+declaram `belongs_to :appointment_type, allow_nil?: false` — um `DELETE` deixaria FK órfã ou violaria
+a constraint. O ciclo de vida é `ativo: true|false` via `POST /:id/archive` e `POST /:id/restore`
+(transição de estado, no molde do `POST /:id/<verbo>` da §1). Decisão **T2/T10** em
+[`20-tipos-de-atendimento.md`](20-tipos-de-atendimento.md), que também corrigiu os nomes dos campos
+nesta tabela (eram `dur`/`cap`; o domínio usa `duracao_minutos`/`capacidade`, [`01:465`](01-dominio-ash.md)).
 
 **Aviso de impacto retroativo em `PATCH /clinic-hours`.** Mudar o horário da clínica pode
 deixar agendamentos futuros fora do expediente. É o motor `futureConflicts`

@@ -61,7 +61,10 @@ defmodule ApiWeb.MembersController do
     with_admin_scope(conn, fn scope ->
       with {:ok, %{} = membership} <- fetch(id, scope),
            {:ok, updated} <-
-             Accounts.update_membership(membership, update_input(params), scope: scope, load: [:user]) do
+             Accounts.update_membership(membership, update_input(params),
+               scope: scope,
+               load: [:user]
+             ) do
         json(conn, %{member: member_json(updated)})
       else
         {:ok, nil} -> not_found(conn)

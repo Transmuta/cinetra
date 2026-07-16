@@ -17,21 +17,32 @@ defmodule Api.Repo do
   @tenant_guc "movimento.clinic_id"
 
   @doc """
-  Injeta a GUC `movimento.clinic_id` no início de toda transação que tem um tenant no
-  contexto (ADR-018). É o ponto de injeção automático: qualquer ação Ash sobre recurso
-  por-tenant (`strategy :attribute`) abre transação, cai aqui e passa a enxergar só as
-  linhas do `clinic_id` ativo. Transações sem tenant (recursos globais) não setam nada.
+  Injeta a GUC `movimento.clinic_id` no início de toda transação **de leitura** que tem um
+  tenant no contexto (ADR-018).
+
+  ATENÇÃO ao alcance real: só funciona em `read`. O `transaction_reason` do Ash carrega o
+  tenant em `metadata.query` (read), mas nos reasons de create/update/destroy o
+  `data_layer_context` é opcional e o Ash **não** o preenche (ver
+  `Ash.DataLayer.transaction_reason` e `ash/lib/ash/actions/create/create.ex`) — não há de
+  onde tirar o tenant aqui. Escrita por-tenant portanto **não** passa por este ponto: ela
+  seta a GUC via `Api.Directory.Changes.SetTenantGuc` (`before_action`, dentro da transação
+  da própria ação). Transações sem tenant (recursos globais) não setam nada.
   """
   @impl true
   def on_transaction_begin(reason) do
     case tenant_from_reason(reason) do
-      nil ->
-        :ok
-
-      tenant ->
-        query!("SELECT set_config($1, $2, true)", [@tenant_guc, to_string(tenant)])
-        :ok
+      nil -> :ok
+      tenant -> set_clinic_guc(to_string(tenant))
     end
+  end
+
+  @doc """
+  Seta a GUC de tenant (`SET LOCAL`, transação-local) na transação corrente. Exige uma
+  transação aberta — fora dela o `set_config(..., true)` não teria onde valer.
+  """
+  def set_clinic_guc(clinic_id) when is_binary(clinic_id) do
+    query!("SELECT set_config($1, $2, true)", [@tenant_guc, clinic_id])
+    :ok
   end
 
   defp tenant_from_reason(%{data_layer_context: %{tenant: tenant}}) when not is_nil(tenant),

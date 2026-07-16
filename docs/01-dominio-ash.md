@@ -455,18 +455,24 @@ está *hardcoded no relatório*: `const price={t1:180,t2:120,t3:130,t4:70,t5:90}
 em [`:3339`](../interface/Movimento.dc.html#L3339). Modelamos preço com histórico de
 vigência num recurso separado (`PriceVersion`).
 
+> **Implementado.** Ver [`20-tipos-de-atendimento.md`](20-tipos-de-atendimento.md) — é a fatia que
+> construiu este recurso, e ela corrige três pontos do esboço abaixo: `sigla` virou **calculation**
+> (o form do protótipo nunca a coleta — T4); entrou `ativo` e **saiu o `destroy`** (arquivar, T2);
+> e `nome` ganhou **identity única por clínica** (T7). `PriceVersion`/`preco_vigente` ficaram fora —
+> faturamento é v2.
+
 ```elixir
 defmodule Movimento.Directory.AppointmentType do
   # ... por-tenant
   attributes do
     uuid_primary_key :id
-    attribute :nome, :string, allow_nil?: false
-    attribute :sigla, :string           # 'AVA','SES','RPG','PIL','REA'
+    attribute :nome, :string, allow_nil?: false   # único por clínica (T7)
     attribute :duracao_minutos, :integer, allow_nil?: false, constraints: [min: 1]
     attribute :cor, :string
     attribute :icon, :string
     attribute :grupo, :boolean, allow_nil?: false, default: false   # turma?
     attribute :capacidade, :integer, allow_nil?: true               # só quando grupo (cap [:341])
+    attribute :ativo, :boolean, allow_nil?: false, default: true    # arquivamento (T2)
   end
 
   validations do
@@ -480,7 +486,9 @@ defmodule Movimento.Directory.AppointmentType do
   end
 
   calculations do
-    # preço vigente hoje (resolvido no timezone da clínica, ADR-009)
+    # 'AVA','SES','RPG','PIL','REA' — derivada do nome, não é coluna (T4)
+    calculate :sigla, :string, Movimento.Directory.Calculations.Sigla
+    # preço vigente hoje (resolvido no timezone da clínica, ADR-009) — v2, faturamento
     calculate :preco_vigente, :decimal, Movimento.Directory.Calculations.PrecoVigente
   end
 
@@ -488,7 +496,8 @@ defmodule Movimento.Directory.AppointmentType do
     defaults [:read]
     create :create           # 09: POST /appointment-types (admin)
     update :update
-    destroy :destroy
+    update :archive          # 09: POST /appointment-types/:id/archive — ativo: false
+    update :restore          # 09: POST /appointment-types/:id/restore — ativo: true
   end
 end
 ```

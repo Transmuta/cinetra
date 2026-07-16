@@ -14,11 +14,11 @@ defmodule Api.Accounts.Membership.Validations.ProfessionalInClinic do
     professional_id = Ash.Changeset.get_attribute(changeset, :professional_id)
     clinic_id = clinic_id(changeset)
 
-    if is_nil(professional_id) or Api.Directory.professional_in_clinic?(professional_id, clinic_id) do
+    if is_nil(professional_id) or
+         Api.Directory.professional_in_clinic?(professional_id, clinic_id) do
       :ok
     else
-      {:error,
-       field: :professional_id, message: "profissional não pertence a esta clínica"}
+      {:error, field: :professional_id, message: "profissional não pertence a esta clínica"}
     end
   end
 

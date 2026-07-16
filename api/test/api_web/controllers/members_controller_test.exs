@@ -118,9 +118,15 @@ defmodule ApiWeb.MembersControllerTest do
       assert body["error"] == "invalid"
     end
 
-    test "convite de profissional carrega o vínculo (professional_id)", %{conn: conn, clinic: clinic} do
+    test "convite de profissional carrega o vínculo (professional_id)", %{
+      conn: conn,
+      clinic: clinic
+    } do
       {:ok, prof} =
-        Api.Directory.create_professional("Dr. Vínculo", %{}, tenant: clinic.id, authorize?: false)
+        Api.Directory.create_professional("Dr. Vínculo", %{},
+          tenant: clinic.id,
+          authorize?: false
+        )
 
       body =
         conn
@@ -150,7 +156,9 @@ defmodule ApiWeb.MembersControllerTest do
 
     test "id inexistente devolve 404", %{conn: conn} do
       body =
-        conn |> patch(~p"/api/members/#{Ecto.UUID.generate()}", %{papel: "admin"}) |> json_response(404)
+        conn
+        |> patch(~p"/api/members/#{Ecto.UUID.generate()}", %{papel: "admin"})
+        |> json_response(404)
 
       assert body["error"] == "not_found"
     end
@@ -169,7 +177,11 @@ defmodule ApiWeb.MembersControllerTest do
       assert body["error"] == "not_found"
     end
 
-    test "vincula e desvincula profissional (professional_id)", %{conn: conn, owner: owner, clinic: clinic} do
+    test "vincula e desvincula profissional (professional_id)", %{
+      conn: conn,
+      owner: owner,
+      clinic: clinic
+    } do
       {:ok, prof} =
         Api.Directory.create_professional("Dra. Liga", %{}, tenant: clinic.id, authorize?: false)
 

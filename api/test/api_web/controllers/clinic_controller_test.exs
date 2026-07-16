@@ -62,8 +62,12 @@ defmodule ApiWeb.ClinicControllerTest do
       assert body["error"] == "invalid"
     end
 
-    test "nome absurdamente longo devolve 422 (limite no servidor, não só no client)", %{conn: conn} do
-      body = conn |> post(~p"/api/clinics", %{nome: String.duplicate("A", 300)}) |> json_response(422)
+    test "nome absurdamente longo devolve 422 (limite no servidor, não só no client)", %{
+      conn: conn
+    } do
+      body =
+        conn |> post(~p"/api/clinics", %{nome: String.duplicate("A", 300)}) |> json_response(422)
+
       assert body["error"] == "invalid"
     end
 
