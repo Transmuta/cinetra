@@ -42,6 +42,11 @@
 	/* Teal — cor de marca / foco. solid/hover iguais nos dois temas (:303) */
 	--mv-teal-solid: #0fb5a6;
 	--mv-teal-hover: #0ba294;
+
+	/* Cores de marca do logo Cinetra (swooshes) e dos gradientes de landing/aside.
+	   Iguais nos dois temas — são pigmento da marca, não superfície (cinetra.html :21). */
+	--mv-sage: #7fa59a;
+	--mv-blue: #3a5a78;
 }
 
 /* ---- Tema claro (theme() com d=false) ---- */
@@ -62,6 +67,11 @@
 	--mv-teal-subtle: #e5f7f4;
 	--mv-teal-border: #7fdacd;
 	--mv-card-shadow: var(--mv-shadow-card);
+
+	/* Wordmark do logo (paths escuros do Cinetra) — slate no claro, quase-branco no escuro. */
+	--mv-wordmark: #212a37;
+	/* Sombra ampla de landing (hero mock, painéis flutuantes) — cinetra.html --shadow-lg. */
+	--mv-shadow-lg: 0 30px 80px rgba(20, 24, 30, 0.14);
 
 	/* Rail (barra de ícones) — escura nos dois temas (:305) */
 	--mv-rail: #16181c;
@@ -86,6 +96,9 @@
 	--mv-teal-border: rgba(127, 218, 205, 0.45);
 	--mv-card-shadow: none; /* sombra do card só no claro (:1683) */
 
+	--mv-wordmark: #eceef0;
+	--mv-shadow-lg: 0 30px 80px rgba(0, 0, 0, 0.6);
+
 	--mv-rail: #08090a;
 	--mv-rail-item: #1a1d22;
 }
@@ -108,6 +121,8 @@
 		--mv-teal-subtle: rgba(15, 181, 166, 0.16);
 		--mv-teal-border: rgba(127, 218, 205, 0.45);
 		--mv-card-shadow: none;
+		--mv-wordmark: #eceef0;
+		--mv-shadow-lg: 0 30px 80px rgba(0, 0, 0, 0.6);
 		--mv-rail: #08090a;
 		--mv-rail-item: #1a1d22;
 	}
@@ -127,6 +142,7 @@
 
 	--shadow-sm: var(--mv-shadow-1);
 	--shadow-card: var(--mv-card-shadow);
+	--shadow-lg: var(--mv-shadow-lg);
 	--shadow-pop: var(--mv-shadow-pop);
 	--shadow-teal: var(--mv-shadow-teal);
 	--shadow-toast: var(--mv-shadow-toast);
@@ -155,6 +171,11 @@
 	--color-teal-text: var(--mv-teal-text);
 	--color-teal-subtle: var(--mv-teal-subtle);
 	--color-teal-border: var(--mv-teal-border);
+
+	/* Marca Cinetra → text-wordmark, bg-sage, bg-blue, from-blue/to-sage (gradientes) */
+	--color-wordmark: var(--mv-wordmark);
+	--color-sage: var(--mv-sage);
+	--color-blue: var(--mv-blue);
 
 	/* rail escuro (barra de ícones) → bg-rail / bg-rail-item */
 	--color-rail: var(--mv-rail);

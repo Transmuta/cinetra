@@ -1,0 +1,168 @@
+/* Cinetra — superfícies de marketing/autenticação (interface/Cinetra Landing.dc.html).
+   Paleta quente (papel #F6F4EF · navy #212A37 · sálvia #7FA59A · sálvia-fundo #4E7468 ·
+   azul #3A5A78), separada do design system teal do app interno. Tudo escopado sob
+   `.cn-root` para NÃO vazar no shell administrativo — só as @keyframes são globais
+   (os `animation:` inline das artes/seções as referenciam pelo nome). */
+
+.cn-root {
+	font-family: var(--mv-font-sans);
+	color: #212a37;
+	background: #f6f4ef;
+	-webkit-font-smoothing: antialiased;
+}
+.cn-root a {
+	text-decoration: none;
+	color: inherit;
+}
+.cn-root input::placeholder {
+	color: #b0aa9c;
+}
+.cn-root input:focus-visible,
+.cn-root button:focus-visible {
+	outline: 2px solid #4e7468;
+	outline-offset: 2px;
+}
+.cn-root ::selection {
+	background: rgba(127, 165, 154, 0.35);
+}
+
+/* Hovers (o protótipo usa `style-hover`; aqui viram classes reais). */
+.cn-navlinks a:hover,
+.cn-foot a:hover {
+	color: #212a37;
+}
+.cn-hover-nav:hover {
+	background: #ece9e1 !important;
+}
+.cn-hover-dark:hover {
+	background: #2e3b4c !important;
+}
+.cn-hover-white:hover {
+	background: #eaf0ee !important;
+}
+.cn-hover-border:hover {
+	border-color: #212a37 !important;
+}
+.cn-hover-glass:hover {
+	background: rgba(255, 255, 255, 0.18) !important;
+}
+
+/* Logo do topo do card de auth só aparece no mobile (quando o painel de marca some). */
+.cn-auth-logo {
+	display: none;
+}
+@media (max-width: 900px) {
+	.cn-auth-logo {
+		display: flex !important;
+	}
+}
+
+/* Colapsos responsivos do protótipo (:35-42). */
+@media (max-width: 900px) {
+	.cn-navlinks,
+	.cn-brandpanel {
+		display: none !important;
+	}
+	.cn-hero-in {
+		max-width: 100% !important;
+	}
+	.cn-h1 {
+		font-size: 44px !important;
+	}
+	.cn-grid2,
+	.cn-grid3,
+	.cn-dorow,
+	.cn-depo {
+		grid-template-columns: 1fr !important;
+	}
+	.cn-sect {
+		padding: 64px 22px !important;
+	}
+	.cn-num {
+		grid-template-columns: 1fr !important;
+		gap: 26px !important;
+	}
+}
+
+/* Animações da arte orgânica e das entradas (:23-30). Globais de propósito. */
+@keyframes cnRise {
+	from {
+		opacity: 0;
+		transform: translateY(26px);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
+@keyframes cnFade {
+	from {
+		opacity: 0;
+		transform: translateY(14px);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
+@keyframes cnBlob {
+	0%,
+	100% {
+		border-radius: 42% 58% 63% 37% / 45% 45% 55% 55%;
+		transform: rotate(0deg);
+	}
+	50% {
+		border-radius: 58% 42% 37% 63% / 55% 55% 45% 45%;
+		transform: rotate(14deg);
+	}
+}
+@keyframes cnBreathe {
+	0%,
+	100% {
+		transform: scale(1);
+	}
+	50% {
+		transform: scale(1.06);
+	}
+}
+@keyframes cnFloat {
+	0%,
+	100% {
+		transform: translateY(0);
+	}
+	50% {
+		transform: translateY(-13px);
+	}
+}
+@keyframes cnScrollcue {
+	0%,
+	100% {
+		transform: translateY(0);
+		opacity: 0.35;
+	}
+	50% {
+		transform: translateY(9px);
+		opacity: 1;
+	}
+}
+@keyframes cnFlow {
+	to {
+		stroke-dashoffset: 0;
+	}
+}
+@keyframes cnDrift {
+	0%,
+	100% {
+		transform: translate(0, 0);
+	}
+	50% {
+		transform: translate(-14px, 18px);
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.cn-root *,
+	.cn-root *::before,
+	.cn-root *::after {
+		animation-duration: 0.001ms !important;
+	}
+}
