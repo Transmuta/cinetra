@@ -43,8 +43,10 @@ defmodule Api.Accounts.Membership.Changes.ResolveInvitedUser do
   defp send_invite(changeset, {:ok, membership}) do
     email = Ash.Changeset.get_argument(changeset, :email)
     # Best-effort: o convite é um magic link para o e-mail do convidado (D24). Uma falha
-    # de envio não deve derrubar o vínculo já criado.
-    _ = Accounts.request_magic_link(to_string(email))
+    # de envio não deve derrubar o vínculo já criado. É registration-enabling (register?:
+    # true): o convidado pode não ter conta ainda — aqui ele já foi criado no before_action,
+    # mas o flag deixa a intenção explícita e robusta a reordenações.
+    _ = Accounts.request_magic_link(to_string(email), %{register?: true})
     {:ok, membership}
   end
 

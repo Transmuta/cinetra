@@ -11,6 +11,11 @@ defmodule Api.Accounts.User.RequestMagicLink do
 
   Mantém a resposta NEUTRA do magic link (ADR-015): sempre `:ok`, exista o usuário ou não,
   e sem vazar erros (e-mail inexistente/ inválido não são revelados).
+
+  Distingue LOGIN de CADASTRO pelo argumento `register?` da ação. No login (`false`, o
+  default) um e-mail SEM conta não gera link nem cria User — só o cadastro (`/criar-conta`)
+  e o convite (`register?: true`) criam conta a partir de um e-mail novo. A resposta segue
+  neutra nos dois casos, então o formulário de login não serve para enumerar contas.
   """
   use Ash.Resource.Actions.Implementation
 
@@ -26,6 +31,7 @@ defmodule Api.Accounts.User.RequestMagicLink do
     strategy = Info.strategy_for_action!(input.resource, input.action.name)
     identity = ActionInput.get_argument(input, strategy.identity_field)
     nome = ActionInput.get_argument(input, :nome)
+    register? = ActionInput.get_argument(input, :register?) == true
     context_opts = Ash.Context.to_opts(context)
 
     input.resource
@@ -41,15 +47,19 @@ defmodule Api.Accounts.User.RequestMagicLink do
         {:error, error}
 
       {:ok, user_or_nil} ->
-        send_link(strategy, identity, nome, user_or_nil, context, context_opts)
+        send_link(strategy, identity, nome, user_or_nil, register?, context, context_opts)
     end
   end
 
-  # Usuário inexistente só recebe link quando o registro por magic link está habilitado
-  # (evita criar conta por link para quem nunca se cadastrou).
-  defp send_link(%{registration_enabled?: false}, _identity, _nome, nil, _context, _opts), do: :ok
+  # Login (register? false) para e-mail SEM conta: nada é enviado nem criado. A resposta do
+  # controller segue neutra, então o "entrar" não vira cadastro nem enumera contas.
+  defp send_link(_strategy, _identity, _nome, nil, false, _context, _opts), do: :ok
 
-  defp send_link(strategy, identity, nome, user_or_nil, context, context_opts) do
+  # Cadastro pedido, mas o strategy não permite registro: idem, nada é enviado/criado.
+  defp send_link(%{registration_enabled?: false}, _identity, _nome, nil, _register?, _ctx, _opts),
+    do: :ok
+
+  defp send_link(strategy, identity, nome, user_or_nil, _register?, context, context_opts) do
     with {sender, send_opts} <- strategy.sender,
          {:ok, token} <- token_for(strategy, identity, nome, context_opts, context) do
       recipient = user_or_nil || to_string(identity)

@@ -11,22 +11,48 @@ defmodule Api.Accounts.AuthFlowTest do
 
   defp email, do: "user-#{System.unique_integer([:positive])}@example.com"
 
+  # Bootstrap de conta nova = pedido de CADASTRO (register?: true); o login não cria conta.
   defp request_and_capture_token(addr, nome \\ nil) do
-    :ok = Accounts.request_magic_link(addr, %{nome: nome})
+    :ok = Accounts.request_magic_link(addr, %{nome: nome, register?: true})
     assert_receive {:email, email}, 1_000
     [_, token] = Regex.run(~r/token=([\w.\-]+)/, email.text_body)
     token
   end
 
-  test "magic link envia e-mail para o endereço pedido" do
+  test "cadastro (register?: true) envia e-mail para o endereço pedido" do
     addr = email()
-    assert :ok = Accounts.request_magic_link(addr)
+    assert :ok = Accounts.request_magic_link(addr, %{register?: true})
 
     assert_receive {:email, email}, 1_000
     assert email.subject =~ "link de acesso"
     assert [{_, ^addr}] = email.to
     # O link aponta para o callback do WEB (BFF, ADR-005), não para a API.
     assert email.text_body =~ "/auth/callback?token="
+  end
+
+  # O buraco que originou esta fatia: o formulário de LOGIN (register?: false, o default)
+  # não pode gerar link nem criar conta para um e-mail que ainda não existe — senão o
+  # "entrar" vira um cadastro silencioso e dá para enumerar quem tem conta.
+  describe "login não cria conta (register?: false)" do
+    test "e-mail SEM conta: resposta neutra, sem enviar link e sem criar User" do
+      addr = email()
+
+      assert :ok = Accounts.request_magic_link(addr)
+
+      refute_receive {:email, _}, 200
+      assert {:error, _} = Accounts.get_user_by_email(addr, authorize?: false)
+    end
+
+    test "e-mail COM conta: o login envia o link normalmente" do
+      addr = email()
+      # Cadastra a conta antes (register?: true), depois um login para o mesmo e-mail.
+      {:ok, _user} = Accounts.sign_in_with_magic_link(request_and_capture_token(addr))
+
+      assert :ok = Accounts.request_magic_link(addr)
+
+      assert_receive {:email, mail}, 1_000
+      assert [{_, ^addr}] = mail.to
+    end
   end
 
   test "sign-in por magic link cria o User com nome defaultado do e-mail" do
@@ -86,7 +112,7 @@ defmodule Api.Accounts.AuthFlowTest do
 
     test "o token no link é opaco: não é JWT legível nem expõe e-mail/nome (LGPD)" do
       addr = email()
-      :ok = Accounts.request_magic_link(addr, %{nome: "Sigila Segredo"})
+      :ok = Accounts.request_magic_link(addr, %{nome: "Sigila Segredo", register?: true})
       assert_receive {:email, email}, 1_000
       [_, token] = Regex.run(~r/token=([\w.\-]+)/, email.text_body)
 

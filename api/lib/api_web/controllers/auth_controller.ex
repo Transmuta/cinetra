@@ -18,10 +18,13 @@ defmodule ApiWeb.AuthController do
     email = params["email"] || get_in(params, ["user", "email"])
     # Nome opcional (só no cadastro por magic link); viaja assinado no token.
     nome = params["nome"] || get_in(params, ["user", "nome"])
+    # Só o formulário de CADASTRO (/criar-conta) manda register:true; o de login não. Assim
+    # um e-mail sem conta no login não gera link nem conta (a resposta segue neutra).
+    register? = params["register"] == true
 
     if is_binary(email) and email != "" do
       # Best-effort: erros (e-mail inválido etc.) não vazam existência de conta.
-      _ = Accounts.request_magic_link(email, %{nome: nome})
+      _ = Accounts.request_magic_link(email, %{nome: nome, register?: register?})
     end
 
     json(conn, %{ok: true})

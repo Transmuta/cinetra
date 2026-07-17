@@ -11,7 +11,7 @@ defmodule ApiWeb.AuthControllerTest do
 
   defp create_user do
     email = "user-#{System.unique_integer([:positive])}@example.com"
-    :ok = Accounts.request_magic_link(email)
+    :ok = Accounts.request_magic_link(email, %{register?: true})
     assert_receive {:email, mail}, 1_000
     [_, token] = Regex.run(~r/token=([\w.\-]+)/, mail.text_body)
     {:ok, user} = Accounts.sign_in_with_magic_link(token)
@@ -32,8 +32,33 @@ defmodule ApiWeb.AuthControllerTest do
   end
 
   describe "POST /api/auth/magic-link (resposta neutra)" do
-    test "e-mail válido: 200 {ok:true} e dispara o e-mail", %{conn: conn} do
+    test "cadastro (register:true), e-mail novo: 200 {ok:true} e dispara o e-mail",
+         %{conn: conn} do
       addr = "user-#{System.unique_integer([:positive])}@example.com"
+      conn = post(conn, ~p"/api/auth/magic-link", %{email: addr, register: true})
+
+      assert json_response(conn, 200) == %{"ok" => true}
+      assert_receive {:email, mail}, 1_000
+      assert [{_, ^addr}] = mail.to
+    end
+
+    # O flag `register` é fixado por rota no BFF: /entrar não o manda. Um e-mail sem conta
+    # no login recebe a MESMA resposta neutra, mas nenhum e-mail é disparado e nenhuma conta
+    # é criada — não dá para descobrir quais e-mails têm conta.
+    test "login (sem register), e-mail SEM conta: 200 {ok:true} mas NÃO envia", %{conn: conn} do
+      addr = "user-#{System.unique_integer([:positive])}@example.com"
+      conn = post(conn, ~p"/api/auth/magic-link", %{email: addr})
+
+      assert json_response(conn, 200) == %{"ok" => true}
+      refute_receive {:email, _}, 200
+      assert {:error, _} = Accounts.get_user_by_email(addr, authorize?: false)
+    end
+
+    test "login (sem register), e-mail COM conta: 200 {ok:true} e dispara o e-mail",
+         %{conn: conn} do
+      # Conta de fato existente (fluxo completo: request + sign-in).
+      addr = to_string(create_user().email)
+
       conn = post(conn, ~p"/api/auth/magic-link", %{email: addr})
 
       assert json_response(conn, 200) == %{"ok" => true}
@@ -50,7 +75,7 @@ defmodule ApiWeb.AuthControllerTest do
 
     test "cadastro com nome: o nome atravessa o token e vira o nome do User", %{conn: conn} do
       addr = "user-#{System.unique_integer([:positive])}@example.com"
-      conn = post(conn, ~p"/api/auth/magic-link", %{email: addr, nome: "Bianca Souza"})
+      conn = post(conn, ~p"/api/auth/magic-link", %{email: addr, nome: "Bianca Souza", register: true})
 
       assert json_response(conn, 200) == %{"ok" => true}
       assert_receive {:email, mail}, 1_000
@@ -80,7 +105,7 @@ defmodule ApiWeb.AuthControllerTest do
     test "o _api_key emitido não é legível por base64 puro (cifrado, não só assinado)",
          %{conn: conn} do
       addr = "user-#{System.unique_integer([:positive])}@example.com"
-      :ok = Accounts.request_magic_link(addr)
+      :ok = Accounts.request_magic_link(addr, %{register?: true})
       assert_receive {:email, mail}, 1_000
       [_, token] = Regex.run(~r/token=([\w.\-]+)/, mail.text_body)
 

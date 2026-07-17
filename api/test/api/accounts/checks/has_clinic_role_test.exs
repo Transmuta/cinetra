@@ -17,7 +17,7 @@ defmodule Api.Accounts.Checks.HasClinicRoleTest do
 
   defp create_user do
     email = "user-#{System.unique_integer([:positive])}@example.com"
-    :ok = Accounts.request_magic_link(email)
+    :ok = Accounts.request_magic_link(email, %{register?: true})
     assert_receive {:email, mail}, 1_000
     [_, token] = Regex.run(~r/token=([\w.\-]+)/, mail.text_body)
     {:ok, user} = Accounts.sign_in_with_magic_link(token)

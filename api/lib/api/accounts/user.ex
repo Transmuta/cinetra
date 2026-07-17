@@ -146,6 +146,11 @@ defmodule Api.Accounts.User do
       # virar o nome do User no primeiro acesso (ver Api.Accounts.User.RequestMagicLink).
       argument :nome, :string, allow_nil?: true
 
+      # Distingue LOGIN (false, o default) de CADASTRO (true). No login, e-mail SEM conta
+      # recebe resposta neutra sem criar conta nem enviar link — evita virar cadastro
+      # silencioso e enumerar quem tem conta. Só /criar-conta e o convite pedem register?.
+      argument :register?, :boolean, allow_nil?: false, default: false
+
       run Api.Accounts.User.RequestMagicLink
     end
   end
