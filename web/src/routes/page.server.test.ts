@@ -22,11 +22,11 @@ function fakeEvent(routes: Record<string, Response>) {
 	return { fetch, cookies: { get: () => undefined } } as never;
 }
 
-// A raiz não renderiza: sempre redireciona conforme o estado da sessão.
-describe('load / (hub de redirecionamento)', () => {
-	it('sem sessão → 307 para /entrar', async () => {
+// A raiz é a landing pública: deslogado renderiza; logado é mandado para onde pertence.
+describe('load / (landing pública)', () => {
+	it('sem sessão → renderiza a landing (não redireciona)', async () => {
 		const event = fakeEvent({ '/api/auth/me': json({ error: 'not_authenticated' }, 401) });
-		await expect(load(event)).rejects.toMatchObject({ status: 307, location: '/entrar' });
+		await expect(load(event)).resolves.toEqual({});
 	});
 
 	it('logado sem clínica → 307 para /comecar', async () => {
