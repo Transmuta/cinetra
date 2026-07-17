@@ -33,6 +33,19 @@ export function maskCep(value: string): string {
 	return d.length > 5 ? d.slice(0, 5) + '-' + d.slice(5) : d;
 }
 
+// 00.000.000/0000-00 — CNPJ. Aceita o formato **alfanumérico** vigente (letras+dígitos); só
+// formata para exibição (a validação/DV, quando necessária, é do backend `Api.Cnpj`). Campo
+// opcional da ficha do profissional, distinto do CNPJ validado da clínica (`$lib/cnpj`).
+export function maskCnpj(value: string): string {
+	const s = (value ?? '').toUpperCase().replace(/[^0-9A-Z]/g, '').slice(0, 14);
+	let o = s.slice(0, 2);
+	if (s.length > 2) o += '.' + s.slice(2, 5);
+	if (s.length > 5) o += '.' + s.slice(5, 8);
+	if (s.length > 8) o += '/' + s.slice(8, 12);
+	if (s.length > 12) o += '-' + s.slice(12, 14);
+	return o;
+}
+
 // Ano de 4 dígitos (AAAA) — só dígitos, truncado.
 export function maskAno(value: string): string {
 	return onlyDigits(value).slice(0, 4);

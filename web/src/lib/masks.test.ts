@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { maskCpf, maskTel, maskCep, maskAno, maskUf } from './masks';
+import { maskCpf, maskTel, maskCep, maskCnpj, maskAno, maskUf } from './masks';
 
 describe('maskCpf', () => {
 	it('formata progressivamente e trunca em 11 dígitos', () => {
@@ -26,6 +26,14 @@ describe('maskCep', () => {
 		expect(maskCep('01310')).toBe('01310');
 		expect(maskCep('01310100')).toBe('01310-100');
 		expect(maskCep('013101009')).toBe('01310-100');
+	});
+});
+
+describe('maskCnpj', () => {
+	it('formata numérico e alfanumérico progressivamente', () => {
+		expect(maskCnpj('123')).toBe('12.3');
+		expect(maskCnpj('12345678000190')).toBe('12.345.678/0001-90');
+		expect(maskCnpj('12abc678000190')).toBe('12.ABC.678/0001-90');
 	});
 });
 

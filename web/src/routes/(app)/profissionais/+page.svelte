@@ -1,11 +1,13 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import Search from '@lucide/svelte/icons/search';
+	import Plus from '@lucide/svelte/icons/plus';
 	import CalendarClock from '@lucide/svelte/icons/calendar-clock';
 	import Stethoscope from '@lucide/svelte/icons/stethoscope';
 	import Phone from '@lucide/svelte/icons/phone';
 	import { initials } from '$lib/format';
 	import {
+		canManageProfessionals,
 		profColor,
 		filterByStatus,
 		searchProfessionals,
@@ -18,6 +20,9 @@
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
+
+	// Gestão = owner/admin (some o "+" mobile para os demais; a sidebar já faz o mesmo).
+	const canManage = $derived(canManageProfessionals(data.me.papel));
 
 	// O filtro por status vem da sidebar contextual (?status=…); default "todos".
 	const status = $derived<StatusFilter>(
@@ -41,9 +46,10 @@
 <svelte:head><title>Profissionais · Cinetra</title></svelte:head>
 
 <div class="px-4 py-4 md:px-[18px]">
-	<!-- Toolbar: busca (o "Novo profissional" e o filtro moram na sidebar) -->
-	<div class="mb-3.5">
-		<div class="relative max-w-[380px]">
+	<!-- Toolbar: busca + "+" mobile (o "Novo profissional" cheio e o filtro moram na sidebar,
+	     que no mobile fica na gaveta — daí o atalho de ícone aqui). -->
+	<div class="mb-3.5 flex items-center gap-2">
+		<div class="relative max-w-[380px] flex-1">
 			<Search size={15} class="absolute top-1/2 left-2.5 -translate-y-1/2 text-faint" />
 			<input
 				bind:value={term}
@@ -52,6 +58,16 @@
 				class="h-9 w-full rounded-lg border border-edge bg-surface pr-3 pl-8 text-[13px] text-ink"
 			/>
 		</div>
+		{#if canManage}
+			<a
+				href="/profissionais/novo"
+				title="Novo profissional"
+				aria-label="Novo profissional"
+				class="grid size-9 shrink-0 place-items-center rounded-lg bg-ink text-canvas hover:opacity-90 md:hidden"
+			>
+				<Plus size={18} />
+			</a>
+		{/if}
 	</div>
 
 	<div class="overflow-hidden rounded-[10px] border border-edge bg-surface">

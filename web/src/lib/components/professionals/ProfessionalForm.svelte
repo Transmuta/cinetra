@@ -36,8 +36,7 @@
 		type GradeState
 	} from '$lib/professionals';
 	import { validateDayPeriods, formatDate, formatPeriods, type Period } from '$lib/scheduling';
-	import { maskCpf, maskTel, maskCep, maskAno, maskUf } from '$lib/masks';
-	import { maskCnpj } from '$lib/cnpj';
+	import { maskCpf, maskTel, maskCep, maskCnpj, maskAno, maskUf } from '$lib/masks';
 	import { lookupCep, type CepStatus } from '$lib/cep';
 
 	let {
@@ -86,10 +85,6 @@
 			ano_conclusao: professional?.ano_conclusao ?? '',
 			razao_social: professional?.razao_social ?? '',
 			cnpj: professional?.cnpj ?? '',
-			banco: professional?.banco ?? '',
-			agencia: professional?.agencia ?? '',
-			conta: professional?.conta ?? '',
-			conta_tipo: professional?.conta_tipo ?? 'Corrente',
 			pix: professional?.pix ?? ''
 		}))
 	);
@@ -208,7 +203,7 @@
 		ident: [f.nome, f.nome_exibicao, f.nascimento, f.cpf, f.rg, f.estado_civil].filter(nonEmpty).length,
 		contato: [f.tel, f.email, f.cep, f.endereco, f.numero, f.complemento, f.bairro, f.cidade, f.uf, f.emergencia_nome, f.emergencia_tel].filter(nonEmpty).length,
 		tecnicos: [f.profissao, f.crefito, f.registro_uf, f.ano_conclusao].filter(nonEmpty).length + (especialidades.length ? 1 : 0),
-		contrato: [vinculo, f.razao_social, f.cnpj, f.banco, f.agencia, f.conta, f.pix].filter(nonEmpty).length,
+		contrato: [vinculo, f.razao_social, f.cnpj, f.pix].filter(nonEmpty).length,
 		horario: segue ? 0 : 1,
 		cor: 1 + (ativo ? 1 : 0)
 	});
@@ -216,7 +211,7 @@
 		{ id: 'ident', icon: User, t: 'Identificação pessoal', sub: 'Dados básicos para o contrato', total: 6 },
 		{ id: 'contato', icon: MapPin, t: 'Contato & localização', sub: 'Comunicação e endereço', total: 11 },
 		{ id: 'tecnicos', icon: Stethoscope, t: 'Dados profissionais e técnicos', sub: 'Registro e aptidão técnica', total: 5 },
-		{ id: 'contrato', icon: FileText, t: 'Contratuais & financeiros', sub: 'Vínculo, empresa e repasse', total: 7 },
+		{ id: 'contrato', icon: FileText, t: 'Contratuais & financeiros', sub: 'Vínculo, empresa e repasse', total: 4 },
 		{ id: 'horario', icon: CalendarClock, t: 'Horário de atendimento', sub: 'Disponibilidade na agenda', total: 1 },
 		{ id: 'cor', icon: Palette, t: 'Cor & status', sub: 'Aparência na agenda e situação', total: 2 }
 	] as const;
@@ -510,30 +505,10 @@
 						</div>
 					{/if}
 					<div class="mb-2 text-[11px] font-bold text-faint">Dados bancários para repasse</div>
-					<div class="grid grid-cols-1 gap-3 md:grid-cols-3">
-						<label class="block">
-							{@render label('Banco')}
-							<input bind:value={f.banco} class={inputCls} />
-						</label>
-						<label class="block">
-							{@render label('Agência')}
-							<input bind:value={f.agencia} class="{inputCls} font-mono" />
-						</label>
-						<label class="block">
-							{@render label('Conta')}
-							<input bind:value={f.conta} class="{inputCls} font-mono" />
-						</label>
-						<label class="block">
-							{@render label('Tipo de conta')}
-							<select bind:value={f.conta_tipo} class={inputCls}>
-								<option>Corrente</option><option>Poupança</option>
-							</select>
-						</label>
-						<label class="block md:col-span-2">
-							{@render label('Chave PIX')}
-							<input bind:value={f.pix} placeholder="CPF, e-mail, telefone ou aleatória" class={inputCls} />
-						</label>
-					</div>
+					<label class="block">
+						{@render label('Chave PIX')}
+						<input bind:value={f.pix} placeholder="CPF, e-mail, telefone ou aleatória" class={inputCls} />
+					</label>
 				</section>
 
 				<!-- 5. Horário de atendimento (grade + exceções) -->
