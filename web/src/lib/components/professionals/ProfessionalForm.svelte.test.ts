@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import '@testing-library/jest-dom/vitest';
 import { render, fireEvent } from '@testing-library/svelte';
 
@@ -73,6 +73,35 @@ describe('ProfessionalForm — novo', () => {
 		const { container, getByRole } = render(ProfessionalForm, { props: { clinicHours } });
 		await fireEvent.click(getByRole('button', { name: /Pilates/ }));
 		expect(ficha(container).especialidades).toContain('Pilates');
+	});
+
+	it('mascara o CPF ao digitar', async () => {
+		const { getByPlaceholderText } = render(ProfessionalForm, { props: { clinicHours } });
+		const cpf = getByPlaceholderText('000.000.000-00') as HTMLInputElement;
+		await fireEvent.input(cpf, { target: { value: '12345678901' } });
+		expect(cpf.value).toBe('123.456.789-01');
+	});
+
+	it('autopreenche o endereço ao digitar um CEP válido (via BFF)', async () => {
+		const fetchMock = vi.fn(
+			async () =>
+				new Response(
+					JSON.stringify({ endereco: 'Avenida Paulista', bairro: 'Bela Vista', cidade: 'São Paulo', uf: 'SP' }),
+					{ status: 200, headers: { 'content-type': 'application/json' } }
+				)
+		);
+		vi.stubGlobal('fetch', fetchMock);
+		try {
+			const { getByPlaceholderText } = render(ProfessionalForm, { props: { clinicHours } });
+			await fireEvent.input(getByPlaceholderText('00000-000'), { target: { value: '01310100' } });
+
+			await vi.waitFor(() =>
+				expect((getByPlaceholderText('Preenchido pelo CEP') as HTMLInputElement).value).toBe('Avenida Paulista')
+			);
+			expect(fetchMock).toHaveBeenCalledWith('/api/cep/01310100');
+		} finally {
+			vi.unstubAllGlobals();
+		}
 	});
 
 	it('adicionar uma exceção de data a encena na lista', async () => {

@@ -36,6 +36,9 @@
 		type GradeState
 	} from '$lib/professionals';
 	import { validateDayPeriods, formatDate, formatPeriods, type Period } from '$lib/scheduling';
+	import { maskCpf, maskTel, maskCep, maskAno, maskUf } from '$lib/masks';
+	import { maskCnpj } from '$lib/cnpj';
+	import { lookupCep, type CepStatus } from '$lib/cep';
 
 	let {
 		professional = null,
@@ -130,6 +133,35 @@
 		especialidades = especialidades.includes(t)
 			? especialidades.filter((x) => x !== t)
 			: [...especialidades, t];
+	}
+
+	// CEP → autopreenchimento (endereço/bairro/cidade/UF) pelo BFF, com status e guarda de
+	// requisição obsoleta (o usuário pode mudar o CEP no meio da consulta), como no protótipo.
+	let cepStatus = $state<CepStatus>(null);
+	let cepReq = '';
+
+	async function runCepLookup(cep: string) {
+		const digits = cep.replace(/\D/g, '');
+		if (digits.length !== 8) {
+			cepStatus = null;
+			return;
+		}
+		cepReq = digits;
+		cepStatus = 'loading';
+		const { status, address } = await lookupCep(digits);
+		if (cepReq !== digits) return; // um novo CEP foi digitado durante a consulta
+		cepStatus = status;
+		if (status === 'ok' && address) {
+			if (address.endereco) f.endereco = address.endereco;
+			if (address.bairro) f.bairro = address.bairro;
+			if (address.cidade) f.cidade = address.cidade;
+			if (address.uf) f.uf = address.uf;
+		}
+	}
+
+	function onCepInput(e: Event & { currentTarget: HTMLInputElement }) {
+		f.cep = maskCep(e.currentTarget.value);
+		runCepLookup(f.cep);
 	}
 
 	// ---- Validação: nome e horário obrigatórios ----
@@ -319,7 +351,7 @@
 						</label>
 						<label class="block">
 							{@render label('CPF')}
-							<input bind:value={f.cpf} placeholder="000.000.000-00" class="{inputCls} font-mono" />
+							<input value={f.cpf} oninput={(e) => (f.cpf = maskCpf(e.currentTarget.value))} inputmode="numeric" placeholder="000.000.000-00" class="{inputCls} font-mono" />
 						</label>
 						<label class="block">
 							{@render label('RG')}
@@ -342,7 +374,7 @@
 					<div class="grid grid-cols-1 gap-3 md:grid-cols-2">
 						<label class="block">
 							{@render label('Celular / WhatsApp')}
-							<input bind:value={f.tel} placeholder="(11) 90000-0000" class="{inputCls} font-mono" />
+							<input value={f.tel} oninput={(e) => (f.tel = maskTel(e.currentTarget.value))} inputmode="tel" placeholder="(11) 90000-0000" class="{inputCls} font-mono" />
 						</label>
 						<label class="block">
 							{@render label('E-mail (contato)')}
@@ -350,11 +382,28 @@
 						</label>
 						<label class="block">
 							{@render label('CEP')}
-							<input bind:value={f.cep} placeholder="00000-000" class="{inputCls} font-mono" />
+							<input value={f.cep} oninput={onCepInput} onblur={() => runCepLookup(f.cep)} inputmode="numeric" placeholder="00000-000" class="{inputCls} font-mono" />
+							{#if cepStatus}
+								<span
+									class="mt-1 block text-[11px] {cepStatus === 'ok'
+										? 'text-teal-text'
+										: cepStatus === 'loading'
+											? 'text-muted'
+											: 'text-danger'}"
+								>
+									{cepStatus === 'loading'
+										? 'Buscando endereço…'
+										: cepStatus === 'ok'
+											? 'Endereço preenchido pelo CEP'
+											: cepStatus === 'notfound'
+												? 'CEP não encontrado — preencha manualmente'
+												: 'Não foi possível consultar o CEP agora'}
+								</span>
+							{/if}
 						</label>
 						<label class="block">
 							{@render label('Endereço')}
-							<input bind:value={f.endereco} class={inputCls} />
+							<input bind:value={f.endereco} placeholder="Preenchido pelo CEP" class={inputCls} />
 						</label>
 						<label class="block">
 							{@render label('Bairro')}
@@ -367,7 +416,7 @@
 							</label>
 							<label class="block">
 								{@render label('UF')}
-								<input bind:value={f.uf} maxlength="2" class="{inputCls} uppercase" />
+								<input value={f.uf} oninput={(e) => (f.uf = maskUf(e.currentTarget.value))} maxlength="2" class="{inputCls} uppercase" />
 							</label>
 							<label class="block">
 								{@render label('Cidade')}
@@ -384,7 +433,7 @@
 						</label>
 						<label class="block">
 							{@render label('Telefone de emergência')}
-							<input bind:value={f.emergencia_tel} placeholder="(11) 90000-0000" class="{inputCls} font-mono" />
+							<input value={f.emergencia_tel} oninput={(e) => (f.emergencia_tel = maskTel(e.currentTarget.value))} inputmode="tel" placeholder="(11) 90000-0000" class="{inputCls} font-mono" />
 						</label>
 					</div>
 				</section>
@@ -407,11 +456,11 @@
 						</label>
 						<label class="block">
 							{@render label('UF do conselho')}
-							<input bind:value={f.registro_uf} maxlength="2" class="{inputCls} uppercase" />
+							<input value={f.registro_uf} oninput={(e) => (f.registro_uf = maskUf(e.currentTarget.value))} maxlength="2" class="{inputCls} uppercase" />
 						</label>
 						<label class="block">
 							{@render label('Ano de conclusão')}
-							<input bind:value={f.ano_conclusao} placeholder="AAAA" class="{inputCls} font-mono" />
+							<input value={f.ano_conclusao} oninput={(e) => (f.ano_conclusao = maskAno(e.currentTarget.value))} inputmode="numeric" placeholder="AAAA" class="{inputCls} font-mono" />
 						</label>
 					</div>
 					{@render label('Especialidades / áreas de atuação')}
@@ -456,7 +505,7 @@
 							</label>
 							<label class="block">
 								{@render label('CNPJ')}
-								<input bind:value={f.cnpj} placeholder="00.000.000/0000-00" class="{inputCls} font-mono" />
+								<input value={f.cnpj} oninput={(e) => (f.cnpj = maskCnpj(e.currentTarget.value))} placeholder="00.000.000/0000-00" class="{inputCls} font-mono" />
 							</label>
 						</div>
 					{/if}
