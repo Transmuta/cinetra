@@ -118,6 +118,26 @@ defmodule ApiWeb.MembersControllerTest do
       assert body["error"] == "invalid"
     end
 
+    # Regressão do conserto do docs/23: o erro de identity duplicada (`unique_user_per_clinic`)
+    # reporta o campo em `:fields` (plural). A cópia antiga de `error_messages` do controller só
+    # olhava `:field` (singular), então este 422 saía com `field: null` e o form não sabia qual
+    # input marcar. Depois de migrar para o `ApiWeb.TenantScope` (com o fallback `:fields`), vem
+    # preenchido.
+    test "convite do mesmo e-mail duas vezes devolve 422 com o campo preenchido (não null)",
+         %{conn: conn} do
+      invitee = email()
+      conn |> post(~p"/api/members", %{email: invitee, papel: "recepcao"}) |> json_response(201)
+
+      body =
+        conn
+        |> post(~p"/api/members", %{email: invitee, papel: "recepcao"})
+        |> json_response(422)
+
+      assert body["error"] == "invalid"
+      assert [%{"field" => field} | _] = body["details"]
+      refute is_nil(field)
+    end
+
     test "convite de profissional carrega o vínculo (professional_id)", %{
       conn: conn,
       clinic: clinic

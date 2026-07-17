@@ -80,6 +80,16 @@ defmodule ApiWeb.Router do
     # Arquivar/restaurar são transição de estado, não destroy (T2/T10): POST /:id/<verbo>.
     post "/appointment-types/:id/archive", AppointmentTypesController, :archive
     post "/appointment-types/:id/restore", AppointmentTypesController, :restore
+
+    # Horário semanal da clínica (doc 22). Leitura para todo membro, escrita só owner/admin;
+    # clinic_id sempre do escopo. PATCH substitui a semana enviada.
+    get "/clinic-hours", ClinicHoursController, :index
+    patch "/clinic-hours", ClinicHoursController, :update
+
+    # Exceções de data da clínica (doc 22). Excluir é DELETE de verdade (H4).
+    get "/clinic-exceptions", ClinicExceptionsController, :index
+    post "/clinic-exceptions", ClinicExceptionsController, :create
+    delete "/clinic-exceptions/:id", ClinicExceptionsController, :delete
   end
 
   # Máquina OAuth do AshAuthentication (Assent): request + callback do Google. Chama

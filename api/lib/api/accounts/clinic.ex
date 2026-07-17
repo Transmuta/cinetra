@@ -30,6 +30,8 @@ defmodule Api.Accounts.Clinic do
       accept [:nome, :timezone, :cap_turma_padrao, :falta_consome_padrao, :slot_minutos]
       change Api.Accounts.Clinic.Changes.CreateOwnerMembership
       change Api.Accounts.Clinic.Changes.SeedAppointmentTypes
+      # Doc 22 §2: e o expediente semanal, sem o qual a agenda não sabe quando se atende.
+      change Api.Accounts.Clinic.Changes.SeedClinicHours
     end
 
     update :update_settings do

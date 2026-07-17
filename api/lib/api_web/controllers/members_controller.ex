@@ -9,9 +9,10 @@ defmodule ApiWeb.MembersController do
   """
   use ApiWeb, :controller
 
+  import ApiWeb.TenantScope
+
   alias Api.Accounts
   alias Api.Directory
-  alias Api.Scope
 
   @papeis %{
     "owner" => :owner,
@@ -98,34 +99,11 @@ defmodule ApiWeb.MembersController do
     end
   end
 
-  # Gestão (POST/PATCH/DELETE): exige owner/admin da clínica ativa.
-  defp with_admin_scope(conn, fun) do
-    case conn.assigns[:scope] do
-      %Scope{clinic_id: cid, papel: papel} = scope
-      when not is_nil(cid) and papel in [:owner, :admin] ->
-        fun.(scope)
-
-      %Scope{} ->
-        conn |> put_status(:forbidden) |> json(%{error: "forbidden"})
-
-      _ ->
-        conn |> put_status(:unauthorized) |> json(%{error: "unauthenticated"})
-    end
-  end
-
-  # Leitura (GET): qualquer membro de uma clínica ativa, independentemente do papel.
-  defp with_member_scope(conn, fun) do
-    case conn.assigns[:scope] do
-      %Scope{clinic_id: cid} = scope when not is_nil(cid) ->
-        fun.(scope)
-
-      %Scope{} ->
-        conn |> put_status(:forbidden) |> json(%{error: "forbidden"})
-
-      _ ->
-        conn |> put_status(:unauthorized) |> json(%{error: "unauthenticated"})
-    end
-  end
+  # As guardas de escopo (`with_admin_scope`/`with_member_scope`) e a escada de erro
+  # (`error_response`/`not_found`) vêm do `ApiWeb.TenantScope` compartilhado (doc 23) — antes
+  # eram cópias privadas aqui. Ganho de brinde: a `error_response` do módulo tem o fallback
+  # `:fields`, então um 422 de identity duplicada (convite repetido) para de sair com
+  # `field: null`.
 
   defp member_json(m) do
     %{
@@ -159,30 +137,4 @@ defmodule ApiWeb.MembersController do
   defp blank_to_nil(nil), do: nil
   defp blank_to_nil(""), do: nil
   defp blank_to_nil(value), do: value
-
-  defp not_found(conn), do: conn |> put_status(:not_found) |> json(%{error: "not_found"})
-
-  defp error_response(conn, %Ash.Error.Forbidden{}),
-    do: conn |> put_status(:forbidden) |> json(%{error: "forbidden"})
-
-  defp error_response(conn, %Ash.Error.Invalid{errors: errors} = error) do
-    if Enum.any?(errors, &match?(%Ash.Error.Query.NotFound{}, &1)) do
-      not_found(conn)
-    else
-      conn
-      |> put_status(:unprocessable_entity)
-      |> json(%{error: "invalid", details: error_messages(error)})
-    end
-  end
-
-  defp error_response(conn, _error),
-    do: conn |> put_status(:bad_request) |> json(%{error: "bad_request"})
-
-  defp error_messages(%{errors: errors}) when is_list(errors) do
-    Enum.map(errors, fn err ->
-      %{field: Map.get(err, :field), message: Exception.message(err)}
-    end)
-  end
-
-  defp error_messages(_), do: []
 end

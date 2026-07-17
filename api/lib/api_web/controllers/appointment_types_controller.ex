@@ -12,9 +12,10 @@ defmodule ApiWeb.AppointmentTypesController do
   """
   use ApiWeb, :controller
 
+  import ApiWeb.TenantScope
+
   alias Api.Accounts
   alias Api.Directory
-  alias Api.Scope
 
   # GET /api/appointment-types — ativos E arquivados; a tela é que separa (T5).
   #
@@ -80,35 +81,6 @@ defmodule ApiWeb.AppointmentTypesController do
     end
   end
 
-  # Escrita: exige owner/admin da clínica ativa.
-  defp with_admin_scope(conn, fun) do
-    case conn.assigns[:scope] do
-      %Scope{clinic_id: cid, papel: papel} = scope
-      when not is_nil(cid) and papel in [:owner, :admin] ->
-        fun.(scope)
-
-      %Scope{} ->
-        conn |> put_status(:forbidden) |> json(%{error: "forbidden"})
-
-      _ ->
-        conn |> put_status(:unauthorized) |> json(%{error: "unauthenticated"})
-    end
-  end
-
-  # Leitura: qualquer membro de uma clínica ativa, independentemente do papel.
-  defp with_member_scope(conn, fun) do
-    case conn.assigns[:scope] do
-      %Scope{clinic_id: cid} = scope when not is_nil(cid) ->
-        fun.(scope)
-
-      %Scope{} ->
-        conn |> put_status(:forbidden) |> json(%{error: "forbidden"})
-
-      _ ->
-        conn |> put_status(:unauthorized) |> json(%{error: "unauthenticated"})
-    end
-  end
-
   # `sigla` é derivada (T4) e vem sempre no JSON. `clinic_id` NÃO sai: é o tenant, já
   # implícito na sessão — o cliente não tem o que fazer com ele.
   defp type_json(t) do
@@ -127,57 +99,8 @@ defmodule ApiWeb.AppointmentTypesController do
 
   @campos ~w(nome duracao_minutos cor icon grupo capacidade)a
 
-  # Whitelist de campos, no espírito do `@papeis` do MembersController: `clinic_id`,
-  # `ativo` e qualquer outra coisa no corpo são simplesmente ignorados — o tenant vem do
-  # escopo (09 §8), e `ativo` só muda por archive/restore (T2).
-  #
-  # Serve create e update: no create, campo obrigatório ausente cai no `allow_nil? false`
-  # da ação (422); no update, campo ausente do corpo não é tocado (parcial). O teste é
-  # `Map.has_key?`, não truthiness — `capacidade: null` é instrução legítima de limpar.
-  defp input(params) do
-    Enum.reduce(@campos, %{}, fn field, input ->
-      key = Atom.to_string(field)
-
-      if Map.has_key?(params, key),
-        do: Map.put(input, field, params[key]),
-        else: input
-    end)
-  end
-
-  defp not_found(conn), do: conn |> put_status(:not_found) |> json(%{error: "not_found"})
-
-  defp error_response(conn, %Ash.Error.Forbidden{}),
-    do: conn |> put_status(:forbidden) |> json(%{error: "forbidden"})
-
-  defp error_response(conn, %Ash.Error.Invalid{errors: errors} = error) do
-    if Enum.any?(errors, &match?(%Ash.Error.Query.NotFound{}, &1)) do
-      not_found(conn)
-    else
-      conn
-      |> put_status(:unprocessable_entity)
-      |> json(%{error: "invalid", details: error_messages(error)})
-    end
-  end
-
-  defp error_response(conn, _error),
-    do: conn |> put_status(:bad_request) |> json(%{error: "bad_request"})
-
-  defp error_messages(%{errors: errors}) when is_list(errors) do
-    Enum.map(errors, fn err ->
-      %{field: error_field(err), message: Exception.message(err)}
-    end)
-  end
-
-  defp error_messages(_), do: []
-
-  # O Ash reporta o campo em `:field` (`InvalidAttribute`, ex. cor fora da paleta) OU em
-  # `:fields` (`InvalidChanges` — é o caso do nome duplicado, T7). Sem este fallback o 422
-  # mais importante da tela chegaria com `field: null` e o modal não saberia qual input
-  # marcar. (O `MembersController` só olha `:field`; ver nota de DRY no relatório.)
-  defp error_field(err) do
-    case Map.get(err, :field) do
-      nil -> err |> Map.get(:fields) |> List.wrap() |> List.first()
-      field -> field
-    end
-  end
+  # `clinic_id`, `ativo` e o que mais vier no corpo são ignorados pela whitelist — o tenant vem
+  # do escopo (09 §8), e `ativo` só muda por archive/restore (T2). Serve create e update: no
+  # create, obrigatório ausente cai no `allow_nil? false`; no update, ausente não é tocado.
+  defp input(params), do: whitelist(params, @campos)
 end
