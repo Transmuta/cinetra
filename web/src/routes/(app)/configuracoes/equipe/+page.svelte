@@ -46,7 +46,7 @@
 		if (!form) return;
 		if (form.ok) toast(toastText(form.action));
 		else if (form.error && (form.action === 'revoke' || form.action === 'resend'))
-			toast(form.error);
+			toast(form.error, 'error');
 	});
 
 	function toastText(action?: string): string {

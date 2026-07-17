@@ -18,7 +18,7 @@
 	$effect(() => {
 		if (!form) return;
 		if (form.ok) toast(form.action === 'delete' ? 'Exceção removida' : 'Exceção adicionada');
-		else if (form.error && form.action === 'delete') toast(form.error);
+		else if (form.error && form.action === 'delete') toast(form.error, 'error');
 	});
 </script>
 

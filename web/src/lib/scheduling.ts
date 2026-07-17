@@ -71,6 +71,60 @@ export function weekChanged(draft: WeekHours, saved: WeekHours): boolean {
 	});
 }
 
+// Validação de períodos de um dia, **espelho** de `Api.Scheduling.Periods.validate/1` (a API é a
+// autoridade; isto é UX antecipada, para apontar o campo errado antes de mandar). Diferente do
+// servidor, aqui não paramos no 1º erro: devolvemos QUAIS períodos destacar (índices) e uma
+// mensagem curta, para o editor pintar o input problemático em vez de um toast genérico.
+const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+function timeToMinutes(value: string): number {
+	const [h, m] = value.split(':');
+	return Number(h) * 60 + Number(m);
+}
+
+export interface DayValidation {
+	ok: boolean;
+	/** índices dos períodos a destacar (input em vermelho). */
+	badIndices: number[];
+	/** motivo curto para exibir sob o dia (null quando ok). */
+	message: string | null;
+}
+
+export function validateDayPeriods(periods: Period[]): DayValidation {
+	const bad = new Set<number>();
+	let message: string | null = null;
+
+	// 1. Forma (HH:MM) e ordem interna (início antes do fim) de cada período.
+	periods.forEach(([ini, fim], i) => {
+		if (!TIME_RE.test(ini) || !TIME_RE.test(fim)) {
+			bad.add(i);
+			message ??= 'Preencha os horários (formato HH:MM).';
+		} else if (timeToMinutes(ini) >= timeToMinutes(fim)) {
+			bad.add(i);
+			message ??= 'O horário final deve ser depois do inicial.';
+		}
+	});
+
+	// 2. Sobreposição/ordem entre períodos — só quando cada período isolado é válido, para não
+	//    empilhar mensagens (o fim de um tem de vir antes do início do próximo).
+	if (bad.size === 0) {
+		for (let i = 1; i < periods.length; i++) {
+			if (timeToMinutes(periods[i - 1][1]) > timeToMinutes(periods[i][0])) {
+				bad.add(i - 1);
+				bad.add(i);
+				message ??= 'Os períodos não podem se sobrepor.';
+			}
+		}
+	}
+
+	return { ok: bad.size === 0, badIndices: [...bad].sort((a, b) => a - b), message };
+}
+
+// Algum dia da semana tem período inválido? (trava o Salvar e evita o toast genérico).
+export function weekHasErrors(week: WeekHours): boolean {
+	return WEEKDAYS.some(({ dow }) => !validateDayPeriods(week[String(dow)] ?? []).ok);
+}
+
 // "08:00–12:00, 13:00–18:00", ou "Fechado" quando não há período (lista da tela e resumo).
 export function formatPeriods(periods: Period[]): string {
 	if (!periods || periods.length === 0) return 'Fechado';

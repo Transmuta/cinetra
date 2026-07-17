@@ -10,6 +10,8 @@ import {
 	formatPeriods,
 	formatDate,
 	canManageSchedule,
+	validateDayPeriods,
+	weekHasErrors,
 	type WeekHours
 } from './scheduling';
 
@@ -143,6 +145,83 @@ describe('formatDate', () => {
 
 	it('data malformada volta como veio', () => {
 		expect(formatDate('não-é-data')).toBe('não-é-data');
+	});
+});
+
+describe('validateDayPeriods (espelho do servidor, com índice do input errado)', () => {
+	it('dia fechado (lista vazia) é válido', () => {
+		expect(validateDayPeriods([])).toEqual({ ok: true, badIndices: [], message: null });
+	});
+
+	it('manhã e tarde ordenados e disjuntos: válido', () => {
+		expect(
+			validateDayPeriods([
+				['08:00', '12:00'],
+				['13:00', '18:00']
+			]).ok
+		).toBe(true);
+	});
+
+	it('encostados (fim == início do próximo) valem', () => {
+		expect(
+			validateDayPeriods([
+				['08:00', '12:00'],
+				['12:00', '18:00']
+			]).ok
+		).toBe(true);
+	});
+
+	it('início >= fim destaca AQUELE período e explica', () => {
+		const v = validateDayPeriods([['14:00', '12:00']]);
+		expect(v.ok).toBe(false);
+		expect(v.badIndices).toEqual([0]);
+		expect(v.message).toBe('O horário final deve ser depois do inicial.');
+	});
+
+	it('destaca só o período errado, não os corretos', () => {
+		const v = validateDayPeriods([
+			['08:00', '12:00'],
+			['16:00', '15:00']
+		]);
+		expect(v.badIndices).toEqual([1]);
+	});
+
+	it('horário vazio/parcial é destacado como forma inválida', () => {
+		expect(validateDayPeriods([['', '12:00']]).badIndices).toEqual([0]);
+		expect(validateDayPeriods([['08:00', '']]).message).toBe('Preencha os horários (formato HH:MM).');
+	});
+
+	it('sobreposição destaca o par e explica', () => {
+		const v = validateDayPeriods([
+			['08:00', '13:00'],
+			['12:00', '18:00']
+		]);
+		expect(v.ok).toBe(false);
+		expect(v.badIndices).toEqual([0, 1]);
+		expect(v.message).toBe('Os períodos não podem se sobrepor.');
+	});
+
+	it('fora de ordem (segundo antes do primeiro) é inválido', () => {
+		expect(
+			validateDayPeriods([
+				['13:00', '18:00'],
+				['08:00', '12:00']
+			]).ok
+		).toBe(false);
+	});
+});
+
+describe('weekHasErrors', () => {
+	it('semana toda fechada não tem erro', () => {
+		expect(weekHasErrors({})).toBe(false);
+	});
+
+	it('um dia inválido contamina a semana', () => {
+		expect(weekHasErrors({ '1': [['14:00', '12:00']] })).toBe(true);
+	});
+
+	it('todos os dias válidos: sem erro', () => {
+		expect(weekHasErrors({ '1': [['08:00', '12:00']], '2': [['09:00', '17:00']] })).toBe(false);
 	});
 });
 

@@ -1,13 +1,19 @@
 <script lang="ts">
 	// Pill do protótipo (renderToast :3491): flutua no bottom-center, cores do tema
 	// INVERTIDAS — que são exatamente os tokens primary/on-primary (#16181c/#fff no
-	// claro, #eceef0/#16181c no escuro) — com Check teal fixo e sombra própria.
-	// Quem decide o que mostrar e por quanto tempo é $lib/toast.svelte.ts.
+	// claro, #eceef0/#16181c no escuro) — com sombra própria. Quem decide o que mostrar e
+	// por quanto tempo é $lib/toast.svelte.ts.
+	//
+	// O ícone distingue a variante: sucesso = check teal; erro = alerta danger (o protótipo
+	// não distinguia, e por isso um "Dados inválidos" saía com o check verde de sucesso).
 	import Check from '@lucide/svelte/icons/check';
+	import CircleAlert from '@lucide/svelte/icons/circle-alert';
 	import { currentToast } from '$lib/toast.svelte';
+
+	const active = $derived(currentToast());
 </script>
 
-{#if currentToast()}
+{#if active}
 	<!-- o wrapper centraliza; o pill é quem anima (mvFade mexe em transform, e animar
 	     o próprio elemento centralizado por translateX faria o pill pular no fim) -->
 	<div class="pointer-events-none fixed inset-x-0 bottom-5.5 z-[60] flex justify-center px-4">
@@ -15,8 +21,12 @@
 			role="status"
 			class="flex animate-fade items-center gap-2 rounded-[10px] bg-primary px-4 py-2.5 text-[13px] font-semibold text-on-primary shadow-toast"
 		>
-			<Check size={15} class="shrink-0 text-teal" />
-			{currentToast()}
+			{#if active.variant === 'error'}
+				<CircleAlert size={15} class="shrink-0 text-danger" />
+			{:else}
+				<Check size={15} class="shrink-0 text-teal" />
+			{/if}
+			{active.message}
 		</div>
 	</div>
 {/if}

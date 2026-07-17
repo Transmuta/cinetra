@@ -5,7 +5,7 @@
 	import { enhance } from '$app/forms';
 	import type { SubmitFunction } from '@sveltejs/kit';
 	import PeriodEditor from './PeriodEditor.svelte';
-	import type { ExceptionKind, Period } from '$lib/scheduling';
+	import { validateDayPeriods, type ExceptionKind, type Period } from '$lib/scheduling';
 
 	let { error = null }: { error?: string | null } = $props();
 
@@ -31,6 +31,9 @@
 
 	const seg =
 		'flex-1 rounded-[7px] border px-2 py-[7px] text-[12px] font-semibold cursor-pointer';
+
+	// "Horário específico" com períodos inválidos trava o Adicionar (o PeriodEditor aponta o campo).
+	const periodsInvalid = $derived(tipo === 'horario' && !validateDayPeriods(periods).ok);
 </script>
 
 <form
@@ -89,7 +92,7 @@
 
 	<button
 		type="submit"
-		disabled={submitting || data === ''}
+		disabled={submitting || data === '' || periodsInvalid}
 		class="rounded-lg bg-primary px-3.5 py-2 text-[13px] font-semibold text-on-primary hover:bg-primary-hover disabled:opacity-60"
 	>
 		Adicionar exceção

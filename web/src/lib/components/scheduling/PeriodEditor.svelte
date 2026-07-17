@@ -5,7 +5,13 @@
 	// e, no futuro, o horário do profissional, que passa `min`/`max`).
 	import X from '@lucide/svelte/icons/x';
 	import Plus from '@lucide/svelte/icons/plus';
-	import { appendPeriod, removePeriod, setPeriodTime, type Period } from '$lib/scheduling';
+	import {
+		appendPeriod,
+		removePeriod,
+		setPeriodTime,
+		validateDayPeriods,
+		type Period
+	} from '$lib/scheduling';
 
 	let {
 		periods,
@@ -20,8 +26,13 @@
 		onchange: (next: Period[]) => void;
 	} = $props();
 
+	// Validação viva (espelho do servidor): aponta o input errado em vermelho + o motivo, em vez de
+	// deixar o erro só aparecer como toast genérico depois do Salvar.
+	const validation = $derived(validateDayPeriods(periods));
+
 	const input =
-		'h-[30px] min-w-0 max-w-[112px] flex-1 rounded-[7px] border border-edge bg-surface px-1.5 font-mono text-[11.5px] text-ink';
+		'h-[30px] min-w-0 max-w-[112px] flex-1 rounded-[7px] border bg-surface px-1.5 font-mono text-[11.5px] text-ink';
+	const borderFor = (i: number) => (validation.badIndices.includes(i) ? 'border-danger' : 'border-edge');
 </script>
 
 <div class="flex flex-col gap-1.5">
@@ -34,8 +45,9 @@
 				{max}
 				value={p[0]}
 				aria-label="Início do período {pi + 1}"
+				aria-invalid={validation.badIndices.includes(pi)}
 				onchange={(e) => onchange(setPeriodTime(periods, pi, 0, e.currentTarget.value))}
-				class={input}
+				class="{input} {borderFor(pi)}"
 			/>
 			<span class="text-faint">–</span>
 			<input
@@ -45,8 +57,9 @@
 				{max}
 				value={p[1]}
 				aria-label="Fim do período {pi + 1}"
+				aria-invalid={validation.badIndices.includes(pi)}
 				onchange={(e) => onchange(setPeriodTime(periods, pi, 1, e.currentTarget.value))}
-				class={input}
+				class="{input} {borderFor(pi)}"
 			/>
 			<button
 				type="button"
@@ -59,6 +72,10 @@
 			</button>
 		</div>
 	{/each}
+
+	{#if validation.message}
+		<p role="alert" class="text-[11px] font-medium text-danger">{validation.message}</p>
+	{/if}
 
 	<button
 		type="button"

@@ -90,3 +90,82 @@ mailbox → `/auth/callback` (**303**, cookie `_api_key` setado) → `GET /confi
 segmented “Fechar o dia inteiro/Horário específico”, “Nenhuma exceção”). Ou seja:
 browser→BFF(SSR)→API→DB→render provado nas duas telas. O que falta é só o *clique* visual no
 Playwright, bloqueado pelo sombreamento da 5173 no host — não uma lacuna do app.
+
+## 6. Rodada de testes manuais (stack real) — e o bug do toast
+
+Rodada posterior, com a stack de pé e **login real** (sessão do usuário), estressando as regras
+de negócio pela borda de fato: replay do magic link por `curl` (BFF→API), depois POST nas
+*actions* reais (`?/save`, `?/add`, `?/delete`) — o mesmo que o `use:enhance` manda.
+
+**As regras do servidor seguram (nenhum bug de domínio):**
+
+| Cenário (Horário) | Esperado | Observado |
+| --- | --- | --- |
+| semana válida | success | `success 200` |
+| início ≥ fim (`14:00–12:00`) | 422 | `failure 422` |
+| períodos sobrepostos | 422 | `failure 422` |
+| `HH:MM` malformado (`8:00`) | 422 | `failure 422` |
+| `periods` não-lista | 422 | `failure 422` |
+| `dow` fora de 0..6 / não-numérico | ignorado | `success` **sem gravar** (filtro proposital do controller, `clinic_hours_controller.ex:44`) |
+
+| Cenário (Exceções) | Esperado | Observado |
+| --- | --- | --- |
+| exceção válida | success | `success 200` |
+| **data duplicada (H3)** | 422 | `failure 422` |
+| `tipo=horario` sem períodos | 422 | `failure 422` |
+| sem data | 400 | `failure 400 "Informe a data."` |
+| data malformada | 422 | `failure 422` |
+| excluir id inexistente | 404 | `failure 404 "Registro não encontrado."` |
+
+**RBAC (H7)** com sessão `recepcao`: `GET` das telas **200** (todo membro lê), mas todo write
+(`PATCH` horário, `POST` exceção) é **403** — e a tela nem renderiza os controles de edição.
+
+**O bug (achado real, reportado pelo usuário):** horário inválido devolvia o texto certo
+(“Dados inválidos. Verifique os campos.”) **com o visual de sucesso** — o pill escuro com o
+**check verde**. Causa: o toast do protótipo era single-style (`toast.svelte.ts` — “sem
+variantes”, o próprio protótipo usava o mesmo visual para aviso negativo), e **todas** as telas
+mandavam erro pelo mesmo `toast(msg)`. Não era só o Horário: `tipos`, `excecoes`, `equipe` e
+`horario` tinham a mesma quatro-em-um.
+
+**Correção (TDD, RED→GREEN):**
+- `toast()` ganhou `variant: 'success' | 'error'` (default `success`); `Toast.svelte` mostra
+  **check teal** no sucesso e **alerta danger (vermelho)** no erro.
+- Os 4 *call sites* de erro passam `'error'`. O Horário passou a ler a mensagem do `result`
+  (fresco) em vez do prop `form` (que atualiza só depois do `update`, e podia defasar).
+- Testes novos que **falhavam antes** do fix: variante em `toast.svelte.test.ts`; ícone de erro
+  vs. sucesso em `Toast.svelte.test.ts`; e `excecoes/page.svelte.test.ts` (o `$effect` do delete
+  → toast de erro) — primeiro teste de componente de *página* do `web/` (nome sem `+`, que o
+  SvelteKit reserva na árvore de rotas).
+
+Gates depois do fix: **312 Vitest verdes**, `svelte-check` **0/0**, cobertura **96,1% stmts /
+85,3% branch** (acima do piso). Backend intocado.
+
+### Aponte o campo, não só o toast (follow-up de UX)
+
+O toast de erro do save era genérico (“Dados inválidos. Verifique os campos.”) — a mensagem
+detalhada que a API já devolve (`details: "dia 1: início deve vir antes do fim …"`) era achatada
+no BFF (`mutate.ts:errorMessage`) e, mesmo detalhada, um toast não diz *qual input*. Então a
+validação virou **inline e viva** no editor:
+
+- `scheduling.ts` ganhou `validateDayPeriods/1` (espelho puro de `Api.Scheduling.Periods`, mas
+  devolvendo **quais índices destacar** + motivo curto) e `weekHasErrors/1`.
+- `PeriodEditor` pinta o(s) input(s) do período errado com `border-danger` + `aria-invalid` e
+  mostra o motivo (`role="alert"`) logo abaixo. Como é **compartilhado**, Horário e Exceções
+  (“Horário específico”) herdam de graça.
+- Horário: banner vira “Corrija os horários destacados.” e o **Salvar trava** enquanto há erro;
+  Exceções: “Adicionar” trava. A API segue autoridade — isto só evita o round-trip e o toast
+  genérico para o que a tela já vê.
+
+**Provado no browser (dá, porque é reativo — não precisa do *submit*):** `14:00–12:00` acende os
+dois inputs em vermelho + “O horário final deve ser depois do inicial.” + Salvar desabilitado;
+corrigindo para `09:00–12:00`, tudo limpa e Salvar reabilita. TDD: `validateDayPeriods`/
+`weekHasErrors` em `scheduling.test.ts`, destaque do input em `PeriodEditor.svelte.test.ts`, trava
+em `horario/page.svelte.test.ts`. Suíte: **329 Vitest verdes, check 0/0, cobertura 96,2%**.
+
+**Limitação persistente do harness (não é bug do app):** o Playwright MCP deste ambiente
+registra cliques em botões simples (o toggle Aberto/Fechado reage), mas **não dispara o *submit*
+do formulário** (zero requests na aba de rede ao “clicar” Salvar), e `snapshot`/`evaluate`
+seguem quebrados. Por isso a prova RED→GREEN do toast é o **screenshot do próprio usuário** (RED)
++ os **testes de componente que renderizam o `Toast.svelte` real** e afirmam o ícone danger no
+erro (GREEN) + o estresse da stack por `curl`. O *clique* visual final continua bloqueado pelo
+harness, não pelo app.

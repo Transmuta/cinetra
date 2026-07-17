@@ -39,4 +39,29 @@ describe('Toast', () => {
 		expect(pill.className).toContain('text-on-primary');
 		expect(pill.querySelector('.text-teal')).not.toBeNull();
 	});
+
+	it('sucesso mostra o check teal e NÃO o ícone de erro', () => {
+		const { getByRole } = render(Toast);
+
+		toast('Horário da clínica salvo', 'success');
+		flushSync();
+
+		const pill = getByRole('status');
+		expect(pill.querySelector('.text-teal')).not.toBeNull();
+		expect(pill.querySelector('.text-danger')).toBeNull();
+	});
+
+	it('erro NÃO usa o check de sucesso — mostra um ícone de erro (danger)', () => {
+		// Regressão: um horário inválido devolvia "Dados inválidos" com o check verde de sucesso.
+		// Erro e sucesso precisam ser visualmente distintos (o protótipo não distinguia; aqui sim).
+		const { getByRole } = render(Toast);
+
+		toast('Dados inválidos. Verifique os campos.', 'error');
+		flushSync();
+
+		const pill = getByRole('status');
+		expect(pill).toHaveTextContent('Dados inválidos. Verifique os campos.');
+		expect(pill.querySelector('.text-teal')).toBeNull();
+		expect(pill.querySelector('.text-danger')).not.toBeNull();
+	});
 });

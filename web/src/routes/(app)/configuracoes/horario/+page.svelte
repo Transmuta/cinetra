@@ -4,7 +4,14 @@
 	import type { SubmitFunction } from '@sveltejs/kit';
 	import Circle from '@lucide/svelte/icons/circle';
 	import WeeklyHoursEditor from '$lib/components/scheduling/WeeklyHoursEditor.svelte';
-	import { canManageSchedule, formatPeriods, weekChanged, WEEKDAYS, type WeekHours } from '$lib/scheduling';
+	import {
+		canManageSchedule,
+		formatPeriods,
+		weekChanged,
+		weekHasErrors,
+		WEEKDAYS,
+		type WeekHours
+	} from '$lib/scheduling';
 	import { toast } from '$lib/toast.svelte';
 	import type { PageData, ActionData } from './$types';
 
@@ -16,6 +23,9 @@
 	// Rascunho local: a semana inteira é editada e só então salva (protótipo `hoursDraft`).
 	let draft = $state<WeekHours>(untrack(() => clone(data.clinicHours)));
 	const dirty = $derived(weekChanged(draft, data.clinicHours));
+	// Trava o Salvar enquanto há período inválido (o PeriodEditor já aponta qual). A API continua
+	// sendo a autoridade — isto só evita o round-trip e o toast genérico para erros que a tela vê.
+	const hasErrors = $derived(weekHasErrors(draft));
 
 	function clone(w: WeekHours): WeekHours {
 		return structuredClone($state.snapshot(w)) as WeekHours;
@@ -27,8 +37,11 @@
 			if (result.type === 'success') {
 				draft = clone(data.clinicHours);
 				toast('Horário da clínica salvo');
-			} else if (form?.error) {
-				toast(form.error);
+			} else if (result.type === 'failure') {
+				// Erro (ex.: períodos inválidos → 422) vira toast de ERRO. Lemos do `result` (fresco),
+				// não do prop `form` (que só atualiza depois do update e podia ficar defasado).
+				const message = result.data?.error;
+				toast(typeof message === 'string' ? message : 'Não foi possível salvar o horário.', 'error');
 			}
 		};
 	};
@@ -48,11 +61,15 @@
 
 			<div class="mt-4 flex items-center gap-2.5 border-t border-edge pt-3.5">
 				<div
-					class="flex flex-1 items-center gap-1.5 text-[12px] {dirty
-						? 'font-semibold text-warning'
-						: 'text-faint'}"
+					class="flex flex-1 items-center gap-1.5 text-[12px] {hasErrors
+						? 'font-semibold text-danger'
+						: dirty
+							? 'font-semibold text-warning'
+							: 'text-faint'}"
 				>
-					{#if dirty}
+					{#if hasErrors}
+						<Circle size={8} class="fill-danger text-danger" /> Corrija os horários destacados.
+					{:else if dirty}
 						<Circle size={8} class="fill-warning text-warning" /> Alterações não salvas
 					{:else}
 						Ao salvar, verificamos conflitos com agendamentos futuros.
@@ -73,7 +90,7 @@
 					<input type="hidden" name="clinic_hours" value={JSON.stringify(draft)} />
 					<button
 						type="submit"
-						disabled={!dirty}
+						disabled={!dirty || hasErrors}
 						class="rounded-lg bg-primary px-4 py-2 text-[13px] font-semibold text-on-primary hover:bg-primary-hover disabled:opacity-60"
 					>
 						Salvar
