@@ -10,8 +10,8 @@ const me: Me = {
 	papel: 'owner',
 	professional_id: null,
 	memberships: [
-		{ clinic_id: 'c1', clinic_nome: 'Centro', papel: 'owner', professional_id: null },
-		{ clinic_id: 'c2', clinic_nome: 'Zona Sul', papel: 'admin', professional_id: null }
+		{ clinic_id: 'c1', clinic_nome: 'Centro', clinic_cnpj: null, clinic_endereco: null, papel: 'owner', professional_id: null },
+		{ clinic_id: 'c2', clinic_nome: 'Zona Sul', clinic_cnpj: null, clinic_endereco: null, papel: 'admin', professional_id: null }
 	]
 };
 

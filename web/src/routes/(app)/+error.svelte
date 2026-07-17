@@ -5,7 +5,7 @@
 	const notFound = $derived(page.status === 404);
 </script>
 
-<svelte:head><title>{page.status} · Movimento</title></svelte:head>
+<svelte:head><title>{page.status} · Cinetra</title></svelte:head>
 
 <div class="grid h-full place-items-center p-8 text-center">
 	<div>

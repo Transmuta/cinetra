@@ -1,5 +1,4 @@
 <script lang="ts">
-	import Activity from '@lucide/svelte/icons/activity';
 	import CalendarDays from '@lucide/svelte/icons/calendar-days';
 	import Users from '@lucide/svelte/icons/users';
 	import Stethoscope from '@lucide/svelte/icons/stethoscope';
@@ -7,6 +6,7 @@
 	import ChartBar from '@lucide/svelte/icons/chart-bar';
 	import Settings from '@lucide/svelte/icons/settings';
 	import Bell from '@lucide/svelte/icons/bell';
+	import Mark from '$lib/components/Mark.svelte';
 	import ThemeToggle from '$lib/components/ThemeToggle.svelte';
 	import { sectionOf, RAIL_ITEMS, type Section } from './nav';
 
@@ -28,12 +28,14 @@
 	aria-label="Navegação principal"
 	class="flex w-14 shrink-0 flex-col items-center gap-1 bg-rail py-3"
 >
-	<!-- Marca: pulso teal (fiel ao protótipo, não a letra "M"). -->
-	<div
-		class="mb-2.5 grid size-[34px] place-items-center rounded-[9px] bg-teal text-white shadow-teal"
+	<!-- Marca Cinetra (símbolo) sobre ladrilho claro, p/ contraste no rail escuro. -->
+	<a
+		href="/"
+		title="Cinetra"
+		class="mb-2.5 grid size-[34px] place-items-center rounded-[9px] bg-white"
 	>
-		<Activity size={20} strokeWidth={2.4} />
-	</div>
+		<Mark class="size-6" />
+	</a>
 
 	{#each RAIL_ITEMS as item (item.section)}
 		{@const Icon = ICONS[item.section]}

@@ -3,7 +3,7 @@
 	import Logo from '$lib/components/Logo.svelte';
 </script>
 
-<svelte:head><title>{page.status} · Movimento</title></svelte:head>
+<svelte:head><title>{page.status} · Cinetra</title></svelte:head>
 
 <main class="grid min-h-dvh place-items-center bg-canvas px-6 text-ink">
 	<div class="text-center">

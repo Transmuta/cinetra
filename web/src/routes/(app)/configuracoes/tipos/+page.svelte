@@ -52,7 +52,7 @@
 	}
 </script>
 
-<svelte:head><title>Tipos de atendimento · Movimento</title></svelte:head>
+<svelte:head><title>Tipos de atendimento · Cinetra</title></svelte:head>
 
 <!-- Linha da lista (:3230). Reusada nos ativos e nos arquivados: mesma anatomia, muda só a
      opacidade e o que fica à direita — restaurar no lugar de editar/arquivar. -->

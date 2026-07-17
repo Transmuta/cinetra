@@ -73,7 +73,7 @@
 	};
 </script>
 
-<svelte:head><title>Equipe & acessos · Movimento</title></svelte:head>
+<svelte:head><title>Equipe & acessos · Cinetra</title></svelte:head>
 
 <!-- Ações da linha (reusadas no card mobile e na grade desktop). -->
 {#snippet rowActions(m: Member)}

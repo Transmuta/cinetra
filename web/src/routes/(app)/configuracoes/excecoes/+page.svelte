@@ -22,7 +22,7 @@
 	});
 </script>
 
-<svelte:head><title>Exceções · Movimento</title></svelte:head>
+<svelte:head><title>Exceções · Cinetra</title></svelte:head>
 
 <div class="mx-auto max-w-[760px] px-4 py-4 md:px-6">
 	<section class="mb-3 rounded-[10px] border border-edge bg-surface p-4">

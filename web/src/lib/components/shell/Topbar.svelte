@@ -13,7 +13,7 @@
 	}: { pathname: string; me: Me; onMenu?: () => void } = $props();
 
 	const section = $derived(sectionOf(pathname));
-	const title = $derived(section ? SECTION_TITLES[section] : 'Movimento');
+	const title = $derived(section ? SECTION_TITLES[section] : 'Cinetra');
 </script>
 
 <div class="h-0.5 shrink-0 bg-teal"></div>
