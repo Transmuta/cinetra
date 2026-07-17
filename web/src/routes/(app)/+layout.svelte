@@ -11,7 +11,10 @@
 	let { data, children }: { data: LayoutData; children: import('svelte').Snippet } = $props();
 
 	const me = $derived(data.me);
-	const clinicName = $derived(activeMembership(me)?.clinic_nome ?? null);
+	const membership = $derived(activeMembership(me));
+	const clinicName = $derived(membership?.clinic_nome ?? null);
+	const clinicCnpj = $derived(membership?.clinic_cnpj ?? null);
+	const clinicEndereco = $derived(membership?.clinic_endereco ?? null);
 	const pathname = $derived(page.url.pathname);
 	const theme = $derived((page.data.theme as string | null) ?? null);
 
@@ -27,7 +30,7 @@
 	<!-- Desktop (≥lg): rail + sidebar fixos. -->
 	<div class="hidden lg:flex">
 		<Rail {pathname} {theme} />
-		<Sidebar {pathname} {clinicName} />
+		<Sidebar {pathname} {clinicName} {clinicCnpj} {clinicEndereco} />
 	</div>
 
 	<div class="flex min-w-0 flex-1 flex-col">
@@ -52,7 +55,7 @@
 		></button>
 		<div class="relative flex h-full shadow-pop">
 			<Rail {pathname} {theme} />
-			<Sidebar {pathname} {clinicName} />
+			<Sidebar {pathname} {clinicName} {clinicCnpj} {clinicEndereco} />
 		</div>
 	</div>
 {/if}

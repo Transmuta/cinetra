@@ -1,5 +1,6 @@
 import type { RequestEvent } from '@sveltejs/kit';
 import { apiFetch, reemitSession } from './api';
+import { mutate, type MutationResult } from './mutate';
 
 // BFF do onboarding (ADR-005): cria a clínica via `POST /api/clinics` server-to-server,
 // repassando o cookie de sessão. O usuário atual (ator do escopo da API) vira owner; o BFF
@@ -35,6 +36,43 @@ export async function onboardClinic(event: RequestEvent, nome: string): Promise<
 	} catch {
 		return { ok: false, status: 0, error: 'Falha de conexão com o servidor.' };
 	}
+}
+
+// ---- Dados da clínica ativa (tela /configuracoes/clinica) ----
+
+export interface Clinic {
+	id: string;
+	nome: string;
+	cnpj: string | null;
+	endereco: string | null;
+}
+
+export interface ClinicResult {
+	status: number;
+	data: { clinic: Clinic } | null;
+}
+
+// GET /api/clinic — nome, CNPJ e endereço da clínica ativa (leitura para todo membro).
+export async function fetchClinic(event: RequestEvent): Promise<ClinicResult> {
+	try {
+		const res = await apiFetch(event, '/api/clinic', { headers: { accept: 'application/json' } });
+		if (!res.ok) return { status: res.status, data: null };
+		return { status: res.status, data: (await res.json()) as { clinic: Clinic } };
+	} catch {
+		return { status: 0, data: null };
+	}
+}
+
+export interface ClinicInfoInput {
+	nome?: string;
+	cnpj?: string;
+	endereco?: string;
+}
+
+// PATCH /api/clinic — edita nome/CNPJ/endereço (só owner/admin, garantido pela API). O CNPJ pode
+// ir mascarado: a API normaliza e valida. Campo ausente não é tocado; branco limpa.
+export function updateClinic(event: RequestEvent, input: ClinicInfoInput): Promise<MutationResult> {
+	return mutate(event, '/api/clinic', 'PATCH', input);
 }
 
 export interface SwitchResult {

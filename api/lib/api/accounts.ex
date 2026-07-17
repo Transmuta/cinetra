@@ -20,6 +20,7 @@ defmodule Api.Accounts do
       define :onboard_clinic, action: :onboard, args: [:nome]
       define :get_clinic, action: :read, get_by: [:id]
       define :update_clinic_settings, action: :update_settings
+      define :update_clinic_info, action: :update_info
     end
 
     resource Api.Accounts.Membership do

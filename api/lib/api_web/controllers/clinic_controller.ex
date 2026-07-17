@@ -1,15 +1,20 @@
 defmodule ApiWeb.ClinicController do
   @moduledoc """
-  Onboarding do primeiro acesso: cria a clínica e torna o usuário atual o `owner` dela,
-  na mesma transação (ação `:onboard`, ADR-016). É a única porta HTTP que faz nascer um
-  tenant. Qualquer usuário autenticado pode criar (política `actor_present()`); QUEM vê o
-  onboarding — só quem ainda não tem clínica — é decisão do BFF, não deste controller.
+  A clínica ativa como recurso HTTP. Duas superfícies:
 
-  O ator vem sempre do escopo da sessão (nunca do corpo, 09 §8). O `onboard` é um create
-  que NÃO exige tenant — ele o cria —, então o escopo sem `clinic_id` (estado "sem clínica")
-  é o esperado aqui.
+    * `onboard` — o primeiro acesso: cria a clínica e torna o usuário atual `owner`, na mesma
+      transação (ADR-016). É a única porta que faz nascer um tenant; qualquer autenticado pode
+      (política `actor_present()`). O `onboard` é um create que NÃO exige tenant — o escopo sem
+      `clinic_id` é o esperado aqui.
+    * `show`/`update` — dados de identidade da clínica ativa (nome, CNPJ, endereço; tela
+      /configuracoes/clinica). Leitura para todo membro, edição só owner/admin (RBAC ADR-016,
+      via `ApiWeb.TenantScope`).
+
+  O ator vem sempre do escopo da sessão e o `clinic_id` também (nunca do corpo/URL, 09 §8).
   """
   use ApiWeb, :controller
+
+  import ApiWeb.TenantScope
 
   alias Api.Accounts
   alias Api.Scope
@@ -20,36 +25,45 @@ defmodule ApiWeb.ClinicController do
       %Scope{user: %{}} = scope ->
         case Accounts.onboard_clinic(params["nome"], %{}, scope: scope) do
           {:ok, clinic} ->
-            conn |> put_status(:created) |> json(%{clinic: clinic_json(clinic)})
+            conn |> put_status(:created) |> json(%{clinic: %{id: clinic.id, nome: clinic.nome}})
 
           {:error, error} ->
             error_response(conn, error)
         end
 
       _ ->
-        conn |> put_status(:unauthorized) |> json(%{error: "unauthenticated"})
+        unauthorized(conn)
     end
   end
 
-  defp clinic_json(clinic), do: %{id: clinic.id, nome: clinic.nome}
-
-  # Com ator presente (o controller garante) e política `actor_present()`, o onboard não é
-  # negado: a única falha esperada é validação (nome vazio/ausente → 422). O catch-all cobre
-  # o inesperado sem vazar detalhe.
-  defp error_response(conn, %Ash.Error.Invalid{} = error) do
-    conn
-    |> put_status(:unprocessable_entity)
-    |> json(%{error: "invalid", details: error_messages(error)})
-  end
-
-  defp error_response(conn, _error),
-    do: conn |> put_status(:bad_request) |> json(%{error: "bad_request"})
-
-  defp error_messages(%{errors: errors}) when is_list(errors) do
-    Enum.map(errors, fn err ->
-      %{field: Map.get(err, :field), message: Exception.message(err)}
+  # GET /api/clinic — nome, CNPJ e endereço da clínica ativa. Leitura para todo membro.
+  def show(conn, _params) do
+    with_member_scope(conn, fn scope ->
+      case Accounts.get_clinic(scope.clinic_id, scope: scope) do
+        {:ok, %{} = clinic} -> json(conn, %{clinic: clinic_json(clinic)})
+        {:ok, nil} -> not_found(conn)
+        {:error, error} -> error_response(conn, error)
+      end
     end)
   end
 
-  defp error_messages(_), do: []
+  # PATCH /api/clinic {nome, cnpj, endereco} — edita a identidade da clínica. Só owner/admin.
+  # O CNPJ pode chegar mascarado; o domínio normaliza e valida (alfanumérico). Campo ausente do
+  # corpo não é tocado; branco limpa. `clinic_id`/qualquer outra chave são ignorados (whitelist).
+  def update(conn, params) do
+    with_admin_scope(conn, fn scope ->
+      with {:ok, %{} = clinic} <- Accounts.get_clinic(scope.clinic_id, scope: scope),
+           {:ok, updated} <-
+             Accounts.update_clinic_info(clinic, whitelist(params, [:nome, :cnpj, :endereco]),
+               scope: scope
+             ) do
+        json(conn, %{clinic: clinic_json(updated)})
+      else
+        {:ok, nil} -> not_found(conn)
+        {:error, error} -> error_response(conn, error)
+      end
+    end)
+  end
+
+  defp clinic_json(c), do: %{id: c.id, nome: c.nome, cnpj: c.cnpj, endereco: c.endereco}
 end

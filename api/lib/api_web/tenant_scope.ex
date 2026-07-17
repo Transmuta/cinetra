@@ -59,6 +59,10 @@ defmodule ApiWeb.TenantScope do
 
   def not_found(conn), do: conn |> put_status(:not_found) |> json(%{error: "not_found"})
 
+  @doc "401 padrão da fronteira (sem sessão). Fonte única do corpo, reusada fora das guardas."
+  def unauthorized(conn),
+    do: conn |> put_status(:unauthorized) |> json(%{error: "unauthenticated"})
+
   @doc """
   Recorta `params` (chaves string, do corpo) aos `fields` permitidos, devolvendo um mapa de
   chaves atom. É a whitelist no espírito do `@papeis` do MembersController: `clinic_id` e
@@ -75,9 +79,6 @@ defmodule ApiWeb.TenantScope do
   end
 
   defp forbidden(conn), do: conn |> put_status(:forbidden) |> json(%{error: "forbidden"})
-
-  defp unauthorized(conn),
-    do: conn |> put_status(:unauthorized) |> json(%{error: "unauthenticated"})
 
   defp error_messages(%{errors: errors}) when is_list(errors) do
     Enum.map(errors, fn err ->

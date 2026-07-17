@@ -9,6 +9,7 @@ describe('Sidebar', () => {
 			props: { pathname: '/configuracoes/equipe', clinicName: 'Clínica Centro' }
 		});
 		expect(getByText('Clínica Centro')).toBeInTheDocument();
+		expect(getByRole('link', { name: 'Clínica' })).toHaveAttribute('href', '/configuracoes/clinica');
 		expect(getByRole('link', { name: 'Equipe & acessos' })).toHaveAttribute(
 			'href',
 			'/configuracoes/equipe'
@@ -17,6 +18,27 @@ describe('Sidebar', () => {
 			'href',
 			'/configuracoes/tipos'
 		);
+	});
+
+	it('no topo mostra o nome da clínica (sem a marca Cinetra) com CNPJ mascarado e endereço', () => {
+		const { getByText, queryByText } = render(Sidebar, {
+			props: {
+				pathname: '/agenda',
+				clinicName: 'Clínica Vida',
+				clinicCnpj: '12ABC34501DE35',
+				clinicEndereco: 'Rua X, 100'
+			}
+		});
+		expect(getByText('Clínica Vida')).toBeInTheDocument();
+		expect(getByText('12.ABC.345/01DE-35')).toBeInTheDocument();
+		expect(getByText('Rua X, 100')).toBeInTheDocument();
+		// o nome substitui a logomarca: "Cinetra" não aparece no sidebar (vive no rail).
+		expect(queryByText('Cinetra')).toBeNull();
+	});
+
+	it('sem nome de clínica, cai na marca Cinetra', () => {
+		const { getByText } = render(Sidebar, { props: { pathname: '/agenda' } });
+		expect(getByText('Cinetra')).toBeInTheDocument();
 	});
 
 	it('destaca a aba atual', () => {

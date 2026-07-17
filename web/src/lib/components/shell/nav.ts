@@ -45,8 +45,9 @@ export interface ConfigLink {
 	href: string;
 }
 
-// Sidebar de Configurações. Tipos, Horário, Exceções e Equipe & acessos já existem.
+// Sidebar de Configurações. Clínica (identidade), Tipos, Horário, Exceções e Equipe já existem.
 export const CONFIG_LINKS: ConfigLink[] = [
+	{ label: 'Clínica', href: '/configuracoes/clinica' },
 	{ label: 'Tipos de atendimento', href: '/configuracoes/tipos' },
 	{ label: 'Horário', href: '/configuracoes/horario' },
 	{ label: 'Exceções', href: '/configuracoes/excecoes' },

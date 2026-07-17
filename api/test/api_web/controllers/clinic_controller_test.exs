@@ -12,7 +12,7 @@ defmodule ApiWeb.ClinicControllerTest do
 
   # Sign-in de domínio (retorna o User com token de sessão em metadata).
   defp sign_in(addr) do
-    :ok = Accounts.request_magic_link(addr)
+    :ok = Accounts.request_magic_link(addr, %{register?: true})
     assert_receive {:email, mail}, 1_000
     [_, token] = Regex.run(~r/token=([\w.\-]+)/, mail.text_body)
     {:ok, user} = Accounts.sign_in_with_magic_link(token)
@@ -23,6 +23,26 @@ defmodule ApiWeb.ClinicControllerTest do
     conn
     |> Phoenix.ConnTest.init_test_session(%{})
     |> AshAuthentication.Plug.Helpers.store_in_session(user)
+  end
+
+  defp owner_with_clinic do
+    owner = sign_in(email())
+
+    {:ok, clinic} =
+      Accounts.onboard_clinic("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
+
+    {owner, clinic}
+  end
+
+  defp active_member_session(owner, clinic, papel) do
+    addr = email()
+
+    {:ok, pending} =
+      Accounts.invite_member_by_email(addr, %{papel: papel, clinic_id: clinic.id}, actor: owner)
+
+    user = Accounts.get_user_by_email!(addr, authorize?: false)
+    {:ok, _} = Accounts.accept_invite(pending, actor: user)
+    sign_in(addr)
   end
 
   setup %{conn: conn} do
@@ -73,6 +93,142 @@ defmodule ApiWeb.ClinicControllerTest do
 
     test "sem sessão devolve 401", %{base_conn: base_conn} do
       assert base_conn |> post(~p"/api/clinics", %{nome: "X"}) |> json_response(401)
+    end
+  end
+
+  describe "GET /api/clinic" do
+    test "membro lê nome, CNPJ e endereço da clínica ativa", %{base_conn: base_conn} do
+      {owner, _clinic} = owner_with_clinic()
+
+      body = base_conn |> authed(owner) |> get(~p"/api/clinic") |> json_response(200)
+      assert %{"clinic" => %{"nome" => nome, "cnpj" => nil, "endereco" => nil}} = body
+      assert is_binary(nome)
+    end
+
+    test "recepção também lê (leitura para todo membro)", %{base_conn: base_conn} do
+      {owner, clinic} = owner_with_clinic()
+      recep = active_member_session(owner, clinic, :recepcao)
+
+      body = base_conn |> authed(recep) |> get(~p"/api/clinic") |> json_response(200)
+      assert body["clinic"]["id"] == clinic.id
+    end
+
+    test "sem sessão devolve 401", %{base_conn: base_conn} do
+      assert base_conn |> get(~p"/api/clinic") |> json_response(401)
+    end
+
+    test "autenticado sem clínica ativa devolve 403", %{base_conn: base_conn} do
+      orphan = sign_in(email())
+      assert base_conn |> authed(orphan) |> get(~p"/api/clinic") |> json_response(403)
+    end
+  end
+
+  describe "PATCH /api/clinic" do
+    test "owner edita nome, CNPJ (mascarado) e endereço; resposta traz o CNPJ normalizado", %{
+      base_conn: base_conn
+    } do
+      {owner, _clinic} = owner_with_clinic()
+
+      body =
+        base_conn
+        |> authed(owner)
+        |> patch(~p"/api/clinic", %{
+          nome: "Clínica Vida",
+          cnpj: "12.ABC.345/01DE-35",
+          endereco: "Rua X, 100 · SP"
+        })
+        |> json_response(200)
+
+      assert body["clinic"]["nome"] == "Clínica Vida"
+      assert body["clinic"]["cnpj"] == "12ABC34501DE35"
+      assert body["clinic"]["endereco"] == "Rua X, 100 · SP"
+    end
+
+    test "CNPJ inválido devolve 422 apontando o campo", %{base_conn: base_conn} do
+      {owner, _clinic} = owner_with_clinic()
+
+      body =
+        base_conn
+        |> authed(owner)
+        |> patch(~p"/api/clinic", %{cnpj: "12ABC34501DE34"})
+        |> json_response(422)
+
+      assert body["error"] == "invalid"
+      assert Enum.any?(body["details"], &(&1["field"] == "cnpj"))
+    end
+
+    test "clinic_id no corpo é ignorado (whitelist; tenant vem do escopo)", %{
+      base_conn: base_conn
+    } do
+      {owner, clinic} = owner_with_clinic()
+      other = sign_in(email())
+
+      {:ok, other_clinic} =
+        Accounts.onboard_clinic("Outra #{System.unique_integer([:positive])}", %{}, actor: other)
+
+      body =
+        base_conn
+        |> authed(owner)
+        |> patch(~p"/api/clinic", %{nome: "Renomeada", clinic_id: other_clinic.id})
+        |> json_response(200)
+
+      # editou a PRÓPRIA clínica, não a do corpo.
+      assert body["clinic"]["id"] == clinic.id
+      assert body["clinic"]["nome"] == "Renomeada"
+    end
+
+    test "recepção não edita (403)", %{base_conn: base_conn} do
+      {owner, clinic} = owner_with_clinic()
+      recep = active_member_session(owner, clinic, :recepcao)
+
+      assert base_conn
+             |> authed(recep)
+             |> patch(~p"/api/clinic", %{nome: "Hack"})
+             |> json_response(403)
+    end
+
+    test "profissional (sem gestão) não edita (403)", %{base_conn: base_conn} do
+      {owner, clinic} = owner_with_clinic()
+      prof = active_member_session(owner, clinic, :profissional)
+
+      assert base_conn
+             |> authed(prof)
+             |> patch(~p"/api/clinic", %{nome: "Hack"})
+             |> json_response(403)
+    end
+
+    test "endereço absurdamente longo devolve 422 (limite no servidor, não só no client)", %{
+      base_conn: base_conn
+    } do
+      {owner, _clinic} = owner_with_clinic()
+
+      body =
+        base_conn
+        |> authed(owner)
+        |> patch(~p"/api/clinic", %{endereco: String.duplicate("a", 10_000)})
+        |> json_response(422)
+
+      assert body["error"] == "invalid"
+      assert Enum.any?(body["details"], &(&1["field"] == "endereco"))
+    end
+
+    test "CNPJ absurdamente longo devolve 422 (normalize não fura o max_length)", %{
+      base_conn: base_conn
+    } do
+      {owner, _clinic} = owner_with_clinic()
+
+      body =
+        base_conn
+        |> authed(owner)
+        |> patch(~p"/api/clinic", %{cnpj: String.duplicate("1", 10_000)})
+        |> json_response(422)
+
+      assert body["error"] == "invalid"
+      assert Enum.any?(body["details"], &(&1["field"] == "cnpj"))
+    end
+
+    test "sem sessão devolve 401", %{base_conn: base_conn} do
+      assert base_conn |> patch(~p"/api/clinic", %{nome: "X"}) |> json_response(401)
     end
   end
 end

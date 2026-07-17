@@ -8,7 +8,7 @@ vi.mock('./api', async (importOriginal) => {
 	return { ...actual, reemitSession: (...a: unknown[]) => reemitSession(...a) };
 });
 
-import { onboardClinic, switchTenant } from './clinics';
+import { onboardClinic, switchTenant, fetchClinic, updateClinic } from './clinics';
 
 function json(body: unknown, status: number) {
 	return new Response(JSON.stringify(body), {
@@ -83,5 +83,53 @@ describe('switchTenant (troca de tenant ativo)', () => {
 		reemitSession.mockReset();
 		const res = await switchTenant(event(vi.fn().mockRejectedValue(new Error('down'))), 'c2');
 		expect(res).toMatchObject({ ok: false, status: 0 });
+	});
+});
+
+describe('fetchClinic (dados da clínica ativa)', () => {
+	it('200 → GET /api/clinic e devolve o clinic', async () => {
+		const clinic = { id: 'c1', nome: 'Clínica Vida', cnpj: '12ABC34501DE35', endereco: 'Rua X' };
+		const fetch = vi.fn().mockResolvedValue(json({ clinic }, 200));
+		const res = await fetchClinic(event(fetch));
+
+		expect(res).toEqual({ status: 200, data: { clinic } });
+		expect(fetch.mock.calls[0][0]).toBe('http://localhost:4000/api/clinic');
+	});
+
+	it('erro → data null', async () => {
+		const res = await fetchClinic(event(vi.fn().mockResolvedValue(json({}, 403))));
+		expect(res).toEqual({ status: 403, data: null });
+	});
+
+	it('falha de rede não explode o load', async () => {
+		const res = await fetchClinic(event(vi.fn().mockRejectedValue(new Error('down'))));
+		expect(res).toEqual({ status: 0, data: null });
+	});
+});
+
+describe('updateClinic (edição da clínica)', () => {
+	it('PATCH /api/clinic com o corpo whitelisted', async () => {
+		const fetch = vi.fn().mockResolvedValue(json({ clinic: {} }, 200));
+		const input = { nome: 'Nova', cnpj: '12.ABC.345/01DE-35', endereco: 'Rua Y' };
+		const res = await updateClinic(event(fetch), input);
+
+		expect(res).toEqual({ ok: true, status: 200 });
+		const [url, init] = fetch.mock.calls[0];
+		expect(url).toBe('http://localhost:4000/api/clinic');
+		expect(init.method).toBe('PATCH');
+		expect(JSON.parse(init.body as string)).toEqual(input);
+	});
+
+	it('422 (CNPJ inválido) → mensagem de dados inválidos', async () => {
+		const res = await updateClinic(
+			event(vi.fn().mockResolvedValue(json({ error: 'invalid', details: [] }, 422))),
+			{ cnpj: 'xx' }
+		);
+		expect(res.error).toMatch(/inválidos/i);
+	});
+
+	it('403 (papel errado) → mensagem de permissão', async () => {
+		const res = await updateClinic(event(vi.fn().mockResolvedValue(json({}, 403))), { nome: 'X' });
+		expect(res.error).toMatch(/permissão/i);
 	});
 });

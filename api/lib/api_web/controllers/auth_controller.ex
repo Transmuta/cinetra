@@ -158,6 +158,11 @@ defmodule ApiWeb.AuthController do
     %{
       clinic_id: m.clinic_id,
       clinic_nome: m.clinic && m.clinic.nome,
+      # Identidade da clínica também viaja no /me: alimenta o topo do sidebar (nome no lugar da
+      # marca + CNPJ/endereço) sem um fetch extra e reagindo à troca de tenant. A `clinic` já vem
+      # carregada pela read `active_for_user`.
+      clinic_cnpj: m.clinic && m.clinic.cnpj,
+      clinic_endereco: m.clinic && m.clinic.endereco,
       papel: m.papel,
       professional_id: m.professional_id
     }
