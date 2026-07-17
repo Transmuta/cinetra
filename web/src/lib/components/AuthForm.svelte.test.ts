@@ -16,7 +16,7 @@ describe('AuthForm', () => {
 			props: { ...baseProps, form: { sent: true, email: 'ana@x.com' } }
 		});
 
-		expect(getByText('Confira seu e-mail')).toBeInTheDocument();
+		expect(getByText('Verifique seu e-mail')).toBeInTheDocument();
 		expect(getByText('ana@x.com')).toBeInTheDocument();
 		// Sem formulário: nada de botão de envio no estado neutro.
 		expect(queryByRole('button')).toBeNull();

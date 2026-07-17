@@ -3,15 +3,19 @@
 	import AuthForm from '$lib/components/AuthForm.svelte';
 	import type { PageData, ActionData } from './$types';
 
-	let { data, form }: { data: PageData; form: ActionData } = $props();
+	let { form }: { data: PageData; form: ActionData } = $props();
 </script>
 
-<svelte:head><title>Entrar · Movimento</title></svelte:head>
+<svelte:head><title>Entrar · Cinetra</title></svelte:head>
 
-<AuthCard title="Entrar na clínica" subtitle="O sistema que enche a sua agenda." theme={data.theme}>
-	<AuthForm {form} submitLabel="Enviar link de acesso" googleLabel="Entrar com Google" />
+<AuthCard
+	title="Bem-vindo de volta"
+	subtitle="Entre para acessar a agenda da sua clínica."
+>
+	<AuthForm {form} submitLabel="Enviar link de acesso" googleLabel="Continuar com Google" />
 
 	{#snippet footer()}
-		Novo por aqui? <a href="/criar-conta" class="font-semibold text-teal-text">Criar conta</a>
+		Não tem conta?
+		<a href="/criar-conta" style="font-weight:600;color:#4E7468">Criar conta</a>
 	{/snippet}
 </AuthCard>

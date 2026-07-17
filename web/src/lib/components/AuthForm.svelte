@@ -1,9 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import { page } from '$app/state';
-	import { Mail, LoaderCircle } from '@lucide/svelte';
-	import Field from './Field.svelte';
-	import Button from './Button.svelte';
+	import { MailCheck, LoaderCircle, ArrowLeft } from '@lucide/svelte';
 	import GoogleIcon from './GoogleIcon.svelte';
 
 	let {
@@ -27,30 +25,44 @@
 	let googleLoading = $state(false);
 	// "Usar outro e-mail" volta à própria rota (SPA nav com JS, reload sem JS) — limpa `form`.
 	const resetHref = $derived(page.url.pathname);
+
+	// Estilos do protótipo (Cinetra Landing.dc.html) — paleta papel/navy, fora do teal do app.
+	const labelStyle = 'display:block;font-size:13px;font-weight:600;color:#3D454F;margin-bottom:7px';
+	const inputStyle =
+		'width:100%;padding:12px 14px;border:1px solid #D9D4C7;border-radius:11px;font-size:15px;background:#fff;color:#212A37';
+	const primaryStyle =
+		'width:100%;background:#212A37;border:none;color:#fff;font-size:15px;font-weight:700;padding:13px;border-radius:11px;cursor:pointer';
 </script>
 
 {#if form?.sent}
-	<!-- Estado neutro: não revela se o e-mail existe (ADR-015). -->
-	<div class="rounded-lg border border-teal-border bg-teal-subtle p-4 text-[13px] text-ink">
-		<div class="mb-2 flex items-center gap-2 font-semibold text-teal-text">
-			<Mail size={16} /> Confira seu e-mail
-		</div>
-		<p class="text-muted">
-			Se <strong class="text-ink">{form.email}</strong> tiver uma conta, enviamos um link de acesso.
-			Abra o link para entrar — ele expira em breve.
+	<!-- Estado neutro (Cinetra Landing.dc.html · isSent): não revela se o e-mail existe (ADR-015). -->
+	<div style="animation:cnFade .4s ease both;text-align:center">
+		<span
+			style="width:60px;height:60px;border-radius:16px;background:rgba(127,165,154,.16);color:#4E7468;display:grid;place-items:center;margin:0 auto 24px"
+		>
+			<MailCheck size={30} />
+		</span>
+		<h1 style="font-size:28px;font-weight:800;letter-spacing:-.02em;margin:0 0 10px">
+			Verifique seu e-mail
+		</h1>
+		<p style="font-size:15px;color:#736E63;margin:0 0 30px;line-height:1.55">
+			Se <strong style="color:#212A37">{form.email}</strong> tiver uma conta, enviamos um link de
+			acesso. Abra a mensagem para entrar — o link expira em breve.
 		</p>
+		<a
+			href={resetHref}
+			class="cn-hover-dark"
+			style="width:100%;display:inline-flex;align-items:center;justify-content:center;gap:8px;box-sizing:border-box;{primaryStyle}"
+		>
+			<ArrowLeft size={16} /> Usar outro e-mail
+		</a>
 	</div>
-	<a
-		href={resetHref}
-		class="mt-4 flex items-center justify-center gap-1.5 text-[12.5px] font-semibold text-muted hover:text-ink"
-	>
-		Usar outro e-mail
-	</a>
 {:else}
 	<!-- Progressive enhancement: com JS, envia sem reload e mostra o estado inline; sem JS,
 	     submit nativo cai na mesma action e o estado vem por SSR. -->
 	<form
 		method="POST"
+		style="display:flex;flex-direction:column;gap:16px"
 		use:enhance={() => {
 			submitting = true;
 			return async ({ update }) => {
@@ -60,59 +72,72 @@
 		}}
 	>
 		{#if collectName}
-			<Field
-				label="Nome"
-				name="nome"
-				value={form?.nome ?? ''}
-				placeholder="Seu nome"
-				required
-				autocomplete="name"
-				maxlength={160}
-			/>
+			<label style="display:block">
+				<span style={labelStyle}>Nome</span>
+				<input
+					name="nome"
+					type="text"
+					value={form?.nome ?? ''}
+					placeholder="Seu nome"
+					required
+					autocomplete="name"
+					maxlength={160}
+					style={inputStyle}
+				/>
+			</label>
 		{/if}
 
-		<Field
-			label="E-mail"
-			name="email"
-			type="email"
-			value={form?.email ?? ''}
-			placeholder="voce@clinica.com.br"
-			required
-			autocomplete="email"
-		/>
+		<label style="display:block">
+			<span style={labelStyle}>E-mail</span>
+			<input
+				name="email"
+				type="email"
+				value={form?.email ?? ''}
+				placeholder="voce@clinica.com.br"
+				required
+				autocomplete="email"
+				style={inputStyle}
+			/>
+		</label>
 
 		{#if form?.error}
-			<p class="mb-3 text-[12.5px] text-danger">{form.error}</p>
+			<p style="font-size:13px;color:#C0392B;margin:0">{form.error}</p>
 		{/if}
 
-		<div class="mt-[6px]">
-			<Button type="submit" disabled={submitting}>
-				{submitting ? 'Enviando…' : submitLabel}
-			</Button>
-		</div>
+		<button
+			type="submit"
+			disabled={submitting}
+			class="cn-hover-dark"
+			style="{primaryStyle};margin-top:2px;{submitting ? 'opacity:.65;cursor:not-allowed' : ''}"
+		>
+			{submitting ? 'Enviando…' : submitLabel}
+		</button>
 	</form>
 
-	<div class="my-4 flex items-center gap-3 text-[12px] text-faint">
-		<span class="h-px flex-1 bg-edge"></span>
-		ou
-		<span class="h-px flex-1 bg-edge"></span>
+	<div
+		style="display:flex;align-items:center;gap:14px;margin:22px 0;color:#B0AA9C;font-size:13px"
+	>
+		<span style="flex:1;height:1px;background:#E6E2D8"></span>ou<span
+			style="flex:1;height:1px;background:#E6E2D8"
+		></span>
 	</div>
 
 	<!-- reload: /auth/google é endpoint +server (sem +page); sem navegação completa o client
 	     router do SvelteKit 404a. loading: feedback enquanto o browser navega ao Google. -->
-	<Button
-		variant="ghost"
+	<a
 		href={googleHref}
-		reload
-		loading={googleLoading}
+		data-sveltekit-reload
+		aria-busy={googleLoading ? 'true' : undefined}
 		onclick={() => (googleLoading = true)}
+		class="cn-hover-border"
+		style="width:100%;display:flex;align-items:center;justify-content:center;gap:10px;box-sizing:border-box;background:#fff;border:1px solid #D9D4C7;color:#212A37;font-size:15px;font-weight:600;padding:12px;border-radius:11px;cursor:pointer;{googleLoading
+			? 'pointer-events:none;opacity:.7'
+			: ''}"
 	>
 		{#if googleLoading}
-			<LoaderCircle size={16} class="animate-spin" />
-			Conectando…
+			<LoaderCircle size={16} class="animate-spin" /> Conectando…
 		{:else}
-			<GoogleIcon />
-			{googleLabel}
+			<GoogleIcon /> {googleLabel}
 		{/if}
-	</Button>
+	</a>
 {/if}

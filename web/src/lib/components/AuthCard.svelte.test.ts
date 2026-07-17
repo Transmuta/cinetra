@@ -4,27 +4,32 @@ import { render } from '@testing-library/svelte';
 import { createRawSnippet } from 'svelte';
 import AuthCard from './AuthCard.svelte';
 
-const snippet = (html: string) =>
-	createRawSnippet(() => ({ render: () => `<div>${html}</div>` }));
+const snippet = (html: string) => createRawSnippet(() => ({ render: () => `<div>${html}</div>` }));
 
 describe('AuthCard', () => {
-	it('renderiza título, subtítulo, conteúdo, rodapé e o toggle de tema', () => {
+	it('renderiza título, subtítulo, conteúdo, rodapé e o testemunho do painel de marca', () => {
 		const { getByRole, getByText } = render(AuthCard, {
 			props: {
-				title: 'Entrar na clínica',
-				subtitle: 'O sistema que enche a sua agenda.',
-				// theme explícito evita o ramo matchMedia do ThemeToggle (ausente no jsdom).
-				theme: 'light',
+				title: 'Bem-vindo de volta',
+				subtitle: 'Entre para acessar a agenda.',
 				children: snippet('conteúdo-do-form'),
 				footer: snippet('rodapé-aqui')
 			}
 		});
 
-		expect(getByRole('heading', { name: 'Entrar na clínica' })).toBeInTheDocument();
-		expect(getByText('O sistema que enche a sua agenda.')).toBeInTheDocument();
+		expect(getByRole('heading', { name: 'Bem-vindo de volta' })).toBeInTheDocument();
+		expect(getByText('Entre para acessar a agenda.')).toBeInTheDocument();
 		expect(getByText('conteúdo-do-form')).toBeInTheDocument();
 		expect(getByText('rodapé-aqui')).toBeInTheDocument();
-		// ThemeToggle no canto (initial=light → oferece ativar o escuro).
-		expect(getByRole('button', { name: 'Ativar tema escuro' })).toBeInTheDocument();
+		// Painel de marca (testemunho fixo).
+		expect(getByText('Dra. Marina Lopes')).toBeInTheDocument();
+	});
+
+	it('não renderiza mais o link "Voltar ao site"', () => {
+		const { queryByRole } = render(AuthCard, {
+			props: { title: 'Entrar', children: snippet('x') }
+		});
+
+		expect(queryByRole('link', { name: /Voltar ao site/ })).toBeNull();
 	});
 });

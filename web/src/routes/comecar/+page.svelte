@@ -15,7 +15,7 @@
 	const nova = $derived(data.nova ?? false);
 </script>
 
-<svelte:head><title>{nova ? 'Nova clínica' : 'Criar sua clínica'} · Movimento</title></svelte:head>
+<svelte:head><title>{nova ? 'Nova clínica' : 'Criar sua clínica'} · Cinetra</title></svelte:head>
 
 <AuthCard
 	title={nova ? 'Criar outra clínica' : 'Vamos criar sua clínica'}
@@ -24,7 +24,6 @@
 		: primeiroNome
 			? `Olá, ${primeiroNome}. Dê um nome à sua clínica para começar.`
 			: 'Dê um nome à sua clínica para começar.'}
-	theme={data.theme}
 >
 	<!-- Progressive enhancement: com JS envia sem reload; sem JS, submit nativo cai na mesma
 	     action e o redirect vem por SSR. -->
@@ -42,7 +41,7 @@
 			label="Nome da clínica"
 			name="nome"
 			value={form?.nome ?? ''}
-			placeholder="Ex.: Studio Movimento"
+			placeholder="Ex.: Clínica Reabilitar"
 			required
 			maxlength={160}
 		/>
