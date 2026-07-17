@@ -65,22 +65,33 @@ describe('requestMagicLink (action compartilhada, resposta neutra)', () => {
 		expect(JSON.parse(init.body as string)).toEqual({ email: 'ana@example.com' });
 	});
 
-	it('cadastro com nome: inclui nome (com trim) no corpo', async () => {
+	it('cadastro (register=true) com nome: inclui nome e register no corpo', async () => {
 		const { event, fetch } = fakeEvent('ana@example.com', undefined, '  Ana Paula  ');
-		const result = await requestMagicLink(event);
+		const result = await requestMagicLink(event, true);
 
 		expect(result).toEqual({ sent: true, email: 'ana@example.com' });
 		expect(JSON.parse(fetch.mock.calls[0][1].body as string)).toEqual({
 			email: 'ana@example.com',
-			nome: 'Ana Paula'
+			nome: 'Ana Paula',
+			register: true
 		});
 	});
 
-	it('login sem nome: corpo NÃO carrega a chave nome', async () => {
+	it('login (default) sem nome: corpo só com email, SEM register nem nome', async () => {
 		const { event, fetch } = fakeEvent('ana@example.com', undefined, '   ');
 		await requestMagicLink(event);
 
 		expect(JSON.parse(fetch.mock.calls[0][1].body as string)).toEqual({ email: 'ana@example.com' });
+	});
+
+	it('cadastro (register=true) sem nome: corpo carrega register mas não nome', async () => {
+		const { event, fetch } = fakeEvent('ana@example.com', undefined, '   ');
+		await requestMagicLink(event, true);
+
+		expect(JSON.parse(fetch.mock.calls[0][1].body as string)).toEqual({
+			email: 'ana@example.com',
+			register: true
+		});
 	});
 
 	it('faz trim do e-mail antes de mandar', async () => {

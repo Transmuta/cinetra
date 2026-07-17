@@ -44,7 +44,11 @@ export async function redirectIfAuthenticated(event: RequestEvent): Promise<void
 
 // Action compartilhada por /entrar e /criar-conta: pede o magic link (ADR-015). O BFF só
 // repassa para a API; a resposta é sempre neutra (não revela se o e-mail tem conta).
-export async function requestMagicLink(event: RequestEvent) {
+//
+// `register` distingue cadastro de login e é FIXADO por rota no servidor (nunca vem do
+// cliente): /criar-conta passa `true`, /entrar usa o default `false`. No login, um e-mail
+// sem conta não recebe link (a API decide) — o "entrar" não vira cadastro nem enumera.
+export async function requestMagicLink(event: RequestEvent, register = false) {
 	const data = await event.request.formData();
 	const email = String(data.get('email') ?? '').trim();
 	// Nome só existe no cadastro (/criar-conta); em /entrar o campo nem é renderizado.
@@ -54,11 +58,15 @@ export async function requestMagicLink(event: RequestEvent) {
 		return fail(400, { email, nome, error: 'Informe seu e-mail.' });
 	}
 
+	const payload: Record<string, unknown> = { email };
+	if (nome) payload.nome = nome;
+	if (register) payload.register = true;
+
 	try {
 		await apiFetch(event, '/api/auth/magic-link', {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify(nome ? { email, nome } : { email })
+			body: JSON.stringify(payload)
 		});
 	} catch {
 		// Falha de rede não vira erro visível: resposta neutra (ADR-015).

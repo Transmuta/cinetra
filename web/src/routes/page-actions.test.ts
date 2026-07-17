@@ -6,12 +6,36 @@ import { actions as entrarActions, load as entrarLoad } from './entrar/+page.ser
 import { actions as criarContaActions, load as criarContaLoad } from './criar-conta/+page.server';
 import { requestMagicLink, redirectIfAuthenticated } from '$lib/server/auth';
 
-// /entrar e /criar-conta compartilham a MESMA action (pedir magic link, ADR-015) e a MESMA
-// guarda de load (quem já está logado é redirecionado, redirectIfAuthenticated).
+// Evento com o email `addr` no formData e um fetch espião que devolve {ok:true}.
+function fakeEvent(addr: string) {
+	const fd = new FormData();
+	fd.set('email', addr);
+	const request = new Request('http://web/x', { method: 'POST', body: fd });
+	const fetch = vi.fn().mockResolvedValue(new Response('{"ok":true}'));
+	return { event: { request, fetch, cookies: { get: () => undefined } } as never, fetch };
+}
+
+// /entrar e /criar-conta compartilham a lógica (pedir magic link, ADR-015) e a guarda de load,
+// mas DIVERGEM no intent de registro: só o cadastro habilita criar conta a partir de e-mail novo.
 describe('fiação de /entrar e /criar-conta', () => {
-	it('ambas as actions apontam para requestMagicLink', () => {
+	it('login (/entrar) usa requestMagicLink direto (register default = false)', () => {
+		// Referência literal: login é a action compartilhada sem flag de registro.
 		expect(entrarActions.default).toBe(requestMagicLink);
-		expect(criarContaActions.default).toBe(requestMagicLink);
+	});
+
+	it('login não manda register no corpo (e-mail sem conta não vira cadastro)', async () => {
+		const { event, fetch } = fakeEvent('ana@example.com');
+		await entrarActions.default(event);
+		expect(JSON.parse(fetch.mock.calls[0][1].body as string)).toEqual({ email: 'ana@example.com' });
+	});
+
+	it('cadastro (/criar-conta) manda register:true no corpo', async () => {
+		const { event, fetch } = fakeEvent('ana@example.com');
+		await criarContaActions.default(event);
+		expect(JSON.parse(fetch.mock.calls[0][1].body as string)).toEqual({
+			email: 'ana@example.com',
+			register: true
+		});
 	});
 
 	it('ambos os loads apontam para redirectIfAuthenticated', () => {
