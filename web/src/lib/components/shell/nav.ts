@@ -45,11 +45,10 @@ export interface ConfigLink {
 	href: string;
 }
 
-// Sidebar de Configurações. Só "Equipe & acessos" existe nesta fatia; o resto → 404.
+// Sidebar de Configurações. Tipos, Horário, Exceções e Equipe & acessos já existem.
 export const CONFIG_LINKS: ConfigLink[] = [
 	{ label: 'Tipos de atendimento', href: '/configuracoes/tipos' },
 	{ label: 'Horário', href: '/configuracoes/horario' },
 	{ label: 'Exceções', href: '/configuracoes/excecoes' },
-	{ label: 'Operação', href: '/configuracoes/operacao' },
 	{ label: 'Equipe & acessos', href: '/configuracoes/equipe' }
 ];
