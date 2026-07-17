@@ -41,4 +41,18 @@ describe('ExceptionForm', () => {
 		const { getByText } = render(ExceptionForm, { props: { error: 'Já existe uma exceção nessa data.' } });
 		expect(getByText('Já existe uma exceção nessa data.')).toBeInTheDocument();
 	});
+
+	it('"Adicionar" trava quando o período do "Horário específico" é inválido', async () => {
+		const { getByRole, getByLabelText } = render(ExceptionForm, { props: {} });
+
+		// data preenchida + horário específico: período default (08:00–12:00) é válido → habilitado.
+		await fireEvent.input(getByLabelText('Data da exceção'), { target: { value: '2026-12-25' } });
+		await fireEvent.click(getByRole('button', { name: 'Horário específico' }));
+		const add = getByRole('button', { name: 'Adicionar exceção' });
+		expect(add).toBeEnabled();
+
+		// fim antes do início torna o período inválido → o Adicionar trava (não deixa mandar 422).
+		await fireEvent.change(getByLabelText('Fim do período 1'), { target: { value: '07:00' } });
+		expect(add).toBeDisabled();
+	});
 });

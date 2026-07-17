@@ -169,3 +169,40 @@ seguem quebrados. Por isso a prova RED→GREEN do toast é o **screenshot do pr�
 + os **testes de componente que renderizam o `Toast.svelte` real** e afirmam o ícone danger no
 erro (GREEN) + o estresse da stack por `curl`. O *clique* visual final continua bloqueado pelo
 harness, não pelo app.
+
+## 7. Bate-volta do próprio fix (b06afec)
+
+Auditoria formal do commit do fix, dois eixos caçados **em paralelo** por subagentes
+(`quality-specialist` segurança, `test-engineer` DRY/rules/corretude do espelho), cada achado
+provado com sonda. Diff 100% `web/` — sondas de backend só entram para comparar o espelho JS com
+a autoridade Elixir.
+
+**Segurança: 0 achados.** `grep '@html\|innerHTML' web/src` → vazio; toast (`{active.message}`) e
+`role="alert"` (`{validation.message}`) são interpolação escapada do Svelte, e a mensagem de erro
+é **enum fixo do BFF** (`mutate.ts:errorMessage`) — o `details` cru da API é achatado, nunca chega
+ao render. `aria-invalid` boolean e `role="alert"` corretos (13/13 testes de a11y verdes).
+
+**Corretude — 1 divergência CONFIRMADA (baixa sev.), corrigida:** o espelho `validateDayPeriods`
+desestruturava `[ini, fim]` no `forEach` e **silenciava** um 3º elemento — um período de aridade
+3 (`["08:00","12:00","13:00"]`) passava como **válido**, enquanto `Api.Scheduling.Periods` o
+rejeita (`"cada período deve ser um par"`). Direção segura (o TS só era mais permissivo, nunca
+travava input server-válido) e inalcançável pela UI (`Period` é 2-tupla), mas quebrava a fidelidade
+do espelho. **Corrigido** (TDD, rodada 3): guarda `period.length !== 2` (`readonly string[]`,
+defensivo contra JSON inesperado). Re-sonda (rodada 5): Elixir e TS agora concordam nos 20+
+casos-limite. Também **coberto o gap de teste** da trava do "Adicionar" das Exceções em período
+inválido (`ExceptionForm.svelte.test.ts`).
+
+**Refutados com sonda:** DRY dos 4 `toast(msg,'error')` (uma linha cada, guardas distintas por
+tela — extração daria mais código); "staleness" do sucesso do Horário (o `enhance` **aguarda**
+`update({reset:false})` antes de ler `result`, então `draft = clone(data.clinicHours)` não defasa);
+tokens Tailwind (`--color-danger/warning/teal` no `@theme inline`, utilities geradas).
+
+**Para decisão humana (não corrigido):** `mutate.ts:errorMessage` **achata** o `details` rico da
+API (`"dia 1: início deve vir antes do fim …"`) num genérico "Dados inválidos.". É **pré-existente**
+(anterior a este commit) e hoje *moot* para o Horário — o Salvar trava no cliente e nenhum 422 de
+período chega ao toast. Fica como dívida: qualquer rejeição server-side futura que o espelho não
+replique aparecerá sem o campo. Correção seria repassar `details[0].message` no `mutate`, mas toca
+todas as telas que usam o funil (Membros/Tipos/…) — decisão de escopo, não patch de auditoria.
+
+Gate final: **407 Vitest verdes** (árvore inteira, já com o trabalho paralelo), `svelte-check`
+**0/0**, cobertura **92,4% stmts / 82,3% branch** (acima do piso).

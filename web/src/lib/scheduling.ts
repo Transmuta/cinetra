@@ -94,9 +94,12 @@ export function validateDayPeriods(periods: Period[]): DayValidation {
 	const bad = new Set<number>();
 	let message: string | null = null;
 
-	// 1. Forma (HH:MM) e ordem interna (início antes do fim) de cada período.
-	periods.forEach(([ini, fim], i) => {
-		if (!TIME_RE.test(ini) || !TIME_RE.test(fim)) {
+	// 1. Forma de cada período: um par `[HH:MM, HH:MM]` (aridade 2, como o servidor casa em
+	//    `[ini, fim]`), início antes do fim. `readonly string[]` porque o dado pode vir do
+	//    servidor/JSON com forma inesperada — o espelho é defensivo, não confia no tipo.
+	periods.forEach((period: readonly string[], i) => {
+		const [ini, fim] = period;
+		if (period.length !== 2 || !TIME_RE.test(ini) || !TIME_RE.test(fim)) {
 			bad.add(i);
 			message ??= 'Preencha os horários (formato HH:MM).';
 		} else if (timeToMinutes(ini) >= timeToMinutes(fim)) {

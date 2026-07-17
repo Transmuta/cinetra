@@ -12,6 +12,7 @@ import {
 	canManageSchedule,
 	validateDayPeriods,
 	weekHasErrors,
+	type Period,
 	type WeekHours
 } from './scheduling';
 
@@ -208,6 +209,14 @@ describe('validateDayPeriods (espelho do servidor, com índice do input errado)'
 				['08:00', '12:00']
 			]).ok
 		).toBe(false);
+	});
+
+	it('período que não é um par (aridade ≠ 2) é inválido — fiel ao servidor', () => {
+		// Api.Scheduling.Periods casa em [ini, fim]; um 3º elemento cai no clause de erro. O
+		// espelho tem de rejeitar igual (não silenciar o extra), senão diverge da autoridade.
+		const tres = validateDayPeriods([['08:00', '12:00', '13:00'] as unknown as Period]);
+		expect(tres.ok).toBe(false);
+		expect(tres.badIndices).toEqual([0]);
 	});
 });
 
