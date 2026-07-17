@@ -50,11 +50,11 @@ class Component extends DCLogic {
     // ---------- domain seed ----------
     const cat=['#E69F00','#0072B2','#009E73','#D55E00','#CC79A7','#56B4E9','#7A52CC'];
     const profs=[
-      {id:'p1',nome:'Dra. Marina Lopes',sub:'Ortopedia',crefito:'CREFITO 3/123456-F',ci:1,ativo:true,profissao:'Fisioterapia',registroUF:'SP',anoConclusao:'2014',esp:['Traumato-Ortopedia'],vinculo:'PJ',tel:'(11) 98123-4451',email:'marina.lopes@movimento.com',cidade:'São Paulo',uf:'SP'},
-      {id:'p2',nome:'Dr. Rafael Couto',sub:'Neurofuncional',crefito:'CREFITO 3/098234-F',ci:2,ativo:true,profissao:'Fisioterapia',registroUF:'SP',anoConclusao:'2011',esp:['Neurologia'],vinculo:'CLT',tel:'(11) 99640-2210',email:'rafael.couto@movimento.com',cidade:'São Paulo',uf:'SP'},
-      {id:'p3',nome:'Dra. Beatriz Nunes',sub:'RPG',crefito:'CREFITO 3/145789-F',ci:3,ativo:true,profissao:'Fisioterapia',registroUF:'SP',anoConclusao:'2016',esp:['Osteopatia'],vinculo:'Autônomo',tel:'(11) 98877-3390',email:'beatriz.nunes@movimento.com',cidade:'Guarulhos',uf:'SP'},
-      {id:'p4',nome:'Dr. Thiago Alves',sub:'Esportiva',crefito:'CREFITO 3/167432-F',ci:4,ativo:true,profissao:'Fisioterapia',registroUF:'SP',anoConclusao:'2013',esp:['Desportiva','Traumato-Ortopedia'],vinculo:'PJ',tel:'(11) 99123-8876',email:'thiago.alves@movimento.com',cidade:'São Paulo',uf:'SP'},
-      {id:'p5',nome:'Dra. Carla Reis',sub:'Pilates',crefito:'CREFITO 3/178654-F',ci:5,ativo:true,profissao:'Fisioterapia',registroUF:'SP',anoConclusao:'2018',esp:['Pilates'],vinculo:'Autônomo',tel:'(11) 98455-1122',email:'carla.reis@movimento.com',cidade:'São Paulo',uf:'SP'},
+      {id:'p1',nome:'Dra. Marina Lopes',sub:'Ortopedia',crefito:'CREFITO 3/123456-F',ci:1,ativo:true,profissao:'Fisioterapia',registroUF:'SP',anoConclusao:'2014',esp:['Traumato-Ortopedia'],vinculo:'PJ',tel:'(11) 98123-4451',email:'marina.lopes@cinetra.com',cidade:'São Paulo',uf:'SP'},
+      {id:'p2',nome:'Dr. Rafael Couto',sub:'Neurofuncional',crefito:'CREFITO 3/098234-F',ci:2,ativo:true,profissao:'Fisioterapia',registroUF:'SP',anoConclusao:'2011',esp:['Neurologia'],vinculo:'CLT',tel:'(11) 99640-2210',email:'rafael.couto@cinetra.com',cidade:'São Paulo',uf:'SP'},
+      {id:'p3',nome:'Dra. Beatriz Nunes',sub:'RPG',crefito:'CREFITO 3/145789-F',ci:3,ativo:true,profissao:'Fisioterapia',registroUF:'SP',anoConclusao:'2016',esp:['Osteopatia'],vinculo:'Autônomo',tel:'(11) 98877-3390',email:'beatriz.nunes@cinetra.com',cidade:'Guarulhos',uf:'SP'},
+      {id:'p4',nome:'Dr. Thiago Alves',sub:'Esportiva',crefito:'CREFITO 3/167432-F',ci:4,ativo:true,profissao:'Fisioterapia',registroUF:'SP',anoConclusao:'2013',esp:['Desportiva','Traumato-Ortopedia'],vinculo:'PJ',tel:'(11) 99123-8876',email:'thiago.alves@cinetra.com',cidade:'São Paulo',uf:'SP'},
+      {id:'p5',nome:'Dra. Carla Reis',sub:'Pilates',crefito:'CREFITO 3/178654-F',ci:5,ativo:true,profissao:'Fisioterapia',registroUF:'SP',anoConclusao:'2018',esp:['Pilates'],vinculo:'Autônomo',tel:'(11) 98455-1122',email:'carla.reis@cinetra.com',cidade:'São Paulo',uf:'SP'},
     ];
     const wd=['dom','seg','ter','qua','qui','sex','sáb'];
     // Profissionais seguem o horário da clínica por padrão (followClinic). avail guarda apenas exceções por dia da semana.
@@ -200,11 +200,11 @@ class Component extends DCLogic {
     // Membros da organização (acesso/login). Distinto de "profissionais": o vínculo é opcional (profId) e único.
     // Repare: Thiago Alves (p4) e Carla Reis (p5) são profissionais SEM acesso ao sistema.
     const membros=[
-      {id:'u1',nome:'Aline Santos',email:'aline.santos@movimento.com.br',papel:'admin',profId:null,status:'ativo',acesso:'Há 2 horas'},
-      {id:'u2',nome:'Dra. Marina Lopes',email:'marina.lopes@movimento.com.br',papel:'profissional',profId:'p1',status:'ativo',acesso:'Ontem'},
-      {id:'u3',nome:'Dr. Rafael Couto',email:'rafael.couto@movimento.com.br',papel:'profissional',profId:'p2',status:'ativo',acesso:'Há 3 dias'},
-      {id:'u4',nome:'Dra. Beatriz Nunes',email:'beatriz.nunes@movimento.com.br',papel:'profissional',profId:'p3',status:'pendente',acesso:null},
-      {id:'u5',nome:'João Pereira',email:'recepcao@movimento.com.br',papel:'membro',profId:null,status:'ativo',acesso:'Há 20 min'},
+      {id:'u1',nome:'Aline Santos',email:'aline.santos@cinetra.com.br',papel:'admin',profId:null,status:'ativo',acesso:'Há 2 horas'},
+      {id:'u2',nome:'Dra. Marina Lopes',email:'marina.lopes@cinetra.com.br',papel:'profissional',profId:'p1',status:'ativo',acesso:'Ontem'},
+      {id:'u3',nome:'Dr. Rafael Couto',email:'rafael.couto@cinetra.com.br',papel:'profissional',profId:'p2',status:'ativo',acesso:'Há 3 dias'},
+      {id:'u4',nome:'Dra. Beatriz Nunes',email:'beatriz.nunes@cinetra.com.br',papel:'profissional',profId:'p3',status:'pendente',acesso:null},
+      {id:'u5',nome:'João Pereira',email:'recepcao@cinetra.com.br',papel:'membro',profId:null,status:'ativo',acesso:'Há 20 min'},
     ];
 
     // ---------- Pacotes: gerar agendamentos reais (fonte única de verdade) ----------
@@ -1278,7 +1278,7 @@ class Component extends DCLogic {
 
   // ========================================================== RENDER
   renderVals(){
-    if(!this.state.ready||!this.html) return {app:React.createElement('div',{style:{height:'100vh',display:'grid',placeItems:'center',background:this.theme().canvas,color:this.theme().muted,fontFamily:'Hanken Grotesk, sans-serif'}},'Carregando Movimento…')};
+    if(!this.state.ready||!this.html) return {app:React.createElement('div',{style:{height:'100vh',display:'grid',placeItems:'center',background:this.theme().canvas,color:this.theme().muted,fontFamily:'Hanken Grotesk, sans-serif'}},'Carregando Cinetra…')};
     return {app:this.renderApp()};
   }
   renderApp(){
@@ -1332,8 +1332,8 @@ class Component extends DCLogic {
     const c=this.theme(); const html=this.html; const Icon=this.Icon;
     const filaN=this.state.fila.length;
     return html`<div style=${{width:'56px',background:c.rail,display:'flex',flexDirection:'column',alignItems:'center',padding:'12px 0',gap:'4px',flexShrink:0,zIndex:30}}>
-      <div style=${{width:'34px',height:'34px',borderRadius:'9px',background:c.teal.solid,display:'grid',placeItems:'center',marginBottom:'10px',boxShadow:'0 2px 8px rgba(15,181,166,.35)'}}>
-        <${Icon} name="Activity" size=${20} color="#fff" strokeWidth=${2.4} />
+      <div style=${{width:'34px',height:'34px',borderRadius:'9px',background:'#fff',display:'grid',placeItems:'center',marginBottom:'10px',boxShadow:'0 2px 8px rgba(0,0,0,.3)'}}>
+        <img src="uploads/cinetra-mark.svg" width="24" height="24" alt="Cinetra" style=${{display:'block'}}/>
       </div>
       ${this.railBtn('CalendarDays','Agenda','agenda')}
       ${this.railBtn('Users','Pacientes','pacientes')}
@@ -1371,10 +1371,11 @@ class Component extends DCLogic {
     const act=acts[screen];
     return html`<div style=${{width:'256px',background:c.surface,borderRight:'1px solid '+c.bs,display:'flex',flexDirection:'column',flexShrink:0}}>
       <div style=${{padding:'16px 16px 4px'}}>
-        <div style=${{display:'flex',alignItems:'center',gap:'9px'}}>
-          <div style=${{fontWeight:800,fontSize:'17px',letterSpacing:'-.02em'}}>Movimento</div>
+        <div style=${{display:'flex',alignItems:'center',gap:'8px'}}>
+          <img src="uploads/cinetra-mark.svg" width="28" height="28" alt="Cinetra" style=${{display:'block',flexShrink:0}}/>
+          <div style=${{fontWeight:800,fontSize:'17px',letterSpacing:'-.02em'}}>Cinetra</div>
         </div>
-        <div style=${{fontSize:'12px',color:c.faint,marginTop:'2px',display:'flex',alignItems:'center',gap:'5px'}}><${Icon} name="MapPin" size=${11}/> Clínica Movimento · Centro</div>
+        <div style=${{fontSize:'12px',color:c.faint,marginTop:'2px',display:'flex',alignItems:'center',gap:'5px'}}><${Icon} name="MapPin" size=${11}/> Clínica Cinetra · Centro</div>
       </div>
       <div style=${{padding:'10px 16px 8px',display:'flex',alignItems:'center',gap:'7px'}}>
         <div style=${{fontSize:'11px',fontWeight:700,letterSpacing:'.06em',textTransform:'uppercase',color:c.text}}>${titles[screen]||''}</div>
@@ -1507,7 +1508,7 @@ class Component extends DCLogic {
       <div style=${{height:'2px',background:c.teal.solid}}></div>
       <div style=${{height:'52px',display:'flex',alignItems:'center',gap:'12px',padding:'0 16px'}}>
         ${mobile?html`<button onClick=${()=>this.setState({sbOpen:true})} title="Menu" style=${{width:'34px',height:'34px',borderRadius:'8px',border:'none',background:'transparent',color:c.text,cursor:'pointer',display:'grid',placeItems:'center',flexShrink:0,marginLeft:'-8px'}}><${Icon} name="Menu" size=${20}/></button>`:null}
-        <div style=${{fontWeight:700,fontSize:'15px',whiteSpace:'nowrap'}}>${titles[this.state.screen]||'Movimento'}</div>
+        <div style=${{fontWeight:700,fontSize:'15px',whiteSpace:'nowrap'}}>${titles[this.state.screen]||'Cinetra'}</div>
         <div style=${{flex:1}}></div>
         <button onClick=${()=>this.setState({dark:!this.state.dark})} title="Tema" style=${{width:'34px',height:'34px',borderRadius:'8px',border:'1px solid '+c.bs,background:c.surface2,color:c.muted,cursor:'pointer',display:'grid',placeItems:'center'}}>
           <${Icon} name=${c.d?'Sun':'Moon'} size=${16}/>
@@ -2482,7 +2483,7 @@ class Component extends DCLogic {
     </button>`;};
     const body=html`<div>
       ${this.fld('Nome',html`<input value=${d.nome||''} onInput=${e=>this.setMD({nome:e.target.value})} placeholder="Nome completo" style=${sel}/>`)}
-      ${this.fld('E-mail (para onde vai o convite)',html`<input type="email" value=${d.email||''} onInput=${e=>this.setMD({email:e.target.value})} placeholder="nome@movimento.com.br" style=${sel}/>`)}
+      ${this.fld('E-mail (para onde vai o convite)',html`<input type="email" value=${d.email||''} onInput=${e=>this.setMD({email:e.target.value})} placeholder="nome@cinetra.com.br" style=${sel}/>`)}
       <div style=${{fontSize:'12px',fontWeight:600,color:c.muted,marginBottom:'7px'}}>Papel</div>
       <div style=${{display:'flex',flexDirection:'column',gap:'8px',marginBottom:papel==='profissional'?'14px':'4px'}}>${['admin','profissional','membro'].map(roleBtn)}</div>
       ${papel==='profissional'?html`<div style=${{borderTop:'1px solid '+c.bs,paddingTop:'14px'}}>
@@ -3474,15 +3475,16 @@ class Component extends DCLogic {
       <div style=${{position:'absolute',top:0,left:0,right:0,height:'3px',background:c.teal.solid}}></div>
       <div style=${{width:'380px',maxWidth:'92vw',padding:'34px 30px',borderRadius:'14px',border:'1px solid '+c.bs,background:c.surface,boxShadow:c.d?'none':'0 12px 40px rgba(20,24,30,.08)',animation:'mvScale .25s ease-out'}}>
         <div style=${{display:'flex',alignItems:'center',gap:'10px',marginBottom:'24px'}}>
-          <div style=${{width:'36px',height:'36px',borderRadius:'9px',background:c.teal.solid,display:'grid',placeItems:'center'}}><${Icon} name="Activity" size=${21} color="#fff" strokeWidth=${2.4}/></div>
-          <div style=${{fontWeight:800,fontSize:'20px',letterSpacing:'-.02em'}}>Movimento</div>
+          <img src="uploads/cinetra-mark.svg" width="40" height="40" alt="Cinetra" style=${{display:'block',flexShrink:0}}/>
+          <div style=${{fontWeight:800,fontSize:'20px',letterSpacing:'-.02em'}}>Cinetra</div>
         </div>
         <div style=${{fontWeight:700,fontSize:'17px',marginBottom:'4px'}}>Entrar na clínica</div>
         <div style=${{fontSize:'13px',color:c.muted,marginBottom:'20px'}}>O sistema que enche a sua agenda.</div>
-        ${this.fld('E-mail',html`<input defaultValue="recepcao@movimento.com.br" style=${this.inputStyle(c)}/>`)}
-        ${this.fld('Senha',html`<input type="password" defaultValue="••••••••" style=${this.inputStyle(c)}/>`)}
-        <button onClick=${()=>this.go('agenda')} style=${{width:'100%',padding:'11px',borderRadius:'8px',border:'none',background:c.primary,color:c.onPrimary,fontWeight:700,fontSize:'14px',cursor:'pointer',marginTop:'6px'}}>Entrar</button>
-        <div style=${{textAlign:'center',marginTop:'14px',fontSize:'12.5px',color:c.faint}}>Esqueceu a senha? <span style=${{color:c.teal.text,fontWeight:600,cursor:'pointer'}}>Recuperar</span></div>
+        ${this.fld('E-mail',html`<input defaultValue="recepcao@cinetra.com.br" style=${this.inputStyle(c)}/>`)}
+        <button onClick=${()=>this.go('agenda')} style=${{width:'100%',padding:'11px',borderRadius:'8px',border:'none',background:c.primary,color:c.onPrimary,fontWeight:700,fontSize:'14px',cursor:'pointer',marginTop:'6px',display:'flex',alignItems:'center',justifyContent:'center',gap:'8px'}}><${Icon} name="Mail" size=${16}/> Enviar link de acesso</button>
+        <div style=${{display:'flex',alignItems:'center',gap:'12px',margin:'16px 0',color:c.faint,fontSize:'12px',fontWeight:600}}><div style=${{flex:1,height:'1px',background:c.bs}}></div>ou<div style=${{flex:1,height:'1px',background:c.bs}}></div></div>
+        <button onClick=${()=>this.go('agenda')} style=${{width:'100%',padding:'11px',borderRadius:'8px',border:'1px solid '+c.bd,background:c.surface,color:c.text,fontWeight:600,fontSize:'14px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:'10px'}}><svg width="18" height="18" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84A11 11 0 0 0 12 23z"/><path fill="#FBBC05" d="M5.84 14.1a6.6 6.6 0 0 1 0-4.2V7.06H2.18a11 11 0 0 0 0 9.88z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06L5.84 9.9C6.71 7.31 9.14 5.38 12 5.38z"/></svg> Continuar com Google</button>
+        <div style=${{textAlign:'center',marginTop:'16px',fontSize:'12px',color:c.faint}}>Enviamos um link de acesso para o seu e-mail — sem senha.</div>
       </div>
       <button onClick=${()=>this.setState({dark:!this.state.dark})} style=${{position:'absolute',bottom:'18px',right:'18px',width:'36px',height:'36px',borderRadius:'8px',border:'1px solid '+c.bs,background:c.surface,color:c.muted,cursor:'pointer',display:'grid',placeItems:'center'}}><${Icon} name=${c.d?'Sun':'Moon'} size=${16}/></button>
     </div>`;
