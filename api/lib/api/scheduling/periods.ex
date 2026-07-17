@@ -64,6 +64,33 @@ defmodule Api.Scheduling.Periods do
     end)
   end
 
+  @doc """
+  Invariante prof ⊆ clínica (doc 22 §5): todos os `periods` cabem dentro de **algum** período
+  do expediente da clínica naquele dia (`dayValid` do protótipo,
+  [`:2978`](../../../interface/Movimento.dc.html#L2978)). Se a clínica está fechada no dia
+  (`clinic_periods == []`), qualquer período próprio é inválido — não se atende quando a
+  clínica não abre. Assume `periods`/`clinic_periods` já validados na forma.
+
+  `:ok`, ou `{:error, mensagem}` na primeira falha.
+  """
+  @spec within(list(), list()) :: :ok | {:error, String.t()}
+  def within(periods, clinic_periods) when is_list(periods) and is_list(clinic_periods) do
+    Enum.reduce_while(periods, :ok, fn [ini, fim], :ok ->
+      if fits_in_any?(to_minutes(ini), to_minutes(fim), clinic_periods) do
+        {:cont, :ok}
+      else
+        {:halt,
+         {:error, "período #{ini}–#{fim} fora do horário da clínica nesse dia"}}
+      end
+    end)
+  end
+
+  defp fits_in_any?(ini, fim, clinic_periods) do
+    Enum.any?(clinic_periods, fn [cini, cfim] ->
+      to_minutes(cini) <= ini and fim <= to_minutes(cfim)
+    end)
+  end
+
   @doc "Converte `\"HH:MM\"` em minutos desde a meia-noite. Só para strings já validadas."
   @spec to_minutes(String.t()) :: non_neg_integer()
   def to_minutes(<<h::binary-size(2), ":", m::binary-size(2)>>),

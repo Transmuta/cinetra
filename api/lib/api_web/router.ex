@@ -65,6 +65,11 @@ defmodule ApiWeb.Router do
     # Token efêmero de WebSocket (ADR-014, 09 §8).
     get "/realtime/token", AuthController, :realtime_token
 
+    # Dados da clínica ativa (tela /configuracoes/clinica): nome, CNPJ, endereço. Leitura para
+    # todo membro; edição só owner/admin. clinic_id sempre do escopo (nunca no path/corpo).
+    get "/clinic", ClinicController, :show
+    patch "/clinic", ClinicController, :update
+
     # Gestão de membros (Fatia 10 / Equipe & acessos). RBAC owner/admin no controller +
     # policies do Membership; clinic_id sempre do escopo.
     get "/members", MembersController, :index
@@ -90,6 +95,19 @@ defmodule ApiWeb.Router do
     get "/clinic-exceptions", ClinicExceptionsController, :index
     post "/clinic-exceptions", ClinicExceptionsController, :create
     delete "/clinic-exceptions/:id", ClinicExceptionsController, :delete
+
+    # Diretório de profissionais (fatia Profissionais). Leitura para todo membro, escrita só
+    # owner/admin; clinic_id sempre do escopo. Ficha, grade semanal e exceções de data são
+    # superfícies separadas (o web orquestra). Arquivar é POST /:id/deactivate, não destroy.
+    get "/professionals", ProfessionalsController, :index
+    post "/professionals", ProfessionalsController, :create
+    get "/professionals/:id", ProfessionalsController, :show
+    patch "/professionals/:id", ProfessionalsController, :update
+    post "/professionals/:id/deactivate", ProfessionalsController, :deactivate
+    post "/professionals/:id/reactivate", ProfessionalsController, :reactivate
+    patch "/professionals/:id/hours", ProfessionalsController, :update_hours
+    post "/professionals/:id/exceptions", ProfessionalsController, :create_exception
+    delete "/professionals/:id/exceptions/:exception_id", ProfessionalsController, :delete_exception
   end
 
   # Máquina OAuth do AshAuthentication (Assent): request + callback do Google. Chama

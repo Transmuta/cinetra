@@ -2,9 +2,9 @@ defmodule Api.Scheduling.ScheduleException do
   @moduledoc """
   Exceção de data (doc 22 §2) — um feriado, um dia fechado ou um expediente reduzido numa data
   específica. **Polimórfico pelo dono**: `professional_id` nulo = exceção da **clínica** (vale
-  para todos); preenchido = folga/horário pontual de um **profissional**. Esta fatia (doc 22
-  H1) só cria/lê/apaga as da clínica — o `professional_id` nasce nulável de propósito para os
-  profissionais reusarem a mesma tabela depois, sem migração.
+  para todos); preenchido = folga/horário pontual de um **profissional**. As da clínica vieram
+  na fatia de Horário (doc 22 H1); as do profissional entram na fatia Profissionais — a mesma
+  tabela e a mesma ação, só com o `professional_id` preenchido (sem migração de forma).
 
   Recurso **por-tenant** via atributo (`strategy :attribute`, ADR-017), com RLS em migration
   própria (ADR-018), espelhando `AppointmentType`.
@@ -41,7 +41,11 @@ defmodule Api.Scheduling.ScheduleException do
 
     create :create do
       primary? true
-      accept [:data, :nome, :tipo, :periods]
+      # `professional_id` nulo = exceção da CLÍNICA (feriado); preenchido = folga/horário
+      # pontual de um profissional. Que o `professional_id` pertença ao tenant é conferido no
+      # wrapper `create_professional_exception` (como o `ProfessionalInClinic` do convite) —
+      # a FK só garante que é um profissional, não que é DESTA clínica.
+      accept [:data, :nome, :tipo, :periods, :professional_id]
       change Api.Directory.Changes.SetTenantGuc
     end
 

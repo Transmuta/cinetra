@@ -11,6 +11,9 @@ defmodule Api.Directory do
       define :create_professional, action: :create, args: [:nome]
       define :list_professionals, action: :read
       define :get_professional, action: :read, get_by: [:id]
+      define :update_professional, action: :update
+      define :deactivate_professional, action: :deactivate
+      define :reactivate_professional, action: :reactivate
     end
 
     resource Api.Directory.AppointmentType do
@@ -89,13 +92,53 @@ defmodule Api.Directory do
     Enum.map(tipos, &create_appointment_type!(&1, tenant: clinic_id, authorize?: false))
   end
 
-  @doc "Profissionais da clínica ativa do escopo (com o GUC de tenant setado)."
+  @doc """
+  Profissionais da clínica ativa do escopo (com o GUC de tenant setado), com a grade semanal
+  (`weekly_hours`) carregada — a coluna "Atendimento" da lista a resolve contra o expediente
+  da clínica.
+  """
   def list_clinic_professionals(%Api.Scope{clinic_id: clinic_id} = scope)
       when is_binary(clinic_id) do
     {:ok, professionals} =
-      Api.Repo.with_clinic(clinic_id, fn -> list_professionals!(scope: scope) end)
+      Api.Repo.with_clinic(clinic_id, fn ->
+        list_professionals!(scope: scope, load: [:weekly_hours])
+      end)
 
     professionals
+  end
+
+  @doc """
+  Um profissional da clínica ativa por id, com a grade e as exceções carregadas (a ficha
+  precisa delas). De outra clínica é indistinguível de inexistente (o filtro por atributo não
+  o enxerga) → `{:ok, nil}`, que o controller traduz em 404.
+  """
+  def fetch_clinic_professional(%Api.Scope{} = scope, id, opts \\ []) when is_binary(id) do
+    load = Keyword.get(opts, :load, [])
+
+    in_clinic(scope, fn ->
+      get_professional(id, scope: scope, load: load, not_found_error?: false)
+    end)
+  end
+
+  @doc "Cria um profissional no diretório da clínica ativa do escopo."
+  def create_clinic_professional(%Api.Scope{} = scope, attrs) do
+    {nome, rest} = Map.pop(attrs, :nome)
+    create_professional(nome, rest, scope: scope)
+  end
+
+  @doc "Atualiza (parcialmente) um profissional da clínica ativa."
+  def update_clinic_professional(%Api.Scope{} = scope, professional, attrs) do
+    update_professional(professional, attrs, scope: scope)
+  end
+
+  @doc "Arquiva um profissional (some da lista de ativos, sem apagar)."
+  def deactivate_clinic_professional(%Api.Scope{} = scope, professional) do
+    deactivate_professional(professional, %{}, scope: scope)
+  end
+
+  @doc "Reativa um profissional arquivado."
+  def reactivate_clinic_professional(%Api.Scope{} = scope, professional) do
+    reactivate_professional(professional, %{}, scope: scope)
   end
 
   @doc "Verdadeiro se `professional_id` é um `Professional` da clínica `clinic_id`."
