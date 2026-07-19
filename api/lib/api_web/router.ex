@@ -108,6 +108,16 @@ defmodule ApiWeb.Router do
     patch "/professionals/:id/hours", ProfessionalsController, :update_hours
     post "/professionals/:id/exceptions", ProfessionalsController, :create_exception
     delete "/professionals/:id/exceptions/:exception_id", ProfessionalsController, :delete_exception
+
+    # Cadastro de pacientes (fatia Pacientes). Leitura para todo membro, escrita só owner/admin;
+    # clinic_id sempre do escopo. A ficha inteira num corpo só. Arquivar é POST /:id/deactivate,
+    # não destroy — Pacotes/Attendance/Fila apontarão para cá.
+    get "/patients", PatientsController, :index
+    post "/patients", PatientsController, :create
+    get "/patients/:id", PatientsController, :show
+    patch "/patients/:id", PatientsController, :update
+    post "/patients/:id/deactivate", PatientsController, :deactivate
+    post "/patients/:id/reactivate", PatientsController, :reactivate
   end
 
   # Máquina OAuth do AshAuthentication (Assent): request + callback do Google. Chama

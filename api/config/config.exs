@@ -68,7 +68,7 @@ config :spark,
 config :api,
   generators: [timestamp_type: :utc_datetime],
   ecto_repos: [Api.Repo],
-  ash_domains: [Api.Meta, Api.Accounts, Api.Directory, Api.Scheduling],
+  ash_domains: [Api.Meta, Api.Accounts, Api.Directory, Api.Scheduling, Api.Records],
   ash_authentication: [return_error_on_invalid_magic_link_token?: true]
 
 # Magic link sem página de interação: o callback GET assina a sessão direto (09 §8).
