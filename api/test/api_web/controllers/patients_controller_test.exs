@@ -160,7 +160,11 @@ defmodule ApiWeb.PatientsControllerTest do
 
   describe "POST /api/patients" do
     test "owner cria (201) e o corpo NÃO define clinic_id", %{conn: conn, clinic: clinic} do
-      params = %{"nome" => "Novo Paciente", "cpf" => "123.456.789-00", "clinic_id" => Ecto.UUID.generate()}
+      params = %{
+        "nome" => "Novo Paciente",
+        "cpf" => "123.456.789-00",
+        "clinic_id" => Ecto.UUID.generate()
+      }
 
       body = conn |> post(~p"/api/patients", params) |> json_response(201)
 
@@ -175,14 +179,24 @@ defmodule ApiWeb.PatientsControllerTest do
 
     test "admin cria (201)", %{base_conn: base, owner: owner, clinic: clinic} do
       admin = active_member_session(owner, clinic, :admin)
-      body = base |> authed(admin) |> post(~p"/api/patients", %{"nome" => "Pela Admin"}) |> json_response(201)
+
+      body =
+        base
+        |> authed(admin)
+        |> post(~p"/api/patients", %{"nome" => "Pela Admin"})
+        |> json_response(201)
+
       assert body["patient"]["nome"] == "Pela Admin"
     end
 
     test "recepção e profissional → 403", %{base_conn: base, owner: owner, clinic: clinic} do
       for papel <- [:recepcao, :profissional] do
         user = active_member_session(owner, clinic, papel)
-        assert base |> authed(user) |> post(~p"/api/patients", %{"nome" => "X"}) |> json_response(403)
+
+        assert base
+               |> authed(user)
+               |> post(~p"/api/patients", %{"nome" => "X"})
+               |> json_response(403)
       end
     end
 
@@ -231,7 +245,10 @@ defmodule ApiWeb.PatientsControllerTest do
       assert body["patient"]["medico"] == "Dr. Novo"
     end
 
-    test "corpo inválido → 422 com detalhe (a escada de erro vale no update)", %{conn: conn, clinic: clinic} do
+    test "corpo inválido → 422 com detalhe (a escada de erro vale no update)", %{
+      conn: conn,
+      clinic: clinic
+    } do
       p = create_patient(clinic, "Editar")
       body = conn |> patch(~p"/api/patients/#{p.id}", %{"nome" => ""}) |> json_response(422)
       assert body["error"] == "invalid"
@@ -242,11 +259,16 @@ defmodule ApiWeb.PatientsControllerTest do
       p = create_patient(clinic)
       recepcao = active_member_session(owner, clinic, :recepcao)
 
-      assert base |> authed(recepcao) |> patch(~p"/api/patients/#{p.id}", %{"tel" => "x"}) |> json_response(403)
+      assert base
+             |> authed(recepcao)
+             |> patch(~p"/api/patients/#{p.id}", %{"tel" => "x"})
+             |> json_response(403)
     end
 
     test "id inexistente → 404", %{conn: conn} do
-      assert conn |> patch(~p"/api/patients/#{Ecto.UUID.generate()}", %{"tel" => "x"}) |> json_response(404)
+      assert conn
+             |> patch(~p"/api/patients/#{Ecto.UUID.generate()}", %{"tel" => "x"})
+             |> json_response(404)
     end
   end
 
@@ -265,7 +287,10 @@ defmodule ApiWeb.PatientsControllerTest do
       p = create_patient(clinic)
       recepcao = active_member_session(owner, clinic, :recepcao)
 
-      assert base |> authed(recepcao) |> post(~p"/api/patients/#{p.id}/deactivate") |> json_response(403)
+      assert base
+             |> authed(recepcao)
+             |> post(~p"/api/patients/#{p.id}/deactivate")
+             |> json_response(403)
     end
   end
 end

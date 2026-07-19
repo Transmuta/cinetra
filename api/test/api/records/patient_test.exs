@@ -246,7 +246,8 @@ defmodule Api.Records.PatientTest do
       arq = Records.create_patient!("Arquivado", %{}, tenant: clinic.id, actor: owner)
       Records.deactivate_patient!(arq, %{}, tenant: clinic.id, actor: owner)
 
-      ids = clinic.id |> then(&Records.list_patients!(tenant: &1, actor: owner)) |> Enum.map(& &1.id)
+      ids =
+        clinic.id |> then(&Records.list_patients!(tenant: &1, actor: owner)) |> Enum.map(& &1.id)
 
       assert ativo.id in ids
       assert arq.id in ids

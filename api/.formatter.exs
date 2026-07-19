@@ -2,6 +2,7 @@
   import_deps: [
     :ash_authentication,
     :ash_json_api,
+    :ash_paper_trail,
     :ash_phoenix,
     :ash_postgres,
     :ash,

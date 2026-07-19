@@ -70,6 +70,9 @@ defmodule Api.Repo do
   def installed_extensions do
     # Add extensions here, and the migration generator will install them.
     # citext: coluna case-insensitive do User.email (:ci_string).
-    ["ash-functions", "citext"]
+    # btree_gist: exigida pela exclusion constraint `appointments_no_overlap`, que combina
+    # igualdade em `professional_id` (btree) com sobreposição de `tstzrange` (gist) no mesmo
+    # índice. Sem ela o `EXCLUDE USING gist (professional_id WITH =, ...)` não compila (25 §4).
+    ["ash-functions", "citext", "btree_gist"]
   end
 end

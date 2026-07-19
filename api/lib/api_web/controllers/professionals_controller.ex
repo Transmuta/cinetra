@@ -200,6 +200,7 @@ defmodule ApiWeb.ProfessionalsController do
   end
 
   defp maybe_put_loaded(map, _key, %Ash.NotLoaded{}, _fun), do: map
+
   defp maybe_put_loaded(map, key, list, fun) when is_list(list),
     do: Map.put(map, key, Enum.map(list, fun))
 

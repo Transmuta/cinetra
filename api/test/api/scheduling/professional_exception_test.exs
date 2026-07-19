@@ -15,7 +15,10 @@ defmodule Api.Scheduling.ProfessionalExceptionTest do
 
   defp owner_and_clinic do
     owner = Accounts.register_user!("Dono", email(), authorize?: false)
-    clinic = Accounts.onboard_clinic!("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
+
+    clinic =
+      Accounts.onboard_clinic!("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
+
     {owner, clinic}
   end
 
@@ -92,10 +95,17 @@ defmodule Api.Scheduling.ProfessionalExceptionTest do
     prof = professional(clinic, owner)
 
     {:ok, _clinica} =
-      Scheduling.create_clinic_exception(scope, %{data: ~D[2026-12-25], nome: "Natal", tipo: :fechado})
+      Scheduling.create_clinic_exception(scope, %{
+        data: ~D[2026-12-25],
+        nome: "Natal",
+        tipo: :fechado
+      })
 
     {:ok, _prof} =
-      Scheduling.create_professional_exception(scope, prof.id, %{data: ~D[2026-08-10], tipo: :fechado})
+      Scheduling.create_professional_exception(scope, prof.id, %{
+        data: ~D[2026-08-10],
+        tipo: :fechado
+      })
 
     prof_exc = Scheduling.list_professional_exceptions(scope, prof.id)
     clinic_exc = Scheduling.list_clinic_exceptions(scope)
@@ -110,12 +120,18 @@ defmodule Api.Scheduling.ProfessionalExceptionTest do
     prof = professional(clinic, owner)
     data = ~D[2026-09-07]
 
-    {:ok, _} = Scheduling.create_clinic_exception(scope, %{data: data, nome: "Feriado", tipo: :fechado})
-    {:ok, _} = Scheduling.create_professional_exception(scope, prof.id, %{data: data, tipo: :fechado})
+    {:ok, _} =
+      Scheduling.create_clinic_exception(scope, %{data: data, nome: "Feriado", tipo: :fechado})
+
+    {:ok, _} =
+      Scheduling.create_professional_exception(scope, prof.id, %{data: data, tipo: :fechado})
 
     # segunda do mesmo profissional na mesma data colide
     assert {:error, %Ash.Error.Invalid{}} =
-             Scheduling.create_professional_exception(scope, prof.id, %{data: data, tipo: :fechado})
+             Scheduling.create_professional_exception(scope, prof.id, %{
+               data: data,
+               tipo: :fechado
+             })
   end
 
   test "destroy apaga a exceção do profissional" do
@@ -124,7 +140,10 @@ defmodule Api.Scheduling.ProfessionalExceptionTest do
     prof = professional(clinic, owner)
 
     {:ok, exc} =
-      Scheduling.create_professional_exception(scope, prof.id, %{data: ~D[2026-08-10], tipo: :fechado})
+      Scheduling.create_professional_exception(scope, prof.id, %{
+        data: ~D[2026-08-10],
+        tipo: :fechado
+      })
 
     :ok = Scheduling.destroy_professional_exception(scope, exc)
 

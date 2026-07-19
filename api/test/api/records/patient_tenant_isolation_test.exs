@@ -41,6 +41,10 @@ defmodule Api.Records.PatientTenantIsolationTest do
     pac_a = Records.create_patient!("Ana A", %{}, tenant: clinic_a.id, actor: user_a)
 
     assert {:ok, nil} =
-             Records.get_patient(pac_a.id, tenant: clinic_b.id, authorize?: false, not_found_error?: false)
+             Records.get_patient(pac_a.id,
+               tenant: clinic_b.id,
+               authorize?: false,
+               not_found_error?: false
+             )
   end
 end

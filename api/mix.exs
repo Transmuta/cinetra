@@ -57,6 +57,10 @@ defmodule Api.MixProject do
       {:sourceror, "~> 1.8", only: [:dev, :test]},
       {:open_api_spex, "~> 3.0"},
       {:ash_json_api, "~> 1.0"},
+      # Trilha de auditoria (A-D6c, doc 25 §11): uma linha por escrita em `Appointment` e
+      # `Attendance`. Escolhida sobre as duas colunas de autoria porque `updated_by_id`
+      # sobrescreve o autor anterior — numa tela operada por 3–4 pessoas, a remarcação some.
+      {:ash_paper_trail, "~> 0.6"},
       {:ash_phoenix, "~> 2.0"},
       {:ash_postgres, "~> 2.0"},
       {:ash, "~> 3.0"},
@@ -68,6 +72,10 @@ defmodule Api.MixProject do
       {:jason, "~> 1.2"},
       {:dns_cluster, "~> 0.2.0"},
       {:bandit, "~> 1.5"},
+      # Base de fusos IANA. Sem ela `Clinic.timezone` (ADR-009) é decorativo: converter
+      # data+hora local da clínica para o `:utc_datetime` do agendamento (25 §A2) exige
+      # `DateTime.new/4`, que precisa de uma time zone database instalada.
+      {:tz, "~> 0.28"},
       {:excoveralls, "~> 0.18", only: :test}
     ]
   end

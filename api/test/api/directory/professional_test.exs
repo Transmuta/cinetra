@@ -17,7 +17,10 @@ defmodule Api.Directory.ProfessionalTest do
 
   defp owner_and_clinic do
     owner = Accounts.register_user!("Dono", email(), authorize?: false)
-    clinic = Accounts.onboard_clinic!("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
+
+    clinic =
+      Accounts.onboard_clinic!("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
+
     {owner, clinic}
   end
 
@@ -77,7 +80,10 @@ defmodule Api.Directory.ProfessionalTest do
       {owner, clinic} = owner_and_clinic()
 
       prof =
-        Directory.create_professional!("Dra. Marina Lopes", @full, tenant: clinic.id, actor: owner)
+        Directory.create_professional!("Dra. Marina Lopes", @full,
+          tenant: clinic.id,
+          actor: owner
+        )
 
       assert prof.nome == "Dra. Marina Lopes"
       assert prof.cpf == "123.456.789-00"
@@ -187,7 +193,12 @@ defmodule Api.Directory.ProfessionalTest do
 
       for papel <- [:admin, :recepcao, :profissional] do
         user = member_with_role(clinic, papel)
-        nomes = clinic.id |> then(&Directory.list_professionals!(tenant: &1, actor: user)) |> Enum.map(& &1.nome)
+
+        nomes =
+          clinic.id
+          |> then(&Directory.list_professionals!(tenant: &1, actor: user))
+          |> Enum.map(& &1.nome)
+
         assert "Visível" in nomes, "#{papel} deveria ler o diretório"
       end
     end

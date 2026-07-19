@@ -30,7 +30,6 @@ defmodule Api.Records do
     end
   end
 
-
   @default_limit 50
   @max_limit 200
   # Teto do offset (página ~2000 com 50/página). Existe por robustez, não por performance: sem

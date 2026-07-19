@@ -106,6 +106,7 @@ defmodule Api.Records.Patient do
     # serve. `countable` devolve o total do recorte para o "X–Y de Z" da tela.
     read :list do
       argument :q, :string
+
       argument :status, :atom do
         constraints one_of: [:todos, :ativos, :inativos, :resp]
         default :todos

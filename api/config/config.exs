@@ -11,6 +11,10 @@ config :mime,
   extensions: %{"json" => "application/vnd.api+json"},
   types: %{"application/vnd.api+json" => ["json"]}
 
+# Base IANA de fusos (dep :tz). Sem isto `DateTime.new/4` devolve
+# `{:error, :time_zone_not_found}` e o `Clinic.timezone` (ADR-009) não converte nada.
+config :elixir, :time_zone_database, Tz.TimeZoneDatabase
+
 config :ash_json_api,
   show_public_calculations_when_loaded?: false,
   authorize_update_destroy_with_error?: true

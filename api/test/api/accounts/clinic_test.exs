@@ -56,7 +56,10 @@ defmodule Api.Accounts.ClinicTest do
 
     test "aceita CNPJ numérico clássico (retrocompatível)" do
       {owner, clinic} = owner_and_clinic()
-      {:ok, updated} = Accounts.update_clinic_info(clinic, %{cnpj: "11.222.333/0001-81"}, actor: owner)
+
+      {:ok, updated} =
+        Accounts.update_clinic_info(clinic, %{cnpj: "11.222.333/0001-81"}, actor: owner)
+
       assert updated.cnpj == "11222333000181"
     end
 

@@ -79,8 +79,7 @@ defmodule Api.Scheduling.Periods do
       if fits_in_any?(to_minutes(ini), to_minutes(fim), clinic_periods) do
         {:cont, :ok}
       else
-        {:halt,
-         {:error, "período #{ini}–#{fim} fora do horário da clínica nesse dia"}}
+        {:halt, {:error, "período #{ini}–#{fim} fora do horário da clínica nesse dia"}}
       end
     end)
   end

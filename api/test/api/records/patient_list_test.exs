@@ -162,7 +162,10 @@ defmodule Api.Records.PatientListTest do
       arquivada = create(clinic, "Ana Arquivada")
       Records.deactivate_patient!(arquivada, %{}, tenant: clinic.id, actor: owner)
 
-      assert nomes(Records.list_clinic_patients(scope, q: "ana", status: :ativos)) == ["Ana Ativa"]
+      assert nomes(Records.list_clinic_patients(scope, q: "ana", status: :ativos)) == [
+               "Ana Ativa"
+             ]
+
       assert Records.list_clinic_patients(scope, q: "ana").count == 2
     end
   end

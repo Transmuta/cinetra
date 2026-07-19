@@ -107,7 +107,10 @@ defmodule ApiWeb.Router do
     post "/professionals/:id/reactivate", ProfessionalsController, :reactivate
     patch "/professionals/:id/hours", ProfessionalsController, :update_hours
     post "/professionals/:id/exceptions", ProfessionalsController, :create_exception
-    delete "/professionals/:id/exceptions/:exception_id", ProfessionalsController, :delete_exception
+
+    delete "/professionals/:id/exceptions/:exception_id",
+           ProfessionalsController,
+           :delete_exception
 
     # Cadastro de pacientes (fatia Pacientes). Leitura para todo membro, escrita só owner/admin;
     # clinic_id sempre do escopo. A ficha inteira num corpo só. Arquivar é POST /:id/deactivate,
@@ -118,6 +121,15 @@ defmodule ApiWeb.Router do
     patch "/patients/:id", PatientsController, :update
     post "/patients/:id/deactivate", PatientsController, :deactivate
     post "/patients/:id/reactivate", PatientsController, :reactivate
+
+    # Agenda (doc 25). Papéis owner·admin·recepcao·profissional (A8) — recepção é quem agenda,
+    # e o profissional só enxerga a própria agenda (A7, recorte por linha na preparation).
+    # `clinic_id` sempre do escopo; `ends_at` é derivado e não entra no corpo.
+    get "/appointments", AppointmentsController, :index
+    post "/appointments", AppointmentsController, :create
+
+    # Cálculo, não coleção (09:253): a composição das 4 camadas de expediente.
+    get "/availability", AvailabilityController, :index
   end
 
   # Máquina OAuth do AshAuthentication (Assent): request + callback do Google. Chama

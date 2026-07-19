@@ -17,7 +17,10 @@ defmodule Api.Scheduling.ProfessionalHoursTest do
 
   defp owner_and_clinic do
     owner = Accounts.register_user!("Dono", email(), authorize?: false)
-    clinic = Accounts.onboard_clinic!("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
+
+    clinic =
+      Accounts.onboard_clinic!("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
+
     {owner, clinic}
   end
 
@@ -43,7 +46,9 @@ defmodule Api.Scheduling.ProfessionalHoursTest do
   end
 
   defp grade(scope, prof_id) do
-    scope |> Scheduling.list_professional_hours(prof_id) |> Map.new(&{&1.dow, {&1.modo, &1.periods}})
+    scope
+    |> Scheduling.list_professional_hours(prof_id)
+    |> Map.new(&{&1.dow, {&1.modo, &1.periods}})
   end
 
   describe "update_professional_hours/3 — modelo e invariante prof ⊆ clínica" do

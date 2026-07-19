@@ -9,14 +9,31 @@ defmodule Api.Scheduling do
   RLS) na leitura, como em `Api.Directory` — controllers e changes não falam com o Repo. A
   escrita seta a GUC dentro da própria ação, via `Api.Tenancy.SetTenantGuc`.
   """
-  use Ash.Domain, otp_app: :api
+  use Ash.Domain, otp_app: :api, extensions: [AshPaperTrail.Domain]
 
   # Leitura sob RLS (o corte de tenancy é compartilhado — ver `Api.Tenancy`).
   import Api.Tenancy, only: [in_clinic: 2]
 
   require Ash.Query
 
+  # A-D6c: registra automaticamente os recursos `*.Version` gerados pelo AshPaperTrail
+  # (`Appointment.Version`, `Attendance.Version`). Sem isto eles não pertencem a domínio
+  # nenhum e o Ash recusa a compilação.
+  paper_trail do
+    include_versions? true
+  end
+
   resources do
+    resource Api.Scheduling.Appointment do
+      define :list_appointments, action: :in_range, args: [:from, :to]
+      define :get_appointment, action: :read, get_by: [:id]
+      define :schedule_appointment, action: :schedule
+    end
+
+    resource Api.Scheduling.Attendance do
+      define :list_attendances, action: :read
+    end
+
     resource Api.Scheduling.ClinicHours do
       define :list_clinic_hours_rows, action: :read
       define :set_clinic_hours_day, action: :set_day
@@ -35,7 +52,143 @@ defmodule Api.Scheduling do
     end
   end
 
-  # Roda `fun` com a GUC de tenant setada (leitura, que não abre transação sozinha).
+  # ---- Agenda: leitura da tela ----
+
+  @doc """
+  Tudo o que a visão Dia precisa, **numa transação só** com a GUC de tenant setada:
+  agendamentos da janela, profissionais e tipos ativos, e os pacientes citados.
+
+  Existe como wrapper — e o controller não chama as code interfaces cruas — porque cada
+  leitura precisa da GUC para atravessar a RLS (ADR-018). Chamar
+  `Api.Directory.list_professionals!/1` direto devolve **lista vazia** no servidor real e a
+  lista certa no `mix test` (sandbox `postgres`, BYPASSRLS): a sidebar aparecia com
+  *"Nenhum profissional cadastrado"* com a suíte inteira verde. Um `in_clinic` só, em vez de
+  quatro, também é um checkout de conexão em vez de quatro.
+
+  Os pacientes vêm **sem filtro de `ativo`**: um paciente arquivado com sessão marcada
+  continua precisando de nome no bloco.
+  """
+  def load_agenda(%Api.Scope{} = scope, from, to, opts \\ []) do
+    in_clinic(scope, fn ->
+      appointments =
+        list_appointments!(from, to,
+          scope: scope,
+          query: [filter: Keyword.get(opts, :filter, [])],
+          load: [:attendances]
+        )
+
+      %{
+        appointments: appointments,
+        professionals:
+          Api.Directory.list_professionals!(scope: scope, query: [filter: [ativo: true]]),
+        appointment_types:
+          Api.Directory.list_appointment_types!(scope: scope, query: [filter: [ativo: true]]),
+        patients: patients_for(scope, appointments)
+      }
+    end)
+  end
+
+  defp patients_for(scope, appointments) do
+    ids =
+      appointments
+      |> Enum.flat_map(fn appt -> Enum.map(appt.attendances || [], & &1.patient_id) end)
+      |> Enum.uniq()
+
+    case ids do
+      [] -> []
+      ids -> Api.Records.list_patients!(scope: scope, query: [filter: [id: [in: ids]]])
+    end
+  end
+
+  # ---- Agenda: fontes de disponibilidade ----
+
+  @doc """
+  Carrega a clínica (para o `timezone`, ADR-009) por id, sem policy — é dado de configuração
+  lido de dentro de uma ação que já autorizou.
+  """
+  def load_clinic(clinic_id) when is_binary(clinic_id) do
+    Api.Accounts.get_clinic!(clinic_id, authorize?: false)
+  end
+
+  @doc """
+  As quatro fontes que `Api.Scheduling.Availability` compõe, para um profissional numa data.
+
+  **Abre a própria transação com a GUC setada** (`Api.Repo.with_clinic/2`), em vez de chamar
+  `set_clinic_guc/1` solto. Dois motivos, e os dois só aparecem no servidor real:
+
+    * a GUC é `set_config(..., is_local: true)`, ou seja **vive só dentro de uma transação**.
+      Chamada fora de uma, ela vale para o statement corrente e evapora — as leituras
+      seguintes rodam sem tenant, a RLS devolve 0 linhas e o dia inteiro parece fechado;
+    * não dá para depender do `SetTenantGuc` da ação: os dois são `before_action` e a ordem
+      entre eles não é garantida.
+
+  Chamada de **dentro** da transação de uma ação (é o caso do `CheckAvailability`), o
+  `Repo.transaction` aninhado apenas se junta à de fora e o `SET LOCAL` cai no lugar certo.
+
+  Nada disto aparece no `mix test`: o sandbox conecta como `postgres` (BYPASSRLS).
+
+  Retornos: `{:ok, professional, sources}` · `{:error, :professional_not_found}`.
+  """
+  def load_availability_sources(clinic_id, professional_id, %Date{} = date)
+      when is_binary(clinic_id) and is_binary(professional_id) do
+    {:ok, result} =
+      Api.Repo.with_clinic(clinic_id, fn ->
+        case Api.Directory.get_professional(professional_id,
+               tenant: clinic_id,
+               authorize?: false,
+               not_found_error?: false
+             ) do
+          {:ok, nil} ->
+            {:error, :professional_not_found}
+
+          {:error, _} ->
+            {:error, :professional_not_found}
+
+          {:ok, professional} ->
+            {:ok, professional, sources_for(clinic_id, professional_id, date)}
+        end
+      end)
+
+    result
+  end
+
+  defp sources_for(clinic_id, professional_id, date) do
+    opts = [tenant: clinic_id, authorize?: false]
+
+    %{
+      clinic_hours: list_clinic_hours_rows!(opts),
+      professional_hours:
+        list_professional_hours_rows!(
+          [
+            query:
+              Ash.Query.filter(
+                Api.Scheduling.ProfessionalHours,
+                professional_id == ^professional_id
+              )
+          ] ++ opts
+        ),
+      clinic_exceptions:
+        list_schedule_exceptions!(
+          [
+            query:
+              Ash.Query.filter(
+                Api.Scheduling.ScheduleException,
+                is_nil(professional_id) and data == ^date
+              )
+          ] ++ opts
+        ),
+      professional_exceptions:
+        list_schedule_exceptions!(
+          [
+            query:
+              Ash.Query.filter(
+                Api.Scheduling.ScheduleException,
+                professional_id == ^professional_id and data == ^date
+              )
+          ] ++ opts
+        )
+    }
+  end
 
   # ---- ClinicHours (expediente semanal) ----
 

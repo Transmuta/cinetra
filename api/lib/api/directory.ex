@@ -41,7 +41,6 @@ defmodule Api.Directory do
   # quebraria o caminho de erro (o rollback do Ash na transação interna arrebenta a
   # externa e vira 500 em vez de 422). Ver o moduledoc do change.
 
-
   @doc """
   Catálogo da clínica ativa do escopo — ativos **e** arquivados (a tela separa), em ordem de
   criação, com a `sigla` derivada carregada (o JSON depende dela).

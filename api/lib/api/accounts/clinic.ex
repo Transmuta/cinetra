@@ -43,6 +43,7 @@ defmodule Api.Accounts.Clinic do
     # CNPJ alfanumérico (jul/2026); ambos são opcionais e podem ser limpos (branco → nil).
     update :update_info do
       accept [:nome, :cnpj, :endereco]
+
       # A validação do CNPJ (módulo 11 com aritmética por caractere) e a normalização não são
       # atômicas — a ação roda a leitura+escrita numa transação, sem UPDATE atômico.
       require_atomic? false

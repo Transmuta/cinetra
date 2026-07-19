@@ -102,7 +102,12 @@ defmodule ApiWeb.ProfessionalsControllerTest do
         |> json_response(201)
 
       # foi criado na clínica do escopo, não na do corpo.
-      prof = Directory.get_professional!(body["professional"]["id"], tenant: clinic.id, authorize?: false)
+      prof =
+        Directory.get_professional!(body["professional"]["id"],
+          tenant: clinic.id,
+          authorize?: false
+        )
+
       assert prof.clinic_id == clinic.id
     end
   end
@@ -161,7 +166,8 @@ defmodule ApiWeb.ProfessionalsControllerTest do
         })
         |> json_response(200)
 
-      assert [%{"dow" => 1, "modo" => "custom", "periods" => [["09:00", "11:00"]]}] = body["hours"]
+      assert [%{"dow" => 1, "modo" => "custom", "periods" => [["09:00", "11:00"]]}] =
+               body["hours"]
     end
 
     test "custom fora do horário da clínica é 422", %{conn: conn, clinic: clinic} do
@@ -206,7 +212,10 @@ defmodule ApiWeb.ProfessionalsControllerTest do
 
       created =
         conn
-        |> post(~p"/api/professionals/#{p1.id}/exceptions", %{"data" => "2026-08-10", "tipo" => "fechado"})
+        |> post(~p"/api/professionals/#{p1.id}/exceptions", %{
+          "data" => "2026-08-10",
+          "tipo" => "fechado"
+        })
         |> json_response(201)
 
       exc_id = created["exception"]["id"]
