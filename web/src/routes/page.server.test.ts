@@ -42,7 +42,7 @@ describe('load / (landing pública)', () => {
 		});
 		await expect(load(event)).rejects.toMatchObject({
 			status: 307,
-			location: '/configuracoes/equipe'
+			location: '/agenda'
 		});
 	});
 });

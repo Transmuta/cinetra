@@ -1,0 +1,126 @@
+import type { RequestEvent } from '@sveltejs/kit';
+import { apiFetch } from './api';
+import { mutate, type MutationResult } from './mutate';
+import type {
+	Appointment,
+	AgendaProfessional,
+	AgendaPatient,
+	AgendaAppointmentType,
+	AvailabilityDay
+} from '$lib/agenda';
+
+// BFF da Agenda (doc 25 §5 / ADR-005): fala com `/api/appointments` e `/api/availability`
+// server-to-server, repassando o cookie de sessão. `clinic_id` e RBAC vivem no escopo da
+// API — o BFF nunca manda tenant nem papel no corpo.
+
+export interface AgendaData {
+	appointments: Appointment[];
+	professionals: AgendaProfessional[];
+	appointment_types: AgendaAppointmentType[];
+	/**
+	 * Instante do SERVIDOR. A linha do "agora" e o `needsAction` saem daqui e nunca de
+	 * Date.now(): o relógio do browser é do usuário, pode estar errado por horas, e um
+	 * "precisa de ação" calculado nele mentiria sobre o que já passou (ADR-009 / GAP-01).
+	 */
+	agora: string;
+	timezone: string;
+	/**
+	 * Pacientes CITADOS na janela (derivados dos `patient_ids`), irmão de `professionals` e
+	 * `appointment_types` — não o cadastro inteiro, que a lista de pacientes já ensinou a
+	 * não carregar. Inclui arquivados (`ativo: false`) por decisão do contrato. Vem `[]`
+	 * quando não há agendamentos no período.
+	 */
+	patients: AgendaPatient[];
+}
+
+export interface AgendaParams {
+	from: string;
+	/** Default = `from` (a visão Dia carrega um dia só). Teto de 31 dias é do servidor. */
+	to?: string;
+	professional_id?: string;
+}
+
+export function agendaQuery(params: AgendaParams): string {
+	const qs = new URLSearchParams();
+	qs.set('from', params.from);
+	qs.set('to', params.to ?? params.from);
+	if (params.professional_id) qs.set('professional_id', params.professional_id);
+	return `?${qs.toString()}`;
+}
+
+export interface AgendaResult {
+	status: number;
+	data: AgendaData | null;
+}
+
+export async function fetchAgenda(
+	event: RequestEvent,
+	params: AgendaParams
+): Promise<AgendaResult> {
+	try {
+		const res = await apiFetch(event, `/api/appointments${agendaQuery(params)}`, {
+			headers: { accept: 'application/json' }
+		});
+		if (!res.ok) return { status: res.status, data: null };
+		return { status: res.status, data: (await res.json()) as AgendaData };
+	} catch {
+		return { status: 0, data: null };
+	}
+}
+
+export interface AvailabilityParams {
+	professional_id?: string;
+	date_from: string;
+	date_to: string;
+}
+
+export function availabilityQuery(params: AvailabilityParams): string {
+	const qs = new URLSearchParams();
+	if (params.professional_id) qs.set('professional_id', params.professional_id);
+	qs.set('date_from', params.date_from);
+	qs.set('date_to', params.date_to);
+	return `?${qs.toString()}`;
+}
+
+export interface AvailabilityResult {
+	status: number;
+	days: AvailabilityDay[];
+}
+
+// O expediente é a HACHURA da grade, não o conteúdo dela. Por isso a falha aqui degrada
+// para "sem informação de expediente" em vez de derrubar a rota: uma agenda sem hachura
+// ainda é utilizável; uma tela de erro no lugar da agenda não é.
+export async function fetchAvailability(
+	event: RequestEvent,
+	params: AvailabilityParams
+): Promise<AvailabilityResult> {
+	try {
+		const res = await apiFetch(event, `/api/availability${availabilityQuery(params)}`, {
+			headers: { accept: 'application/json' }
+		});
+		if (!res.ok) return { status: res.status, days: [] };
+		const body = (await res.json()) as { days?: AvailabilityDay[] };
+		return { status: res.status, days: body.days ?? [] };
+	} catch {
+		return { status: 0, days: [] };
+	}
+}
+
+// Corpo do POST (doc 25 §5). `ends_at` NÃO entra: é derivado no servidor a partir do tipo
+// (A3) ou de `duration_minutos` (A-D8). `clinic_id` jamais entra.
+export interface AppointmentInput {
+	starts_at: string;
+	professional_id: string;
+	appointment_type_id: string;
+	patient_ids: string[];
+	encaixe?: boolean;
+	obs?: string;
+	duration_minutos?: number;
+}
+
+export function createAppointment(
+	event: RequestEvent,
+	input: AppointmentInput
+): Promise<MutationResult> {
+	return mutate(event, '/api/appointments', 'POST', input);
+}

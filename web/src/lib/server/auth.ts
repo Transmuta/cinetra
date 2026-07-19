@@ -15,10 +15,11 @@ export async function loadMe(event: RequestEvent): Promise<Me | null> {
 	}
 }
 
-// A "casa" do app hoje: a primeira tela construída do shell administrativo. Vira o
-// dashboard/agenda quando existirem — troca-se só aqui. (Mesma ideia do /configuracoes,
-// que leva à primeira seção pronta.)
-export const APP_HOME = '/configuracoes/equipe';
+// A "casa" do app: a agenda (A-D9, doc 25 §8). É a tela que a recepção abre de manhã e não
+// fecha mais — o protótipo abre em `pacientes` [:267], mas o próprio `renderScreen` tem
+// `default: renderAgenda` [:1316], e é este o comportamento que vale. Antes desta fatia
+// apontava para /configuracoes/equipe, que era só a primeira tela construída.
+export const APP_HOME = '/agenda';
 
 // Para onde um usuário AUTENTICADO deve aterrissar: sem clínica ativa cai no onboarding
 // (/comecar); com clínica, na home do app (dentro do shell). Fonte ÚNICA do destino

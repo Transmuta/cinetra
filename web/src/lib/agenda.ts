@@ -1,0 +1,451 @@
+// Tipos e regras puras da Agenda (doc 25). Espelha os helpers do protótipo
+// (`statusMeta` :810, `m2t`/`t2m` :807, `needsAction` :828, `dayPeriods` :854).
+//
+// A autoridade real é o servidor: disponibilidade, conflito e permissão são decididos lá
+// (doc 25 §3, "o cliente antecipa por ergonomia; o veredito é do servidor"). O que mora aqui
+// é o que a TELA precisa para desenhar e para antecipar — nada que só exista no cliente vira
+// invariante de negócio.
+//
+// Sem Svelte e sem DOM: tudo testável no projeto `server` do Vitest.
+
+import type { Papel } from './session';
+import type { Period } from './scheduling';
+import type { AppointmentType } from './appointment-types';
+
+// O tipo de atendimento COMO A AGENDA o recebe. `appointments_controller.ex:render_type`
+// manda menos campos que a tela de catálogo: não vêm `sigla` nem `ativo` (o endpoint já
+// filtra `ativo: true` no servidor). Reusar o `AppointmentType` cheio aqui prometeria
+// campos que chegam `undefined` — e foi exatamente assim que um filtro `t.ativo` no
+// cliente esvaziou o seletor de tipos.
+export type AgendaAppointmentType = Pick<
+	AppointmentType,
+	'id' | 'nome' | 'duracao_minutos' | 'cor' | 'icon' | 'grupo' | 'capacidade'
+>;
+
+// ---------------------------------------------------------------------------
+// Wire (contrato do doc 25 §5)
+// ---------------------------------------------------------------------------
+
+export type AppointmentStatus =
+	| 'agendado'
+	| 'confirmado'
+	| 'em_atendimento'
+	| 'concluido'
+	| 'faltou'
+	| 'cancelado';
+
+export interface Appointment {
+	id: string;
+	/** ISO em UTC — a grade converte para o fuso da clínica antes de desenhar. */
+	starts_at: string;
+	ends_at: string;
+	status: AppointmentStatus;
+	encaixe: boolean;
+	obs: string | null;
+	professional_id: string;
+	appointment_type_id: string;
+	/** Gancho da Fatia 3 (pacotes); nesta fatia só desenha a tarja lateral. */
+	package_id: string | null;
+	version: number;
+	created_by_id: string | null;
+	patient_ids: string[];
+}
+
+/** O profissional como a agenda o consome (subconjunto do diretório). */
+export interface AgendaProfessional {
+	id: string;
+	nome: string;
+	nome_exibicao: string | null;
+	crefito: string | null;
+	cor_indice: number;
+	segue_horario_clinica: boolean;
+}
+
+export type ClosedReason =
+	| 'clinica_fechada'
+	| 'folga_profissional'
+	| 'clinica_fechada_excecao'
+	| 'folga_semanal'
+	| 'sem_grade';
+
+export interface AvailabilityDay {
+	date: string;
+	periods: Period[];
+	closed_reason?: ClosedReason;
+}
+
+export interface AgendaPatient {
+	id: string;
+	nome: string;
+	tel: string | null;
+	/**
+	 * Vem `false` para paciente arquivado — e ele APARECE no sidecar de propósito: quem tem
+	 * sessão marcada precisa de nome no bloco de qualquer jeito. Nunca filtrar a exibição
+	 * por este campo (é o mesmo erro que esvaziou o seletor de tipos de atendimento).
+	 * Opcional porque o endpoint de busca do picker não o manda.
+	 */
+	ativo?: boolean;
+	/** Só o endpoint de busca do picker manda (para a cor do avatar); o sidecar não. */
+	cor_indice?: number;
+}
+
+// id → nome, para o bloco resolver quem é o paciente. Função pura e testada, e não uma
+// linha solta no `+page.svelte`, justamente porque é aqui que mora a regra "não filtrar por
+// `ativo`" — e página `.svelte` fica fora do gate de cobertura.
+export function patientNameMap(patients: AgendaPatient[] | undefined): Record<string, string> {
+	return Object.fromEntries((patients ?? []).map((p) => [p.id, p.nome]));
+}
+
+/** Retorno da busca do `PatientPicker` (endpoint `/agenda/pacientes`). */
+export interface SearchResult {
+	patients: AgendaPatient[];
+	/** Total no cadastro, para o aviso "Mostrando 10 de N — refine a busca". */
+	total: number;
+}
+
+/** Um dia de expediente JÁ associado à coluna que o desenha. */
+export interface ColumnAvailability extends AvailabilityDay {
+	professional_id: string;
+}
+
+// ---------------------------------------------------------------------------
+// Status
+// ---------------------------------------------------------------------------
+
+export interface StatusMeta {
+	label: string;
+	/**
+	 * Token de cor do design system (`--color-*`), ou null quando o status não pinta o
+	 * fundo. Guardamos o NOME do token e não um hex porque o tema claro/escuro troca o
+	 * valor em runtime — um hex congelado aqui quebraria o modo escuro.
+	 */
+	tone: 'info' | 'teal' | 'success' | 'danger' | null;
+	/** Concluído a 72% de opacidade (protótipo :1672). */
+	dim?: boolean;
+	/** Cancelado sai riscado. */
+	strike?: boolean;
+	/** Em atendimento ganha o ponto pulsante. */
+	live?: boolean;
+}
+
+export const STATUS_ORDER: readonly AppointmentStatus[] = [
+	'agendado',
+	'confirmado',
+	'em_atendimento',
+	'concluido',
+	'faltou',
+	'cancelado'
+] as const;
+
+export const STATUS_META: Record<AppointmentStatus, StatusMeta> = {
+	agendado: { label: 'Agendado', tone: null },
+	confirmado: { label: 'Confirmado', tone: 'info' },
+	em_atendimento: { label: 'Em atendimento', tone: 'teal', live: true },
+	concluido: { label: 'Concluído', tone: 'success', dim: true },
+	faltou: { label: 'Faltou', tone: 'danger' },
+	cancelado: { label: 'Cancelado', tone: null, strike: true }
+};
+
+// ---------------------------------------------------------------------------
+// Minuto do dia ↔ "HH:MM"
+// ---------------------------------------------------------------------------
+
+export function m2t(minutes: number): string {
+	const m = Math.max(0, Math.round(minutes));
+	return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+}
+
+export function t2m(time: string): number {
+	const [h, m] = String(time ?? '')
+		.split(':')
+		.map(Number);
+	if (!Number.isFinite(h) || !Number.isFinite(m)) return 0;
+	return h * 60 + m;
+}
+
+// ---------------------------------------------------------------------------
+// Fuso — instante absoluto ↔ relógio de parede da clínica
+//
+// `starts_at` é UTC; a grade é desenhada no horário LOCAL da clínica. Usar `getHours()`
+// leria o fuso do PROCESSO (o container roda em UTC), desenhando a agenda inteira 3 horas
+// fora do lugar — e o erro seria invisível em qualquer máquina que rodasse em UTC.
+// ---------------------------------------------------------------------------
+
+const partsCache = new Map<string, Intl.DateTimeFormat>();
+
+function formatter(timezone: string): Intl.DateTimeFormat {
+	let f = partsCache.get(timezone);
+	if (!f) {
+		f = new Intl.DateTimeFormat('en-CA', {
+			timeZone: timezone,
+			year: 'numeric',
+			month: '2-digit',
+			day: '2-digit',
+			hour: '2-digit',
+			minute: '2-digit',
+			hour12: false
+		});
+		partsCache.set(timezone, f);
+	}
+	return f;
+}
+
+interface Wall {
+	year: number;
+	month: number;
+	day: number;
+	hour: number;
+	minute: number;
+}
+
+function wallOf(ms: number, timezone: string): Wall {
+	const out: Record<string, number> = {};
+	for (const p of formatter(timezone).formatToParts(new Date(ms))) {
+		if (p.type !== 'literal') out[p.type] = Number(p.value);
+	}
+	// `hour12: false` pode render "24" para meia-noite em algumas engines.
+	return {
+		year: out.year,
+		month: out.month,
+		day: out.day,
+		hour: out.hour % 24,
+		minute: out.minute
+	};
+}
+
+/** Offset do fuso naquele instante, em minutos à frente do UTC (São Paulo = -180). */
+function offsetAt(ms: number, timezone: string): number {
+	const w = wallOf(ms, timezone);
+	const asUtc = Date.UTC(w.year, w.month - 1, w.day, w.hour, w.minute);
+	// Trunca ao minuto dos dois lados: `ms` pode carregar segundos que não aparecem no wall.
+	return (asUtc - Math.floor(ms / 60000) * 60000) / 60000;
+}
+
+/** O dia local e o minuto do dia de um instante ISO, no fuso da clínica. */
+export function zonedParts(iso: string, timezone: string): { date: string; minutes: number } {
+	const w = wallOf(Date.parse(iso), timezone);
+	const date = `${w.year}-${String(w.month).padStart(2, '0')}-${String(w.day).padStart(2, '0')}`;
+	return { date, minutes: w.hour * 60 + w.minute };
+}
+
+// Relógio de parede da clínica → instante UTC. Política de DST fixada pelo doc 25 §4:
+//  - AMBÍGUO (relógio atrasou; o horário acontece duas vezes) → a PRIMEIRA ocorrência;
+//  - INEXISTENTE (relógio adiantou; o horário foi pulado) → empurra para DEPOIS do salto.
+// O Brasil não tem DST desde 2019, mas `Clinic.timezone` é coluna livre — deixar isto
+// implícito seria uma regra sem cobertura esperando a primeira clínica fora do país.
+export function toUtcIso(date: string, time: string, timezone: string): string {
+	const naive = Date.parse(`${date}T${time.length === 5 ? time : '00:00'}:00Z`);
+	if (!Number.isFinite(naive)) return new Date(0).toISOString();
+
+	// Os dois offsets possíveis em volta do instante (basta olhar ±24h: nenhuma transição
+	// de fuso é mais longa que isso).
+	const a = offsetAt(naive - 86400000, timezone);
+	const b = offsetAt(naive + 86400000, timezone);
+	const offsets = a === b ? [a] : [a, b];
+
+	// Um candidato é VÁLIDO quando, lido de volta, reproduz o relógio pedido.
+	const valid = offsets
+		.map((o) => naive - o * 60000)
+		.filter((c, i) => offsetAt(c, timezone) === offsets[i]);
+
+	const picked = valid.length
+		? Math.min(...valid) // ambíguo → primeira ocorrência
+		: Math.max(...offsets.map((o) => naive - o * 60000)); // gap → depois do salto
+
+	return new Date(picked).toISOString();
+}
+
+/** O "hoje" da clínica, a partir do `agora` do SERVIDOR (nunca de Date.now()). */
+export function todayInZone(agoraIso: string, timezone: string): string {
+	return zonedParts(agoraIso, timezone).date;
+}
+
+/** Anda dias numa data "YYYY-MM-DD" pela aritmética de calendário (imune a fuso). */
+export function shiftDate(date: string, days: number): string {
+	const [y, m, d] = date.split('-').map(Number);
+	const dt = new Date(Date.UTC(y, m - 1, d + days));
+	return dt.toISOString().slice(0, 10);
+}
+
+const LABEL_FMT = new Intl.DateTimeFormat('pt-BR', {
+	weekday: 'long',
+	day: 'numeric',
+	month: 'long',
+	timeZone: 'UTC'
+});
+
+/** "quinta-feira, 25 de junho", com " · hoje" quando for o dia corrente da clínica. */
+export function dayLabel(date: string, today: string): string {
+	const label = LABEL_FMT.format(new Date(`${date}T12:00:00Z`));
+	return date === today ? `${label} · hoje` : label;
+}
+
+// ---------------------------------------------------------------------------
+// As duas fronteiras temporais (RN-58)
+//
+// "Já começou" e "precisa de ação" são comparações DIFERENTES, e trocá-las é o bug clássico
+// do port: uma olha o início, a outra o fim. `agora` vem SEMPRE do servidor.
+// ---------------------------------------------------------------------------
+
+export function started(appt: Appointment, agoraIso: string): boolean {
+	return Date.parse(appt.starts_at) <= Date.parse(agoraIso);
+}
+
+/** Já terminou e ninguém resolveu: continua `agendado`/`confirmado` (protótipo :828). */
+export function needsAction(appt: Appointment, agoraIso: string): boolean {
+	if (appt.status !== 'agendado' && appt.status !== 'confirmado') return false;
+	return Date.parse(appt.ends_at) <= Date.parse(agoraIso);
+}
+
+// ---------------------------------------------------------------------------
+// Conflito — para EXIBIR, não para bloquear
+//
+// A-D2 decidiu a opção (b): o encaixe suprime o BLOQUEIO (a exclusion constraint tem o
+// predicado `WHERE encaixe = false`), mas o conflito continua sendo calculado e mostrado.
+// Divergência deliberada do protótipo, que apagava o encaixe do cálculo (:830/:835) e assim
+// escondia exatamente a informação que motivou o encaixe: "este horário está dobrado".
+// Cancelado, esse sim, não conflita em nenhum sentido.
+// ---------------------------------------------------------------------------
+
+export function conflictIds(appts: Appointment[]): Set<string> {
+	const out = new Set<string>();
+	const live = appts.filter((a) => a.status !== 'cancelado');
+
+	for (let i = 0; i < live.length; i++) {
+		for (let j = i + 1; j < live.length; j++) {
+			const a = live[i];
+			const b = live[j];
+			if (a.professional_id !== b.professional_id) continue;
+			// Estrito: encostar fim-com-início não é conflito (semântica `[)`).
+			if (Date.parse(a.starts_at) < Date.parse(b.ends_at) && Date.parse(b.starts_at) < Date.parse(a.ends_at)) {
+				out.add(a.id);
+				out.add(b.id);
+			}
+		}
+	}
+	return out;
+}
+
+// ---------------------------------------------------------------------------
+// Permissões (espelho de UX — a autoridade é a policy da API)
+// ---------------------------------------------------------------------------
+
+/** A8: recepção é quem agenda; profissional agenda a própria. */
+export function canCreateAppointment(papel: Papel | null | undefined): boolean {
+	return papel === 'owner' || papel === 'admin' || papel === 'recepcao' || papel === 'profissional';
+}
+
+/** A9 / D2: encaixe fura a grade, então é de quem responde pela agenda — profissional não. */
+export function canCreateEncaixe(papel: Papel | null | undefined): boolean {
+	return papel === 'owner' || papel === 'admin' || papel === 'recepcao';
+}
+
+// ---------------------------------------------------------------------------
+// Geometria vertical da grade (A12)
+// ---------------------------------------------------------------------------
+
+export interface Range {
+	start: number;
+	end: number;
+}
+
+/** Faixa 08:00–18:00: no protótipo era regra; aqui é só o fallback de quando não há dado. */
+export const DEFAULT_RANGE: Range = { start: 480, end: 1080 };
+
+// Um período aceito pela geometria. A wire fala "HH:MM" (`Period` de `scheduling.ts`) e a
+// grade fala minuto do dia; aceitar os dois evita uma passada de conversão em cada chamada.
+export type PeriodLike = readonly [string | number, string | number];
+
+const toMin = (v: string | number): number => (typeof v === 'number' ? v : t2m(v));
+
+const floorHour = (m: number) => Math.floor(m / 60) * 60;
+const ceilHour = (m: number) => Math.ceil(m / 60) * 60;
+
+// A faixa vertical NÃO é 08–18 fixo (RN-03: aquilo era limite de renderização, não regra).
+// Deriva do expediente das colunas visíveis e é ESTENDIDA para conter qualquer agendamento
+// fora dele — senão um encaixe às 07:00 ficaria fora da área desenhada, invisível.
+export function gridRange(periodsPerColumn: readonly PeriodLike[][], intervals: Range[]): Range {
+	let min = Infinity;
+	let max = -Infinity;
+
+	for (const periods of periodsPerColumn) {
+		for (const [ini, fim] of periods) {
+			const a = toMin(ini);
+			const b = toMin(fim);
+			min = Math.min(min, a, b);
+			max = Math.max(max, a, b);
+		}
+	}
+	for (const iv of intervals) {
+		min = Math.min(min, iv.start);
+		max = Math.max(max, iv.end);
+	}
+
+	if (!Number.isFinite(min) || !Number.isFinite(max)) return { ...DEFAULT_RANGE };
+
+	const start = Math.max(0, floorHour(min));
+	const end = Math.min(1440, ceilHour(max));
+	// Faixa degenerada (expediente de duração zero) ainda precisa de uma hora para desenhar.
+	return end > start ? { start, end } : { start, end: Math.min(1440, start + 60) };
+}
+
+// O que hachurar numa coluna: todo pedaço da faixa que o profissional NÃO atende. Inclui as
+// pontas (antes do primeiro período, depois do último), não só o vão do meio — é por isso
+// que colunas com expedientes diferentes ficam visualmente diferentes, e isso é o correto
+// (fecha o GAP-05: no protótipo o "ALMOÇO" era 12–13 cravado e igual em todas as colunas).
+export function closedIntervals(periods: readonly PeriodLike[], range: Range): Array<[number, number]> {
+	const spans = periods
+		.map(([a, b]): [number, number] => {
+			const ini = toMin(a);
+			const fim = toMin(b);
+			return [Math.max(range.start, Math.min(ini, fim)), Math.min(range.end, Math.max(ini, fim))];
+		})
+		.filter(([a, b]) => b > a)
+		.sort((x, y) => x[0] - y[0]);
+
+	const holes: Array<[number, number]> = [];
+	let cursor = range.start;
+	for (const [a, b] of spans) {
+		if (a > cursor) holes.push([cursor, a]);
+		cursor = Math.max(cursor, b);
+	}
+	if (cursor < range.end) holes.push([cursor, range.end]);
+	return holes;
+}
+
+/** Agendamento → retângulo na grade do dia local, aparado nos limites do dia. */
+export function toInterval(appt: Appointment, timezone: string): { id: string; start: number; end: number } {
+	const start = zonedParts(appt.starts_at, timezone).minutes;
+	const durMin = Math.round((Date.parse(appt.ends_at) - Date.parse(appt.starts_at)) / 60000);
+	// Bloco que viraria o dia é aparado em 24:00: a grade desenha UM dia (a continuação
+	// aparece no dia seguinte quando a Entrega 2 trouxer as outras visões).
+	const end = Math.min(1440, start + Math.max(1, durMin));
+	return { id: appt.id, start, end };
+}
+
+// ---------------------------------------------------------------------------
+// Estado navegável na URL (`?date=`, `?profs=`) — mesmo padrão de `?status=`/`?filter=`
+// ---------------------------------------------------------------------------
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+export function parseDateParam(raw: string | null | undefined, fallback: string): string {
+	if (!raw || !ISO_DATE.test(raw)) return fallback;
+	// Rejeita data sintaticamente válida mas inexistente (2026-13-45).
+	const ts = Date.parse(`${raw}T12:00:00Z`);
+	if (!Number.isFinite(ts)) return fallback;
+	return new Date(ts).toISOString().slice(0, 10) === raw ? raw : fallback;
+}
+
+/** `?profs=` lista os profissionais OCULTOS (o normal é ver todos — a URL fica limpa). */
+export function parseHiddenProfs(raw: string | null | undefined): string[] {
+	if (!raw) return [];
+	return raw
+		.split(',')
+		.map((s) => s.trim())
+		.filter(Boolean);
+}
+
+export function serializeHiddenProfs(ids: string[]): string | null {
+	return ids.length ? ids.join(',') : null;
+}
