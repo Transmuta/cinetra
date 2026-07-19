@@ -33,6 +33,10 @@ defmodule Api.Records do
 
   @default_limit 50
   @max_limit 200
+  # Teto do offset (página ~2000 com 50/página). Existe por robustez, não por performance: sem
+  # ele um `?page=` gigante chega cru no Postgrex, que recusa qualquer coisa fora do int64 e
+  # derruba a request com 500. Além disso, ninguém pagina até lá — usa a busca.
+  @max_offset 100_000
 
   @doc """
   Uma **página** da lista de pacientes da clínica ativa, já filtrada e buscada no servidor
@@ -58,6 +62,7 @@ defmodule Api.Records do
   defp clamp_limit(limit) when is_integer(limit) and limit > 0, do: limit
   defp clamp_limit(_limit), do: @default_limit
 
+  defp clamp_offset(offset) when is_integer(offset) and offset > @max_offset, do: @max_offset
   defp clamp_offset(offset) when is_integer(offset) and offset > 0, do: offset
   defp clamp_offset(_offset), do: 0
 

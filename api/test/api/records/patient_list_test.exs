@@ -167,6 +167,48 @@ defmodule Api.Records.PatientListTest do
     end
   end
 
+  describe "robustez da busca (entrada hostil)" do
+    setup do
+      {_owner, clinic, scope} = owner_and_clinic()
+      create(clinic, "Mariana Alves")
+      create(clinic, "João Souza")
+      %{scope: scope}
+    end
+
+    test "% e _ digitados são literais, não curingas", %{scope: scope} do
+      # Sem escape, "%" viraria o padrão "%%%" e casaria TODO MUNDO — além de virar
+      # amplificação de custo (o padrão roda 2× por request: página + count).
+      assert Records.list_clinic_patients(scope, q: "%").count == 0
+      assert Records.list_clinic_patients(scope, q: "_").count == 0
+      assert Records.list_clinic_patients(scope, q: "%Mariana%").count == 0
+    end
+
+    test "a barra invertida também é literal", %{scope: scope} do
+      assert Records.list_clinic_patients(scope, q: "\\").count == 0
+    end
+
+    test "termo absurdamente longo é truncado (não vira padrão patológico)", %{scope: scope} do
+      assert Records.list_clinic_patients(scope, q: String.duplicate("a%", 5_000)).count == 0
+    end
+
+    test "busca normal continua funcionando depois do escape", %{scope: scope} do
+      assert nomes(Records.list_clinic_patients(scope, q: "mari")) == ["Mariana Alves"]
+    end
+  end
+
+  describe "robustez da paginação (entrada hostil)" do
+    test "offset acima do teto é limitado, sem estourar o int64 do Postgres" do
+      {_owner, clinic, scope} = owner_and_clinic()
+      create(clinic, "Único")
+
+      # 2^63 ia cru para o Postgrex e derrubava a request com 500.
+      page = Records.list_clinic_patients(scope, offset: 9_223_372_036_854_775_808)
+
+      assert page.offset == 100_000
+      assert page.results == []
+    end
+  end
+
   describe "contagens da sidebar" do
     test "conta por segmento e deriva inativos" do
       {owner, clinic, scope} = owner_and_clinic()
@@ -181,6 +223,18 @@ defmodule Api.Records.PatientListTest do
                inativos: 1,
                resp: 1
              }
+    end
+
+    test "as contagens IGNORAM a busca (contam o cadastro, não o resultado)" do
+      {_owner, clinic, scope} = owner_and_clinic()
+      create(clinic, "Mariana Alves")
+      create(clinic, "João Souza")
+
+      # a busca recorta a lista...
+      assert Records.list_clinic_patients(scope, q: "mari").count == 1
+      # ...mas o segmento continua dizendo quantos existem no cadastro (decisão de produto:
+      # a sidebar do protótipo conta sobre tudo, não sobre o termo digitado).
+      assert Records.clinic_patient_counts(scope).todos == 2
     end
 
     test "clínica sem paciente conta zero em tudo" do

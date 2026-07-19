@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { untrack } from 'svelte';
+	import { untrack, onDestroy } from 'svelte';
 	import { page as pageState } from '$app/state';
 	import { goto } from '$app/navigation';
 	import Search from '@lucide/svelte/icons/search';
@@ -28,11 +28,19 @@
 	// no cliente devolveria página furada). O input é local só para não piscar enquanto digita.
 	let term = $state(untrack(() => data.q));
 	let debounce: ReturnType<typeof setTimeout> | undefined;
+	// Propositalmente NÃO é `$state`: só arbitra o sync abaixo, não alimenta a UI — e se fosse
+	// reativo, o próprio efeito passaria a re-rodar quando ele mudasse, que é o oposto do que
+	// se quer.
+	let digitando = false;
 
 	// Mantém o input em sinc com a URL: trocar de segmento na sidebar limpa a busca, e o campo
 	// tem que acompanhar (senão mostraria um termo que não está mais sendo aplicado).
+	// Mas NÃO sobrescreve enquanto há digitação pendente: com um load em voo, a resposta do
+	// termo antigo chegaria depois da nova tecla e devolveria o input ao valor velho — a tecla
+	// seguinte viraria "mai" em vez de "mari" (caractere perdido, não só flicker).
 	$effect(() => {
-		term = data.q;
+		const q = data.q;
+		if (!digitando) term = q;
 	});
 
 	// Aplica um patch na query string e navega. Chaves com valor vazio saem da URL.
@@ -54,9 +62,18 @@
 	// termo sempre volta para a página 1 (senão você cairia num offset que não existe mais).
 	function onSearch(value: string) {
 		term = value;
+		digitando = true;
 		clearTimeout(debounce);
-		debounce = setTimeout(() => navigate({ q: value.trim() || null, page: null }), 300);
+		debounce = setTimeout(() => {
+			digitando = false;
+			navigate({ q: value.trim() || null, page: null });
+		}, 300);
 	}
+
+	// Sem isto, sair da lista antes do debounce vencer (digitar e clicar numa linha em menos de
+	// 300ms) deixa um timer órfão que chama `goto` e ARRASTA a pessoa de volta para a lista —
+	// remontando a querystring a partir da URL da ficha, que já é outra.
+	onDestroy(() => clearTimeout(debounce));
 
 	function goPage(n: number) {
 		navigate({ page: n > 1 ? String(n) : null });

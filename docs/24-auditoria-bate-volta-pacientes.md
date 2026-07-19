@@ -160,3 +160,82 @@ Duas conclusões medidas:
 
 Backend **380 testes / 0 · 89,5%** (17 novos em `patient_list_test.exs` + 6 no controller);
 web **530 testes / 0 · 91,37%**; `svelte-check` 0/0; `npm run build` ✓. Todos exit 0.
+
+---
+
+## 7. Segunda auditoria — a superfície de paginação/busca/lookup
+
+Rodada depois dos commits `5d2a0f7`/`3a02e15`, com alvo **só no que a §6 acrescentou** (repassar
+código já auditado não acha nada). Três eixos em paralelo, cada achado provado por sonda.
+
+### O que veio de cada eixo
+
+| Eixo | Resultado |
+|---|---|
+| Segurança | **2 CONFIRMADOS** (ambos de *disponibilidade*, nenhum de dado), 5 REFUTADOS |
+| Performance | **0 bug** — página sem busca em 0,09ms, scan da busca contido ao tenant |
+| Refatoração | **2 bugs reais** de ciclo de vida no web + 1 DRY + 3 lacunas de teste |
+
+**REFUTADOS com prova** (não repetir a suspeita): injeção SQL no `fragment` (é bind param — o
+payload `1'; SELECT 1--` chegou como valor em `$1`, e o parâmetro dos `regexp_replace` já vem
+reduzido a dígitos); OFFSET gigante como DoS (13,8ms no absurdo vs 11,3ms na última página real
+— o Postgres para no fim dos dados); auth/cross-tenant/vazamento no `/api/patients/lookup` (sem
+cookie → `{"matches":[]}` porque a API nega 401; projeção mínima; sem CORS); enumeração de CPF
+(superfície estritamente menor que o `GET /api/patients` que o papel já tem); `to_existing_atom`
+(guard de whitelist antes da conversão); tenant sob paginação/contagem (RLS cortou a sonda sem GUC).
+
+### Causa-raiz 1 — o input chega ao Postgres com o tipo normalizado, mas não a **forma**
+
+- **`%`/`_` digitados viravam curinga.** `"%#{term}%"` interpolava metacaractere direto no
+  padrão. Não é injeção (o valor é parâmetro), mas é amplificação de custo: 8000 chars de `a%`
+  = **6,7s por query**, e cada `GET` roda o padrão **duas vezes** (página + count) — ~850ms de
+  CPU de banco por request a 10k pacientes, ~68× a busca normal. Qualquer membro ativo dispara.
+- **`offset` sem teto** estourava o int64: `?page=` gigante → `DBConnection.EncodeError` → **500**
+  (não há `action_fallback` no controller).
+
+**Consertado:** escape de `%`/`_`/`\` (`escape_like/1`) + teto de 100 chars no termo; `@max_offset
+100_000` no clamp. Re-sonda (o mesmo `inspect` do filtro que achou o bug):
+
+```
+antes:  termo="%"  ->  ilike(nome, "%%%")        (casava a clínica inteira)
+depois: termo="%"  ->  ilike(nome, "%\%%")       (literal)
+        termo="mari" -> ilike(nome, "%mari%")    (busca normal intacta)
+```
+
+### Causa-raiz 2 — timers sem cleanup no web
+
+- **O debounce da busca sequestrava a navegação** (médio): digitar e clicar numa linha em menos
+  de 300ms deixava um timer órfão que chamava `goto` e **arrastava a pessoa de volta** para a
+  lista — remontando a querystring a partir da URL da ficha, que já era outra.
+- `dupTimer` do formulário: mesma classe, só desperdiça uma consulta (baixo).
+
+**Consertado:** `onDestroy` limpando os dois.
+
+### Causa-raiz 3 — o `$effect` de sinc comia caractere
+
+Com um load em voo, a resposta do termo *antigo* chegava depois da tecla nova e devolvia o input
+ao valor velho: a tecla seguinte produzia `mai` em vez de `mari`. **Consertado** com uma guarda
+`digitando` (propositalmente não-reativa: se fosse `$state`, o próprio efeito voltaria a rodar
+quando ela mudasse, que é o oposto do que se quer).
+
+### Lacunas de teste fechadas
+
+O eixo de refatoração observou que **os dois bugs médios viviam no único arquivo da fatia sem
+teste de componente** — não era coincidência. Foram criados: `page.svelte.test.ts` (6 testes,
+incluindo regressão do timer órfão e do clobber de digitação), o teste de que **as contagens
+ignoram a busca** (decisão de produto que não tinha backstop) e o de **busca combinada com
+página >1** via HTTP.
+
+### Gates
+
+Backend **387 testes / 0 · 89,5%**; web **536 testes / 0 · 91,38%**; `svelte-check` 0/0. Exit 0
+nos dois.
+
+### O que ficou para você (com número)
+
+| Item | Número medido | Recomendação |
+|---|---|---|
+| 3 counts da sidebar → 1 com `COUNT(*) FILTER` | 29,1ms → 10,4ms (**−64%**), 5 → 3 scans por carga | Ganho barato, mas custa o reuso da ação `:list` (hoje contador e lista não podem divergir). Trade-off consciente |
+| `countable: true` paga 2× o scan da busca | +47,1ms no pior caso (termo sem match) | Aceitar — o "de Z" da tela exige total exato |
+| `regexp_replace` em CPF/tel | 35,5ms dos 48,9ms do pior caso | Manter. Reabrir com índice de expressão/`pg_trgm` se algum tenant passar de ~50k pacientes (≈250ms) |
+| `replaceState: true` no `goPage` | — | Voltar a partir de `?page=3` sai da lista inteira em vez de ir para a página 2. Escolha de produto |

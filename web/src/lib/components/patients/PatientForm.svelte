@@ -4,7 +4,7 @@
 	// cartões de seção com chip de ícone + subtítulo + contagem, e rodapé fixo. São 8 seções
 	// cadastrais — sem cor/situação (o arquivar mora na ficha, não aqui). Tudo salva no
 	// `?/save`, que o `+page.server` orquestra.
-	import { untrack } from 'svelte';
+	import { untrack, onDestroy } from 'svelte';
 	import { enhance } from '$app/forms';
 	import type { SubmitFunction } from '@sveltejs/kit';
 	import ChevronLeft from '@lucide/svelte/icons/chevron-left';
@@ -138,6 +138,9 @@
 		clearTimeout(dupTimer);
 		dupTimer = setTimeout(() => lookupDup(f.cpf, f.tel), 400);
 	}
+
+	// Timer órfão depois de sair do formulário só gastaria uma consulta à toa.
+	onDestroy(() => clearTimeout(dupTimer));
 
 	// Preferência de profissional (chips dos ativos) — `renderPacienteForm` seção 'clinico'.
 	const activeProfs = $derived(professionals.filter((p) => p.ativo));

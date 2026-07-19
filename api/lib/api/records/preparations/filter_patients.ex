@@ -19,6 +19,11 @@ defmodule Api.Records.Preparations.FilterPatients do
 
   require Ash.Query
 
+  # Teto do termo. Nome de paciente não passa disso, e sem teto um termo de milhares de
+  # metacaracteres vira um padrão que o Postgres avalia linha a linha (medido: 8k chars de
+  # `a%` = 6,7s por query, e cada request roda o padrão DUAS vezes — página + count).
+  @max_term 100
+
   @impl true
   def prepare(query, _opts, _context) do
     query
@@ -36,7 +41,7 @@ defmodule Api.Records.Preparations.FilterPatients do
   defp filter_status(query, _todos), do: query
 
   defp filter_search(query, term) when is_binary(term) do
-    case String.trim(term) do
+    case term |> String.trim() |> String.slice(0, @max_term) do
       "" -> query
       trimmed -> apply_term(query, trimmed, String.replace(trimmed, ~r/\D/, ""))
     end
@@ -44,15 +49,22 @@ defmodule Api.Records.Preparations.FilterPatients do
 
   defp filter_search(query, _nil), do: query
 
+  # `%`, `_` e `\` digitados são LITERAIS, não curingas. Sem escapar, quem busca "%" casa a
+  # clínica inteira e, pior, pode montar um padrão patológico de propósito — o valor é
+  # parametrizado (não há injeção de SQL), mas a *forma* do padrão é do usuário.
+  # O `\` é o escape default do LIKE no Postgres.
+  defp escape_like(term), do: String.replace(term, ~r/[\\%_]/, &("\\" <> &1))
+
   # Termo sem dígito nenhum: só nome.
   defp apply_term(query, term, "") do
-    like = "%#{term}%"
+    like = "%#{escape_like(term)}%"
     Ash.Query.filter(query, ilike(nome, ^like))
   end
 
-  # Com dígitos: nome OU CPF OU telefone (comparando dígitos contra dígitos).
+  # Com dígitos: nome OU CPF OU telefone (comparando dígitos contra dígitos). O `dlike` já é
+  # só `[0-9]`, então não carrega metacaractere — o escape é do termo de nome.
   defp apply_term(query, term, digits) do
-    like = "%#{term}%"
+    like = "%#{escape_like(term)}%"
     dlike = "%#{digits}%"
 
     Ash.Query.filter(

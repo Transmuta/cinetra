@@ -80,14 +80,15 @@ defmodule ApiWeb.PatientsController do
 
   # ---- helpers ----
 
-  # Query string → opções da listagem. Valores inválidos caem no default (a lista nunca quebra
-  # por causa de um `?limit=abc`); o teto do `limit` é aplicado no domínio.
+  # Query string → opções da listagem. Valor inválido vira `nil` e o DOMÍNIO aplica o default
+  # (a lista nunca quebra por causa de um `?limit=abc`) — repetir o 50 aqui só criaria dois
+  # lugares para mudar. Tetos de limit/offset também são do domínio.
   defp list_opts(params) do
     [
       q: params["q"],
       status: parse_status(params["filter"]),
-      limit: parse_int(params["limit"], 50),
-      offset: parse_int(params["offset"], 0)
+      limit: parse_int(params["limit"]),
+      offset: parse_int(params["offset"])
     ]
   end
 
@@ -97,14 +98,14 @@ defmodule ApiWeb.PatientsController do
 
   defp parse_status(_), do: :todos
 
-  defp parse_int(value, default) when is_binary(value) do
+  defp parse_int(value) when is_binary(value) do
     case Integer.parse(value) do
       {n, ""} when n >= 0 -> n
-      _ -> default
+      _ -> nil
     end
   end
 
-  defp parse_int(_value, default), do: default
+  defp parse_int(_value), do: nil
 
   # Busca-e-escreve: as mutações por id compartilham a mesma escada (404 se não existe ou é de
   # outra clínica; 422 se a ação recusa).

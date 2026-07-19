@@ -122,6 +122,24 @@ defmodule ApiWeb.PatientsControllerTest do
       assert inativos["counts"] == %{"todos" => 2, "ativos" => 1, "inativos" => 1, "resp" => 0}
     end
 
+    test "?q= combinado com página >1 recorta o conjunto FILTRADO", %{conn: conn, clinic: clinic} do
+      for i <- 1..3, do: create_patient(clinic, "Ana #{i}")
+      create_patient(clinic, "Bruno Fora")
+
+      p1 = conn |> get(~p"/api/patients?q=ana&limit=2&offset=0") |> json_response(200)
+      assert length(p1["patients"]) == 2
+      assert p1["page"]["total"] == 3
+      assert p1["page"]["more"]
+
+      p2 = conn |> get(~p"/api/patients?q=ana&limit=2&offset=2") |> json_response(200)
+      assert length(p2["patients"]) == 1
+      refute p2["page"]["more"]
+
+      # o filtro é aplicado ANTES do recorte: quem não casa nunca entra em página nenhuma
+      nomes = Enum.map(p1["patients"] ++ p2["patients"], & &1["nome"])
+      assert Enum.all?(nomes, &String.starts_with?(&1, "Ana"))
+    end
+
     test "limit inválido cai no default (a lista não quebra)", %{conn: conn, clinic: clinic} do
       create_patient(clinic, "Único")
 
