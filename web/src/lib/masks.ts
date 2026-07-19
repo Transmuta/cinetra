@@ -51,6 +51,12 @@ export function maskAno(value: string): string {
 	return onlyDigits(value).slice(0, 4);
 }
 
+// MM/AAAA — validade do convênio (espelho de `maskMY` :1963).
+export function maskMy(value: string): string {
+	const d = onlyDigits(value).slice(0, 6);
+	return d.length > 2 ? d.slice(0, 2) + '/' + d.slice(2) : d;
+}
+
 // UF: até 2 letras, maiúsculas (o `class="uppercase"` é só visual; o valor guardado também
 // precisa subir a caixa).
 export function maskUf(value: string): string {

@@ -1,0 +1,46 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+const pf = vi.hoisted(() => ({ fetchProfessionals: vi.fn() }));
+vi.mock('$lib/server/professionals', () => pf);
+
+const m = vi.hoisted(() => ({
+	fetchPatient: vi.fn(),
+	deactivatePatient: vi.fn(),
+	reactivatePatient: vi.fn()
+}));
+vi.mock('$lib/server/patients', () => m);
+
+import { load, actions } from './+page.server';
+
+beforeEach(() => [...Object.values(pf), ...Object.values(m)].forEach((fn) => fn.mockReset()));
+
+describe('load', () => {
+	it('200 → paciente + diretório', async () => {
+		m.fetchPatient.mockResolvedValueOnce({ status: 200, patient: { id: 'pac1', nome: 'Mari' } });
+		pf.fetchProfessionals.mockResolvedValueOnce({ data: { professionals: [{ id: 'p1' }] } });
+		const r = (await load({ params: { id: 'pac1' } } as never)) as { patient: { nome: string } };
+		expect(r.patient.nome).toBe('Mari');
+	});
+	it('não encontrado → 404', async () => {
+		m.fetchPatient.mockResolvedValueOnce({ status: 404, patient: null });
+		pf.fetchProfessionals.mockResolvedValueOnce({ data: null });
+		await expect(load({ params: { id: 'x' } } as never)).rejects.toMatchObject({ status: 404 });
+	});
+});
+
+describe('actions arquivar/reativar', () => {
+	const ev = { params: { id: 'pac1' } } as never;
+
+	it('deactivate ok → { archived: true }', async () => {
+		m.deactivatePatient.mockResolvedValueOnce({ ok: true });
+		expect(await actions.deactivate(ev)).toEqual({ archived: true });
+	});
+	it('reactivate ok → { archived: false }', async () => {
+		m.reactivatePatient.mockResolvedValueOnce({ ok: true });
+		expect(await actions.reactivate(ev)).toEqual({ archived: false });
+	});
+	it('deactivate recusado (403) → fail', async () => {
+		m.deactivatePatient.mockResolvedValueOnce({ ok: false, status: 403 });
+		expect(await actions.deactivate(ev)).toMatchObject({ status: 403 });
+	});
+});

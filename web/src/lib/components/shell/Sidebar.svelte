@@ -10,9 +10,12 @@
 	import Users from '@lucide/svelte/icons/users';
 	import UserCheck from '@lucide/svelte/icons/user-check';
 	import UserX from '@lucide/svelte/icons/user-x';
+	import UserCog from '@lucide/svelte/icons/user-cog';
+	import UserPlus from '@lucide/svelte/icons/user-plus';
 	import Plus from '@lucide/svelte/icons/plus';
 	import { sectionOf, SECTION_TITLES, CONFIG_LINKS } from './nav';
 	import { canManageProfessionals, countByStatus, type Professional } from '$lib/professionals';
+	import { canManagePatients, type PatientCounts } from '$lib/patients';
 	import type { Papel } from '$lib/session';
 
 	let {
@@ -45,6 +48,23 @@
 	const profCounts = $derived(countByStatus(profs));
 	const canManageProf = $derived(canManageProfessionals(page.data.me?.papel as Papel | null | undefined));
 	const profStatus = $derived(page.url.searchParams.get('status') ?? 'todos');
+
+	// Sidebar contextual de Pacientes: "Novo paciente" + FILTRAR. Eixo único (como o `pacFiltro`
+	// do protótipo :1437): status + os segmentos calculáveis hoje (com responsável). Pacote/faltas
+	// entram com F3/agenda. Viaja por `?filter=`; os dados vêm do load da lista (`page.data`).
+	const PAT_FILTERS = [
+		{ key: 'todos', label: 'Todos os pacientes', icon: Users },
+		{ key: 'ativos', label: 'Ativos', icon: UserCheck },
+		{ key: 'inativos', label: 'Inativos', icon: UserX },
+		{ key: 'resp', label: 'Com responsável', icon: UserCog }
+	] as const;
+	// As contagens vêm do servidor (`page.data.counts`): a lista é paginada, então contar o que
+	// chegou contaria só a página. Fora da seção Pacientes não há counts → tudo zero.
+	const patCounts = $derived(
+		(page.data.counts as PatientCounts | undefined) ?? { todos: 0, ativos: 0, inativos: 0, resp: 0 }
+	);
+	const canManagePat = $derived(canManagePatients(page.data.me?.papel as Papel | null | undefined));
+	const patFilter = $derived(page.url.searchParams.get('filter') ?? 'todos');
 </script>
 
 <aside class="flex w-64 shrink-0 flex-col border-r border-edge bg-surface">
@@ -122,6 +142,37 @@
 					<span class={isActive ? 'text-teal-text' : 'text-faint'}><fil.icon size={15} /></span>
 					<span class="flex-1 truncate">{fil.label}</span>
 					<span class="font-mono text-[11px] text-faint">{profCounts[fil.key]}</span>
+				</a>
+			{/each}
+		</div>
+	{/if}
+
+	{#if section === 'pacientes'}
+		<div class="flex-1 overflow-auto px-3 py-1">
+			{#if canManagePat}
+				<a
+					href="/pacientes/novo"
+					class="mb-2 flex items-center justify-center gap-1.5 rounded-lg bg-ink px-3 py-2.5 text-[13px] font-semibold text-canvas hover:opacity-90"
+				>
+					<UserPlus size={15} /> Novo paciente
+				</a>
+			{/if}
+
+			<div class="px-2 pb-1.5 pt-3 text-[10.5px] font-bold uppercase tracking-[.06em] text-faint">
+				Segmentos
+			</div>
+			{#each PAT_FILTERS as fil (fil.key)}
+				{@const isActive = patFilter === fil.key}
+				<a
+					href="/pacientes?filter={fil.key}"
+					aria-current={isActive ? 'page' : undefined}
+					class="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13px] {isActive
+						? 'bg-surface-2 font-semibold text-ink'
+						: 'font-medium text-muted hover:bg-surface-2'}"
+				>
+					<span class={isActive ? 'text-teal-text' : 'text-faint'}><fil.icon size={15} /></span>
+					<span class="flex-1 truncate">{fil.label}</span>
+					<span class="font-mono text-[11px] text-faint">{patCounts[fil.key]}</span>
 				</a>
 			{/each}
 		</div>

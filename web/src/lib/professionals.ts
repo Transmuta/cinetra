@@ -4,6 +4,7 @@
 // resolver o horário efetivo para a coluna "Atendimento" e escolher a cor do avatar.
 import { canManageMembers, type Papel } from './session';
 import { formatPeriods, WEEKDAYS, type Period } from './scheduling';
+import { avatarColor } from './avatar';
 
 export type ContractType = 'autonomo' | 'pj' | 'clt';
 export type WeekdayMode = 'herda' | 'custom' | 'fechado';
@@ -82,13 +83,9 @@ export const CONTRACT_LABELS: Record<ContractType, string> = {
 	clt: 'CLT'
 };
 
-// Paleta da agenda (índice 1-based, `profColor` :315 faz `(ci-1) % 7`).
-const PALETTE = ['#0FB5A6', '#0072B2', '#009E73', '#CC79A7', '#7A52CC', '#D55E00', '#E69F00'];
-
-export function profColor(corIndice: number): string {
-	const i = ((corIndice - 1) % PALETTE.length + PALETTE.length) % PALETTE.length;
-	return PALETTE[i];
-}
+// Cor do avatar do profissional — a paleta da agenda vive em `$lib/avatar` (token
+// compartilhado com o paciente). Re-export nomeado para os call-sites não mudarem.
+export const profColor = avatarColor;
 
 // ---- Filtro por status (Todos / Ativos / Inativos) ----
 
