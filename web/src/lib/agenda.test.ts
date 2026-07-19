@@ -3,7 +3,7 @@ import {
 	STATUS_META,
 	STATUS_ORDER,
 	m2t,
-	t2m,
+	timeToMinutes,
 	zonedParts,
 	toUtcIso,
 	todayInZone,
@@ -69,7 +69,7 @@ describe('STATUS_META', () => {
 	});
 });
 
-describe('m2t / t2m', () => {
+describe('m2t', () => {
 	it('converte minuto do dia em HH:MM com zero à esquerda', () => {
 		expect(m2t(0)).toBe('00:00');
 		expect(m2t(480)).toBe('08:00');
@@ -77,14 +77,6 @@ describe('m2t / t2m', () => {
 		expect(m2t(1439)).toBe('23:59');
 	});
 
-	it('t2m é o inverso', () => {
-		for (const t of ['00:00', '08:00', '11:42', '23:59']) expect(m2t(t2m(t))).toBe(t);
-	});
-
-	it('t2m tolera lixo devolvendo 0 em vez de NaN', () => {
-		expect(t2m('')).toBe(0);
-		expect(t2m('abc')).toBe(0);
-	});
 });
 
 describe('fuso — a ponte entre instante absoluto e relógio de parede da clínica', () => {
@@ -104,7 +96,7 @@ describe('fuso — a ponte entre instante absoluto e relógio de parede da clín
 
 	it('ida e volta preserva o relógio de parede', () => {
 		for (const t of ['08:00', '12:30', '18:45']) {
-			expect(zonedParts(toUtcIso('2026-07-20', t, SP), SP).minutes).toBe(t2m(t));
+			expect(zonedParts(toUtcIso('2026-07-20', t, SP), SP).minutes).toBe(timeToMinutes(t));
 		}
 	});
 
@@ -375,7 +367,14 @@ describe('closedIntervals — o que hachurar em cada coluna', () => {
 
 describe('toInterval — agendamento vira retângulo na grade do dia exibido', () => {
 	it('converte para minutos locais', () => {
-		expect(toInterval(appt(), SP)).toEqual({ id: 'a1', start: 480, end: 530 });
+		expect(toInterval(appt(), SP)).toEqual({ id: 'a1', start: 480, end: 530, ghost: false });
+	});
+
+	// A ponte entre a regra (`ocupaGrade`) e a geometria (`layoutAppts`, que não conhece
+	// status). Sem este campo o cancelado alargava a coluna sozinho.
+	it('marca o cancelado como fantasma: desenha, mas não disputa raia', () => {
+		expect(toInterval(appt({ status: 'cancelado' }), SP).ghost).toBe(true);
+		expect(toInterval(appt({ status: 'faltou' }), SP).ghost).toBe(false);
 	});
 
 	it('agendamento que atravessa a meia-noite é aparado no fim do dia', () => {
@@ -440,5 +439,36 @@ describe('estado na URL', () => {
 	it('serialize é o inverso e some da URL quando vazio', () => {
 		expect(serializeHiddenProfs(['p1', 'p2'])).toBe('p1,p2');
 		expect(serializeHiddenProfs([])).toBeNull();
+	});
+});
+
+// ---------------------------------------------------------------------------
+// ACHADO 2: "HH:MM → minutos" existia em três cópias com bordas DIFERENTES —
+// `timeToMinutes` (scheduling.ts) devolvia NaN, `t2m` (agenda.ts) devolvia 0, e `toMin`
+// embrulhava o segundo. `0` é meia-noite, um valor VÁLIDO: lixo virava 00:00 em silêncio e
+// posicionava bloco no topo da grade sem nunca lançar erro. Fonte única, borda = NaN.
+// ---------------------------------------------------------------------------
+describe('timeToMinutes — fonte única de HH:MM → minutos', () => {
+	it('converte o horário do relógio em minuto do dia', () => {
+		expect(timeToMinutes('00:00')).toBe(0);
+		expect(timeToMinutes('08:00')).toBe(480);
+		expect(timeToMinutes('10:07')).toBe(607);
+		expect(timeToMinutes('23:59')).toBe(1439);
+	});
+
+	it('entrada inválida devolve NaN, e NÃO 0 (que é meia-noite de verdade)', () => {
+		for (const lixo of ['', 'abc', '8:0:0', '99:99', '12', null, undefined]) {
+			expect(Number.isNaN(timeToMinutes(lixo as string))).toBe(true);
+		}
+	});
+
+	it('é o inverso de m2t', () => {
+		for (const t of ['00:00', '08:00', '11:42', '23:59']) expect(m2t(timeToMinutes(t))).toBe(t);
+	});
+
+	// A geometria da grade tem que ENGOLIR o NaN em vez de propagar: expediente ilegível cai
+	// no fallback, e não numa faixa de altura NaN que apaga a agenda inteira.
+	it('período ilegível não contamina a faixa vertical da grade', () => {
+		expect(gridRange([[['xx:xx', '18:00']]], [])).toEqual({ start: 480, end: 1080 });
 	});
 });

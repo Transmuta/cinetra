@@ -122,4 +122,31 @@ defmodule Api.Records do
   def reactivate_clinic_patient(%Api.Scope{} = scope, patient) do
     reactivate_patient(patient, %{}, scope: scope)
   end
+
+  @doc """
+  Quais dos `ids` **não** são pacientes desta clínica (inclui os inexistentes).
+
+  Espelha `Api.Directory.professional_in_clinic?/2`, e existe pelo mesmo motivo: id de
+  paciente que chega no corpo de uma ação de **outro** recurso (o `patient_ids` do
+  agendamento) não passa por lookup escopado nenhum, então nada o impede de ser de outra
+  clínica. Devolver os intrusos, e não um booleano, é o que permite ao chamador dizer no 422
+  *quais* ids ele recusou.
+
+  Abre a própria transação com a GUC setada — a leitura precisa atravessar a RLS, e sob
+  `mix test` (sandbox como `postgres`, BYPASSRLS) a falta disso passaria despercebida.
+  """
+  def patients_outside_clinic(ids, clinic_id) when is_list(ids) and is_binary(clinic_id) do
+    ids = ids |> Enum.filter(&is_binary/1) |> Enum.uniq()
+
+    {:ok, found} =
+      Api.Repo.with_clinic(clinic_id, fn ->
+        list_patients!(
+          tenant: clinic_id,
+          authorize?: false,
+          query: [filter: [id: [in: ids]]]
+        )
+      end)
+
+    ids -- Enum.map(found, & &1.id)
+  end
 end

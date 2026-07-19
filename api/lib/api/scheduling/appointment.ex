@@ -98,6 +98,14 @@ defmodule Api.Scheduling.Appointment do
     attributes_as_attributes [:clinic_id, :professional_id, :starts_at, :status]
 
     belongs_to_actor :user, Api.Accounts.User, domain: Api.Accounts
+
+    # O recurso de versão nasceria SEM authorizer — e `authorize?: true` sobre ele seria um
+    # no-op, a porta dos fundos da A7. As duas opções abaixo são do DSL do AshPaperTrail:
+    # `version_extensions` injeta o authorizer no `use Ash.Resource` gerado, `mixin` injeta as
+    # policies no corpo dele (ler é owner·admin; escrever, ninguém). Ver
+    # `Api.Scheduling.TrailPolicies`.
+    version_extensions authorizers: [Ash.Policy.Authorizer]
+    mixin Api.Scheduling.TrailPolicies
   end
 
   actions do
@@ -130,8 +138,12 @@ defmodule Api.Scheduling.Appointment do
 
       argument :patient_ids, {:array, :uuid}, allow_nil?: false
       # `encaixe` é argumento e não atributo aceito porque quem pode marcá-lo é decidido por
-      # policy (A9): recepção/admin sim, profissional não.
+      # policy (A9, abaixo): `owner`·`admin`·`recepcao` sim, `profissional` não — e é o
+      # argumento (não o atributo) que a policy julga, porque só ele existe antes dos changes.
       argument :encaixe, :boolean, default: false
+
+      # Paciente de outra clínica não vira participante desta agenda.
+      validate Api.Scheduling.Appointment.Validations.PatientsInClinic
 
       change set_attribute(:encaixe, arg(:encaixe))
       change Api.Scheduling.Appointment.Changes.ComputeEndsAt
@@ -158,6 +170,24 @@ defmodule Api.Scheduling.Appointment do
       authorize_if {Api.Accounts.Checks.HasClinicRole,
                     roles: [:owner, :admin, :recepcao, :profissional], clinic_from: :tenant}
     end
+
+    # A7 **na escrita**. As policies do Ash são AND entre si: esta só se aplica quando o actor
+    # é `profissional`, e então exige a própria coluna. Sem ela o profissional não conseguia
+    # LER a agenda do colega mas escrevia nela às cegas, mandando outro `professional_id`.
+    policy [
+      action_type(:create),
+      {Api.Accounts.Checks.HasClinicRole, roles: [:profissional], clinic_from: :tenant}
+    ] do
+      authorize_if Api.Scheduling.Appointment.Checks.OwnProfessionalColumn
+    end
+
+    # A9: encaixe é de recepção para cima. `encaixe = true` isenta a linha da exclusion
+    # constraint (A5) — sem esta policy, o papel menos privilegiado desligava a proteção
+    # contra dupla-marcação mandando um booleano no corpo.
+    policy [action_type(:create), Api.Scheduling.Appointment.Checks.CreatingEncaixe] do
+      authorize_if {Api.Accounts.Checks.HasClinicRole,
+                    roles: [:owner, :admin, :recepcao], clinic_from: :tenant}
+    end
   end
 
   preparations do
@@ -166,7 +196,7 @@ defmodule Api.Scheduling.Appointment do
     prepare build(filter: [pkg_hold: false])
 
     # A7 na prática: recorta as linhas quando o actor é `profissional`.
-    prepare Api.Scheduling.Appointment.Preparations.OwnAgendaOnly
+    prepare Api.Scheduling.Preparations.OwnAgendaOnly
   end
 
   changes do

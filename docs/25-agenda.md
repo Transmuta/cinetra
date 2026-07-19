@@ -629,28 +629,39 @@ sob corrida**, com 422 e não 500 ([`08:200`](08-roadmap.md)).
 > que vazava `"Bread Crumbs:"` para a tela em **todo** 422 do projeto (bug pré-existente no
 > `ApiWeb.TenantScope`, não introduzido por esta fatia).
 >
-> ### O que só apareceu ao vivo — e por quê
+> ### Três bugs apareceram ao vivo — e o diagnóstico inicial estava ERRADO
 >
-> Três bugs passaram por 463 testes verdes e quebraram no navegador. **Os três são a mesma
-> causa**: leitura sem a GUC de tenant, invisível ao `mix test` porque o sandbox conecta como
-> `postgres` (BYPASSRLS). O §10 previu a classe; ela cobrou mesmo assim.
+> **Registro de uma correção de rumo, mantido de propósito**: durante a construção, três
+> sintomas (sidebar vazia, `/availability` 404, criar dava 400 mudo) foram atribuídos a
+> *"leitura sem a GUC de tenant, barrada pela RLS"*. Os commits e este doc chegaram a afirmar
+> isso. **O bate-volta refutou.** Sondas:
 >
-> 1. **Sidebar vazia** — o controller chamava `Api.Directory.list_professionals!/1` cru, fora
->    de `in_clinic`. Sob RLS: lista vazia. Virou `Api.Scheduling.load_agenda/4`, uma
->    transação só para agendamentos + profissionais + tipos + pacientes.
-> 2. **`/availability` sempre 404** — `set_clinic_guc/1` usa `set_config(..., is_local: true)`,
->    que **só vive dentro de uma transação**. Chamado solto, evapora. Passou a usar
->    `Api.Repo.with_clinic/2`.
-> 3. **Criar agendamento dava 400 genérico** — `ComputeEndsAt` lia o tipo sem GUC, `ends_at`
->    ficava nulo. Corrigido com `with_clinic/2` + um 422 explícito quando o tipo não resolve,
->    no lugar do 400 mudo.
+> - `docker-compose.yml:34` → `DATABASE_USER: postgres`. O app em **dev conecta como
+>   superuser, que BYPASSA RLS**. Só `compose.prod.yml` usa `movimento_app` (NOBYPASSRLS).
+>   Logo, a RLS não estava barrando nada em dev.
+> - `Api.Repo.on_transaction_begin/1` **já injeta a GUC em toda transação de leitura com
+>   tenant**. A afirmação de que `list_professionals!` cru "devolve lista vazia no servidor
+>   real" é falsa para leitura comum.
+> - O código antigo do `ComputeEndsAt` foi restaurado num experimento controlado e devolveu o
+>   resultado correto — inclusive o 422 de expediente no almoço. Aquele conserto **não
+>   consertou o que se afirmou**.
 >
-> **Lição para as próximas fatias:** o critério de pronto precisa incluir *rodar a tela*, não
-> só `mix test` + `psql`. A verificação por `psql` (que fizemos e passou) prova que a RLS
-> **barra** o que deve barrar; ela não prova que o caminho feliz **seta a GUC** onde precisa.
-> São dois testes diferentes, e só o segundo pega esta classe. A cura estrutural seria uma
-> parte da suíte conectando como `movimento_app` (NOBYPASSRLS) — não feito aqui, fica
-> registrado como dívida.
+> Causa mais provável dos três sintomas: o build instável durante a introdução do
+> `ash_paper_trail` (a API falhava com `undefined function paper_trail/1` e a VM servia
+> módulos inconsistentes até o restart). **Não reproduzível hoje** — e é assim que fica
+> registrado, em vez de uma causa inventada que soa melhor.
+>
+> Os `in_clinic`/`with_clinic` adicionados **continuam justificados**, por outras razões:
+> `load_agenda/4` faz 5 leituras em 1 checkout de conexão em vez de 5, e o do `ComputeEndsAt`
+> é leitura de **dentro** da transação de um create, onde o `on_transaction_begin` não
+> dispara de novo. O que estava errado era a justificativa escrita, não o código.
+>
+> **A lição verdadeira, e ela é pior do que a que estava aqui antes:** nem `mix test` (sandbox
+> `postgres`) nem o navegador em dev (`DATABASE_USER: postgres`) exercitam a RLS. **Não existe
+> hoje nenhum caminho de execução que detecte uma GUC ausente** — só produção. Vários
+> moduledocs desta fatia dizem "só morde no servidor real", como se houvesse um detector; não
+> há. A cura é apontar o container de dev para `movimento_app` **ou** um job de CI com role
+> NOBYPASSRLS. Fica como dívida explícita, não corrigida aqui.
 
 **Entrega 2 — Visões e navegação.** Semana, Mês, Lista, `GET /api/appointments/counts` (uma
 query agregada `GROUP BY dia`, não 42 leituras como `renderMonth` [`:1749`] faz em memória),

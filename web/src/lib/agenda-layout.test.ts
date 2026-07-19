@@ -49,12 +49,17 @@ function rng(seed: number): () => number {
 	};
 }
 
+// A-D1 decidiu que a grade de 15min é SUGESTÃO da UI, não regra: um encaixe às 10:07
+// combinado por telefone tem que poder existir. Um gerador que só produz múltiplos de 15
+// nunca exercita justamente o caso que a decisão existe para suportar — então dois terços
+// dos dias saem com minuto quebrado, e a duração também sai fora da tabela redonda.
 function randomDay(seed: number, n: number): Interval[] {
 	const rand = rng(seed);
 	return Array.from({ length: n }, (_, i) => {
-		const start = 480 + Math.floor(rand() * 40) * 15; // 08:00–18:00, grade de 15min
-		const dur = [20, 30, 50, 60, 90][Math.floor(rand() * 5)];
-		return { id: `a${i}`, start, end: start + dur };
+		const base = 480 + Math.floor(rand() * 40) * 15; // 08:00–18:00, grade de 15min
+		const offset = rand() < 0.34 ? 0 : Math.floor(rand() * 15); // 10:07 & cia.
+		const dur = rand() < 0.5 ? [20, 30, 50, 60, 90][Math.floor(rand() * 5)] : 7 + Math.floor(rand() * 83);
+		return { id: `a${i}`, start: base + offset, end: base + offset + dur };
 	});
 }
 
@@ -172,13 +177,72 @@ describe('layoutAppts — casos nomeados', () => {
 		expect(r.maxLanes).toBe(2);
 	});
 
+	// O nome promete DUAS coisas; antes o teste só provava a primeira (dois `toBeDefined`).
+	// Um intervalo `[480,480)` é vazio: não sobrepõe ninguém e não pode custar uma raia.
 	it('duração zero não trava nem cria raia extra', () => {
 		const r = layoutAppts([
 			{ id: 'a', start: 480, end: 480 },
 			{ id: 'b', start: 480, end: 530 }
 		]);
-		expect(r.byId.a).toBeDefined();
-		expect(r.byId.b).toBeDefined();
+		expect(r.byId.a).toEqual({ lane: 0, lanes: 1 });
+		expect(r.byId.b).toEqual({ lane: 0, lanes: 1 });
+		expect(r.maxLanes).toBe(1);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Fantasmas (cancelado — doc 25 §7)
+//
+// `conflictIds` já filtrava cancelado; `layoutAppts` não conhecia status. As duas leituras
+// do MESMO predicado divergiram e o sintoma era mudo: a coluna ia a 304px sem o aviso de
+// conflito acender. A regra agora tem dono único (`ocupaGrade`, em agenda.ts) e chega aqui
+// como o campo `ghost` do intervalo — geometria continua sendo só geometria.
+// ---------------------------------------------------------------------------
+
+describe('layoutAppts — intervalos fantasma', () => {
+	it('fantasma sobreposto não conta para a LARGURA da coluna', () => {
+		const r = layoutAppts([
+			{ id: 'vivo', start: 480, end: 540 },
+			{ id: 'morto', start: 500, end: 560, ghost: true }
+		]);
+		expect(r.maxLanes).toBe(1);
+	});
+
+	it('mas o fantasma continua recebendo um slot, em raia própria (não some nem cobre)', () => {
+		const r = layoutAppts([
+			{ id: 'vivo', start: 480, end: 540 },
+			{ id: 'morto', start: 500, end: 560, ghost: true }
+		]);
+		expect(r.byId.morto).toBeDefined();
+		expect(r.byId.vivo.lane).not.toBe(r.byId.morto.lane);
+		// Os dois dividem a largura EXISTENTE da coluna em vez de exigir mais.
+		expect(r.byId.vivo.lanes).toBe(2);
+		expect(r.byId.morto.lanes).toBe(2);
+	});
+
+	it('fantasma sozinho ocupa a coluna inteira', () => {
+		const r = layoutAppts([{ id: 'morto', start: 480, end: 540, ghost: true }]);
+		expect(r.byId.morto).toEqual({ lane: 0, lanes: 1 });
+		expect(r.maxLanes).toBe(1);
+	});
+
+	it('dois fantasmas sobrepostos também não alargam a coluna', () => {
+		const r = layoutAppts([
+			{ id: 'm1', start: 480, end: 540, ghost: true },
+			{ id: 'm2', start: 500, end: 560, ghost: true }
+		]);
+		expect(r.maxLanes).toBe(1);
+		expect(r.byId.m1.lane).not.toBe(r.byId.m2.lane);
+	});
+
+	it('a largura da coluna segue mandada pelos VIVOS, com fantasma no meio', () => {
+		const r = layoutAppts([
+			{ id: 'v1', start: 480, end: 600 },
+			{ id: 'v2', start: 490, end: 600 },
+			{ id: 'morto', start: 495, end: 600, ghost: true }
+		]);
+		expect(r.maxLanes).toBe(2);
+		expect(r.byId.morto.lane).toBe(2); // depois das raias vivas
 	});
 });
 

@@ -262,6 +262,129 @@ defmodule Api.Scheduling.AppointmentTest do
 
       assert {:ok, _} = schedule(%{ctx | scope: scope}, %{})
     end
+
+    test "profissional agenda na PRÓPRIA coluna" do
+      ctx = setup_clinic()
+      user = member_with_role(ctx.clinic, :profissional, ctx.prof.id)
+      scope = scope_for(user, ctx.clinic)
+
+      assert {:ok, appt} = schedule(%{ctx | scope: scope}, %{})
+      assert appt.professional_id == ctx.prof.id
+    end
+
+    test "profissional NÃO agenda na coluna de um colega (A7 na escrita)" do
+      ctx = setup_clinic()
+
+      colega =
+        Directory.create_professional!("Dr. Y", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+
+      user = member_with_role(ctx.clinic, :profissional, ctx.prof.id)
+      scope = scope_for(user, ctx.clinic)
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               schedule(%{ctx | scope: scope}, %{professional_id: colega.id})
+    end
+
+    test "FAIL-CLOSED: profissional SEM professional_id não agenda em coluna nenhuma" do
+      ctx = setup_clinic()
+      user = member_with_role(ctx.clinic, :profissional, nil)
+      scope = scope_for(user, ctx.clinic)
+
+      assert {:error, %Ash.Error.Forbidden{}} = schedule(%{ctx | scope: scope}, %{})
+    end
+  end
+
+  describe "A9 — só recepção para cima cria encaixe" do
+    test "profissional NÃO cria encaixe" do
+      ctx = setup_clinic()
+      user = member_with_role(ctx.clinic, :profissional, ctx.prof.id)
+      scope = scope_for(user, ctx.clinic)
+
+      # `encaixe = true` é o predicado que ISENTA a linha da exclusion constraint. O papel
+      # menos privilegiado não desliga a proteção contra dupla-marcação.
+      assert {:error, %Ash.Error.Forbidden{}} =
+               schedule(%{ctx | scope: scope}, %{encaixe: true})
+    end
+
+    test "profissional continua agendando SEM encaixe" do
+      ctx = setup_clinic()
+      user = member_with_role(ctx.clinic, :profissional, ctx.prof.id)
+      scope = scope_for(user, ctx.clinic)
+
+      assert {:ok, %{encaixe: false}} = schedule(%{ctx | scope: scope}, %{encaixe: false})
+    end
+
+    test "recepção cria encaixe" do
+      ctx = setup_clinic()
+      user = member_with_role(ctx.clinic, :recepcao)
+      scope = scope_for(user, ctx.clinic)
+
+      assert {:ok, %{encaixe: true}} = schedule(%{ctx | scope: scope}, %{encaixe: true})
+    end
+
+    test "owner cria encaixe" do
+      ctx = setup_clinic()
+      assert {:ok, %{encaixe: true}} = schedule(ctx, %{encaixe: true})
+    end
+  end
+
+  describe "A7 na Attendance — o irmão do Appointment" do
+    test "profissional só enxerga as Attendances da própria agenda" do
+      ctx = setup_clinic()
+      {:ok, _} = schedule(ctx, %{})
+
+      colega =
+        Directory.create_professional!("Dr. Y", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+
+      {:ok, _} = schedule(ctx, %{professional_id: colega.id, starts_at: at("10:00")})
+
+      user = member_with_role(ctx.clinic, :profissional, colega.id)
+      scope = scope_for(user, ctx.clinic)
+
+      assert [attendance] = Scheduling.list_attendances!(scope: scope)
+      assert [_, _] = Scheduling.list_attendances!(scope: ctx.scope)
+
+      appt = Scheduling.get_appointment!(attendance.appointment_id, scope: scope)
+      assert appt.professional_id == colega.id
+    end
+
+    test "FAIL-CLOSED: profissional sem professional_id não vê Attendance nenhuma" do
+      ctx = setup_clinic()
+      {:ok, _} = schedule(ctx, %{})
+
+      user = member_with_role(ctx.clinic, :profissional, nil)
+      scope = scope_for(user, ctx.clinic)
+
+      assert [] == Scheduling.list_attendances!(scope: scope)
+    end
+  end
+
+  describe "patient_ids é do tenant" do
+    test "paciente de OUTRA clínica é recusado" do
+      ctx = setup_clinic()
+      outra = setup_clinic()
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               schedule(ctx, %{patient_ids: [outra.paciente.id]})
+    end
+  end
+
+  describe "RN-13 — cancelado não conflita" do
+    test "cancelar libera o slot para um novo agendamento" do
+      ctx = setup_clinic()
+      {:ok, appt} = schedule(ctx, %{})
+
+      # Enquanto está `:agendado`, o slot está tomado.
+      assert {:error, %Ash.Error.Invalid{}} = schedule(ctx, %{})
+
+      # Não há ação de cancelar nesta fatia (é a Entrega 4); a coluna é escrita direto, como
+      # no teste de `pkg_hold`. O que se exercita aqui é o predicado da constraint.
+      Api.Repo.query!("UPDATE appointments SET status = 'cancelado' WHERE id = $1", [
+        Ecto.UUID.dump!(appt.id)
+      ])
+
+      assert {:ok, _} = schedule(ctx, %{})
+    end
   end
 
   describe "pkg_hold — RN-05" do
@@ -303,6 +426,93 @@ defmodule Api.Scheduling.AppointmentTest do
         |> Ash.read!(tenant: ctx.clinic.id, authorize?: false)
 
       assert [_] = versions
+    end
+
+    # O recurso `*.Version` nasce SEM authorizer, o que torna `authorize?: true` um no-op —
+    # era a porta dos fundos da A7. Nota sobre a forma do resultado: leitura barrada por
+    # policy devolve `{:ok, []}`, não `Forbidden` (o default do Ash é aplicar a policy como
+    # filtro, `return_forbidden_error?: false`). O que se afirma aqui é o que importa: nenhuma
+    # linha da trilha atravessa.
+    test "a trilha é owner·admin: profissional NÃO lê versão (§11.4)" do
+      ctx = setup_clinic()
+      {:ok, _appt} = schedule(ctx, %{})
+
+      user = member_with_role(ctx.clinic, :profissional, ctx.prof.id)
+
+      for resource <- [Api.Scheduling.Appointment.Version, Api.Scheduling.Attendance.Version] do
+        assert {:ok, []} =
+                 Ash.read(resource, tenant: ctx.clinic.id, actor: user, authorize?: true)
+      end
+    end
+
+    test "recepção também NÃO lê a trilha" do
+      ctx = setup_clinic()
+      {:ok, _appt} = schedule(ctx, %{})
+
+      user = member_with_role(ctx.clinic, :recepcao)
+
+      assert {:ok, []} =
+               Ash.read(Api.Scheduling.Appointment.Version,
+                 tenant: ctx.clinic.id,
+                 actor: user,
+                 authorize?: true
+               )
+    end
+
+    test "owner lê a trilha" do
+      ctx = setup_clinic()
+      {:ok, _appt} = schedule(ctx, %{})
+
+      assert {:ok, [_]} =
+               Ash.read(Api.Scheduling.Appointment.Version,
+                 tenant: ctx.clinic.id,
+                 actor: ctx.owner,
+                 authorize?: true
+               )
+    end
+
+    test "a trilha é imutável pela aplicação: nem owner escreve nela" do
+      ctx = setup_clinic()
+      {:ok, appt} = schedule(ctx, %{})
+
+      [version] =
+        Api.Scheduling.Appointment.Version
+        |> Ash.read!(tenant: ctx.clinic.id, authorize?: false)
+
+      # Input completo de propósito: um changeset inválido pararia nas validações e nunca
+      # chegaria à policy — o teste passaria sem provar nada.
+      forjado = %{
+        version_source_id: appt.id,
+        version_action_type: :update,
+        version_action_name: :schedule,
+        starts_at: appt.starts_at,
+        professional_id: appt.professional_id,
+        status: :cancelado,
+        changes: %{}
+      }
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Api.Scheduling.Appointment.Version
+               |> Ash.Changeset.for_create(:create, forjado,
+                 tenant: ctx.clinic.id,
+                 actor: ctx.owner,
+                 authorize?: true
+               )
+               |> Ash.create()
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               version
+               |> Ash.Changeset.for_update(:update, %{status: :cancelado},
+                 tenant: ctx.clinic.id,
+                 actor: ctx.owner,
+                 authorize?: true
+               )
+               |> Ash.update()
+
+      # Apagar versão nem ação tem: o AshPaperTrail gera só `read`/`create`/`update` no
+      # recurso de versão. Registrado como asserção para que ganhar um `:destroy` no futuro
+      # (por default novo do pacote, por exemplo) não passe calado.
+      assert Ash.Resource.Info.action(Api.Scheduling.Appointment.Version, :destroy) == nil
     end
   end
 end

@@ -14,6 +14,15 @@ export interface Interval {
 	id: string;
 	start: number;
 	end: number;
+	/**
+	 * Bloco que é DESENHADO mas não disputa a largura da coluna — hoje, o cancelado
+	 * (doc 25 §7, traduzido por `ocupaGrade`/`toInterval` em `agenda.ts`).
+	 *
+	 * Deliberadamente `ghost` e não `cancelado`: este arquivo é geometria e não deve
+	 * aprender o vocabulário de status. Se amanhã "bloqueio de agenda" também não puder
+	 * alargar a coluna, a regra muda em `agenda.ts` e aqui nada acontece.
+	 */
+	ghost?: boolean;
 }
 
 export interface Slot {
@@ -51,23 +60,42 @@ export function layoutAppts(appts: Interval[]): Layout {
 		// `laneEnds[i]` = instante em que a raia `i` fica livre. Como o cluster já está
 		// ordenado por início, escolher a PRIMEIRA raia livre é a alocação ótima para
 		// intervalos: o número de raias resultante é exatamente a sobreposição máxima.
-		const laneEnds: number[] = [];
-		const lanes_: Array<[string, number]> = [];
-
-		for (const it of cluster) {
-			let lane = laneEnds.findIndex((end) => end <= it.start);
-			if (lane === -1) {
-				lane = laneEnds.length;
-				laneEnds.push(it.end);
-			} else {
-				laneEnds[lane] = it.end;
+		// Duas alocações separadas, porque `lanes` e `maxLanes` respondem a perguntas
+		// diferentes e o código antigo as confundia:
+		//  - `lane`/`lanes` é a FRAÇÃO da coluna que cada bloco ocupa. Fantasma participa,
+		//    senão ele seria desenhado por cima de um bloco vivo e o esconderia.
+		//  - `maxLanes` é a LARGURA da coluna. Fantasma NÃO participa: um cancelado não pode
+		//    fazer a coluna pedir 304px (era exatamente o bug — largura dobrada, e sem o
+		//    aviso de conflito, que já filtrava cancelado do outro lado).
+		// Fantasmas recebem raias DEPOIS das vivas, então os vivos nunca são empurrados.
+		const alocar = (subset: Interval[], base: number): [number, Array<[string, number]>] => {
+			const laneEnds: number[] = [];
+			const out: Array<[string, number]> = [];
+			for (const it of subset) {
+				let lane = laneEnds.findIndex((end) => end <= it.start);
+				if (lane === -1) {
+					lane = laneEnds.length;
+					laneEnds.push(it.end);
+				} else {
+					laneEnds[lane] = it.end;
+				}
+				out.push([it.id, base + lane]);
 			}
-			lanes_.push([it.id, lane]);
-		}
+			return [laneEnds.length, out];
+		};
 
-		const lanes = laneEnds.length;
-		for (const [id, lane] of lanes_) byId[id] = { lane, lanes };
-		maxLanes = Math.max(maxLanes, lanes);
+		const [liveLanes, liveSlots] = alocar(
+			cluster.filter((it) => !it.ghost),
+			0
+		);
+		const [ghostLanes, ghostSlots] = alocar(
+			cluster.filter((it) => it.ghost),
+			liveLanes
+		);
+
+		const lanes = Math.max(1, liveLanes + ghostLanes);
+		for (const [id, lane] of [...liveSlots, ...ghostSlots]) byId[id] = { lane, lanes };
+		maxLanes = Math.max(maxLanes, liveLanes);
 
 		cluster = [];
 		clusterEnd = -Infinity;

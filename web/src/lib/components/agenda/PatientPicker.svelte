@@ -6,6 +6,7 @@
 	import Search from '@lucide/svelte/icons/search';
 	import { initials } from '$lib/format';
 	import { avatarColor } from '$lib/avatar';
+	import { CONTROL_CLASS } from '$lib/components/Field.svelte';
 	import type { AgendaPatient, SearchResult } from '$lib/agenda';
 
 	let {
@@ -100,6 +101,10 @@
 			<span class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-faint">
 				<Search size={14} />
 			</span>
+			<!-- Não é um `<Field>`: o rótulo vem de fora (o modal já embrulha o picker inteiro
+			     num Field, porque o texto muda com o tipo — "Paciente" vs "Participantes (2/4)")
+			     e o padding é assimétrico para abrir espaço ao ícone de lupa, coisa que o input
+			     do Field não faz. O que NÃO se duplica é a lista de tokens: vem do CONTROL_CLASS. -->
 			<input
 				role="combobox"
 				aria-expanded={results.length > 0}
@@ -110,7 +115,7 @@
 				value={term}
 				oninput={(e) => onInput(e.currentTarget.value)}
 				placeholder="Buscar por nome, CPF ou telefone…"
-				class="h-[38px] w-full rounded-md border border-edge-strong bg-surface pl-8 pr-3 text-[13.5px] text-ink placeholder:text-faint"
+				class="h-[38px] w-full {CONTROL_CLASS} pl-8 pr-3"
 			/>
 		</div>
 	{/if}

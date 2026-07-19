@@ -252,3 +252,34 @@ describe('DayGrid — criar em vazio', () => {
 		expect(onEmptyClick).not.toHaveBeenCalled();
 	});
 });
+
+// Doc 25 §7: cancelado não conflita — e, portanto, também não disputa espaço. O `conflictIds`
+// já filtrava o cancelado; o `layoutAppts` não conhecia status e alargava a coluna sozinho.
+// O sintoma era mudo: 304px de coluna sem o triângulo de conflito acender.
+describe('DayGrid — cancelado não alarga a coluna (doc 25 §7)', () => {
+	const cancelado = appt({
+		id: 'a2',
+		status: 'cancelado',
+		starts_at: '2026-07-20T11:20:00Z',
+		ends_at: '2026-07-20T12:10:00Z',
+		patient_ids: ['pat1']
+	});
+
+	it('coluna com um vivo e um cancelado sobrepostos fica na largura padrão', () => {
+		render(DayGrid, { props: { ...base, appointments: [appt(), cancelado] } });
+		const col = document.querySelectorAll('[data-column]')[0] as HTMLElement;
+		expect(col.style.minWidth).toBe('210px');
+	});
+
+	it('mas o cancelado continua desenhado (riscado, não sumido)', () => {
+		render(DayGrid, { props: { ...base, appointments: [appt(), cancelado] } });
+		expect(document.querySelectorAll('[data-appt]')).toHaveLength(2);
+	});
+
+	it('dois VIVOS sobrepostos continuam alargando a coluna', () => {
+		const vivo2 = { ...cancelado, id: 'a3', status: 'agendado' as const };
+		render(DayGrid, { props: { ...base, appointments: [appt(), vivo2] } });
+		const col = document.querySelectorAll('[data-column]')[0] as HTMLElement;
+		expect(col.style.minWidth).toBe('304px');
+	});
+});

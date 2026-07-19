@@ -51,6 +51,14 @@ defmodule Api.Scheduling.Attendance do
     ignore_attributes [:inserted_at, :updated_at]
     attributes_as_attributes [:clinic_id, :appointment_id, :patient_id, :status]
     belongs_to_actor :user, Api.Accounts.User, domain: Api.Accounts
+
+    # O recurso de versão nasceria SEM authorizer — e `authorize?: true` sobre ele seria um
+    # no-op, a porta dos fundos da A7. As duas opções abaixo são do DSL do AshPaperTrail:
+    # `version_extensions` injeta o authorizer no `use Ash.Resource` gerado, `mixin` injeta as
+    # policies no corpo dele (ler é owner·admin; escrever, ninguém). Ver
+    # `Api.Scheduling.TrailPolicies`.
+    version_extensions authorizers: [Ash.Policy.Authorizer]
+    mixin Api.Scheduling.TrailPolicies
   end
 
   actions do
@@ -71,6 +79,14 @@ defmodule Api.Scheduling.Attendance do
       authorize_if {Api.Accounts.Checks.HasClinicRole,
                     roles: [:owner, :admin, :recepcao, :profissional], clinic_from: :tenant}
     end
+  end
+
+  preparations do
+    # A7 vale para a agenda inteira, não só para o `Appointment`: sem este recorte, um
+    # `profissional` que não enxerga o bloco do colega lia mesmo assim os pares
+    # (appointment_id, patient_id) da clínica toda por aqui. `via: :appointment` porque o
+    # `professional_id` mora no bloco, não no participante.
+    prepare {Api.Scheduling.Preparations.OwnAgendaOnly, via: :appointment}
   end
 
   changes do

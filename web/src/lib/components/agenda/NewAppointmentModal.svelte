@@ -4,6 +4,7 @@
 	import { enhance } from '$app/forms';
 	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 	import Modal from '$lib/components/Modal.svelte';
+	import Field, { CONTROL_CLASS, CONTROL_PX } from '$lib/components/Field.svelte';
 	import PatientPicker from './PatientPicker.svelte';
 	import {
 		canCreateEncaixe,
@@ -87,10 +88,7 @@
 		<input type="hidden" name="starts_at" value={startsAt} />
 		<input type="hidden" name="patient_ids" value={JSON.stringify(selected.map((p) => p.id))} />
 
-		<div class="mb-3">
-			<span class="mb-[5px] block text-[12px] font-semibold text-muted">
-				{grupo ? `Participantes (${selected.length}/${capacidade})` : 'Paciente'}
-			</span>
+		<Field label={grupo ? `Participantes (${selected.length}/${capacidade})` : 'Paciente'}>
 			<PatientPicker
 				{selected}
 				multi={grupo}
@@ -98,72 +96,52 @@
 				onPick={pick}
 				onRemove={(id) => (selected = selected.filter((p) => p.id !== id))}
 			/>
+		</Field>
+
+		<div class="grid grid-cols-2 gap-2.5">
+			<Field label="Profissional">
+				{#snippet control()}
+					<select name="professional_id" bind:value={profId} class="h-[38px] w-full {CONTROL_CLASS} {CONTROL_PX}">
+						{#each professionals as p (p.id)}
+							<option value={p.id}>{p.nome_exibicao ?? p.nome}</option>
+						{/each}
+					</select>
+				{/snippet}
+			</Field>
+
+			<Field label="Tipo">
+				{#snippet control()}
+					<select name="appointment_type_id" bind:value={typeId} class="h-[38px] w-full {CONTROL_CLASS} {CONTROL_PX}">
+						{#each ativos as t (t.id)}
+							<option value={t.id}>
+								{t.nome} ({t.duracao_minutos}min){t.grupo ? ' · grupo' : ''}
+							</option>
+						{/each}
+					</select>
+				{/snippet}
+			</Field>
 		</div>
 
 		<div class="grid grid-cols-2 gap-2.5">
-			<label class="mb-3 block min-w-0">
-				<span class="mb-[5px] block text-[12px] font-semibold text-muted">Profissional</span>
-				<select
-					name="professional_id"
-					bind:value={profId}
-					class="h-[38px] w-full rounded-md border border-edge-strong bg-surface px-2.5 text-[13.5px]"
-				>
-					{#each professionals as p (p.id)}
-						<option value={p.id}>{p.nome_exibicao ?? p.nome}</option>
-					{/each}
-				</select>
-			</label>
+			<Field label="Data" type="date" bind:value={dataStr} />
 
-			<label class="mb-3 block min-w-0">
-				<span class="mb-[5px] block text-[12px] font-semibold text-muted">Tipo</span>
-				<select
-					name="appointment_type_id"
-					bind:value={typeId}
-					class="h-[38px] w-full rounded-md border border-edge-strong bg-surface px-2.5 text-[13.5px]"
-				>
-					{#each ativos as t (t.id)}
-						<option value={t.id}>
-							{t.nome} ({t.duracao_minutos}min){t.grupo ? ' · grupo' : ''}
-						</option>
-					{/each}
-				</select>
-			</label>
+			<!-- step=900: a UI SUGERE de 15 em 15, mas A-D1 decidiu que não é regra —
+			     um encaixe às 10:07 combinado por telefone tem que poder ser salvo. -->
+			<Field label="Hora" type="time" step={900} mono bind:value={hora} />
 		</div>
 
-		<div class="grid grid-cols-2 gap-2.5">
-			<label class="mb-3 block min-w-0">
-				<span class="mb-[5px] block text-[12px] font-semibold text-muted">Data</span>
-				<input
-					type="date"
-					bind:value={dataStr}
-					class="h-[38px] w-full rounded-md border border-edge-strong bg-surface px-2.5 text-[13.5px]"
-				/>
-			</label>
-
-			<label class="mb-3 block min-w-0">
-				<span class="mb-[5px] block text-[12px] font-semibold text-muted">Hora</span>
-				<!-- step=900: a UI SUGERE de 15 em 15, mas A-D1 decidiu que não é regra —
-				     um encaixe às 10:07 combinado por telefone tem que poder ser salvo. -->
-				<input
-					type="time"
-					step="900"
-					bind:value={hora}
-					class="h-[38px] w-full rounded-md border border-edge-strong bg-surface px-2.5 font-mono text-[13.5px]"
-				/>
-			</label>
-		</div>
-
-		<label class="mb-3 block min-w-0">
-			<span class="mb-[5px] block text-[12px] font-semibold text-muted">Observação</span>
-			<textarea
-				name="obs"
-				bind:value={obs}
-				maxlength="500"
-				rows="2"
-				placeholder="Ex.: vem de muleta, trazer exame. Não é prontuário."
-				class="w-full rounded-md border border-edge-strong bg-surface px-2.5 py-2 text-[13.5px] placeholder:text-faint"
-			></textarea>
-		</label>
+		<Field label="Observação">
+			{#snippet control()}
+				<textarea
+					name="obs"
+					bind:value={obs}
+					maxlength="500"
+					rows="2"
+					placeholder="Ex.: vem de muleta, trazer exame. Não é prontuário."
+					class="w-full py-2 {CONTROL_CLASS} {CONTROL_PX}"
+				></textarea>
+			{/snippet}
+		</Field>
 
 		{#if podeEncaixe}
 			<label class="flex cursor-pointer items-center gap-2 py-1 text-[13px]">

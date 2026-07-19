@@ -28,11 +28,12 @@ defmodule ApiWeb.AppointmentsControllerTest do
     |> AshAuthentication.Plug.Helpers.store_in_session(user)
   end
 
-  defp member_session(owner, clinic, papel) do
+  defp member_session(owner, clinic, papel, professional_id \\ nil) do
     addr = email()
 
-    {:ok, pending} =
-      Accounts.invite_member_by_email(addr, %{papel: papel, clinic_id: clinic.id}, actor: owner)
+    attrs = %{papel: papel, clinic_id: clinic.id, professional_id: professional_id}
+
+    {:ok, pending} = Accounts.invite_member_by_email(addr, attrs, actor: owner)
 
     user = Accounts.get_user_by_email!(addr, authorize?: false)
     {:ok, _} = Accounts.accept_invite(pending, actor: user)
@@ -128,6 +129,48 @@ defmodule ApiWeb.AppointmentsControllerTest do
 
       conn = conn |> authed(recepcao) |> post("/api/appointments", payload(ctx))
       assert json_response(conn, 201)
+    end
+
+    # O doc 25 §7 fixa **403** (e não 422) para as duas: a recusa é de autorização, não de
+    # dado — o horário está certo, quem pediu é que não pode.
+    test "profissional recebe 403 ao pedir ENCAIXE (A9)", %{conn: conn} do
+      ctx = fixture()
+      prof_user = member_session(ctx.owner, ctx.clinic, :profissional, ctx.prof.id)
+
+      conn =
+        conn
+        |> authed(prof_user)
+        |> post("/api/appointments", payload(ctx, %{"encaixe" => true}))
+
+      assert json_response(conn, 403)
+    end
+
+    test "profissional recebe 403 ao agendar na coluna do colega (A7)", %{conn: conn} do
+      ctx = fixture()
+
+      colega =
+        Directory.create_professional!("Dr. Y", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+
+      prof_user = member_session(ctx.owner, ctx.clinic, :profissional, ctx.prof.id)
+
+      conn =
+        conn
+        |> authed(prof_user)
+        |> post("/api/appointments", payload(ctx, %{"professional_id" => colega.id}))
+
+      assert json_response(conn, 403)
+    end
+
+    test "paciente de OUTRA clínica devolve 422, não 201", %{conn: conn} do
+      ctx = fixture()
+      outra = fixture()
+
+      conn =
+        conn
+        |> authed(ctx.owner)
+        |> post("/api/appointments", payload(ctx, %{"patient_ids" => [outra.paciente.id]}))
+
+      assert json_response(conn, 422)
     end
   end
 

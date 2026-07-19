@@ -1,3 +1,15 @@
+<script module lang="ts">
+	// Tokens do controle (protótipo `inputStyle()` :1934), SEM altura e SEM padding
+	// horizontal — cada controle decide os seus (o textarea cresce, o campo de busca abre
+	// espaço para o ícone). Exportado porque `<select>`/`<textarea>` não são renderizados
+	// por este componente: sem uma constante, cada modal reescrevia a lista à mão e ela
+	// divergiu — a agenda tinha `px-2.5` (10px) e perdeu `text-ink`/`placeholder:text-faint`.
+	export const CONTROL_CLASS =
+		'rounded-md border border-edge-strong bg-surface text-[13.5px] text-ink placeholder:text-faint';
+	/** Padding horizontal padrão do controle. */
+	export const CONTROL_PX = 'px-[11px]';
+</script>
+
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import type { HTMLInputAttributes } from 'svelte/elements';
@@ -15,7 +27,8 @@
 		step = undefined,
 		mono = false,
 		width = 'w-full',
-		children = undefined
+		children = undefined,
+		control = undefined
 	}: {
 		label: string;
 		name?: string;
@@ -38,11 +51,21 @@
 		    sempre aceitou. Renderiza um GRUPO rotulado, não um <label>: um label aponta para
 		    um controle só, e estes grupos (cor, ícone) têm vários botões. */
 		children?: Snippet;
+		/** Controle próprio (`<select>`, `<textarea>`) DENTRO do <label>, para reusar o rótulo
+		    sem perder a associação. O slot `children` renderiza um `role="group"`, correto para
+		    grupos de botões (cor, ícone) e ERRADO para um controle único: o select ficaria sem
+		    nome acessível. */
+		control?: Snippet;
 	} = $props();
 </script>
 
 <!-- Campo do protótipo: fld() :1933 (label 12/600 muted) + inputStyle() :1934 (h38, r8, bd). -->
-{#if children}
+{#if control}
+	<label class="mb-3 block min-w-0">
+		<span class="mb-[5px] block text-[12px] font-semibold text-muted">{label}</span>
+		{@render control()}
+	</label>
+{:else if children}
 	<div class="mb-3 min-w-0" role="group" aria-label={label}>
 		<span class="mb-[5px] block text-[12px] font-semibold text-muted">{label}</span>
 		{@render children()}
@@ -60,9 +83,7 @@
 			{min}
 			{step}
 			bind:value
-			class="h-[38px] rounded-md border border-edge-strong bg-surface px-[11px] text-[13.5px] text-ink placeholder:text-faint {width} {mono
-				? 'font-mono'
-				: ''}"
+			class="h-[38px] {CONTROL_CLASS} {CONTROL_PX} {width} {mono ? 'font-mono' : ''}"
 		/>
 	</label>
 {/if}

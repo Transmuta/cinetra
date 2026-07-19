@@ -18,6 +18,7 @@
 		closedIntervals,
 		conflictIds,
 		needsAction,
+		ocupaGrade,
 		type Appointment,
 		type AgendaProfessional,
 		type ColumnAvailability,
@@ -100,7 +101,7 @@
 				lay,
 				width: columnWidth(lay.maxLanes),
 				buracos: closedIntervals(periodosPorProf.get(prof.id) ?? [], range),
-				ativos: appts.filter((a) => a.status !== 'cancelado').length,
+				ativos: appts.filter(ocupaGrade).length,
 				temConflito: appts.some((a) => conflitos.has(a.id))
 			};
 		})

@@ -9,7 +9,9 @@
 // Sem Svelte e sem DOM: tudo testável no projeto `server` do Vitest.
 
 import type { Papel } from './session';
+import { timeToMinutes } from './scheduling';
 import type { Period } from './scheduling';
+import type { Interval } from './agenda-layout';
 import type { AppointmentType } from './appointment-types';
 
 // O tipo de atendimento COMO A AGENDA o recebe. `appointments_controller.ex:render_type`
@@ -155,13 +157,11 @@ export function m2t(minutes: number): string {
 	return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 }
 
-export function t2m(time: string): number {
-	const [h, m] = String(time ?? '')
-		.split(':')
-		.map(Number);
-	if (!Number.isFinite(h) || !Number.isFinite(m)) return 0;
-	return h * 60 + m;
-}
+// O caminho de volta ("HH:MM" → minuto) NÃO mora aqui: é o `timeToMinutes` de
+// `scheduling.ts`, reexportado para quem consome a agenda não precisar saber disso. Havia
+// uma segunda implementação neste arquivo (`t2m`) que devolvia 0 para lixo enquanto a de lá
+// devolvia NaN — duas leituras do mesmo conceito com bordas opostas.
+export { timeToMinutes };
 
 // ---------------------------------------------------------------------------
 // Fuso — instante absoluto ↔ relógio de parede da clínica
@@ -307,9 +307,23 @@ export function needsAction(appt: Appointment, agoraIso: string): boolean {
 // Cancelado, esse sim, não conflita em nenhum sentido.
 // ---------------------------------------------------------------------------
 
+/**
+ * O agendamento DISPUTA espaço na grade? Fonte única da regra "cancelado não conta"
+ * (doc 25 §7).
+ *
+ * Existia duas vezes, implícita: `conflictIds` filtrava cancelado, `layoutAppts` não sabia
+ * o que era status. As duas leituras divergiram e o sintoma foi mudo — um cancelado
+ * sobreposto alargava a coluna para duas raias (304px) sem o aviso de conflito acender.
+ * Quem responde "não" continua sendo DESENHADO (riscado): não ocupar espaço é diferente de
+ * não existir.
+ */
+export function ocupaGrade(appt: Pick<Appointment, 'status'>): boolean {
+	return appt.status !== 'cancelado';
+}
+
 export function conflictIds(appts: Appointment[]): Set<string> {
 	const out = new Set<string>();
-	const live = appts.filter((a) => a.status !== 'cancelado');
+	const live = appts.filter(ocupaGrade);
 
 	for (let i = 0; i < live.length; i++) {
 		for (let j = i + 1; j < live.length; j++) {
@@ -356,7 +370,7 @@ export const DEFAULT_RANGE: Range = { start: 480, end: 1080 };
 // grade fala minuto do dia; aceitar os dois evita uma passada de conversão em cada chamada.
 export type PeriodLike = readonly [string | number, string | number];
 
-const toMin = (v: string | number): number => (typeof v === 'number' ? v : t2m(v));
+const toMin = (v: string | number): number => (typeof v === 'number' ? v : timeToMinutes(v));
 
 const floorHour = (m: number) => Math.floor(m / 60) * 60;
 const ceilHour = (m: number) => Math.ceil(m / 60) * 60;
@@ -413,14 +427,19 @@ export function closedIntervals(periods: readonly PeriodLike[], range: Range): A
 	return holes;
 }
 
-/** Agendamento → retângulo na grade do dia local, aparado nos limites do dia. */
-export function toInterval(appt: Appointment, timezone: string): { id: string; start: number; end: number } {
+// Agendamento → retângulo na grade do dia local, aparado nos limites do dia.
+//
+// É AQUI que a regra de `ocupaGrade` cruza para a geometria, e de propósito: `layoutAppts`
+// é geometria pura e não deve aprender o que é um status, mas também não pode receber os
+// blocos sem saber quais disputam raia. O campo `ghost` é essa ponte — uma tradução só,
+// feita num lugar só.
+export function toInterval(appt: Appointment, timezone: string): Interval {
 	const start = zonedParts(appt.starts_at, timezone).minutes;
 	const durMin = Math.round((Date.parse(appt.ends_at) - Date.parse(appt.starts_at)) / 60000);
 	// Bloco que viraria o dia é aparado em 24:00: a grade desenha UM dia (a continuação
 	// aparece no dia seguinte quando a Entrega 2 trouxer as outras visões).
 	const end = Math.min(1440, start + Math.max(1, durMin));
-	return { id: appt.id, start, end };
+	return { id: appt.id, start, end, ghost: !ocupaGrade(appt) };
 }
 
 // ---------------------------------------------------------------------------

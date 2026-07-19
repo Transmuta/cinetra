@@ -188,3 +188,29 @@ describe('NewAppointmentModal', () => {
 		expect(obs.getAttribute('placeholder')).toMatch(/prontuário/i);
 	});
 });
+
+// ACHADO 3: o modal recriava o markup do `Field` à mão em ~5 lugares, e a cópia JÁ tinha
+// divergido — `px-2.5` (10px) contra os `px-[11px]` do Field, e sem os tokens `text-ink` /
+// `placeholder:text-faint`. Não é preciosismo: os controles do mesmo formulário ficavam com
+// padding diferente e a cor do texto caía no herdado em vez do token do design system.
+describe('controles usam o Field do projeto, não uma cópia divergida', () => {
+	const controles = ['Profissional', 'Tipo', 'Data', 'Hora', /observação/i] as const;
+
+	it.each(controles.map((c) => [String(c), c] as const))(
+		'%s carrega os tokens do Field (px-[11px], text-ink)',
+		(_nome, seletor) => {
+			render(NewAppointmentModal, { props: base });
+			const el = screen.getByLabelText(seletor as string | RegExp);
+			expect(el.className).toContain('px-[11px]');
+			expect(el.className).toContain('text-ink');
+		}
+	);
+
+	// O `<select>` continua com nome acessível: trocar o <label> por um <div role="group">
+	// resolveria a duplicação e QUEBRARIA o rótulo do controle.
+	it('os selects seguem alcançáveis pelo rótulo', () => {
+		render(NewAppointmentModal, { props: base });
+		expect(screen.getByLabelText('Tipo').tagName).toBe('SELECT');
+		expect(screen.getByLabelText('Profissional').tagName).toBe('SELECT');
+	});
+});

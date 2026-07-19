@@ -77,9 +77,21 @@ export function weekChanged(draft: WeekHours, saved: WeekHours): boolean {
 // mensagem curta, para o editor pintar o input problemático em vez de um toast genérico.
 const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
-function timeToMinutes(value: string): number {
-	const [h, m] = value.split(':');
-	return Number(h) * 60 + Number(m);
+// FONTE ÚNICA de "HH:MM → minuto do dia" no cliente. Existiam três: esta, o `t2m` da agenda
+// e o `toMin` que o embrulhava — e as bordas JÁ tinham divergido (NaN aqui, 0 lá). Devolver
+// 0 para lixo é o pior dos dois mundos: 0 é meia-noite, um horário VÁLIDO, então um período
+// ilegível virava 00:00 em silêncio e arrastava a faixa da grade para o topo do dia sem
+// nunca lançar erro. NaN é contagioso de propósito — quem consome tem que decidir o fallback.
+//
+// Aceita `24:00` (a grade usa 1440 como fim-de-dia); o TIME_RE acima continua mais estrito,
+// porque validar o que o usuário DIGITA num período é outra pergunta.
+const HHMM_RE = /^(\d{1,2}):([0-5]\d)$/;
+
+export function timeToMinutes(value: string): number {
+	const m = HHMM_RE.exec(String(value ?? ''));
+	if (!m) return NaN;
+	const h = Number(m[1]);
+	return h > 24 ? NaN : h * 60 + Number(m[2]);
 }
 
 export interface DayValidation {
