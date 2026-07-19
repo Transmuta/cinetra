@@ -71,19 +71,59 @@ teste de **corrida real** na exclusion constraint, que a checklist não pedia.
 **sem ecoar os ids recusados**, porque confirmar "existe, mas não é seu" é o oráculo que o
 isolamento não deve dar.
 
-### Causa C — a correção mais importante, e é contra o próprio autor
+### Causa C — RETRATADA: a auditoria errou, o diagnóstico original estava certo
 
-Os commits e o doc afirmavam que três bugs vistos ao vivo eram *"leitura sem GUC barrada pela
-RLS"*. **Falso**, provado por três sondas:
+**Esta seção afirmava o oposto e foi corrigida.** Fica registrada como está porque o erro de
+método vale mais que a conclusão.
 
-- `docker-compose.yml:34` → `DATABASE_USER: postgres`: o app **em dev bypassa RLS**;
-- `Api.Repo.on_transaction_begin/1` **já injeta a GUC** em toda transação de leitura com tenant;
-- restaurar o código antigo num experimento controlado devolveu o resultado correto, inclusive
-  o 422 de expediente.
+A auditoria concluiu que o diagnóstico dos commits (*"três bugs = leitura sem GUC barrada pela
+RLS"*) era falso, com base em: `docker-compose.yml` define `DATABASE_USER: postgres`, logo o
+app bypassa RLS em dev; e um experimento controlado onde o código antigo funcionava.
 
-Corrigido em [25 §9](25-agenda.md) e na memória do projeto. A lição verdadeira é pior que a
-registrada antes: **não existe hoje nenhum caminho de execução local que detecte GUC ausente** —
-nem `mix test` (sandbox `postgres`), nem o navegador em dev. Só produção. Ver §5.
+**As duas premissas estavam erradas, pela mesma razão.** `docker compose exec` **não passa pelo
+entrypoint**, e o `entrypoint.dev.sh` termina com:
+
+```bash
+exec env DATABASE_USER="${APP_USER}" DATABASE_PASSWORD="${APP_PASS}" mix phx.server
+```
+
+O `DATABASE_USER: postgres` do compose é o usuário **privilegiado, para migrations/DDL**; o
+servidor sobe como `movimento_app`. Todas as sondas feitas por `exec` — as minhas e as de dois
+subagentes — mediram um ambiente que não serve requisição nenhuma.
+
+`pg_stat_activity` desfaz a dúvida em uma linha:
+
+```
+    usename    | conexoes
+---------------+----------
+ movimento_app |       10     ← o servidor
+ postgres      |        1     ← o psql da própria sonda
+```
+
+E o experimento decisivo, a mesma chamada sob os dois roles:
+
+```
+### como movimento_app (o role do servidor real) ###
+SEM in_clinic/with_clinic : 0 profissionais
+COM in_clinic/with_clinic : 2 profissionais
+
+### como postgres (o que mix test e as sondas ruins usavam) ###
+SEM in_clinic : 2 profissionais
+```
+
+**Conclusão correta:** o diagnóstico original estava certo, os `in_clinic`/`with_clinic` são o
+conserto, e `Api.Repo.on_transaction_begin/1` **não cobre** leitura crua por-tenant apesar do
+que promete o próprio moduledoc.
+
+**Lição de método, que é o que esta seção passa a documentar:** ao sondar comportamento
+dependente de role ou ambiente, **verifique quem a sonda é** (`SELECT current_user`) antes de
+acreditar nela, e observe o processo real (`pg_stat_activity`) em vez de inferir do arquivo de
+configuração. Três medições independentes erraram igual porque todas herdaram a mesma suposição
+não checada. Para sondar como o servidor:
+
+```bash
+docker compose exec -e DATABASE_USER=movimento_app -e DATABASE_PASSWORD=movimento_app api ...
+```
 
 ### Causa E (web)
 
@@ -134,11 +174,11 @@ Result  (cost=0.15..8.17 rows=1)
 
 ### 5.1 Estrutural
 
-**(a) Nenhum ambiente exercita a RLS.** Dev e teste conectam como `postgres` (BYPASSRLS); só
-`compose.prod.yml` usa `movimento_app`. Vários moduledocs dizem "só morde no servidor real",
-como se houvesse detector — não há. **Correção:** apontar o container de dev para
-`movimento_app`, **ou** um job de CI com role NOBYPASSRLS. Não aplicado: muda ambiente, e a
-escolha entre os dois é sua.
+**(a) `mix test` não exercita a RLS** — a suíte conecta como `postgres` (BYPASSRLS), então um
+bug de GUC ausente passa verde. **Dev exercita** (o servidor sobe como `movimento_app`), o que
+faz de "rodar a tela" um detector real — e foi ele que pegou os três bugs da construção.
+**Correção pendente:** uma parte da suíte rodando como `movimento_app`, para que o gate do CI
+também pegue. Não aplicado: mexe no sandbox do Ecto e é decisão de infra.
 
 **(b) A autoridade do recorte ficou em dois lugares.** O conserto de escrita
 (`OwnProfessionalColumn`) lê do **`Membership`** e documenta que o `Api.Scope` é só

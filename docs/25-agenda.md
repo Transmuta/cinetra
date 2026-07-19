@@ -629,39 +629,49 @@ sob corrida**, com 422 e não 500 ([`08:200`](08-roadmap.md)).
 > que vazava `"Bread Crumbs:"` para a tela em **todo** 422 do projeto (bug pré-existente no
 > `ApiWeb.TenantScope`, não introduzido por esta fatia).
 >
-> ### Três bugs apareceram ao vivo — e o diagnóstico inicial estava ERRADO
+> ### Três bugs apareceram ao vivo: leitura sem a GUC de tenant
 >
-> **Registro de uma correção de rumo, mantido de propósito**: durante a construção, três
-> sintomas (sidebar vazia, `/availability` 404, criar dava 400 mudo) foram atribuídos a
-> *"leitura sem a GUC de tenant, barrada pela RLS"*. Os commits e este doc chegaram a afirmar
-> isso. **O bate-volta refutou.** Sondas:
+> Sidebar vazia, `/availability` 404 e criar dava 400 — **os três eram a mesma causa**: leitura
+> por-tenant sem a GUC `movimento.clinic_id`, barrada pela RLS. Consertados envolvendo as
+> leituras em `in_clinic`/`with_clinic` (`load_agenda/4`, `load_availability_sources/3`,
+> `ComputeEndsAt`).
 >
-> - `docker-compose.yml:34` → `DATABASE_USER: postgres`. O app em **dev conecta como
->   superuser, que BYPASSA RLS**. Só `compose.prod.yml` usa `movimento_app` (NOBYPASSRLS).
->   Logo, a RLS não estava barrando nada em dev.
-> - `Api.Repo.on_transaction_begin/1` **já injeta a GUC em toda transação de leitura com
->   tenant**. A afirmação de que `list_professionals!` cru "devolve lista vazia no servidor
->   real" é falsa para leitura comum.
-> - O código antigo do `ComputeEndsAt` foi restaurado num experimento controlado e devolveu o
->   resultado correto — inclusive o 422 de expediente no almoço. Aquele conserto **não
->   consertou o que se afirmou**.
+> Experimento decisivo — a mesma chamada, sob os dois roles:
 >
-> Causa mais provável dos três sintomas: o build instável durante a introdução do
-> `ash_paper_trail` (a API falhava com `undefined function paper_trail/1` e a VM servia
-> módulos inconsistentes até o restart). **Não reproduzível hoje** — e é assim que fica
-> registrado, em vez de uma causa inventada que soa melhor.
+> | Condição | Resultado |
+> | --- | --- |
+> | `movimento_app` (role do servidor), **sem** `in_clinic` | **0 profissionais** |
+> | `movimento_app`, **com** `in_clinic` | 2 profissionais |
+> | `postgres` (o role do `mix test`) | 2 profissionais |
 >
-> Os `in_clinic`/`with_clinic` adicionados **continuam justificados**, por outras razões:
-> `load_agenda/4` faz 5 leituras em 1 checkout de conexão em vez de 5, e o do `ComputeEndsAt`
-> é leitura de **dentro** da transação de um create, onde o `on_transaction_begin` não
-> dispara de novo. O que estava errado era a justificativa escrita, não o código.
+> Nota importante: `Api.Repo.on_transaction_begin/1` promete injetar a GUC em leitura com
+> tenant, e o experimento mostra que **não cobre este caso** — a leitura crua voltou vazia.
+> Não confie nele; envolva a leitura por-tenant explicitamente.
 >
-> **A lição verdadeira, e ela é pior do que a que estava aqui antes:** nem `mix test` (sandbox
-> `postgres`) nem o navegador em dev (`DATABASE_USER: postgres`) exercitam a RLS. **Não existe
-> hoje nenhum caminho de execução que detecte uma GUC ausente** — só produção. Vários
-> moduledocs desta fatia dizem "só morde no servidor real", como se houvesse um detector; não
-> há. A cura é apontar o container de dev para `movimento_app` **ou** um job de CI com role
-> NOBYPASSRLS. Fica como dívida explícita, não corrigida aqui.
+> ### Por que o bate-volta "refutou" isto por engano — e a lição de método
+>
+> A auditoria (doc [26](26-auditoria-bate-volta-agenda.md)) chegou a registrar que este
+> diagnóstico era falso, alegando que o app em dev conecta como `postgres` e bypassa RLS.
+> **Estava errado**, e a causa do erro vale mais que o erro:
+>
+> - `docker-compose.yml` de fato define `DATABASE_USER: postgres` — mas isso é o usuário
+>   **privilegiado, para migrations/DDL**. O `entrypoint.dev.sh` termina com
+>   `exec env DATABASE_USER="${APP_USER}" ... mix phx.server`: **o servidor sobe como
+>   `movimento_app`**, sujeito à RLS.
+> - `docker compose exec` **não passa pelo entrypoint**. Toda sonda feita por ele — minhas e as
+>   de dois subagentes — conectou como `postgres` e mediu um ambiente que não é o que serve as
+>   requisições. `pg_stat_activity` desfaz a dúvida: 10 conexões `movimento_app`, e a única
+>   `postgres` era o próprio psql da sonda.
+>
+> **Lição:** ao sondar um comportamento dependente de role/ambiente, verifique **quem a sonda
+> é** antes de acreditar no que ela diz (`SELECT current_user`), e prefira observar o processo
+> real (`pg_stat_activity`) a inferir do arquivo de configuração. Para rodar uma sonda como o
+> servidor: `docker compose exec -e DATABASE_USER=movimento_app -e DATABASE_PASSWORD=movimento_app api ...`.
+>
+> **O que continua valendo:** `mix test` roda como `postgres` (BYPASSRLS), então a suíte
+> **não** exercita RLS — bug de GUC passa verde e só aparece ao usar a tela em dev (que é um
+> detector real) ou em produção. A dívida de uma parte da suíte rodar como `movimento_app`
+> continua de pé.
 
 **Entrega 2 — Visões e navegação.** Semana, Mês, Lista, `GET /api/appointments/counts` (uma
 query agregada `GROUP BY dia`, não 42 leituras como `renderMonth` [`:1749`] faz em memória),
