@@ -7,9 +7,12 @@ defmodule Api.Scheduling do
 
   Os wrappers `*_clinic_*` centralizam aqui o `Api.Repo.with_clinic/2` (GUC de tenant para a
   RLS) na leitura, como em `Api.Directory` — controllers e changes não falam com o Repo. A
-  escrita seta a GUC dentro da própria ação, via `Api.Directory.Changes.SetTenantGuc`.
+  escrita seta a GUC dentro da própria ação, via `Api.Tenancy.SetTenantGuc`.
   """
   use Ash.Domain, otp_app: :api
+
+  # Leitura sob RLS (o corte de tenancy é compartilhado — ver `Api.Tenancy`).
+  import Api.Tenancy, only: [in_clinic: 2]
 
   require Ash.Query
 
@@ -33,10 +36,6 @@ defmodule Api.Scheduling do
   end
 
   # Roda `fun` com a GUC de tenant setada (leitura, que não abre transação sozinha).
-  defp in_clinic(%Api.Scope{clinic_id: clinic_id}, fun) when is_binary(clinic_id) do
-    {:ok, result} = Api.Repo.with_clinic(clinic_id, fun)
-    result
-  end
 
   # ---- ClinicHours (expediente semanal) ----
 

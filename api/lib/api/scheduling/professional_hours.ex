@@ -53,7 +53,7 @@ defmodule Api.Scheduling.ProfessionalHours do
       upsert? true
       upsert_identity :one_per_prof_dow
       accept [:professional_id, :dow, :modo, :periods]
-      change Api.Directory.Changes.SetTenantGuc
+      change Api.Tenancy.SetTenantGuc
     end
   end
 

@@ -92,7 +92,7 @@ propósito**:
 
 | Item | O que é | Sonda | Por que não corrigi | Correção sugerida |
 |---|---|---|---|---|
-| `in_clinic/2` ×3 | helper de tenancy (leitura) idêntico em Records/Directory/Scheduling | `grep "defp in_clinic"` → 3 arquivos | Escorrega para código vizinho (Directory/Scheduling, fora do diff); é o mesmo cross-cut do `SetTenantGuc` | `Api.Repo.with_clinic!/2` que desembrulha o `{:ok,_}`; os 3 domínios chamam. Fazer **junto** de mover `SetTenantGuc` para namespace neutro |
+| ~~`in_clinic/2` ×3~~ | — | — | — | ✅ **FEITO** — ver §8 |
 | ~~Índice composto `(clinic_id, inserted_at)`~~ | — | — | — | ✅ **FEITO** — ver §6 |
 | ~~Busca/paginação server-side~~ | — | — | — | ✅ **FEITO** — ver §6 |
 
@@ -235,7 +235,54 @@ nos dois.
 
 | Item | Número medido | Recomendação |
 |---|---|---|
-| 3 counts da sidebar → 1 com `COUNT(*) FILTER` | 29,1ms → 10,4ms (**−64%**), 5 → 3 scans por carga | Ganho barato, mas custa o reuso da ação `:list` (hoje contador e lista não podem divergir). Trade-off consciente |
+| ~~3 counts da sidebar → 1 com `COUNT(*) FILTER`~~ | 29,1ms → 10,4ms (**−64%**) | ✅ **FEITO** — ver §8 (e sem o trade-off que se temia) |
 | `countable: true` paga 2× o scan da busca | +47,1ms no pior caso (termo sem match) | Aceitar — o "de Z" da tela exige total exato |
 | `regexp_replace` em CPF/tel | 35,5ms dos 48,9ms do pior caso | Manter. Reabrir com índice de expressão/`pg_trgm` se algum tenant passar de ~50k pacientes (≈250ms) |
 | `replaceState: true` no `goPage` | — | Voltar a partir de `?page=3` sai da lista inteira em vez de ir para a página 2. Escolha de produto |
+
+---
+
+## 8. Unificação das duas duplicações restantes
+
+Fechados os dois itens que as auditorias tinham deixado para decisão humana.
+
+### 8.1 As contagens da sidebar numa query só — **sem** o trade-off previsto
+
+A §7 dizia que colapsar os 3 counts custaria o reuso da ação `:list` (contador e lista podendo
+divergir). **Não custa:** `Ash.aggregate/3` aceita uma lista de agregados com filtro próprio e
+os resolve numa única query, continuando dentro do Ash — policies valem, e a query base ainda
+é `Ash.Query.for_read(:list, …)`.
+
+```elixir
+|> Ash.aggregate!([
+     {:todos,    :count, []},
+     {:ativos,   :count, [query: [filter: expr(ativo == true)]]},
+     {:inativos, :count, [query: [filter: expr(ativo == false)]]},
+     {:resp,     :count, [query: [filter: expr(not is_nil(responsavel) and responsavel != "")]]}
+   ], scope: scope)
+```
+
+Re-sonda (telemetry contando as queries que a função realmente emite):
+
+```
+COUNTS=%{todos: 60, ativos: 55, inativos: 5, resp: 8}
+QUERIES=1
+SQL>> SELECT coalesce(count(*), …), coalesce(count(*) FILTER (WHERE p0."ativo" = $2), …),
+             coalesce(count(*) FILTER (WHERE p0."ativo" = $4), …), … FROM "patients" AS p0
+```
+
+De 3 queries (29,1ms, varrendo as mesmas páginas de heap três vezes) para **1**. O `inativos`
+deixou de ser derivado por subtração: agora é um `FILTER` explícito, que no mesmo statement sai
+de graça e dispensa raciocinar sobre a conta.
+
+### 8.2 `Api.Tenancy` — o corte de tenancy deixa de morar num domínio
+
+`in_clinic/2` estava copiado nos três domínios por-tenant, e o `SetTenantGuc` — usado pelos
+três — morava em `Api.Directory.Changes`, obrigando `Scheduling` e `Records` a importar de um
+vizinho. Ambos foram para um namespace que não é de ninguém:
+
+- `Api.Tenancy.in_clinic/2` — leitura sob RLS (os 3 domínios agora fazem `import Api.Tenancy`).
+- `Api.Tenancy.SetTenantGuc` — escrita sob RLS (7 recursos atualizados).
+
+Fecha a pendência que vinha desde a auditoria de Horários. Gate: **387 testes / 0 · 89,4%**,
+exit 0 — `Directory` e `Scheduling` seguem verdes com o helper compartilhado.

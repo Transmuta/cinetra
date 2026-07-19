@@ -1,4 +1,4 @@
-defmodule Api.Directory.Changes.SetTenantGuc do
+defmodule Api.Tenancy.SetTenantGuc do
   @moduledoc """
   Injeta a GUC `movimento.clinic_id` na transação da própria ação, para que a RLS (ADR-018)
   aceite o INSERT/UPDATE de recurso por-tenant.

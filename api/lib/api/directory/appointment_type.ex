@@ -102,7 +102,7 @@ defmodule Api.Directory.AppointmentType do
     # Toda escrita seta a GUC de tenant dentro da própria transação: a injeção automática do
     # `Api.Repo.on_transaction_begin/1` só alcança leitura, e sem GUC a RLS barra o
     # INSERT/UPDATE. Ver o moduledoc do change — é sutil e a suíte não pega (BYPASSRLS).
-    change Api.Directory.Changes.SetTenantGuc
+    change Api.Tenancy.SetTenantGuc
   end
 
   validations do

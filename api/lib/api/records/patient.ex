@@ -171,9 +171,9 @@ defmodule Api.Records.Patient do
 
   changes do
     # Toda escrita seta a GUC de tenant dentro da própria transação: sem ela a RLS barra o
-    # INSERT/UPDATE no servidor real (NOBYPASSRLS). Reusa o change do Directory, como o
-    # Scheduling já faz (pendência conhecida: mover para um namespace neutro).
-    change Api.Directory.Changes.SetTenantGuc
+    # INSERT/UPDATE no servidor real (NOBYPASSRLS). O change é compartilhado pelos três
+    # domínios por-tenant — mora em `Api.Tenancy`, que é de ninguém.
+    change Api.Tenancy.SetTenantGuc
   end
 
   # Por-tenant por atributo: o tenant é o `clinic_id`. Toda ação exige o tenant no escopo; o

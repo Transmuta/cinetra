@@ -46,7 +46,7 @@ defmodule Api.Scheduling.ScheduleException do
       # wrapper `create_professional_exception` (como o `ProfessionalInClinic` do convite) —
       # a FK só garante que é um profissional, não que é DESTA clínica.
       accept [:data, :nome, :tipo, :periods, :professional_id]
-      change Api.Directory.Changes.SetTenantGuc
+      change Api.Tenancy.SetTenantGuc
     end
 
     # `require_atomic? false`: o `SetTenantGuc` roda num `before_action` (a GUC precisa estar
@@ -54,7 +54,7 @@ defmodule Api.Scheduling.ScheduleException do
     destroy :destroy do
       primary? true
       require_atomic? false
-      change Api.Directory.Changes.SetTenantGuc
+      change Api.Tenancy.SetTenantGuc
     end
   end
 

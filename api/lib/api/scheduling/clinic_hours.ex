@@ -45,7 +45,7 @@ defmodule Api.Scheduling.ClinicHours do
       upsert? true
       upsert_identity :one_per_dow
       accept [:dow, :periods]
-      change Api.Directory.Changes.SetTenantGuc
+      change Api.Tenancy.SetTenantGuc
     end
   end
 

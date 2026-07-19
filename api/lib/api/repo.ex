@@ -25,7 +25,7 @@ defmodule Api.Repo do
   `data_layer_context` é opcional e o Ash **não** o preenche (ver
   `Ash.DataLayer.transaction_reason` e `ash/lib/ash/actions/create/create.ex`) — não há de
   onde tirar o tenant aqui. Escrita por-tenant portanto **não** passa por este ponto: ela
-  seta a GUC via `Api.Directory.Changes.SetTenantGuc` (`before_action`, dentro da transação
+  seta a GUC via `Api.Tenancy.SetTenantGuc` (`before_action`, dentro da transação
   da própria ação). Transações sem tenant (recursos globais) não setam nada.
   """
   @impl true

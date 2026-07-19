@@ -147,7 +147,7 @@ defmodule Api.Directory.Professional do
   changes do
     # Toda escrita seta a GUC de tenant dentro da própria transação: sem ela a RLS barra o
     # INSERT/UPDATE no servidor real (NOBYPASSRLS). Ver o moduledoc do change.
-    change Api.Directory.Changes.SetTenantGuc
+    change Api.Tenancy.SetTenantGuc
   end
 
   # Por-tenant por atributo: o tenant é o `clinic_id`. Toda ação exige o tenant no

@@ -6,6 +6,9 @@ defmodule Api.Directory do
   """
   use Ash.Domain, otp_app: :api
 
+  # Leitura sob RLS (o corte de tenancy é compartilhado — ver `Api.Tenancy`).
+  import Api.Tenancy, only: [in_clinic: 2]
+
   resources do
     resource Api.Directory.Professional do
       define :create_professional, action: :create, args: [:nome]
@@ -34,15 +37,10 @@ defmodule Api.Directory do
   #
   # Isto vale para **leitura**, que não abre transação sozinha. A **escrita** não passa por
   # aqui: ela seta a GUC dentro da própria transação, via
-  # `Api.Directory.Changes.SetTenantGuc` (`before_action`) — envolvê-la num `with_clinic`
+  # `Api.Tenancy.SetTenantGuc` (`before_action`) — envolvê-la num `with_clinic`
   # quebraria o caminho de erro (o rollback do Ash na transação interna arrebenta a
   # externa e vira 500 em vez de 422). Ver o moduledoc do change.
 
-  # Roda `fun` com a GUC de tenant setada.
-  defp in_clinic(%Api.Scope{clinic_id: clinic_id}, fun) when is_binary(clinic_id) do
-    {:ok, result} = Api.Repo.with_clinic(clinic_id, fun)
-    result
-  end
 
   @doc """
   Catálogo da clínica ativa do escopo — ativos **e** arquivados (a tela separa), em ordem de
@@ -86,7 +84,7 @@ defmodule Api.Directory do
   Cria em lote o catálogo inicial de uma clínica (seed do `Clinic.onboard`, T3). Recebe
   `clinic_id` cru — e não um `Api.Scope` — porque roda dentro do `onboard`, quando o tenant
   acabou de nascer e ainda não há escopo com ele. A GUC de cada INSERT é setada pelo
-  `Api.Directory.Changes.SetTenantGuc` da própria ação.
+  `Api.Tenancy.SetTenantGuc` da própria ação.
   """
   def seed_appointment_types(clinic_id, tipos) when is_binary(clinic_id) and is_list(tipos) do
     Enum.map(tipos, &create_appointment_type!(&1, tenant: clinic_id, authorize?: false))

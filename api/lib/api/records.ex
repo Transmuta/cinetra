@@ -8,10 +8,15 @@ defmodule Api.Records do
   Os wrappers `*_clinic_patient` centralizam o `Api.Repo.with_clinic/2` aqui (na camada de
   domínio) para leitura, espelhando `Api.Directory`. A **escrita** não passa por
   `with_clinic`: ela seta a GUC dentro da própria transação via
-  `Api.Directory.Changes.SetTenantGuc` (ver o moduledoc do change) — envolvê-la quebraria o
+  `Api.Tenancy.SetTenantGuc` (ver o moduledoc do change) — envolvê-la quebraria o
   caminho de erro (viraria 500 em vez de 422).
   """
   use Ash.Domain, otp_app: :api
+
+  # Leitura sob RLS (o corte de tenancy é compartilhado — ver `Api.Tenancy`).
+  import Api.Tenancy, only: [in_clinic: 2]
+  # `expr/1` dos filtros das contagens por segmento.
+  import Ash.Expr, only: [expr: 1]
 
   resources do
     resource Api.Records.Patient do
@@ -25,11 +30,6 @@ defmodule Api.Records do
     end
   end
 
-  # Roda `fun` com a GUC de tenant setada.
-  defp in_clinic(%Api.Scope{clinic_id: clinic_id}, fun) when is_binary(clinic_id) do
-    {:ok, result} = Api.Repo.with_clinic(clinic_id, fun)
-    result
-  end
 
   @default_limit 50
   @max_limit 200
@@ -72,24 +72,27 @@ defmodule Api.Records do
   Precisa vir do servidor: com a lista paginada, contar o que chegou contaria só a página.
   **Independe da busca** — são "quantos pacientes existem em cada segmento", como o
   `sbPacientes` do protótipo ([`:1437`](../../../interface/Movimento.dc.html#L1437)), que conta
-  sobre o cadastro inteiro e não sobre o termo digitado. `inativos` é derivado (total − ativos)
-  para poupar uma query.
+  sobre o cadastro inteiro e não sobre o termo digitado.
+
+  Os quatro segmentos saem numa **única** query (`count(*) FILTER (WHERE …)`) via
+  `Ash.aggregate`: contar um por vez varria as mesmas páginas de heap quatro vezes (medido no
+  doc 24 §7: 29,1ms → 10,4ms). E continua dentro do Ash — policies e a ação `:list` valem
+  igual, então contador e lista não podem divergir.
   """
   def clinic_patient_counts(%Api.Scope{} = scope) do
     in_clinic(scope, fn ->
-      total = count_status(scope, :todos)
-      ativos = count_status(scope, :ativos)
-
-      %{todos: total, ativos: ativos, inativos: total - ativos, resp: count_status(scope, :resp)}
+      Api.Records.Patient
+      |> Ash.Query.for_read(:list, %{}, scope: scope)
+      |> Ash.aggregate!(
+        [
+          {:todos, :count, []},
+          {:ativos, :count, [query: [filter: expr(ativo == true)]]},
+          {:inativos, :count, [query: [filter: expr(ativo == false)]]},
+          {:resp, :count, [query: [filter: expr(not is_nil(responsavel) and responsavel != "")]]}
+        ],
+        scope: scope
+      )
     end)
-  end
-
-  # Reusa a própria ação `:list` (e sua preparation), então segmento no contador e segmento na
-  # lista não podem divergir.
-  defp count_status(%Api.Scope{} = scope, status) do
-    Api.Records.Patient
-    |> Ash.Query.for_read(:list, %{status: status}, scope: scope)
-    |> Ash.count!()
   end
 
   @doc """
