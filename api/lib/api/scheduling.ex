@@ -262,6 +262,131 @@ defmodule Api.Scheduling do
     end)
   end
 
+  @doc """
+  As contagens das visões Semana e Mês (doc 25 §9, Entrega 2), quebradas por **dia ×
+  profissional**.
+
+  Devolve, para cada data da janela e cada profissional ativo, quantos agendamentos ocupam a
+  grade, quantos minutos eles ocupam, e quantos minutos de expediente aquele profissional tem
+  naquele dia. A tela soma o que está visível — é o que faz o toggle da sidebar valer para as
+  três visões (B-D2); agregado só por dia, esconder um profissional não mexeria na barra e a
+  Semana passaria a discordar do Dia sobre o mesmo dia.
+
+  ## Por que não é um `GROUP BY` no banco
+
+  O doc 25 §9 pedia "uma query agregada `GROUP BY` dia". O que ele estava recusando é o que o
+  protótipo fazia: `renderMonth` carregava tudo e contava **42 vezes por render**, no cliente.
+  Aqui a leitura é **uma só** para a janela inteira, e o agrupamento é uma passada em memória
+  sobre o resultado — a diferença que motivava o pedido está resolvida.
+
+  Descer o `GROUP BY` para SQL exigiria montar a query em Ecto cru, e aí o recorte A7 (o papel
+  `profissional` só vê a própria agenda) teria de ser **reescrito à mão** ao lado da versão que
+  vive em `OwnAgendaOnly` — o achado (b) do doc 26, que a §7 acabou de fechar, nascendo de novo
+  no mesmo mês. Passando pela mesma code interface da visão Dia, o recorte vem de graça e é o
+  mesmo. A janela é limitada a 31 dias no controller, então o volume lido é o de um mês.
+
+  As **linhas** são um profissional ativo cada, sem recorte de papel — as mesmas colunas que a
+  visão Dia desenha. O que o recorte esconde são os agendamentos, não a existência da escala.
+  """
+  def load_counts(%Api.Scope{} = scope, %Date{} = from, %Date{} = to, timezone) do
+    dates = Date.range(from, to) |> Enum.to_list()
+
+    in_clinic(scope, fn ->
+      {janela_de, janela_ate} = Api.Scheduling.LocalTime.window!(from, to, timezone)
+
+      # `select` enxuto: a agregação usa quatro campos, e a leitura trazia as 17 colunas —
+      # incluindo `obs`, que é texto livre. Medido no bate-volta: 3,2 MB de heap por request de
+      # Mês numa clínica cheia (10 profissionais × 31 dias) para produzir 310 células de
+      # contagem. O recorte A7 continua vindo da preparation, que filtra por `professional_id`
+      # sem precisar selecioná-lo.
+      appointments =
+        list_appointments!(janela_de, janela_ate,
+          scope: scope,
+          query: [select: [:starts_at, :ends_at, :status, :professional_id]]
+        )
+
+      professionals =
+        Api.Directory.list_professionals!(scope: scope, query: [filter: [ativo: true]])
+
+      ocupacao = occupancy_by_day(appointments, timezone)
+
+      sources =
+        gather_sources(Enum.map(professionals, & &1.id), dates,
+          tenant: scope.clinic_id,
+          authorize?: false
+        )
+
+      # Os profissionais vão junto pelo mesmo motivo do `GET /api/appointments`: a barra
+      # lateral é a mesma nas quatro visões, e é dela que sai o filtro de ocultar. Devolver só
+      # as contagens deixava a lista vazia em Semana e Mês — e o toggle inoperante justamente
+      # nas visões que ele precisa recortar.
+      %{
+        days:
+          Enum.map(dates, fn date ->
+            %{
+              date: date,
+              professionals: Enum.map(professionals, &day_count(&1, date, sources, ocupacao))
+            }
+          end),
+        professionals: professionals
+      }
+    end)
+  end
+
+  # `%{{date, professional_id} => {total, minutos}}`. Cancelado fica de fora dos dois: é a
+  # mesma regra de `ocupaGrade` (doc 25 §7) — não disputa espaço, então não conta.
+  defp occupancy_by_day(appointments, timezone) do
+    appointments
+    |> Enum.reject(&(&1.status == :cancelado))
+    |> Enum.group_by(fn appt ->
+      {Api.Scheduling.LocalTime.to_local_date(appt.starts_at, timezone), appt.professional_id}
+    end)
+    |> Map.new(fn {chave, agendamentos} ->
+      minutos =
+        Enum.reduce(agendamentos, 0, fn appt, acc ->
+          acc + div(DateTime.diff(appt.ends_at, appt.starts_at), 60)
+        end)
+
+      {chave, {length(agendamentos), minutos}}
+    end)
+  end
+
+  defp day_count(professional, date, sources, ocupacao) do
+    {total, minutos} = Map.get(ocupacao, {date, professional.id}, {0, 0})
+
+    %{
+      professional_id: professional.id,
+      total: total,
+      ocupado_minutos: minutos,
+      capacidade_minutos: capacity_minutes(professional, date, sources)
+    }
+  end
+
+  # O denominador da barra (A-D11/A-D12): o expediente REAL do dia, resolvido pelas mesmas 4
+  # camadas que a visão Dia usa para hachurar. Dia fechado devolve 0 — e 0 é o que a tela lê
+  # como "fechado", que não é a mesma coisa que "aberto e vazio".
+  defp capacity_minutes(professional, date, sources) do
+    case Api.Scheduling.Availability.day_periods(
+           date,
+           professional,
+           Map.fetch!(sources, professional.id)
+         ) do
+      {:open, periods} ->
+        Enum.reduce(periods, 0, fn [ini, fim], acc ->
+          # `Kernel.max/2` qualificado: o domínio já define um `max` (agregado do Ash), e o
+          # não-qualificado colide na compilação.
+          acc +
+            Kernel.max(
+              0,
+              Api.Scheduling.Periods.to_minutes(fim) - Api.Scheduling.Periods.to_minutes(ini)
+            )
+        end)
+
+      {:closed, _reason} ->
+        0
+    end
+  end
+
   defp patients_for(scope, appointments) do
     ids =
       appointments

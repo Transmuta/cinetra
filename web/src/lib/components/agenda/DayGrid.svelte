@@ -5,8 +5,8 @@
 	//  - A faixa vertical é DERIVADA do expediente (A12), não 08–18 cravado;
 	//  - a hachura é o buraco REAL de cada coluna, não um "ALMOÇO" 12–13 decorativo e igual
 	//    para todo mundo (GAP-05). Colunas ficam visualmente diferentes, e isso é o correto.
-	import EyeOff from '@lucide/svelte/icons/eye-off';
 	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
+	import AgendaEmptyState from './AgendaEmptyState.svelte';
 	import AppointmentBlock from './AppointmentBlock.svelte';
 	import { initials } from '$lib/format';
 	import { avatarColor } from '$lib/avatar';
@@ -37,6 +37,7 @@
 		availability = [],
 		patientNames = {},
 		hidden = [],
+		only = null,
 		onEmptyClick,
 		onSelect,
 		onShowAll
@@ -52,6 +53,11 @@
 		availability?: ColumnAvailability[];
 		patientNames?: Record<string, string>;
 		hidden?: string[];
+		/**
+		 * Uma coluna só (mobile, protótipo :1703). Não é "ocultar os outros": é outro modo de
+		 * leitura — a barra de chips escolhe de quem é a agenda, e o gutter encolhe junto.
+		 */
+		only?: string | null;
 		onEmptyClick: (pre: { professional_id: string; hora: string }) => void;
 		onSelect: (id: string) => void;
 		onShowAll: () => void;
@@ -61,12 +67,17 @@
 	// fica fora desta entrega).
 	const PPM = 1.05;
 	const HEADER = 66;
-	const GUTTER = 54;
 	const PAD = 14;
 	/** Granularidade do clique em vazio (protótipo :1660). A-D1: sugestão, não regra. */
 	const SNAP = 15;
 
-	const visiveis = $derived(professionals.filter((p) => !hidden.includes(p.id)));
+	// Gutter estreito no modo de coluna única: com uma coluna só, 54px de calha comem espaço
+	// que a tela pequena não tem de sobra (protótipo :1720 usa 34px).
+	const GUTTER = $derived(only ? 34 : 54);
+
+	const visiveis = $derived(
+		professionals.filter((p) => !hidden.includes(p.id)).filter((p) => !only || p.id === only)
+	);
 
 	const tipoPorId = $derived(new Map(appointmentTypes.map((t) => [t.id, t])));
 	const periodosPorProf = $derived(new Map(availability.map((d) => [d.professional_id, d.periods])));
@@ -133,24 +144,7 @@
 </script>
 
 {#if !visiveis.length}
-	<!-- Estado vazio do protótipo (:1602). Só aparece por AÇÃO do usuário (ocultar todo
-	     mundo na sidebar), que é justamente por que é fácil de esquecer. -->
-	<div
-		class="flex h-full flex-col items-center justify-center gap-2.5 bg-canvas p-6 text-center text-faint"
-	>
-		<EyeOff size={26} />
-		<div class="text-[13.5px] font-semibold text-muted">Nenhum profissional em exibição</div>
-		<div class="text-[12.5px]">
-			Ative ao menos um profissional na barra lateral para ver a agenda.
-		</div>
-		<button
-			type="button"
-			onclick={onShowAll}
-			class="mt-1 rounded-lg bg-primary px-3.5 py-2 text-[13px] font-semibold text-on-primary hover:opacity-90"
-		>
-			Mostrar todos
-		</button>
-	</div>
+	<AgendaEmptyState {onShowAll} />
 {:else}
 	<div class="relative h-full overflow-auto bg-canvas">
 		<div class="relative flex" style="min-width:{GUTTER + colunas.reduce((s, c) => s + c.width, 0)}px">

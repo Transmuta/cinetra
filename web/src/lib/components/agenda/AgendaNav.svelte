@@ -1,42 +1,51 @@
 <script lang="ts">
 	// Barra de navegação da agenda (protótipo :1546): ← · "Hoje" · → · rótulo contextual ·
 	// segmented Dia | Semana | Mês | Lista.
+	//
+	// A barra não sabe navegar: ela diz PARA ONDE (data, visão) e a rota decide como (goto +
+	// replaceState). O passo de cada seta depende da visão — ±1 dia, ±7 dias, ±1 mês — e mora
+	// em `shiftByView`, testado à parte.
 	import ChevronLeft from '@lucide/svelte/icons/chevron-left';
 	import ChevronRight from '@lucide/svelte/icons/chevron-right';
-	import { dayLabel, shiftDate } from '$lib/agenda';
+	import { VIEWS, VIEW_LABELS, shiftByView, viewLabel, type AgendaView } from '$lib/agenda-views';
 
 	let {
 		date,
 		today,
-		onDate
+		view = 'dia',
+		onDate,
+		onView
 	}: {
 		date: string;
 		today: string;
-		/** A rota decide como navegar (goto + replaceState); a barra só diz para onde. */
+		view?: AgendaView;
 		onDate: (date: string) => void;
+		onView: (view: AgendaView) => void;
 	} = $props();
 
-	const label = $derived(dayLabel(date, today));
+	const label = $derived(viewLabel(date, today, view));
 	const isToday = $derived(date === today);
 
-	// Entrega 1 é só a visão Dia (A1). As outras três aparecem para não mentir sobre o modelo
-	// de navegação, mas desabilitadas COM explicação — botão morto e mudo é pior que ausente.
-	const VIEWS = [
-		{ key: 'dia', label: 'Dia', ready: true },
-		{ key: 'semana', label: 'Semana', ready: false },
-		{ key: 'mes', label: 'Mês', ready: false },
-		{ key: 'lista', label: 'Lista', ready: false }
-	] as const;
-
-	const EM_BREVE = 'Disponível na próxima entrega da agenda';
+	// O rótulo das setas acompanha a visão: numa agenda mensal, "Dia anterior" seria mentira
+	// para quem navega por leitor de tela.
+	//
+	// As duas formas vêm do MESMO registro. O botão "anterior" reconstruía o mapa por ternário
+	// aninhado sobre o valor do outro — então uma quinta visão em `VIEWS` deixaria o "próximo"
+	// certo e o "anterior" caindo calado no `else`, anunciando "Dia anterior".
+	const PASSO: Record<AgendaView, { curto: string; capitalizado: string }> = {
+		dia: { curto: 'dia', capitalizado: 'Dia' },
+		lista: { curto: 'dia', capitalizado: 'Dia' },
+		semana: { curto: 'semana', capitalizado: 'Semana' },
+		mes: { curto: 'mês', capitalizado: 'Mês' }
+	};
 </script>
 
 <div class="flex flex-wrap items-center gap-2 border-b border-edge bg-surface px-4 py-2.5">
 	<div class="flex items-center gap-1">
 		<button
 			type="button"
-			aria-label="Dia anterior"
-			onclick={() => onDate(shiftDate(date, -1))}
+			aria-label="{PASSO[view].capitalizado} anterior"
+			onclick={() => onDate(shiftByView(date, view, -1))}
 			class="grid size-8 place-items-center rounded-lg border border-edge bg-surface text-muted hover:bg-surface-2"
 		>
 			<ChevronLeft size={16} />
@@ -55,8 +64,8 @@
 
 		<button
 			type="button"
-			aria-label="Próximo dia"
-			onclick={() => onDate(shiftDate(date, 1))}
+			aria-label="Próximo {PASSO[view].curto}"
+			onclick={() => onDate(shiftByView(date, view, 1))}
 			class="grid size-8 place-items-center rounded-lg border border-edge bg-surface text-muted hover:bg-surface-2"
 		>
 			<ChevronRight size={16} />
@@ -68,17 +77,16 @@
 	</div>
 
 	<div class="flex items-center gap-0.5 rounded-lg border border-edge bg-surface-2 p-0.5">
-		{#each VIEWS as view (view.key)}
+		{#each VIEWS as key (key)}
 			<button
 				type="button"
-				disabled={!view.ready}
-				aria-current={view.ready ? 'page' : undefined}
-				title={view.ready ? undefined : EM_BREVE}
-				class="rounded-md px-2.5 py-1 text-[12.5px] font-semibold {view.ready
+				aria-current={key === view ? 'page' : undefined}
+				onclick={() => onView(key)}
+				class="rounded-md px-2.5 py-1 text-[12.5px] font-semibold {key === view
 					? 'bg-surface text-ink shadow-sm'
-					: 'text-faint disabled:cursor-not-allowed'}"
+					: 'text-muted hover:text-ink'}"
 			>
-				{view.label}
+				{VIEW_LABELS[key]}
 			</button>
 		{/each}
 	</div>

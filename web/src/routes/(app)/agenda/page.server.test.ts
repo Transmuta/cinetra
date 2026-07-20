@@ -3,12 +3,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const m = vi.hoisted(() => ({
 	fetchAgenda: vi.fn(),
 	fetchAvailability: vi.fn(),
+	fetchCounts: vi.fn(),
 	createAppointment: vi.fn()
 }));
 vi.mock('$lib/server/appointments', () => m);
 
 import { load, actions } from './+page.server';
-import { meFixture } from '$lib/testing/fixtures';
+import { meFixture, dayCountFixture } from '$lib/testing/fixtures';
 import type { Me } from '$lib/session';
 
 type LoadOk = {
@@ -239,6 +240,98 @@ describe('load', () => {
 	it('erro da API vira erro de rota', async () => {
 		m.fetchAgenda.mockResolvedValue({ status: 502, data: null });
 		await expect(runLoad('?date=2026-07-20')).rejects.toBeTruthy();
+	});
+});
+
+// -------------------------------------------------------------------------------------
+// Visões (Entrega 2). Dia e Lista leem BLOCOS; Semana e Mês leem CONTAGENS — mês não carrega
+// bloco nenhum (doc 25 §10), que é o que separa uma barrinha de 31 dias de payload.
+// -------------------------------------------------------------------------------------
+
+type ViewLoad = LoadOk & { view: string; days?: unknown[] };
+
+const runView = async (search: string): Promise<ViewLoad> => (await load(ev(search))) as ViewLoad;
+
+const countsPayload = (days: unknown[], professionals: unknown[] = [{ id: 'p1' }]) => ({
+	status: 200,
+	data: { days, professionals, agora: '2026-07-20T14:00:00Z', timezone: 'America/Sao_Paulo' }
+});
+
+const dia = (date: string) => dayCountFixture(date, [{ total: 1, ocupado_minutos: 50 }]);
+
+describe('load — visões', () => {
+	it('`?view=` inválido cai na visão Dia', async () => {
+		m.fetchAgenda.mockResolvedValue(payload());
+		expect((await runView('?date=2026-07-20&view=semanal')).view).toBe('dia');
+	});
+
+	it('Lista lê os blocos do dia — é outro render dos mesmos dados (B-D1)', async () => {
+		m.fetchAgenda.mockResolvedValue(payload());
+		const r = await runView('?date=2026-07-20&view=lista');
+
+		expect(r.view).toBe('lista');
+		expect(r.appointments).toHaveLength(1);
+		expect(m.fetchCounts).not.toHaveBeenCalled();
+	});
+
+	// A hachura é geometria do grid; a Lista não tem grid. Pedir expediente ali é um
+	// round-trip que nada consome.
+	it('Lista não pede expediente', async () => {
+		m.fetchAgenda.mockResolvedValue(payload());
+		await runView('?date=2026-07-20&view=lista');
+		expect(m.fetchAvailability).not.toHaveBeenCalled();
+	});
+
+	it('Semana pede a janela de segunda a domingo, e nenhum bloco', async () => {
+		m.fetchCounts.mockResolvedValue(countsPayload([dia('2026-07-20')]));
+		const r = await runView('?date=2026-07-22&view=semana');
+
+		expect(m.fetchCounts.mock.calls[0][1]).toEqual({ from: '2026-07-20', to: '2026-07-26' });
+		expect(m.fetchAgenda).not.toHaveBeenCalled();
+		expect(r.days).toHaveLength(1);
+	});
+
+	// A grade do mês tem até 42 células, e o teto do servidor é 31 dias — pedir a grade
+	// inteira é 422 garantido em todo mês que ocupa 6 linhas. Pede-se o MÊS; as células de
+	// fora ficam sem contagem, que é como o protótipo já as pintava (opacidade .5).
+	it('Mês pede o mês, não a grade de 42 dias', async () => {
+		m.fetchCounts.mockResolvedValue(countsPayload([dia('2026-07-01')]));
+		await runView('?date=2026-07-15&view=mes');
+
+		expect(m.fetchCounts.mock.calls[0][1]).toEqual({ from: '2026-07-01', to: '2026-07-31' });
+	});
+
+	it('Mês respeita a duração real do mês', async () => {
+		m.fetchCounts.mockResolvedValue(countsPayload([]));
+		await runView('?date=2026-02-10&view=mes');
+		expect(m.fetchCounts.mock.calls[0][1]).toEqual({ from: '2026-02-01', to: '2026-02-28' });
+	});
+
+	it('nas contagens, o `today` também sai do relógio da resposta', async () => {
+		m.fetchCounts.mockResolvedValue(countsPayload([]));
+		const r = await runView('?date=2026-07-22&view=semana');
+		expect(r.today).toBe('2026-07-20');
+		expect(r.timezone).toBe('America/Sao_Paulo');
+	});
+
+	it('erro nas contagens vira erro de rota, não semana vazia', async () => {
+		m.fetchCounts.mockResolvedValue({ status: 502, data: null });
+		await expect(runView('?date=2026-07-22&view=semana')).rejects.toBeTruthy();
+	});
+
+	// A barra lateral é a mesma nas quatro visões, e é dela que sai o filtro de ocultar. Sem os
+	// profissionais aqui ela abre vazia — e o toggle fica inoperante justamente em Semana e Mês.
+	// Pego na verificação ao vivo; nenhum teste apontava para isso.
+	it('as visões de contagem também trazem os profissionais da barra lateral', async () => {
+		m.fetchCounts.mockResolvedValue(countsPayload([dia('2026-07-20')], [{ id: 'p1' }, { id: 'p2' }]));
+		const r = await runView('?date=2026-07-22&view=semana');
+		expect(r.professionals).toHaveLength(2);
+	});
+
+	it('o filtro de profissionais ocultos atravessa as visões', async () => {
+		m.fetchCounts.mockResolvedValue(countsPayload([dia('2026-07-20')]));
+		const r = await runView('?date=2026-07-22&view=semana&profs=p2,p3');
+		expect(r.hidden).toEqual(['p2', 'p3']);
 	});
 });
 

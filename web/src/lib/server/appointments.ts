@@ -8,6 +8,7 @@ import type {
 	AgendaAppointmentType,
 	AvailabilityDay
 } from '$lib/agenda';
+import type { DayCount } from '$lib/agenda-views';
 
 // BFF da Agenda (doc 25 §5 / ADR-005): fala com `/api/appointments` e `/api/availability`
 // server-to-server, repassando o cookie de sessão. `clinic_id` e RBAC vivem no escopo da
@@ -111,6 +112,45 @@ export async function fetchAvailability(
 		return { status: res.status, professionals: body.professionals ?? [] };
 	} catch {
 		return { status: 0, professionals: [] };
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Contagens — as visões Semana e Mês (Entrega 2)
+// ---------------------------------------------------------------------------
+
+export interface CountsData {
+	days: DayCount[];
+	/** A barra lateral é a mesma nas quatro visões — sem isto, o toggle de ocultar fica vazio. */
+	professionals: AgendaProfessional[];
+	agora: string;
+	timezone: string;
+}
+
+export interface CountsResult {
+	status: number;
+	data: CountsData | null;
+}
+
+/**
+ * Contagens da janela. Ao contrário do expediente, a falha aqui **não** degrada: a barra é o
+ * conteúdo destas visões, e um mês inteiro de cartões zerados afirmaria que não há agenda
+ * nenhuma — pior que uma tela de erro, porque parece um dado.
+ */
+export async function fetchCounts(
+	event: RequestEvent,
+	params: { from: string; to: string }
+): Promise<CountsResult> {
+	const qs = new URLSearchParams({ from: params.from, to: params.to });
+
+	try {
+		const res = await apiFetch(event, `/api/appointments/counts?${qs.toString()}`, {
+			headers: { accept: 'application/json' }
+		});
+		if (!res.ok) return { status: res.status, data: null };
+		return { status: res.status, data: (await res.json()) as CountsData };
+	} catch {
+		return { status: 0, data: null };
 	}
 }
 

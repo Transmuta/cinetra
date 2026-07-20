@@ -6,6 +6,7 @@ vi.mock('./api', () => m);
 import {
 	fetchAgenda,
 	fetchAvailability,
+	fetchCounts,
 	createAppointment,
 	agendaQuery,
 	availabilityQuery
@@ -110,12 +111,18 @@ describe('fetchAgenda', () => {
 
 	it('erro da API → data nula com o status preservado', async () => {
 		m.apiFetch.mockResolvedValueOnce(res(403));
-		expect(await fetchAgenda(event, { from: '2026-07-20' })).toEqual({ status: 403, data: null });
+		expect(await fetchAgenda(event, { from: '2026-07-20' })).toEqual({
+			status: 403,
+			data: null
+		});
 	});
 
 	it('falha de rede → status 0, sem estourar', async () => {
 		m.apiFetch.mockRejectedValueOnce(new Error('boom'));
-		expect(await fetchAgenda(event, { from: '2026-07-20' })).toEqual({ status: 0, data: null });
+		expect(await fetchAgenda(event, { from: '2026-07-20' })).toEqual({
+			status: 0,
+			data: null
+		});
 	});
 });
 
@@ -124,8 +131,14 @@ describe('fetchAvailability', () => {
 		m.apiFetch.mockResolvedValueOnce(
 			res(200, {
 				professionals: [
-					{ professional_id: 'p1', days: [{ date: '2026-07-20', periods: [['08:00', '12:00']] }] },
-					{ professional_id: 'p2', days: [{ date: '2026-07-20', periods: [] }] }
+					{
+						professional_id: 'p1',
+						days: [{ date: '2026-07-20', periods: [['08:00', '12:00']] }]
+					},
+					{
+						professional_id: 'p2',
+						days: [{ date: '2026-07-20', periods: [] }]
+					}
 				]
 			})
 		);
@@ -154,6 +167,53 @@ describe('fetchAvailability', () => {
 		expect(
 			(await fetchAvailability(event, { date_from: 'x', date_to: 'x' })).professionals
 		).toEqual([]);
+	});
+});
+
+describe('fetchCounts', () => {
+	const counts = {
+		days: [
+			{
+				date: '2026-07-20',
+				professionals: [
+					{
+						professional_id: 'p1',
+						total: 2,
+						ocupado_minutos: 100,
+						capacidade_minutos: 540
+					}
+				]
+			}
+		],
+		agora: '2026-07-20T14:00:00Z',
+		timezone: 'America/Sao_Paulo'
+	};
+
+	it('pede a janela inteira e devolve os dias', async () => {
+		m.apiFetch.mockResolvedValueOnce(res(200, counts));
+		const r = await fetchCounts(event, {
+			from: '2026-07-20',
+			to: '2026-07-26'
+		});
+
+		const [, path] = m.apiFetch.mock.calls[0];
+		expect(path).toBe('/api/appointments/counts?from=2026-07-20&to=2026-07-26');
+		expect(r.data?.days).toHaveLength(1);
+	});
+
+	// Sem `data`, a rota mostra erro. Degradar para dias vazios pintaria "nenhum agendamento"
+	// num mês que pode estar cheio — e isso não parece falha, parece dado.
+	it('erro da API vira data null, não lista vazia', async () => {
+		m.apiFetch.mockResolvedValueOnce(res(500));
+		expect((await fetchCounts(event, { from: 'a', to: 'b' })).data).toBeNull();
+	});
+
+	it('rede fora vira status 0 com data null', async () => {
+		m.apiFetch.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+		expect(await fetchCounts(event, { from: 'a', to: 'b' })).toEqual({
+			status: 0,
+			data: null
+		});
 	});
 });
 

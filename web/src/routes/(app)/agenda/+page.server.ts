@@ -1,20 +1,43 @@
 import { error, fail } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
-import { fetchAgenda, fetchAvailability, createAppointment } from '$lib/server/appointments';
-import { parseDateParam, parseHiddenProfs, todayInZone, type ColumnAvailability } from '$lib/agenda';
+import {
+	fetchAgenda,
+	fetchAvailability,
+	fetchCounts,
+	createAppointment
+} from '$lib/server/appointments';
+import {
+	parseDateParam,
+	parseHiddenProfs,
+	todayInZone,
+	type ColumnAvailability
+} from '$lib/agenda';
+import {
+	parseView,
+	weekDays,
+	monthWindow,
+	type AgendaView,
+	type DayCount
+} from '$lib/agenda-views';
 
-// Agenda — visão Dia (doc 25, Entrega 1). Carrega agendamentos + expediente do dia da
-// clínica ativa. Como em Profissionais/Pacientes, NÃO há recorte de papel no load: todo
-// membro lê (a API é que recorta a agenda do `profissional` pela policy A7); só a escrita
-// exige papel.
+// Agenda (doc 25, Entregas 1 e 2). Quatro visões, duas formas de carregar:
+//
+//  - **Dia** e **Lista** leem BLOCOS de um dia só. São o mesmo dado em dois renders (B-D1);
+//    só o Dia precisa também do expediente, que é a hachura da grade.
+//  - **Semana** e **Mês** leem CONTAGENS. Mês não carrega bloco nenhum (doc 25 §10): 31 dias
+//    de agendamentos com pacientes e attendances é outra ordem de grandeza de payload para
+//    desenhar uma barra por dia.
+//
+// Como em Profissionais/Pacientes, NÃO há recorte de papel no load: todo membro lê (a API é
+// que recorta a agenda do `profissional` pela policy A7); só a escrita exige papel.
 
 export const load: PageServerLoad = async (event) => {
-	const dateParam = event.url.searchParams.get('date');
+	const view = parseView(event.url.searchParams.get('view'));
 
 	// "Pediram uma data" ≠ "mandaram alguma coisa em `?date=`": `?date=ontem` é lixo e cai no
 	// hoje da clínica como se não tivesse vindo nada. Sem esta distinção, uma URL inválida
 	// mostraria o dia errado.
-	const pedida = parseDateParam(dateParam, '');
+	const pedida = parseDateParam(event.url.searchParams.get('date'), '');
 
 	// Só quem NÃO pediu data precisa saber que dia é na clínica antes de buscar — e é só o
 	// FUSO que falta para isso, porque o relógio é o do nosso próprio servidor. `event.parent()`
@@ -22,29 +45,71 @@ export const load: PageServerLoad = async (event) => {
 	// URL custaria um round-trip inteiro em toda navegação entre dias, sem usá-lo para nada.
 	const date = pedida || todayInZone(new Date().toISOString(), await fusoDaClinica(event));
 
-	const { agenda, availability } = await carregarDia(event, date);
+	const comum = { view, date, hidden: parseHiddenProfs(event.url.searchParams.get('profs')) };
+
+	if (view === 'semana' || view === 'mes') {
+		return { ...comum, ...(await carregarContagens(event, view, date)) };
+	}
+
+	const { agenda, availability } = await carregarDia(event, date, view);
 
 	if (!agenda.data) {
 		error(agenda.status || 502, 'Não foi possível carregar a agenda.');
 	}
 
 	return {
+		...comum,
 		appointments: agenda.data.appointments ?? [],
 		professionals: agenda.data.professionals ?? [],
 		appointmentTypes: agenda.data.appointment_types ?? [],
 		patients: agenda.data.patients ?? [],
 		availability,
+		days: [] as DayCount[],
 		agora: agenda.data.agora,
 		timezone: agenda.data.timezone,
-		date,
 		// O "hoje" da tela sai do relógio que veio NA RESPOSTA, não do `me`. O `me` é carregado
 		// pelo layout, e o SvelteKit não reexecuta load de layout em navegação client-side
 		// (`goto`) — um `today` derivado dali congelaria no instante em que a aba abriu, e uma
 		// aba atravessando a meia-noite passaria a marcar "Hoje" no dia errado.
-		today: todayInZone(agenda.data.agora, agenda.data.timezone),
-		hidden: parseHiddenProfs(event.url.searchParams.get('profs'))
+		today: todayInZone(agenda.data.agora, agenda.data.timezone)
 	};
 };
+
+// A janela de cada visão de contagem. As duas saem de `$lib/agenda-views`, que é a casa das
+// grades de calendário — o Mês reimplementava a aritmética aqui, fora do módulo e fora da
+// justificativa que ele documenta para fazer tudo em UTC.
+function janela(view: AgendaView, date: string): { from: string; to: string } {
+	if (view !== 'semana') return monthWindow(date);
+
+	const dias = weekDays(date);
+	return { from: dias[0], to: dias[6] };
+}
+
+async function carregarContagens(
+	event: Parameters<PageServerLoad>[0],
+	view: AgendaView,
+	date: string
+) {
+	const counts = await fetchCounts(event, janela(view, date));
+
+	// Não degrada para dias vazios: a barra é o conteúdo destas visões, e um mês inteiro
+	// zerado afirmaria que não há agenda nenhuma — o que não parece falha, parece dado.
+	if (!counts.data) {
+		error(counts.status || 502, 'Não foi possível carregar a agenda.');
+	}
+
+	return {
+		days: counts.data.days ?? [],
+		appointments: [],
+		professionals: counts.data.professionals ?? [],
+		appointmentTypes: [],
+		patients: [],
+		availability: [] as ColumnAvailability[],
+		agora: counts.data.agora,
+		timezone: counts.data.timezone,
+		today: todayInZone(counts.data.agora, counts.data.timezone)
+	};
+}
 
 // O fuso da clínica ativa, do /me que o layout já carregou (ADR-009). Sem ele, UTC: pior dia
 // mostrado na janela noturna, nunca tela de erro.
@@ -61,9 +126,13 @@ async function fusoDaClinica(event: Parameters<PageServerLoad>[0]): Promise<stri
 // de uma requisição por coluna que existia aqui, e que o achado (f) do doc 26 mediu em até
 // ~480 leituras no banco para um dia com 10 profissionais. Hoje o endpoint aceita a lista
 // inteira. A agenda continua vindo primeiro porque é ela que diz QUAIS são as colunas.
-async function carregarDia(event: Parameters<PageServerLoad>[0], date: string) {
+async function carregarDia(event: Parameters<PageServerLoad>[0], date: string, view: AgendaView) {
 	const agenda = await fetchAgenda(event, { from: date, to: date });
 	if (!agenda.data) return { agenda, availability: [] as ColumnAvailability[] };
+
+	// A hachura é geometria do grid, e a Lista não tem grid: pedir expediente ali seria um
+	// round-trip que ninguém consome.
+	if (view === 'lista') return { agenda, availability: [] as ColumnAvailability[] };
 
 	const profs = agenda.data.professionals ?? [];
 	if (!profs.length) return { agenda, availability: [] as ColumnAvailability[] };
@@ -78,12 +147,10 @@ async function carregarDia(event: Parameters<PageServerLoad>[0], date: string) {
 	// A lista sai das COLUNAS, não da resposta: profissional sem expediente devolvido é tratado
 	// como FECHADO (hachura inteira) — e não como "expediente desconhecido", que desenharia uma
 	// coluna aberta mentindo.
-	const availability = profs.map(
-		(p): ColumnAvailability => ({
-			professional_id: p.id,
-			...(porProfissional.get(p.id) ?? { date, periods: [] })
-		})
-	);
+	const availability = profs.map((p): ColumnAvailability => ({
+		professional_id: p.id,
+		...(porProfissional.get(p.id) ?? { date, periods: [] })
+	}));
 
 	return { agenda, availability };
 }

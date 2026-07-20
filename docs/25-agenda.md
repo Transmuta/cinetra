@@ -615,6 +615,58 @@ profissional por dia" hardcoded [`:3351`] e "dia útil = não-domingo" [`:3349`]
 contando **1× a duração** (a turma não consome mais tempo do profissional). Nesta fatia só a
 barra de carga da coluna morde; o resto é Fatia 9.
 
+## 8b. Decisões da Entrega 2 (2026-07-20)
+
+Quatro perguntas que a Entrega 2 abriu e que o §9 não respondia. Onde a decisão diverge do
+protótipo, a divergência está marcada.
+
+**B-D1 — qual intervalo a visão Lista mostra?**
+**DECIDIDO: só o dia**, fiel ao protótipo [`:1781`] — as setas andam ±1 dia e a Lista é outro
+render dos **mesmos dados** da visão Dia, sem endpoint novo. Duas notas de fidelidade:
+**cancelado continua aparecendo** (mantido — é a única visão que os mostra, e é onde eles
+informam), mas **o toggle da barra lateral passa a valer** (quebrado de propósito: no protótipo
+`hiddenProfs` não recortava a Lista [`:825`], então ocultar alguém sumia com ele no grid e o
+deixava na lista — dois filtros discordando sobre a mesma tela).
+
+**B-D2 — o endpoint de contagens agrega por dia ou por dia × profissional?**
+**DECIDIDO: por dia × profissional.** A-D11 manda o denominador ser o expediente dos
+profissionais **visíveis**, e "visível" é filtro de cliente. Agregado só por dia, ocultar alguém
+na barra lateral não mexeria na barra da semana, e a Semana passaria a discordar do Dia sobre o
+mesmo dia. O recorte é aplicado no numerador **e** no denominador (`dayTotals`).
+
+**B-D3 — Semana e Mês contam agendamentos ou medem ocupação?**
+**DECIDIDO: ocupação (A-D12), com a contagem ao lado.** A barra é minutos ocupados ÷ minutos de
+expediente real, **sem clamp** — acima de 100% ela fica vermelha. O protótipo dava dois
+denominadores para a mesma pergunta (a constante **45** na semana [`:1744`], o pico do mês no mês
+[`:1759`]), e a mesma quantidade pintava diferente em cada visão. O cartão continua dizendo
+*"N agend."*; quem pinta é a ocupação.
+
+**B-D4 — o controle de densidade entra?**
+**DECIDIDO: não.** Fica em `1.05` fixo. No protótipo é código morto (`densBtn` [`:1544`] nunca é
+renderizado, e `state.density` não tem caminho de UI), e a Entrega 2 já tem três visões, um
+endpoint novo e o mobile. Registrado como **não feito**, não como pendência esquecida.
+
+### Divergências menores, todas deliberadas
+
+| O quê | Protótipo | Aqui | Por quê |
+| --- | --- | --- | --- |
+| Semana | 6 dias, seg–sáb [`:1736`] | **7 dias**, domingo incluso | A-D11: clínica que abre domingo existe |
+| Passo do Mês | `setMonth`, transborda [`:1184`] | grampeado no último dia | 31/jan + 1 mês virava 03/mar: a seta pulava fevereiro |
+| `· hoje` em Semana/Mês | data exata [`:1513`] | intervalo **contém** hoje | a semana corrente perdia a marca em 6 dos 7 dias |
+| Chip do mobile | `nome.split(' ')[1]` [`:1716`] | primeiro nome | "Ana Paula Lima" virava "Paula"; nome de uma palavra virava `undefined` |
+| Lista vazia | container vazio [`:1779`] | estado vazio | um branco parece tela quebrada; o grid ao menos se desenha |
+| Mês, dia aberto e vazio | `—` [`:1774`] | nada | barra sempre-zero e rótulo sem número, 20 vezes por mês, é ruído |
+
+### O que ficou em aberto
+
+**O papel `profissional` vê as colunas dos colegas, vazias.** `Api.Directory.list_professionals!`
+não é recortada por papel — só os *agendamentos* são (A7/`OwnAgendaOnly`). Na visão Dia isso é
+uma coluna vazia; nas contagens seria um `0` ao lado do nome do colega, que **afirma** mais do
+que um espaço em branco. A Entrega 2 manteve as linhas iguais às colunas (consistência
+Dia↔Semana, que é o ponto de B-D2) e tem teste garantindo que o agendamento do colega não entra
+em número nenhum. **Se profissional deve ou não enxergar a escala do colega é pergunta de
+produto**, não de implementação — e vale para as duas visões de uma vez.
+
 ## 9. Fatiamento sugerido
 
 Cinco entregas fecháveis. A primeira é a fatia deste doc; as demais estão desenhadas aqui para
@@ -706,6 +758,31 @@ arquivado / profissional ou paciente inativo são recusados.
 **Entrega 2 — Visões e navegação.** Semana, Mês, Lista, `GET /api/appointments/counts` (uma
 query agregada `GROUP BY dia`, não 42 leituras como `renderMonth` [`:1749`] faz em memória),
 mobile, densidade, estados vazios. Separada porque é UI e agregação, sem risco novo de domínio.
+
+> **Status (2026-07-20): Entrega 2 CONSTRUÍDA.** As quatro visões vivas, decisões B-D1..B-D4 em
+> §8b. Backend: `GET /api/appointments/counts` (dia × profissional, com ocupação e capacidade) +
+> `Api.Scheduling.load_counts/4`. Frontend: `$lib/agenda-views.ts` (navegação, grades de
+> calendário, a fórmula única de ocupação), `WeekView`, `MonthView`, `ListView`, `OccupancyBar`,
+> `ProfessionalChips` (mobile) e `$lib/media.svelte.ts`. Backend 538 testes / 90,2%; web 858
+> testes / ~93%.
+>
+> **Divergência do critério, assumida:** o §9 pedia *"uma query agregada `GROUP BY` dia"*. É uma
+> leitura só para a janela inteira, com o agrupamento em memória — o que o pedido recusava era
+> o protótipo contar 42 vezes por render no cliente, e isso está resolvido. Descer o `GROUP BY`
+> para SQL exigiria Ecto cru, e aí o recorte A7 seria **reescrito à mão** ao lado da versão que
+> vive em `OwnAgendaOnly`: o achado (b) do doc 26, que a §7 fechou neste mesmo mês, nascendo de
+> novo. A janela é limitada a 31 dias, então o volume lido é o de um mês.
+>
+> **Bate-volta:** [`27-auditoria-bate-volta-visoes.md`](27-auditoria-bate-volta-visoes.md) —
+> segurança zero achados; a caça adversarial encontrou o estado "todos os profissionais ocultos"
+> faltando nas três visões novas (três frases falsas diferentes); quatro itens ficaram para
+> decisão humana, sendo o maior a janela de leitura sem limite inferior.
+>
+> **Dois defeitos que só a verificação ao vivo pegou**, ambos com teste agora: a barra lateral
+> abria **vazia** em Semana e Mês (o endpoint não devolvia `professionals`, e o toggle de
+> ocultar — que é o motivo de B-D2 existir — ficava inoperante justamente ali); e o Mês
+> desenhava rótulo `"agend."` e barra zerada em **todo** dia útil, ruído repetido 20 vezes por
+> mês. Nenhum dos dois quebrava teste.
 
 **Entrega 3 — Tempo real.** `phoenix` no npm, Channel, notifier Ash. **Dois broadcasts por
 escrita** (RN-56): `agenda:<YYYY-MM-DD>` com payload cheio e `agenda:month:<YYYY-MM>` com sinal

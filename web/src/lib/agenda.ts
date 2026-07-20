@@ -436,8 +436,11 @@ export function closedIntervals(periods: readonly PeriodLike[], range: Range): A
 export function toInterval(appt: Appointment, timezone: string): Interval {
 	const start = zonedParts(appt.starts_at, timezone).minutes;
 	const durMin = Math.round((Date.parse(appt.ends_at) - Date.parse(appt.starts_at)) / 60000);
-	// Bloco que viraria o dia é aparado em 24:00: a grade desenha UM dia (a continuação
-	// aparece no dia seguinte quando a Entrega 2 trouxer as outras visões).
+	// Bloco que viraria o dia é aparado em 24:00: a grade desenha UM dia. A continuação NÃO
+	// aparece no dia seguinte — nem na Entrega 2, que trouxe as outras visões: a Semana e o Mês
+	// creditam a duração inteira ao dia do `starts_at` (`occupancy_by_day/2` no backend), e a
+	// Lista mostra só os blocos do dia buscado. Agendamento que atravessa a meia-noite é caso
+	// não resolvido, não caso adiado para uma entrega nomeada.
 	const end = Math.min(1440, start + Math.max(1, durMin));
 	return { id: appt.id, start, end, ghost: !ocupaGrade(appt) };
 }

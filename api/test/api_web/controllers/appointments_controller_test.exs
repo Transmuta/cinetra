@@ -230,6 +230,171 @@ defmodule ApiWeb.AppointmentsControllerTest do
     end
   end
 
+  describe "GET /api/appointments/counts" do
+    # As visões Semana e Mês (doc 25 §9, Entrega 2). A quebra é por **dia × profissional**
+    # (B-D2): ocultar alguém na sidebar é filtro de cliente, e sem a quebra a barra da semana
+    # não mexeria — a Semana passaria a discordar do Dia sobre o mesmo dia.
+    test "conta por dia e por profissional, com ocupação e capacidade", %{conn: conn} do
+      ctx = fixture()
+      conn |> authed(ctx.owner) |> post("/api/appointments", payload(ctx))
+
+      conn =
+        conn
+        |> authed(ctx.owner)
+        |> get("/api/appointments/counts?from=#{@segunda}&to=2026-07-21")
+
+      body = json_response(conn, 200)
+      assert [segunda, terca] = body["days"]
+
+      assert segunda["date"] == @segunda
+      assert [%{"professional_id" => pid} = linha] = segunda["professionals"]
+      assert pid == ctx.prof.id
+      assert linha["total"] == 1
+
+      # A duração do tipo é 50 min; a capacidade é o expediente real do dia (08–12 e 13–18).
+      assert linha["ocupado_minutos"] == 50
+      assert linha["capacidade_minutos"] == 540
+
+      # Dia sem nada ainda aparece — com capacidade, que é o denominador da barra.
+      assert [%{"total" => 0, "ocupado_minutos" => 0, "capacidade_minutos" => 540}] =
+               terca["professionals"]
+    end
+
+    # A barra lateral (onde se OCULTA profissional) é a mesma nas quatro visões, e é ela que
+    # alimenta o filtro que B-D2 existe para honrar. Sem os profissionais aqui, o toggle some
+    # justamente em Semana e Mês — pego na verificação ao vivo, não pelos testes.
+    test "devolve os profissionais, como a leitura do dia", %{conn: conn} do
+      ctx = fixture()
+
+      conn = conn |> authed(ctx.owner) |> get("/api/appointments/counts?from=#{@segunda}")
+
+      assert %{"professionals" => [prof]} = json_response(conn, 200)
+      assert prof["id"] == ctx.prof.id
+      assert prof["nome"] == "Dra. X"
+    end
+
+    test "dia fechado vem com capacidade zero, e não some da lista", %{conn: conn} do
+      ctx = fixture()
+
+      conn =
+        conn
+        |> authed(ctx.owner)
+        # 2026-07-19 é domingo, e o expediente semeado fecha domingo.
+        |> get("/api/appointments/counts?from=2026-07-19&to=2026-07-19")
+
+      assert %{"days" => [domingo]} = json_response(conn, 200)
+      assert [%{"capacidade_minutos" => 0}] = domingo["professionals"]
+    end
+
+    # Mesma regra de `ocupaGrade` (doc 25 §7): cancelado não disputa espaço, então não conta
+    # nem no numerador da ocupação nem no "N agend." do cartão.
+    test "cancelado não entra na contagem nem nos minutos", %{conn: conn} do
+      ctx = fixture()
+      criar = conn |> authed(ctx.owner) |> post("/api/appointments", payload(ctx))
+      %{"appointment" => %{"id" => id}} = json_response(criar, 201)
+
+      # Não há ação de cancelar nesta fatia (é a Entrega 4): a coluna é escrita direto, como
+      # no teste da constraint em `appointment_test.exs:459`.
+      Api.Repo.query!("UPDATE appointments SET status = 'cancelado' WHERE id = $1", [
+        Ecto.UUID.dump!(id)
+      ])
+
+      conn = conn |> authed(ctx.owner) |> get("/api/appointments/counts?from=#{@segunda}")
+
+      assert %{"days" => [dia]} = json_response(conn, 200)
+      assert [%{"total" => 0, "ocupado_minutos" => 0}] = dia["professionals"]
+    end
+
+    # A7: o mesmo recorte da leitura do dia tem de valer aqui. Um endpoint de agregação que
+    # esquece a policy vaza a agenda do colega em forma de número — e um número afirma mais do
+    # que uma coluna vazia.
+    #
+    # As LINHAS continuam sendo uma por profissional ativo, igual às colunas que a visão Dia já
+    # desenha para o papel `profissional`. Recortar as linhas só aqui faria a Semana discordar
+    # do Dia sobre o mesmo dia, que é justamente o defeito que B-D2 existe para evitar. Se
+    # profissional deve ou não enxergar o colega é pergunta de produto, aberta no doc 25.
+    test "o agendamento do colega não entra em número nenhum (A7)", %{conn: conn} do
+      ctx = fixture()
+
+      outro =
+        Directory.create_professional!("Dr. Y", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+
+      prof_user = member_session(ctx.owner, ctx.clinic, :profissional, ctx.prof.id)
+
+      conn
+      |> authed(ctx.owner)
+      |> post("/api/appointments", payload(ctx, %{"professional_id" => outro.id}))
+
+      conn |> authed(ctx.owner) |> post("/api/appointments", payload(ctx))
+
+      conn = conn |> authed(prof_user) |> get("/api/appointments/counts?from=#{@segunda}")
+
+      assert %{"days" => [dia]} = json_response(conn, 200)
+      por_id = Map.new(dia["professionals"], &{&1["professional_id"], &1})
+
+      assert por_id[ctx.prof.id]["total"] == 1
+      # A coluna do colega existe (é a mesma da visão Dia) mas está zerada: o expediente é
+      # informação de escala, o agendamento é que é dado recortado.
+      assert por_id[outro.id]["total"] == 0
+      assert por_id[outro.id]["ocupado_minutos"] == 0
+      assert por_id[outro.id]["capacidade_minutos"] == 540
+    end
+
+    test "sem sessão é 401", %{conn: conn} do
+      fixture()
+      conn = get(conn, "/api/appointments/counts?from=#{@segunda}")
+      assert json_response(conn, 401)
+    end
+
+    # O irmão do teto de `/availability` (doc 26 §7). Esta é a leitura que a visão Mês faz por
+    # padrão, com 31 dias e a clínica inteira: ela agrega em MEMÓRIA sobre uma leitura só, e é
+    # exatamente isso que o teto protege. Se alguém trocar o agrupamento por um laço de
+    # `Availability.day_periods/3` por dia, ou reintroduzir uma leitura por profissional, a
+    # conta salta e este teste acusa — o resultado na tela seria idêntico.
+    #
+    # Generoso de propósito: fixa a ORDEM DE GRANDEZA (dezenas, não centenas), não o número
+    # exato, que muda com refactor legítimo.
+    test "o custo não cresce com a janela nem com o nº de profissionais", %{conn: conn} do
+      ctx = fixture()
+
+      Directory.create_professional!("Dr. Y", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+      Directory.create_professional!("Dr. Z", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+
+      um_dia =
+        count_queries(fn ->
+          conn
+          |> authed(ctx.owner)
+          |> get("/api/appointments/counts?from=#{@segunda}")
+          |> json_response(200)
+        end)
+
+      trinta_dias =
+        count_queries(fn ->
+          conn
+          |> authed(ctx.owner)
+          |> get("/api/appointments/counts?from=2026-07-01&to=2026-07-31")
+          |> json_response(200)
+        end)
+
+      assert trinta_dias == um_dia,
+             "31 dias custou #{trinta_dias} queries e 1 dia custou #{um_dia}: o custo passou a acompanhar a janela"
+
+      assert trinta_dias < 30,
+             "#{trinta_dias} queries para uma leitura de contagens — o agrupamento voltou a ser por dia?"
+    end
+
+    test "janela maior que 31 dias é 422", %{conn: conn} do
+      ctx = fixture()
+
+      conn =
+        conn
+        |> authed(ctx.owner)
+        |> get("/api/appointments/counts?from=2026-01-01&to=2026-12-31")
+
+      assert json_response(conn, 422)
+    end
+  end
+
   describe "GET /api/availability" do
     # A resposta é SEMPRE `professionals: [...]`, com um item por profissional pedido — mesmo
     # quando se pede um só. A forma anterior (`days:` na raiz) servia a um único profissional e

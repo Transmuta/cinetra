@@ -125,6 +125,9 @@ defmodule ApiWeb.Router do
     # Agenda (doc 25). Papéis owner·admin·recepcao·profissional (A8) — recepção é quem agenda,
     # e o profissional só enxerga a própria agenda (A7, recorte por linha na preparation).
     # `clinic_id` sempre do escopo; `ends_at` é derivado e não entra no corpo.
+    # Antes de `/appointments/:id` (que a Entrega 4 traz): rota literal precede a paramétrica,
+    # senão "counts" vira um id e a leitura da semana responde 404.
+    get "/appointments/counts", AppointmentsController, :counts
     get "/appointments", AppointmentsController, :index
     post "/appointments", AppointmentsController, :create
 

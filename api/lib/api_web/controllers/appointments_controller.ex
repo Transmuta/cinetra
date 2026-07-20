@@ -60,15 +60,65 @@ defmodule ApiWeb.AppointmentsController do
     end)
   end
 
+  # GET /api/appointments/counts?from=YYYY-MM-DD&to=YYYY-MM-DD
+  #
+  # As visões Semana e Mês (Entrega 2). Não devolve blocos: devolve, por dia e por
+  # profissional, quantos agendamentos ocupam a grade, quantos minutos eles ocupam e quanto
+  # expediente existe — o numerador e o denominador da fórmula única de ocupação (A-D12).
+  #
+  # Mês carrega contagem, nunca blocos (doc 25 §10): 31 dias de blocos com pacientes e
+  # attendances é payload de outra ordem de grandeza para desenhar uma barrinha.
+  def counts(conn, params) do
+    with_member_scope(conn, fn scope ->
+      clinic = Scheduling.load_clinic(scope.clinic_id)
+
+      case parse_window(params, "from", "to") do
+        {:ok, from_date, to_date} ->
+          counts = Scheduling.load_counts(scope, from_date, to_date, clinic.timezone)
+
+          json(conn, %{
+            days: Enum.map(counts.days, &render_day_count/1),
+            professionals: Enum.map(counts.professionals, &render_professional/1),
+            agora: DateTime.to_iso8601(scope.now),
+            timezone: clinic.timezone
+          })
+
+        {:error, message} ->
+          invalid(conn, message)
+      end
+    end)
+  end
+
+  # A fronteira nomeia o wire, como `render_professional/1` e `render_type/1` — e não o domínio.
+  # As linhas de contagem passavam direto de `Api.Scheduling` para o JSON, o que deixava metade
+  # do contrato HTTP morando no domínio: renomear `ocupado_minutos` na resposta exigiria editar
+  # `Api.Scheduling`, e quem procurasse o nome do campo começaria (e pararia) aqui.
+  defp render_day_count(%{date: date, professionals: professionals}) do
+    %{
+      date: Date.to_iso8601(date),
+      professionals: Enum.map(professionals, &render_professional_count/1)
+    }
+  end
+
+  defp render_professional_count(linha) do
+    %{
+      professional_id: linha.professional_id,
+      total: linha.total,
+      ocupado_minutos: linha.ocupado_minutos,
+      capacidade_minutos: linha.capacidade_minutos
+    }
+  end
+
   # ---- leitura ----
 
   defp render_range(conn, scope, clinic, from_date, to_date, params) do
     tz = clinic.timezone
 
-    # A janela é local: "o dia 20" começa 00:00 em São Paulo, não em UTC. Converter aqui é o
-    # que impede o agendamento das 23h de cair no dia seguinte (LocalTime.to_local_date/2).
-    {:ok, from} = LocalTime.to_utc(from_date, "00:00", tz)
-    {:ok, to} = LocalTime.to_utc(Date.add(to_date, 1), "00:00", tz)
+    # A janela é local: "o dia 20" começa 00:00 em São Paulo, não em UTC. É o que impede o
+    # agendamento das 23h de cair no dia seguinte (LocalTime.to_local_date/2). A conversão mora
+    # em `LocalTime.window!/3` — ela e a leitura das contagens precisam concordar sobre quais
+    # blocos pertencem ao dia, e concordar por construção, não por coincidência.
+    {from, to} = LocalTime.window!(from_date, to_date, tz)
 
     # Uma leitura só, sob a GUC de tenant. Ver `Api.Scheduling.load_agenda/4`: chamar as code
     # interfaces cruas daqui passa no `mix test` e devolve vazio no servidor real.

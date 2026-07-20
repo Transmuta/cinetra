@@ -70,6 +70,26 @@ defmodule Api.Scheduling.LocalTime do
   defp minute(<<_::binary-size(3), m::binary-size(2)>>), do: String.to_integer(m)
 
   @doc """
+  A janela UTC de um intervalo de datas **locais**, semi-aberta: `[from 00:00, to+1 00:00)`.
+
+  Existe porque essa conversão estava escrita duas vezes — no controller (`render_range/6`, a
+  leitura do dia) e no domínio (`load_counts/4`, a leitura das contagens) — cada uma repetindo
+  o `Date.add(to, 1)` e a política de "00:00 local". Duas fontes da mesma verdade sobre **quais
+  blocos pertencem ao dia**: mudar a convenção semi-aberta ou a política de DST num lado faria
+  a Semana discordar do Dia por um agendamento de borda, e o sintoma seria mudo.
+
+  Levanta se o fuso for inválido. É a variante `!` de propósito: `timezone` vem de
+  `Clinic.timezone`, que é `allow_nil? false` e validado na escrita — um fuso quebrado aqui é
+  defeito de dado, não caminho de erro que a requisição deva tratar.
+  """
+  @spec window!(Date.t(), Date.t(), String.t()) :: {DateTime.t(), DateTime.t()}
+  def window!(%Date{} = from, %Date{} = to, timezone) when is_binary(timezone) do
+    {:ok, inicio} = to_utc(from, "00:00", timezone)
+    {:ok, fim} = to_utc(Date.add(to, 1), "00:00", timezone)
+    {inicio, fim}
+  end
+
+  @doc """
   Minutos desde a meia-noite **local** de um instante UTC. É o que liga um `Appointment` de
   volta ao vocabulário do `Periods` — para checar se cabe no expediente, e para posicionar o
   bloco no grid.
