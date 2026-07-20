@@ -413,7 +413,14 @@ JSON simples (não JSON:API), como todos os controllers do projeto. Escada de er
 | --- | --- | --- | --- |
 | GET | `/api/appointments?from=&to=&professional_id=` | todos (recortado por A7) | `200 { appointments: [...], professionals: [...], appointment_types: [...] }` |
 | POST | `/api/appointments` | owner·admin·recepcao·profissional | `201 { appointment: {…} }` |
-| GET | `/api/availability?professional_id=&date_from=&date_to=` | todos | `200 [{ date, periods, closed_reason? }]` — é **cálculo**, não coleção ([`09:253`](09-contrato-api.md)); ação genérica |
+| GET | `/api/availability?professional_id=&date_from=&date_to=` | todos | `200 { professionals: [{ professional_id, days: [{ date, periods, closed_reason? }] }] }` — é **cálculo**, não coleção ([`09:253`](09-contrato-api.md)); ação genérica |
+
+`professional_id` em `/availability` aceita **vários**: `a,b,c` ou `professional_id[]` repetido.
+Nasceu com um só, e o BFF compensava com uma requisição por coluna do dia — até ~480 leituras
+no banco para 10 profissionais ([26 §7 (f)](26-auditoria-bate-volta-agenda.md)). A resposta é
+sempre `professionals: [...]`, inclusive para um profissional só: o mesmo endpoint respondendo
+em duas formas conforme a quantidade é o defeito que [`09:659`](09-contrato-api.md) já custou a
+consertar no 422.
 
 `clinic_id` nunca no corpo. `duration` **não** entra no corpo (A3). Janela máxima de **31 dias**
 em `/appointments` → 422 acima disso: sem teto, `?from=2000-01-01&to=2100-01-01` varre a tabela.
@@ -838,9 +845,25 @@ dado clínico*, isso interage com [`06-seguranca-e-lgpd.md`](06-seguranca-e-lgpd
 dado passa a exigir apagar também as versões. É o motivo de `store_action_inputs? false` acima —
 ele duplicaria os inputs da ação (incluindo `obs`) numa segunda coluna.
 
-Não bloqueia esta fatia, mas **precisa de decisão antes de produção**: prazo de retenção da
-trilha e o que acontece com as versões num pedido de exclusão. Registrado como pendência, não
-resolvido aqui.
+> **Decidido em 2026-07-20 (A-D13): o `obs` fica retido na trilha, sem redação nem expurgo.**
+>
+> Razão: `obs` é campo **operacional do agendamento** — "trazer exame", "chega 10min antes",
+> "estacionamento" — e na maior parte das vezes não diz respeito ao paciente. Tratá-lo como
+> dado clínico por precaução custaria o histórico do campo (`ignore_attributes`) para proteger
+> um conteúdo que, no uso real, raramente é sensível.
+>
+> O que **não** muda com isso: `store_action_inputs? false` continua valendo (não há razão para
+> a segunda cópia), e o campo segue coberto pelas policies da trilha — ler versão é
+> owner·admin, escrever não é ninguém ([`TrailPolicies`](../api/lib/api/scheduling/trail_policies.ex)).
+>
+> O que fica **em aberto**, e é outra pergunta: prazo de retenção da trilha como um todo. Não é
+> específico do `obs` e não bloqueia nada hoje.
+>
+> Consequência de projeto, resolvida junto: a trilha não impede mais a exclusão do registro —
+> ver o achado (c) em [26 §7](26-auditoria-bate-volta-agenda.md). A FK `version_source_id` foi
+> removida (`reference_source? false`), então apagar um agendamento **deixa a versão órfã em vez
+> de bloquear**. Isso é deliberado: se um dia houver expurgo, ele será uma operação explícita
+> sobre a trilha, não um efeito colateral silencioso de um `DELETE`.
 
 ### 11.4 A tela `/configuracoes/auditoria`
 

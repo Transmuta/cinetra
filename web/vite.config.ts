@@ -32,6 +32,10 @@ export default defineConfig({
 				'src/lib/index.ts',
 				'src/lib/assets/**',
 				'src/lib/styles/**',
+				// Andaime de teste (fábricas de fixture). Sai da cobertura pela mesma razão que
+				// `assets/` e `styles/`: não é superfície de produção. Contá-lo inflaria as
+				// métricas com código que é 100% por construção — todo teste o chama.
+				'src/lib/testing/**',
 				'src/**/*.d.ts',
 				'src/**/*.{test,spec}.ts'
 			],

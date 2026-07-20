@@ -16,12 +16,16 @@ defmodule ApiWeb.AvailabilityController do
   alias Api.Scheduling
 
   # GET /api/availability?professional_id=&date_from=&date_to=
-  # A leitura da janela (e o teto de 31 dias) mora em `TenantScope.parse_window/4`.
+  #
+  # `professional_id` aceita **vários** — separados por vírgula ou repetidos (`professional_id[]`).
+  # Era um por requisição, e o BFF compensava com um fan-out de uma chamada por coluna do dia
+  # (achado (f) do doc 26). A leitura da janela (e o teto de 31 dias) mora em
+  # `TenantScope.parse_window/4`.
   def index(conn, params) do
     with_member_scope(conn, fn scope ->
-      with {:ok, professional_id} <- fetch_professional(params),
+      with {:ok, professional_ids} <- fetch_professionals(params),
            {:ok, from, to} <- parse_window(params, "date_from", "date_to") do
-        render_days(conn, scope, professional_id, from, to)
+        render_availability(conn, scope, professional_ids, from, to)
       else
         {:error, :not_found} -> not_found(conn)
         {:error, message} -> invalid(conn, message)
@@ -29,25 +33,28 @@ defmodule ApiWeb.AvailabilityController do
     end)
   end
 
-  defp render_days(conn, scope, professional_id, from, to) do
+  defp render_availability(conn, scope, professional_ids, from, to) do
     dates = Date.range(from, to) |> Enum.to_list()
 
-    case Scheduling.load_availability_sources(scope.clinic_id, professional_id, List.first(dates)) do
+    case Scheduling.load_availability_window(scope.clinic_id, professional_ids, from, to) do
       {:error, :professional_not_found} ->
         not_found(conn)
 
-      {:ok, professional, _} ->
-        json(conn, %{days: Enum.map(dates, &day(scope, professional, professional_id, &1))})
+      {:ok, loaded} ->
+        json(conn, %{professionals: Enum.map(loaded, &render_professional(&1, dates))})
     end
   end
 
-  defp day(scope, professional, professional_id, date) do
-    # As exceções são por data, então recarregamos por dia. É O(dias) consultas — aceitável
-    # com o teto de 31 e muito mais simples do que indexar tudo em memória; se virar gargalo,
-    # o lugar de resolver é uma leitura só com `data in ^datas`.
-    {:ok, _, sources} =
-      Scheduling.load_availability_sources(scope.clinic_id, professional_id, date)
+  # A resposta é sempre `professionals: [...]`, inclusive para um profissional só — ver o teste
+  # de contrato. As fontes já vêm carregadas para a janela inteira; aqui só se compõe cada dia.
+  defp render_professional({professional, sources}, dates) do
+    %{
+      professional_id: professional.id,
+      days: Enum.map(dates, &day(professional, sources, &1))
+    }
+  end
 
+  defp day(professional, sources, date) do
     case Scheduling.Availability.day_periods(date, professional, sources) do
       {:open, periods} ->
         %{date: Date.to_iso8601(date), periods: periods}
@@ -57,8 +64,19 @@ defmodule ApiWeb.AvailabilityController do
     end
   end
 
-  defp fetch_professional(%{"professional_id" => id}) when is_binary(id) and id != "",
-    do: {:ok, id}
-
-  defp fetch_professional(_), do: {:error, "informe professional_id"}
+  # Duas formas, porque as duas aparecem na prática: `?professional_id=a,b` (o que o BFF monta)
+  # e `?professional_id[]=a&professional_id[]=b` (o que um cliente HTTP idiomático manda).
+  defp fetch_professionals(params) do
+    params
+    |> Map.get("professional_id")
+    |> List.wrap()
+    |> Enum.flat_map(&String.split(to_string(&1), ","))
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+    |> case do
+      [] -> {:error, "informe professional_id"}
+      ids -> {:ok, ids}
+    end
+  end
 end

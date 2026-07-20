@@ -57,6 +57,18 @@ defmodule Api.Scheduling.Appointment do
       index [:clinic_id, :starts_at]
       # Gancho da Fatia 3; barato agora, caro de adicionar com a tabela cheia.
       index [:package_id]
+
+      # Achado (h) do doc 26: FK sem índice faz o Postgres varrer `appointments` inteira a cada
+      # DELETE do lado apontado, para checar se alguma linha ainda referencia. Tipo e
+      # profissional **arquivam** em vez de excluir, o que atenua — mas `users` não tem essa
+      # proteção, e um usuário removido varreria a tabela por causa de `created_by_id`.
+      #
+      # `all_tenants? true` é obrigatório aqui, e é a diferença entre resolver e fingir que
+      # resolveu: sem ele o ADR-017 prefixa `clinic_id`, e um índice `(clinic_id, X)` NÃO serve
+      # a `WHERE X = $1` — que é exatamente a forma da checagem de FK, feita pelo Postgres sem
+      # nenhuma noção de tenant. O índice sairia, o gargalo ficaria.
+      index [:appointment_type_id], all_tenants?: true
+      index [:created_by_id], all_tenants?: true
     end
 
     # Traduz `exclusion_violation` da constraint num erro de campo do Ash (→ 422), em vez de
@@ -106,6 +118,18 @@ defmodule Api.Scheduling.Appointment do
     # `Api.Scheduling.TrailPolicies`.
     version_extensions authorizers: [Ash.Policy.Authorizer]
     mixin Api.Scheduling.TrailPolicies
+
+    # Achado (c) do doc 26: com a FK padrão (`version_source_id` → `appointments`, sem
+    # `ON DELETE`), apagar um agendamento estourava
+    # `violates foreign key constraint "appointments_versions_version_source_id_fkey"` — a
+    # trilha tornava o agendamento **indeletável**. Não morde na Entrega 1 (não há destroy, por
+    # decisão), mas é o mecanismo concreto pelo qual um pedido de exclusão não se resolve.
+    #
+    # `false` é a saída que o próprio AshPaperTrail documenta para "allowing actual deletion of
+    # data", e é a que preserva o histórico: a versão sobrevive órfã em vez de ser levada junto
+    # por um cascade. Trilha que some quando o registro some não é trilha — e o doc 26 §6
+    # registra um apagamento acidental de linhas de versão justamente para não repetir isso.
+    reference_source? false
   end
 
   actions do

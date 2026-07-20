@@ -78,7 +78,18 @@ defmodule Api.Scope do
     #   * `scope` — o escopo inteiro, porque `papel` e `professional_id` são **por-tenant** e
     #     não estão no actor: uma preparation que precise recortar linhas por papel (A7,
     #     `OwnAgendaOnly`) não teria como derivá-los sem uma consulta extra a `Membership`.
-    def get_context(%{now: now} = scope), do: {:ok, %{now: now, scope: scope}}
+    #   * `shared` — o MESMO escopo de novo, no único canal que o Ash propaga para as queries
+    #     de `load:` de relacionamento (as outras chaves ficam na query de cima). Sem ele, o
+    #     `load: [:attendances]` da agenda chegava ao `OwnAgendaOnly` com
+    #     `context == %{private: ..., shared: ...}` e cada check de policy daquela leitura
+    #     reconsultava `Membership` no banco.
+    #
+    # A duplicação é **economia de query** (achado (g) do doc 26), não correção: quem garante o
+    # recorte quando o escopo não chega é o fallback ao banco em `Api.Accounts.ActiveMembership`.
+    # Tirar o `shared` daqui deixa o sistema correto e mais lento — tem teste para os dois.
+    def get_context(%{now: now} = scope),
+      do: {:ok, %{now: now, scope: scope, shared: %{now: now, scope: scope}}}
+
     def get_tracer(_scope), do: :error
     def get_authorize?(_scope), do: :error
   end

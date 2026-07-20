@@ -1,9 +1,12 @@
 defmodule Api.Accounts.Checks.HasClinicRole do
   @moduledoc """
   Check de RBAC por tenant (ADR-016): o actor tem um `Membership` **ativo** na clínica
-  relevante, opcionalmente com um dos papéis exigidos. Consulta o `Membership`
-  (`authorize?: false`, sem recursão de policy) — usada em mutações, onde uma FilterCheck
+  relevante, opcionalmente com um dos papéis exigidos. Usada em mutações, onde uma FilterCheck
   declarativa não cabe.
+
+  A resolução da membership é de `Api.Accounts.ActiveMembership` — a mesma fonte da leitura
+  (`OwnAgendaOnly`) e da escrita (`OwnProfessionalColumn`). Antes cada check consultava por si,
+  o que dava 5 SELECTs idênticos em `memberships` por request (achado (g) do doc 26).
 
   Opções:
     * `:roles` — lista de papéis aceitos, ou `:any` (qualquer membro ativo). Default `:any`.
@@ -13,9 +16,8 @@ defmodule Api.Accounts.Checks.HasClinicRole do
         * `{:argument, name}` — um argumento da ação (ex. o `:clinic_id` do convite).
   """
   use Ash.Policy.SimpleCheck
-  require Ash.Query
 
-  alias Api.Accounts.Membership
+  alias Api.Accounts.ActiveMembership
 
   @impl true
   def describe(opts) do
@@ -25,23 +27,16 @@ defmodule Api.Accounts.Checks.HasClinicRole do
 
   @impl true
   def match?(actor, context, opts) do
-    with %{id: actor_id} when not is_nil(actor_id) <- actor,
-         cid when is_binary(cid) <- clinic_id(context, opts) do
-      Membership
-      |> Ash.Query.filter(user_id == ^actor_id and clinic_id == ^cid and status == :ativo)
-      |> filter_roles(Keyword.get(opts, :roles, :any))
-      |> Ash.Query.limit(1)
-      |> Ash.read!(authorize?: false)
-      |> Enum.any?()
-    else
-      _ -> false
+    case ActiveMembership.fetch(actor, clinic_id(context, opts), Map.get(context, :subject)) do
+      {:ok, %{papel: papel}} -> papel_permitido?(papel, Keyword.get(opts, :roles, :any))
+      :error -> false
     end
   end
 
-  defp filter_roles(query, :any), do: query
-
-  defp filter_roles(query, roles) when is_list(roles),
-    do: Ash.Query.filter(query, papel in ^roles)
+  # O filtro de papel saiu da query e virou casamento em memória: com a membership já
+  # resolvida, "tem papel aceito?" não precisa de uma segunda ida ao banco.
+  defp papel_permitido?(_papel, :any), do: true
+  defp papel_permitido?(papel, roles) when is_list(roles), do: papel in roles
 
   defp clinic_id(%{subject: subject}, opts) do
     case Keyword.get(opts, :clinic_from, :tenant) do

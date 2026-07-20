@@ -8,17 +8,15 @@ vi.mock('$app/forms', () => ({ enhance: () => ({ destroy() {} }) }));
 
 import Page from './+page.svelte';
 import { currentToast, dismissToast } from '$lib/toast.svelte';
+import { meFixture } from '$lib/testing/fixtures';
 
 // `me`/`theme` vêm do layout; aqui só o `papel` importa (owner → pode gerir).
 const data = {
 	theme: null,
-	me: {
+	me: meFixture({
 		user: { id: 'u1', nome: 'Dona', email: 'dona@ex.com' },
-		active_clinic_id: 'c1',
-		papel: 'owner' as const,
-		professional_id: null,
 		memberships: []
-	},
+	}),
 	exceptions: []
 };
 

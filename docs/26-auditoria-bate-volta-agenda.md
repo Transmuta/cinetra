@@ -245,3 +245,212 @@ Um subagente, ao limpar uma sonda, rodou `DELETE FROM attendances_versions WHERE
 sem qualificar por `version_source_id` e **apagou 2 linhas de trilha pré-existentes** da clínica
 demo. Os agendamentos e attendances estão intactos. É dado de demonstração, sem valor — mas fica
 registrado, porque trilha apagada por engano é exatamente o que a fatia existe para impedir.
+
+## 7. Liquidação das pendências (2026-07-20)
+
+Fechamento da §5 inteira, numa passada só. O que segue é o que **mudou**, com a medida ao lado —
+nenhum item aqui é "revisei e está ok".
+
+### 7.1 Segurança e autoridade
+
+**(b) A autoridade do recorte voltou a ser uma só.** Nasceu
+[`Api.Accounts.ActiveMembership`](../api/lib/api/accounts/active_membership.ex), por onde passam
+agora os três consumidores: `HasClinicRole` (policies), `OwnProfessionalColumn` (escrita) e
+`OwnAgendaOnly` (leitura). Ele reusa a membership que o `Api.Scope` já carregou, mas **só quando
+ela confere** com o actor e o tenant da ação, está `:ativo` e veio do banco
+(`__meta__.state == :loaded`).
+
+Essa quarta condição não é decorativa: sem ela, um chamador interno que montasse
+`Scope.with_membership(user, %Membership{papel: :owner, ...})` com o próprio `user_id` e o
+próprio `clinic_id` passaria pelas outras três — ele escolhe os campos que seriam conferidos.
+Exigir `:loaded` transforma "confere consigo mesma" em "existe no banco". Tem teste dedicado
+(`membership forjada com papel inflado NÃO passa`).
+
+**Um fail-open apareceu no caminho — e não estava no relatório original.** Ao medir a requisição
+real (não a suíte), a sonda mostrou o `OwnAgendaOnly` rodando **duas** vezes por leitura da
+agenda, e na segunda com `context == %{private: ..., shared: ...}`: **sem escopo**. A query de
+`load:` de relacionamento — o `load: [:attendances]` — não herda o contexto da query de cima, só
+a chave `:shared`. Lendo o `Api.Scope` direto do contexto, a preparation recebia `nil` e
+devolvia "sem papel", ou seja, **não filtrava nada**, dentro do módulo cujo moduledoc existe
+para evitar fail-open.
+
+Não vazou: as `attendances` carregadas já vinham penduradas em `Appointment`s recortados pelo
+filtro do pai. Mas a garantia A7 dependia disso, e não da regra. Corrigido nos dois eixos — o
+escopo passou a viajar também em `:shared` (`Api.Scope.get_context/1`), e a resolução tem o
+banco como rede quando nem isso chega.
+
+> **Lição de método, de novo a mesma:** a suíte estava verde e continuou verde. O defeito só
+> existia na forma como o Ash monta a query de `load:`, que nenhum teste de comportamento
+> distinguia — porque o filtro do pai mascarava o do filho. Foi a **contagem de queries numa
+> requisição real** que o expôs, medindo uma coisa (performance) e achando outra (autorização).
+
+### 7.2 Performance — medido antes e depois
+
+| Achado | Antes | Depois | Prova |
+| --- | --- | --- | --- |
+| **(f)** `/api/availability` | 254 queries / 30 dias, × fan-out de 1 requisição por coluna (~480 para 10 profissionais) | **14 queries, constante** — 1 dia × 1 prof e 30 dias × 2 profs custam o mesmo | teste `o custo não cresce com a janela nem com o nº de profissionais` |
+| **(g)** `memberships` por request | 5 SELECTs idênticos | **1** (só o do `LoadScope`) | teste `a membership é resolvida uma vez por request` + medição ao vivo |
+| **(f)(4)** duplo `carregarDia` | 2 round-trips na janela noturna | **1, sempre** | teste `sem ?date=, acerta o dia da clínica na PRIMEIRA busca` |
+
+Como: `load_availability_window/4` carrega as quatro fontes **uma vez para a janela inteira** (o
+motor `Availability` já é puro e recorta por data, então entregar a janela não muda veredito
+nenhum); a sonda duplicada de `render_days/3` — que carregava as fontes só para validar que o
+profissional existe e as descartava — deixou de existir; o endpoint passou a aceitar vários
+`professional_id`; e `timezone`/`agora` viajam no `/auth/me`, então o BFF sabe que dia é na
+clínica **antes** da primeira busca (sai da membership já carregada: zero leitura a mais).
+
+**(i) `pool_size`** fica em 10 (env `POOL_SIZE`). O mecanismo que a §5 descrevia — 10
+profissionais saturando o pool num render — **deixou de existir com o fim do fan-out**: o dia
+agora são duas requisições sequenciais. Mexer no número sem carga real seria trocar um palpite
+por outro.
+
+### 7.3 Banco
+
+**(h) Índices nas duas FKs.** `appointments_appointment_type_id_index` e
+`appointments_created_by_id_index`. O detalhe que quase virou um índice inútil: sem
+`all_tenants? true`, o ADR-017 prefixa `clinic_id`, e um índice `(clinic_id, X)` **não serve** a
+`WHERE X = $1` — que é a forma exata da checagem de FK, feita pelo Postgres sem nenhuma noção de
+tenant. O índice sairia na migração e o seq scan continuaria.
+
+**(c) A trilha deixou de tornar o registro indeletável.** `reference_source? false` nos dois
+recursos — é a saída que o próprio AshPaperTrail documenta para *"allowing actual deletion of
+data"*. Escolhida em vez de `on_delete: :delete` porque **preserva o histórico**: a versão
+sobrevive órfã em vez de ser levada junto. Trilha que some quando o registro some não é trilha —
+e a §6 acima registra um apagamento acidental de versões justamente para não repetir isso.
+
+Provado no banco, em transação revertida:
+
+```
+versoes_antes = 1  →  DELETE 1 (attendances) · DELETE 1 (appointments)  →  versoes_sobreviventes = 1
+```
+
+Antes, o mesmo `DELETE` estourava
+`violates foreign key constraint "appointments_versions_version_source_id_fkey"`.
+
+### 7.4 Produto
+
+**(d) `obs` continua retido na trilha, por decisão** — registrada como A-D13 em
+[25 §11.3](25-agenda.md). É campo operacional do agendamento ("trazer exame", "chega 10min
+antes"), não prontuário; proteger por precaução custaria o histórico do campo para blindar um
+conteúdo que raramente é sensível. Continua sob as policies da trilha (ler é owner·admin).
+Segue em aberto, e é outra pergunta: **prazo de retenção da trilha como um todo**.
+
+**(e) e (a)** já haviam sido fechados em `d5cbfea` (capacidade de turma, validações de ativo, e
+o job `api-rls` no CI).
+
+### 7.5 Estado ao fim da passada
+
+Backend **531 testes / 90,0%** · Web **771 testes / 93,0%** · gate RLS **7/7 como
+`movimento_app`** · endpoints verificados ao vivo sob o role restrito, com 2 profissionais × 3
+dias devolvendo períodos reais. (Números após o bate-volta da §8.)
+
+Um desvio honesto de medição, registrado porque quase virou falso positivo: a primeira sonda ao
+vivo devolveu `closed_reason: "clinica_fechada"` numa segunda-feira — a assinatura exata do bug
+de RLS que esta fatia já levou três vezes. Não era: a clínica em questão (`Zona Sul`) não tem
+**nenhuma** linha em `clinic_hours`. Conferido no banco antes de concluir qualquer coisa, e a
+verificação foi refeita numa clínica com expediente cadastrado.
+
+## 8. Bate-volta da §7 (2026-07-20)
+
+A §7 foi ela própria auditada — três eixos em paralelo (segurança, performance, refatoração),
+cada achado provado contra a stack rodando. **Segurança: zero achados** em 22 itens de checklist
+e 6 perguntas dirigidas. Performance e refatoração acharam 12, dos quais os dois abaixo eram os
+que mais importavam.
+
+### 8.1 O CI quebraria
+
+`mix format --check-formatted` estava **vermelho** em quatro arquivos da §7 — e é passo do job
+`api` (`ci.yml:60`). A §7 foi declarada pronta tendo rodado suíte, cobertura, gate de RLS e
+verificação ao vivo, e **não** o formatador. Vale registrar o modo de falha: rodar as sondas
+difíceis não substitui rodar as fáceis.
+
+### 8.2 A correção de (f)(4) cobrou um preço que ela não anunciava
+
+Para matar o segundo round-trip da janela noturna, o load da agenda passou a fazer
+`await event.parent()` antes de qualquer busca. Loads de servidor do SvelteKit rodam em
+paralelo; `parent()` os põe em fila. Medido no log da API:
+
+```
+03:38:36.794Z  GET /api/auth/me
+03:38:36.835Z  GET /api/appointments     (+41ms — só começa depois do /me)
+03:38:36.883Z  GET /api/availability
+```
+
+Trocou-se um round-trip **condicional** (só na janela noturna, só sem `?date=`) por um
+**incondicional**, em 100% das cargas — inclusive em cada clique nas setas de dia, onde o fuso
+não decide nada porque a data veio na URL.
+
+**Corrigido**, e a correção descobriu que a premissa estava errada: o que faltava para saber o
+dia da clínica antes da busca era o **fuso**, não o relógio — o relógio é o do nosso próprio
+servidor. Então `parent()` só é esperado quando não há `?date=`, e `agora` **saiu** do
+`/auth/me`.
+
+Sair foi o segundo ganho. O `/me` é carregado pelo layout, que o SvelteKit não reexecuta em
+navegação client-side (`goto`) — um instante vindo dali congelaria na abertura da aba, e uma
+aba atravessando a meia-noite passaria a marcar "Hoje" no dia errado. A mesma classe de bug
+que a janela noturna já custou uma vez. O `today` da tela voltou a sair do relógio que vem
+**na resposta** da API. (Não foi provado por sonda: o Playwright MCP estava quebrado na sessão
+e não deu para exercitar navegação client-side. Corrigido por construção, não por medição.)
+
+### 8.3 Índices duplicados
+
+A migração criava `(clinic_id, version_source_id)` nas duas tabelas de versão — **byte a byte
+iguais** aos que `20260719200000` já criara à mão, com outro nome. Custo de escrita em dobro em
+tabelas que crescem a cada update. O `up` passou a derrubar os escritos à mão; ficou o derivado,
+que se mantém sozinho nos codegens futuros. Num banco criado do zero, agora sai **um por tabela**.
+
+Nenhum dos dois é usado hoje (`idx_scan = 0`, e `grep version_source_id lib/` não acha
+consumidor) — quem os justifica é a tela `/configuracoes/auditoria` do [25 §11.4](25-agenda.md),
+que lê o histórico *de um registro*.
+
+### 8.4 A duplicação que era a §7 repetindo o próprio erro
+
+`window_sources` (leitura, por-janela) e `sources_for` (escrita, por-dia) faziam as mesmas
+quatro leituras com o mesmo mapa de saída, divergindo só no operador do filtro (`== ^date` ×
+`in ^dates`). E os donos são **lados opostos**: a agenda usa a primeira, o `CheckAvailability`
+— que valida expediente ao agendar — usa a segunda. Uma quinta fonte de disponibilidade
+entraria num lado só, e a tela passaria a discordar do validador de escrita sobre o que é
+expediente. Que é o achado **(b)**, o mesmo que a §7 acabara de consertar em outro lugar.
+
+Unificado em `gather_sources/3`: `in ^lista` cobre `== ^valor` com lista de um, então a forma
+de janela é a geral e a de dia é o caso particular. O gate de RLS cobre o caminho de escrita e
+ficou verde.
+
+### 8.5 Duas correções da §7 que a auditoria mediu como menores do que foram descritas
+
+Registradas porque descrição inflada envelhece pior que achado pequeno.
+
+**O `:shared` não é o que fecha o fail-open.** A §7.1 dá a entender que sim. Sondado por
+mutação: removendo a propagação, a suíte continua **verde** — quem garante o recorte é o
+fallback ao banco em `ActiveMembership`. O `:shared` é a economia de query do achado (g).
+Tirar deixa o sistema correto e mais lento. Os comentários no código foram corrigidos, e agora
+há teste para os dois caminhos.
+
+**O fail-open do `load:` não era explorável, e nenhum teste de comportamento o pega.** Tentou-se
+escrever um: revertendo o `OwnAgendaOnly` ao código original, o teste **passa igual**. A razão é
+estrutural — as `attendances` chegam sempre penduradas em `Appointment`s que o filtro do pai já
+recortou, então não há entrada pela qual a falta do filtro aninhado se manifeste. O que se
+corrigiu, então, não é um vazamento: é a garantia deixar de ser **acidental** (consequência do
+pai) e passar a ser **regra** (do filho). Continua valendo a pena; só não é o que a §7 sugeria.
+
+**E o `active_timezone` não tinha bug vivo.** O `Enum.find_value` de fato escorregaria para o
+fuso de outra clínica se a ativa não tivesse `timezone` resolvível — mas `timezone` é
+`allow_nil? false` e a read `active_for_user` sempre carrega `:clinic`, então a precondição não
+ocorre. Trocado por `Enum.find` + casamento assim mesmo (a forma que não *pode* escorregar), e
+ganhou o teste de duas clínicas que faltava.
+
+### 8.6 O que ficou para decisão humana
+
+**Retenção da trilha órfã.** Com `reference_source? false`, some o último mecanismo que ligava
+versão a origem: nada no código lê `version_source_id`, nada apaga versão, e o cascade que
+podaria a trilha junto com o pai deixou de existir. É o outro lado do acordo de A-D13 — não
+existe hoje política de expurgo nem consumidor que justifique guardar. Decisão de negócio, não
+descuido.
+
+**Duas anotações de conduta.** Um subagente, sondando se o `/auth/me` vazava clínica sem
+vínculo, logou por magic link como `bruno.recepcao@example.com` — e esse fluxo **aceita o
+convite pendente**: a membership dele em "Clínica Fidelidade" passou de `pendente` para
+`ativo`. Foi via HTTP, não escrita direta, mas mudou estado sem avisar. E a validação da
+migração exigiu dropar o banco de **teste**, o que derrubou os grants do role `movimento_app` e
+fez o gate de RLS falhar em 6 de 7 até o `setup_app_role.sql` ser reaplicado — falha de
+ambiente, não de código, mas que por um momento pareceu regressão.

@@ -9,6 +9,7 @@ import {
 	redirectIfAuthenticated
 } from './auth';
 import { SESSION_COOKIE } from './api';
+import { meFixture } from '$lib/testing/fixtures';
 
 function json(body: unknown, status = 200) {
 	return new Response(JSON.stringify(body), {
@@ -120,11 +121,11 @@ describe('requestMagicLink (action compartilhada, resposta neutra)', () => {
 
 describe('landingPath (destino pós-login)', () => {
 	it('com clínica ativa → home do app (shell)', () => {
-		expect(landingPath({ active_clinic_id: 'c1' } as never)).toBe('/agenda');
+		expect(landingPath(meFixture({ active_clinic_id: 'c1' }))).toBe('/agenda');
 	});
 
 	it('sem clínica ativa → onboarding', () => {
-		expect(landingPath({ active_clinic_id: null } as never)).toBe('/comecar');
+		expect(landingPath(meFixture({ active_clinic_id: null }))).toBe('/comecar');
 	});
 });
 

@@ -1,16 +1,16 @@
 import { describe, it, expect } from 'vitest';
 import { activeMembership, canManageMembers, canManageClinic, type Me } from './session';
+import { meFixture, membershipFixture } from './testing/fixtures';
 
-const me: Me = {
+const me: Me = meFixture({
 	user: { id: 'u1', nome: 'Ana', email: 'ana@x' },
 	active_clinic_id: 'c2',
 	papel: 'admin',
-	professional_id: null,
 	memberships: [
-		{ clinic_id: 'c1', clinic_nome: 'Centro', clinic_cnpj: null, clinic_endereco: null, papel: 'recepcao', professional_id: null },
-		{ clinic_id: 'c2', clinic_nome: 'Zona Sul', clinic_cnpj: null, clinic_endereco: null, papel: 'admin', professional_id: null }
+		membershipFixture({ clinic_id: 'c1', clinic_nome: 'Centro', papel: 'recepcao' }),
+		membershipFixture({ clinic_id: 'c2', clinic_nome: 'Zona Sul', papel: 'admin' })
 	]
-};
+});
 
 describe('activeMembership', () => {
 	it('retorna o membership da clínica ativa', () => {

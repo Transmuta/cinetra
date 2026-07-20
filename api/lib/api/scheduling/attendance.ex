@@ -59,6 +59,11 @@ defmodule Api.Scheduling.Attendance do
     # `Api.Scheduling.TrailPolicies`.
     version_extensions authorizers: [Ash.Policy.Authorizer]
     mixin Api.Scheduling.TrailPolicies
+
+    # Mesmo motivo do `Appointment` (achado (c) do doc 26) — e aqui é ainda mais direto: a FK
+    # de `attendances_versions` foi a que estourou de verdade ao limpar o banco. A trilha
+    # sobrevive órfã em vez de bloquear a exclusão ou ser levada junto.
+    reference_source? false
   end
 
   actions do

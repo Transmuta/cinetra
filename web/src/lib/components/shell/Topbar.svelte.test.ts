@@ -3,14 +3,13 @@ import '@testing-library/jest-dom/vitest';
 import { render } from '@testing-library/svelte';
 import Topbar from './Topbar.svelte';
 import type { Me } from '$lib/session';
+import { meFixture } from '$lib/testing/fixtures';
 
-const me: Me = {
+const me: Me = meFixture({
 	user: { id: 'u1', nome: 'Ana Paula', email: 'ana@x.com' },
-	active_clinic_id: 'c1',
 	papel: 'admin',
-	professional_id: null,
 	memberships: []
-};
+});
 
 describe('Topbar', () => {
 	it('mostra o título da seção e o avatar do usuário (menu)', () => {

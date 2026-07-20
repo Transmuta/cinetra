@@ -391,6 +391,49 @@ defmodule Api.Scheduling.AppointmentTest do
 
       assert [] == Scheduling.list_attendances!(scope: scope)
     end
+
+    # O recorte DENTRO do `load:` de relacionamento — o caminho que o bate-volta pegou
+    # falhando aberto.
+    #
+    # Os dois testes acima leem `Attendance` **de topo**, e essa query recebe o `:scope` direto.
+    # A query que o Ash monta para `load: [:attendances]` é outra: ela não herda o contexto da
+    # query de cima, só a chave `:shared`. Enquanto o `OwnAgendaOnly` lia o escopo direto do
+    # contexto, ele recebia `nil` ali, devolvia "sem papel" e **não filtrava** — dentro do
+    # módulo cujo moduledoc existe para evitar fail-open.
+    #
+    # Não chegou a vazar, porque as `attendances` vinham penduradas em `Appointment`s que o
+    # filtro do pai já recortara. Mas a garantia era acidental, e este teste é o que a torna
+    # deliberada: se a propagação por `:shared` sumir de `Api.Scope.get_context/1`, ele cai.
+    test "o recorte A7 vale também dentro do `load: [:attendances]`" do
+      ctx = setup_clinic()
+      {:ok, _} = schedule(ctx, %{})
+
+      colega =
+        Directory.create_professional!("Dr. Y", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+
+      {:ok, _} = schedule(ctx, %{professional_id: colega.id, starts_at: at("10:00")})
+
+      user = member_with_role(ctx.clinic, :profissional, colega.id)
+      scope = scope_for(user, ctx.clinic)
+
+      appointments =
+        Scheduling.list_appointments!(at("00:00"), at("23:00"),
+          scope: scope,
+          load: [:attendances]
+        )
+
+      # O owner enxerga os dois blocos e as duas presenças; o profissional, só os seus.
+      assert [_, _] =
+               Scheduling.list_appointments!(at("00:00"), at("23:00"),
+                 scope: ctx.scope,
+                 load: [:attendances]
+               )
+
+      assert [appt] = appointments
+      assert appt.professional_id == colega.id
+      assert [attendance] = appt.attendances
+      assert attendance.appointment_id == appt.id
+    end
   end
 
   describe "patient_ids é do tenant" do

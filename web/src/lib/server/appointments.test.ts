@@ -61,12 +61,29 @@ describe('agendaQuery', () => {
 
 describe('availabilityQuery', () => {
 	it('monta os três parâmetros', () => {
-		expect(availabilityQuery({ professional_id: 'p1', date_from: '2026-07-20', date_to: '2026-07-20' })).toBe(
-			'?professional_id=p1&date_from=2026-07-20&date_to=2026-07-20'
-		);
+		expect(
+			availabilityQuery({
+				professional_ids: ['p1'],
+				date_from: '2026-07-20',
+				date_to: '2026-07-20'
+			})
+		).toBe('?professional_id=p1&date_from=2026-07-20&date_to=2026-07-20');
 	});
 
-	it('sem professional_id, pede o expediente de todos', () => {
+	// O que mata o fan-out: a lista inteira de colunas numa requisição só (achado (f) do
+	// doc 26). Sem esta asserção, uma regressão que voltasse a mandar um id por vez passaria
+	// verde — o resultado na tela é o mesmo, só que com N vezes mais leituras no banco.
+	it('vários profissionais viram UM parâmetro separado por vírgula', () => {
+		expect(
+			availabilityQuery({
+				professional_ids: ['p1', 'p2', 'p3'],
+				date_from: '2026-07-20',
+				date_to: '2026-07-20'
+			})
+		).toBe('?professional_id=p1%2Cp2%2Cp3&date_from=2026-07-20&date_to=2026-07-20');
+	});
+
+	it('sem profissional nenhum, pede o expediente de todos', () => {
 		expect(availabilityQuery({ date_from: '2026-07-20', date_to: '2026-07-20' })).toBe(
 			'?date_from=2026-07-20&date_to=2026-07-20'
 		);
@@ -103,13 +120,23 @@ describe('fetchAgenda', () => {
 });
 
 describe('fetchAvailability', () => {
-	it('200 → os dias com seus períodos', async () => {
+	it('200 → um item por profissional, com seus dias', async () => {
 		m.apiFetch.mockResolvedValueOnce(
-			res(200, { days: [{ date: '2026-07-20', periods: [['08:00', '12:00']] }] })
+			res(200, {
+				professionals: [
+					{ professional_id: 'p1', days: [{ date: '2026-07-20', periods: [['08:00', '12:00']] }] },
+					{ professional_id: 'p2', days: [{ date: '2026-07-20', periods: [] }] }
+				]
+			})
 		);
-		const r = await fetchAvailability(event, { date_from: '2026-07-20', date_to: '2026-07-20' });
-		expect(r.days).toHaveLength(1);
-		expect(r.days[0].periods[0]).toEqual(['08:00', '12:00']);
+		const r = await fetchAvailability(event, {
+			professional_ids: ['p1', 'p2'],
+			date_from: '2026-07-20',
+			date_to: '2026-07-20'
+		});
+		expect(r.professionals).toHaveLength(2);
+		expect(r.professionals[0].professional_id).toBe('p1');
+		expect(r.professionals[0].days[0].periods[0]).toEqual(['08:00', '12:00']);
 	});
 
 	// O expediente é ENFEITE da grade (hachura). Se ele falhar, a agenda ainda tem que
@@ -118,13 +145,15 @@ describe('fetchAvailability', () => {
 		m.apiFetch.mockResolvedValueOnce(res(500));
 		expect(await fetchAvailability(event, { date_from: 'x', date_to: 'x' })).toEqual({
 			status: 500,
-			days: []
+			professionals: []
 		});
 	});
 
 	it('falha de rede também degrada para vazio', async () => {
 		m.apiFetch.mockRejectedValueOnce(new Error('boom'));
-		expect((await fetchAvailability(event, { date_from: 'x', date_to: 'x' })).days).toEqual([]);
+		expect(
+			(await fetchAvailability(event, { date_from: 'x', date_to: 'x' })).professionals
+		).toEqual([]);
 	});
 });
 

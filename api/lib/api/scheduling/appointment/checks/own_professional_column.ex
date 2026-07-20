@@ -7,12 +7,14 @@ defmodule Api.Scheduling.Appointment.Checks.OwnProfessionalColumn do
   nela às cegas — bastava mandar outro `professional_id` no corpo. Ler-restrito e escrever-livre
   é a pior combinação possível, porque o autor do estrago não vê o estrago.
 
-  ## Por que a fonte é o `Membership`, e não o `Api.Scope`
+  ## A fonte é o `Membership`, resolvido por `Api.Accounts.ActiveMembership`
 
-  O `Api.Scope` diz de si mesmo que `papel` e `professional_id` são **informativos** — espelho
-  de UI e de `/auth/me` — e que *"a autoridade real é a membership"*. Uma policy é o lugar onde
-  a diferença importa: aqui consultamos a membership ativa, como faz `HasClinicRole`, e não
-  dependemos de o chamador ter passado escopo.
+  O `Api.Scope` dizia de si mesmo que `papel` e `professional_id` eram **informativos** e que
+  *"a autoridade real é a membership"* — e este check consultava a membership por conta
+  própria, enquanto a leitura irmã (`Preparations.OwnAgendaOnly`) lia do escopo. Achado (b) do
+  doc 26: duas autoridades para o mesmo recorte. Hoje os dois entram pelo mesmo resolvedor, que
+  reusa a membership do escopo **só quando ela confere** com o actor e o tenant da ação (e veio
+  do banco) — sem afrouxar esta escrita para acelerar aquela leitura.
 
   ## Fail-closed no "UUID mole"
 
@@ -28,16 +30,12 @@ defmodule Api.Scheduling.Appointment.Checks.OwnProfessionalColumn do
 
   @impl true
   def match?(actor, %{subject: subject}, _opts) do
-    with %{id: actor_id} when not is_nil(actor_id) <- actor,
-         clinic_id when not is_nil(clinic_id) <- Map.get(subject, :tenant),
-         {:ok, %{professional_id: professional_id}} when not is_nil(professional_id) <-
-           Api.Accounts.get_active_membership(actor_id, to_string(clinic_id),
-             authorize?: false,
-             not_found_error?: false
-           ) do
-      Ash.Changeset.get_attribute(subject, :professional_id) == professional_id
-    else
-      _ -> false
+    case Api.Accounts.ActiveMembership.fetch(actor, Map.get(subject, :tenant), subject) do
+      {:ok, %{professional_id: professional_id}} when not is_nil(professional_id) ->
+        Ash.Changeset.get_attribute(subject, :professional_id) == professional_id
+
+      _ ->
+        false
     end
   end
 end

@@ -150,6 +150,55 @@ defmodule ApiWeb.AuthControllerTest do
       assert [membership] = body["memberships"]
       assert membership["clinic_id"] == clinic.id
     end
+
+    # O fuso da clínica viaja no /me para que o BFF saiba QUE DIA É na clínica **antes** de
+    # pedir a agenda. Sem ele, a agenda chutava o dia em UTC, descobria o fuso na resposta e,
+    # na janela noturna, refazia a busca inteira — dois round-trips para um (achado (f)(4) do
+    # doc 26). A `clinic` já vem carregada na membership, então isto não custa query nenhuma.
+    test "traz o fuso da clínica ativa, sem custar leitura extra", %{conn: conn} do
+      user = create_user()
+      clinic = onboard(user)
+
+      body = conn |> authed(user) |> get(~p"/api/auth/me") |> json_response(200)
+
+      assert body["timezone"] == clinic.timezone
+      assert [%{"clinic_timezone" => tz}] = body["memberships"]
+      assert tz == clinic.timezone
+    end
+
+    # O relógio NÃO viaja no /me, e isso é decisão, não esquecimento: o payload é carregado
+    # pelo layout do SvelteKit, que não reexecuta em navegação client-side — um instante daqui
+    # congelaria na abertura da aba. Fuso pode ser cacheado; relógio, não.
+    test "NÃO traz relógio — ele viria congelado para o cliente", %{conn: conn} do
+      user = create_user()
+      onboard(user)
+
+      body = conn |> authed(user) |> get(~p"/api/auth/me") |> json_response(200)
+
+      refute Map.has_key?(body, "agora")
+    end
+
+    # O caminho que o `Enum.find_value` errava: com duas clínicas, se a ATIVA não tivesse fuso
+    # resolvível, a busca escorregava para a outra e devolvia o fuso dela. Aqui as duas têm
+    # fuso, e o teste exige que venha o da ativa — não o da primeira da lista.
+    test "com duas clínicas, o fuso é o da ATIVA", %{conn: conn} do
+      user = create_user()
+      primeira = onboard(user)
+
+      {:ok, segunda} =
+        Accounts.onboard_clinic(
+          "Outra #{System.unique_integer([:positive])}",
+          %{timezone: "America/Manaus"},
+          actor: user
+        )
+
+      conn = conn |> authed(user) |> post(~p"/api/auth/switch-tenant", %{clinic_id: segunda.id})
+      body = json_response(conn, 200)
+
+      assert body["active_clinic_id"] == segunda.id
+      assert body["timezone"] == "America/Manaus"
+      refute body["timezone"] == primeira.timezone
+    end
   end
 
   describe "POST /api/auth/switch-tenant" do

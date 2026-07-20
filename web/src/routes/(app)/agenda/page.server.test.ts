@@ -8,6 +8,8 @@ const m = vi.hoisted(() => ({
 vi.mock('$lib/server/appointments', () => m);
 
 import { load, actions } from './+page.server';
+import { meFixture } from '$lib/testing/fixtures';
+import type { Me } from '$lib/session';
 
 type LoadOk = {
 	appointments: unknown[];
@@ -22,11 +24,18 @@ type LoadOk = {
 	hidden: string[];
 };
 
-function ev(search = '') {
-	return { url: new URL(`http://x/agenda${search}`) } as never;
+// O load lê o FUSO da clínica do layout pai — é só isso que ele precisa saber antes da
+// primeira busca, para resolver que dia é na clínica (achado (f)(4) do doc 26). O relógio é
+// do próprio BFF, e o `today` que vai para a tela vem da resposta da API.
+let parentSpy: ReturnType<typeof vi.fn>;
+
+function ev(search = '', me: Partial<Me> = {}) {
+	parentSpy = vi.fn(async () => ({ me: meFixture(me) }));
+	return { url: new URL(`http://x/agenda${search}`), parent: parentSpy } as never;
 }
 
-const runLoad = async (search = ''): Promise<LoadOk> => (await load(ev(search))) as LoadOk;
+const runLoad = async (search = '', me: Partial<Me> = {}): Promise<LoadOk> =>
+	(await load(ev(search, me))) as LoadOk;
 
 const payload = (over: Record<string, unknown> = {}) => ({
 	status: 200,
@@ -45,7 +54,9 @@ beforeEach(() => {
 	Object.values(m).forEach((fn) => fn.mockReset());
 	m.fetchAvailability.mockResolvedValue({
 		status: 200,
-		days: [{ date: '2026-07-20', periods: [['08:00', '18:00']] }]
+		professionals: [
+			{ professional_id: 'p1', days: [{ date: '2026-07-20', periods: [['08:00', '18:00']] }] }
+		]
 	});
 });
 
@@ -83,17 +94,23 @@ describe('load', () => {
 		expect(params.to).toBe('2026-07-20');
 	});
 
-	// `/api/availability` recorta por UM profissional, e o doc 25 §6 quer a hachura do buraco
-	// real de CADA coluna. Então é uma chamada por profissional — em Promise.all, não em fila.
-	it('pede o expediente de cada profissional, em paralelo', async () => {
-		m.fetchAgenda.mockResolvedValue(
-			payload({ professionals: [{ id: 'p1' }, { id: 'p2' }] })
-		);
+	// O doc 25 §6 quer a hachura do buraco real de CADA coluna, e isso já custou um fan-out de
+	// uma requisição por profissional (achado (f) do doc 26). Hoje é UMA requisição com a lista
+	// inteira. A asserção é na CONTAGEM porque é ela que regride sem quebrar nada visível.
+	it('pede o expediente de todas as colunas numa requisição só', async () => {
+		m.fetchAgenda.mockResolvedValue(payload({ professionals: [{ id: 'p1' }, { id: 'p2' }] }));
 		await runLoad('?date=2026-07-20');
 
-		expect(m.fetchAvailability).toHaveBeenCalledTimes(2);
-		const ids = m.fetchAvailability.mock.calls.map((c) => c[1].professional_id);
-		expect(ids).toEqual(['p1', 'p2']);
+		expect(m.fetchAvailability).toHaveBeenCalledTimes(1);
+		expect(m.fetchAvailability.mock.calls[0][1].professional_ids).toEqual(['p1', 'p2']);
+	});
+
+	it('sem profissional nenhum, nem chega a pedir expediente', async () => {
+		m.fetchAgenda.mockResolvedValue(payload({ professionals: [] }));
+		const r = await runLoad('?date=2026-07-20');
+
+		expect(m.fetchAvailability).not.toHaveBeenCalled();
+		expect(r.availability).toEqual([]);
 	});
 
 	it('cada expediente sai carimbado com a coluna a que pertence', async () => {
@@ -104,9 +121,31 @@ describe('load', () => {
 
 	it('profissional sem expediente devolvido vira dia fechado, não buraco no mapa', async () => {
 		m.fetchAgenda.mockResolvedValue(payload());
-		m.fetchAvailability.mockResolvedValue({ status: 200, days: [] });
+		m.fetchAvailability.mockResolvedValue({ status: 200, professionals: [] });
 		const r = await runLoad('?date=2026-07-20');
 		expect(r.availability[0]).toMatchObject({ professional_id: 'p1', periods: [] });
+	});
+
+	// A lista sai das COLUNAS, não da resposta: se a API devolver expediente de alguém que não
+	// está na agenda, ele não vira coluna fantasma; e a ordem é a das colunas.
+	it('a resposta é reordenada pelas colunas, e o que sobra é descartado', async () => {
+		m.fetchAgenda.mockResolvedValue(payload({ professionals: [{ id: 'p1' }, { id: 'p2' }] }));
+		m.fetchAvailability.mockResolvedValue({
+			status: 200,
+			professionals: [
+				{ professional_id: 'p9', days: [{ date: '2026-07-20', periods: [['07:00', '08:00']] }] },
+				{ professional_id: 'p2', days: [{ date: '2026-07-20', periods: [['09:00', '10:00']] }] }
+			]
+		});
+
+		const r = await runLoad('?date=2026-07-20');
+
+		expect(r.availability).toHaveLength(2);
+		expect(r.availability[0]).toMatchObject({ professional_id: 'p1', periods: [] });
+		expect(r.availability[1]).toMatchObject({
+			professional_id: 'p2',
+			periods: [['09:00', '10:00']]
+		});
 	});
 
 	it('`?date=` inválido cai no hoje da clínica em vez de estourar', async () => {
@@ -128,27 +167,66 @@ describe('load', () => {
 
 	// O "hoje" é o da CLÍNICA. Às 22h de São Paulo o UTC já virou o dia seguinte; abrir a
 	// agenda sem `?date=` tem que mostrar o dia que a recepção chama de hoje, não o de amanhã.
-	it('sem `?date=`, recarrega quando o hoje da clínica difere do palpite em UTC', async () => {
-		// agora = 01:00Z de 21/07 → em São Paulo ainda é 20/07.
-		m.fetchAgenda.mockResolvedValue(payload({ agora: '2026-07-21T01:00:00Z' }));
+	//
+	// Antes isto custava DUAS buscas: o load chutava o dia em UTC, descobria o fuso na resposta
+	// e refazia tudo. Hoje o FUSO vem do /me e o relógio é o do próprio BFF, então o dia certo é
+	// sabido antes da primeira chamada — a asserção da contagem impede o round-trip extra de
+	// voltar (achado (f)(4)).
+	it('sem `?date=`, acerta o dia da clínica na PRIMEIRA busca', async () => {
+		// 01:00Z de 21/07 → em São Paulo ainda é 20/07.
 		vi.setSystemTime(new Date('2026-07-21T01:00:00Z'));
+		m.fetchAgenda.mockResolvedValue(payload({ agora: '2026-07-21T01:00:00Z' }));
 
-		const r = await runLoad();
+		const r = await runLoad('');
 
 		expect(r.today).toBe('2026-07-20');
 		expect(r.date).toBe('2026-07-20');
-		// Buscou de novo com a data corrigida.
-		expect(m.fetchAgenda).toHaveBeenCalledTimes(2);
-		expect(m.fetchAgenda.mock.calls[1][1].from).toBe('2026-07-20');
+		expect(m.fetchAgenda).toHaveBeenCalledTimes(1);
+		expect(m.fetchAgenda.mock.calls[0][1].from).toBe('2026-07-20');
 		vi.useRealTimers();
 	});
 
-	it('quando o palpite já está certo, não refaz a busca', async () => {
-		m.fetchAgenda.mockResolvedValue(payload({ agora: '2026-07-20T14:00:00Z' }));
-		vi.setSystemTime(new Date('2026-07-20T14:00:00Z'));
-		await runLoad();
+	it('em horário comercial também é uma busca só', async () => {
+		m.fetchAgenda.mockResolvedValue(payload());
+		await runLoad('');
 		expect(m.fetchAgenda).toHaveBeenCalledTimes(1);
+	});
+
+	// Fuso ausente no /me não pode derrubar a agenda: degrada para UTC, que é o comportamento
+	// anterior a esta mudança — pior dia mostrado na janela noturna, nunca tela de erro.
+	it('sem fuso no /me, cai em UTC em vez de estourar', async () => {
+		m.fetchAgenda.mockResolvedValue(payload({ agora: '2026-07-21T01:00:00Z', timezone: 'UTC' }));
+		vi.setSystemTime(new Date('2026-07-21T01:00:00Z'));
+		const r = await runLoad('', { timezone: null });
+		expect(r.today).toBe('2026-07-21');
 		vi.useRealTimers();
+	});
+
+	// P2 do bate-volta: `await event.parent()` põe o load do layout e o da página EM FILA.
+	// Quando a data é explícita — que é a navegação do dia a dia, cada clique nas setas — o
+	// fuso não é pré-requisito de nada, e bloquear nele custava um round-trip inteiro (~+40ms,
+	// 44%) em toda carga. Sem `?date=` a fila é legítima: é o fuso que decide QUE dia buscar.
+	it('com `?date=` explícito, não bloqueia no layout', async () => {
+		m.fetchAgenda.mockResolvedValue(payload());
+		await runLoad('?date=2026-08-15');
+		expect(parentSpy).not.toHaveBeenCalled();
+	});
+
+	it('sem `?date=`, aí sim espera o layout — é dele que vem o fuso', async () => {
+		m.fetchAgenda.mockResolvedValue(payload());
+		await runLoad('');
+		expect(parentSpy).toHaveBeenCalledTimes(1);
+	});
+
+	// O `today` da tela sai do relógio da API na resposta, NÃO do /me. O `me` é carregado pelo
+	// layout, que o SvelteKit não reexecuta em navegação client-side (`goto`) — então um `agora`
+	// vindo dali congela no instante em que a aba abriu, e uma aba aberta atravessando a
+	// meia-noite passaria a apontar "Hoje" para ontem. Exatamente a classe de bug que a janela
+	// noturna já custou uma vez.
+	it('o `today` acompanha o relógio da API, não o do layout', async () => {
+		m.fetchAgenda.mockResolvedValue(payload({ agora: '2026-07-25T14:00:00Z' }));
+		const r = await runLoad('?date=2026-07-25');
+		expect(r.today).toBe('2026-07-25');
 	});
 
 	it('`?date=` explícito é respeitado mesmo diferindo de hoje', async () => {

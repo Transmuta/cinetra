@@ -70,6 +70,15 @@ defmodule ApiWeb.AuthController do
           active_clinic_id: scope.clinic_id,
           papel: scope.papel,
           professional_id: scope.professional_id,
+          # O fuso da clínica ativa (ADR-009). Quem consome é a agenda, que precisa saber que
+          # dia é NA CLÍNICA antes de pedir o dia. Sai da membership já carregada: zero leitura
+          # a mais.
+          #
+          # O relógio NÃO viaja junto, de propósito: o `/me` é carregado pelo layout, que o
+          # SvelteKit não reexecuta em navegação client-side, e um instante vindo daqui
+          # congelaria na abertura da aba. O fuso pode ser cacheado — ele não muda durante a
+          # sessão; um relógio, não.
+          timezone: active_timezone(memberships, scope.clinic_id),
           memberships: Enum.map(memberships, &membership_json/1)
         })
 
@@ -166,9 +175,26 @@ defmodule ApiWeb.AuthController do
       # carregada pela read `active_for_user`.
       clinic_cnpj: m.clinic && m.clinic.cnpj,
       clinic_endereco: m.clinic && m.clinic.endereco,
+      # Por membership também, e não só no topo: na troca de tenant o fuso muda junto, e a UI
+      # não deveria precisar de um /me novo para saber disso.
+      clinic_timezone: m.clinic && m.clinic.timezone,
       papel: m.papel,
       professional_id: m.professional_id
     }
+  end
+
+  # Acha a membership da clínica ativa e SÓ ENTÃO extrai o fuso. A forma óbvia —
+  # `Enum.find_value` com `m.clinic_id == clinic_id && m.clinic.timezone` — parece equivalente
+  # e não é: `find_value` continua para a próxima membership sempre que o predicado dá falsy,
+  # e ele dá falsy tanto para "clínica errada" quanto para "clínica certa, mas sem `timezone`".
+  # No segundo caso a busca escorregaria para OUTRA clínica do usuário e devolveria o fuso
+  # dela como se fosse o da ativa — num app multi-clínica (ADR-017), o dia inteiro da agenda
+  # sairia deslocado. Achar primeiro e casar depois não tem como escorregar.
+  defp active_timezone(memberships, clinic_id) do
+    case Enum.find(memberships, &(&1.clinic_id == clinic_id)) do
+      %{clinic: %{timezone: timezone}} -> timezone
+      _ -> nil
+    end
   end
 
   defp unauthenticated(conn) do

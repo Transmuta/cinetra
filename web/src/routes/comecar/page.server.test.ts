@@ -12,6 +12,7 @@ vi.mock('$lib/server/clinics', () => ({
 }));
 
 import { load, actions } from './+page.server';
+import { meFixture } from '$lib/testing/fixtures';
 
 beforeEach(() => {
 	requireSession.mockReset();
@@ -39,17 +40,23 @@ describe('load /comecar (guarda do onboarding)', () => {
 	});
 
 	it('já tem clínica ativa → redirect 303 para a home', async () => {
-		requireSession.mockResolvedValue({ active_clinic_id: 'c1', user: { nome: 'Ana' } });
+		requireSession.mockResolvedValue(
+			meFixture({ active_clinic_id: 'c1', user: { id: 'u1', nome: 'Ana', email: 'ana@x' } })
+		);
 		await expect(load(loadEvent())).rejects.toMatchObject({ status: 303, location: '/' });
 	});
 
 	it('já tem clínica ativa mas ?nova=1 → mostra o form (fluxo de clínica adicional)', async () => {
-		requireSession.mockResolvedValue({ active_clinic_id: 'c1', user: { nome: 'Ana Paula' } });
+		requireSession.mockResolvedValue(
+			meFixture({ active_clinic_id: 'c1', user: { id: 'u1', nome: 'Ana Paula', email: 'ana@x' } })
+		);
 		expect(await load(loadEvent('?nova=1'))).toEqual({ nome: 'Ana Paula', nova: true });
 	});
 
 	it('logado sem clínica → mostra o form (devolve o nome para o cumprimento)', async () => {
-		requireSession.mockResolvedValue({ active_clinic_id: null, user: { nome: 'Ana Paula' } });
+		requireSession.mockResolvedValue(
+			meFixture({ active_clinic_id: null, user: { id: 'u1', nome: 'Ana Paula', email: 'ana@x' } })
+		);
 		expect(await load(loadEvent())).toEqual({ nome: 'Ana Paula', nova: false });
 	});
 });

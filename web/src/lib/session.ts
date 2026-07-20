@@ -9,6 +9,8 @@ export interface MembershipSummary {
 	// Identidade da clínica (para o topo do sidebar); vem do /me junto do nome.
 	clinic_cnpj: string | null;
 	clinic_endereco: string | null;
+	// O fuso muda junto com o tenant na troca de clínica.
+	clinic_timezone: string | null;
 	papel: Papel;
 	professional_id: string | null;
 }
@@ -18,6 +20,11 @@ export interface Me {
 	active_clinic_id: string | null;
 	papel: Papel | null;
 	professional_id: string | null;
+	// Fuso da clínica ativa (ADR-009), para que a agenda saiba que dia é NA CLÍNICA antes da
+	// primeira busca — ver `(app)/agenda/+page.server.ts`. O relógio NÃO vem junto de
+	// propósito: o `me` é carregado pelo layout, que não reexecuta em navegação client-side,
+	// e um instante daqui congelaria na abertura da aba.
+	timezone: string | null;
 	memberships: MembershipSummary[];
 }
 

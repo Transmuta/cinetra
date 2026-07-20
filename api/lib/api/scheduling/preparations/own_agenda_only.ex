@@ -31,8 +31,8 @@ defmodule Api.Scheduling.Preparations.OwnAgendaOnly do
   require Ash.Query
 
   @impl true
-  def prepare(query, opts, _context) do
-    case scope_papel(query) do
+  def prepare(query, opts, context) do
+    case papel_e_vinculo(query, context) do
       {:profissional, nil} ->
         # Fail-closed: profissional sem vínculo de diretório não vê agenda nenhuma.
         Ash.Query.filter(query, false)
@@ -51,16 +51,38 @@ defmodule Api.Scheduling.Preparations.OwnAgendaOnly do
   defp filter_own(query, :appointment, professional_id),
     do: Ash.Query.filter(query, appointment.professional_id == ^professional_id)
 
-  # O papel vem do `Api.Scope`, que chega ao contexto da query por `Ash.Scope.ToOpts`
-  # (ver `Api.Scope.get_context/1`). Não dá para derivá-lo do actor: papel e `professional_id`
-  # são **por-tenant**, o mesmo usuário é profissional numa clínica e admin em outra.
+  # Papel e `professional_id` são **por-tenant** — o mesmo usuário é profissional numa clínica
+  # e admin em outra — então não dá para derivá-los do actor sozinho. Quem resolve é
+  # `Api.Accounts.ActiveMembership`, a MESMA fonte que a escrita usa (`OwnProfessionalColumn`).
   #
-  # Sem escopo (chamada interna, seed, `authorize?: false`) não há recorte — quem chama sem
-  # escopo está fora da fronteira HTTP e já respondeu por si.
-  defp scope_papel(query) do
-    case query.context[:scope] do
-      %Api.Scope{papel: papel, professional_id: professional_id} -> {papel, professional_id}
-      _ -> {nil, nil}
+  # Antes daqui saía direto do `Api.Scope`, e era esse o achado (b) do doc 26: a leitura
+  # acreditava no escopo, a escrita consultava o banco. Agora as duas fazem a mesma pergunta ao
+  # mesmo módulo — que continua reusando o escopo no caminho feliz, mas conferindo.
+  #
+  # Sem membership resolvível (chamada interna, seed) não há recorte: quem chama de dentro,
+  # sem actor ou sem tenant, está fora da fronteira HTTP e já respondeu por si.
+  #
+  # O caso que só apareceu ao MEDIR a requisição real: a query de `load:` de relacionamento
+  # (o `load: [:attendances]` da agenda) não herda o contexto da query de cima — só a chave
+  # `:shared`. Lendo o `Api.Scope` direto do contexto, esta preparation recebia `nil` ali,
+  # devolvia "sem papel" e **não filtrava nada**.
+  #
+  # Duas ressalvas, porque a versão sem elas soa mais grave do que é. Primeira: não era
+  # explorável, e não é só que "não vazou" — as `attendances` chegam sempre penduradas em
+  # `Appointment`s que o filtro do pai já recortou, então não há entrada pela qual a falta do
+  # filtro aninhado se manifeste. Segunda: por isso mesmo, **nenhum teste de comportamento a
+  # pega** — tentou-se, e o teste passa igual com o código antigo. O que se corrigiu é a
+  # garantia deixar de ser acidental: ela era consequência do pai, agora é regra do filho.
+  #
+  # Quem faz isso é o fallback ao banco em `ActiveMembership` — não o canal `:shared`, que é
+  # só a economia de query do achado (g). Tirar o `:shared` deixa isto correto e mais lento.
+  defp papel_e_vinculo(query, context) do
+    actor = Map.get(context, :actor)
+    tenant = Map.get(context, :tenant) || query.tenant
+
+    case Api.Accounts.ActiveMembership.fetch(actor, tenant, query) do
+      {:ok, %{papel: papel, professional_id: professional_id}} -> {papel, professional_id}
+      :error -> {nil, nil}
     end
   end
 end

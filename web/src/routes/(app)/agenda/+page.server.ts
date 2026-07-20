@@ -11,30 +11,21 @@ import { parseDateParam, parseHiddenProfs, todayInZone, type ColumnAvailability 
 export const load: PageServerLoad = async (event) => {
 	const dateParam = event.url.searchParams.get('date');
 
-	// Palpite inicial do "hoje" enquanto não sabemos o fuso da clínica (ele vem NA resposta).
-	// É o relógio do BFF — nosso servidor, não o do browser.
-	const palpite = new Date().toISOString().slice(0, 10);
 	// "Pediram uma data" ≠ "mandaram alguma coisa em `?date=`": `?date=ontem` é lixo e cai no
 	// hoje da clínica como se não tivesse vindo nada. Sem esta distinção, uma URL inválida
-	// congelaria a agenda no palpite em UTC e mostraria o dia errado na janela da noite.
-	const explicit = parseDateParam(dateParam, '') !== '';
-	let date = explicit ? parseDateParam(dateParam, palpite) : palpite;
+	// mostraria o dia errado.
+	const pedida = parseDateParam(dateParam, '');
 
-	let { agenda, availability } = await carregarDia(event, date);
+	// Só quem NÃO pediu data precisa saber que dia é na clínica antes de buscar — e é só o
+	// FUSO que falta para isso, porque o relógio é o do nosso próprio servidor. `event.parent()`
+	// põe o load do layout e o desta página em fila, então esperá-lo quando a data já veio na
+	// URL custaria um round-trip inteiro em toda navegação entre dias, sem usá-lo para nada.
+	const date = pedida || todayInZone(new Date().toISOString(), await fusoDaClinica(event));
+
+	const { agenda, availability } = await carregarDia(event, date);
 
 	if (!agenda.data) {
 		error(agenda.status || 502, 'Não foi possível carregar a agenda.');
-	}
-
-	const today = todayInZone(agenda.data.agora, agenda.data.timezone);
-
-	// Correção de fronteira: às 22h de São Paulo o UTC já virou o dia seguinte. Sem `?date=`
-	// na URL, o que a recepção espera ver é o dia da CLÍNICA — então, se o palpite errou,
-	// refaz a busca. Só acontece na janela noturna, e só quando a data não foi pedida.
-	if (!explicit && today !== date) {
-		date = today;
-		({ agenda, availability } = await carregarDia(event, date));
-		if (!agenda.data) error(agenda.status || 502, 'Não foi possível carregar a agenda.');
 	}
 
 	return {
@@ -46,32 +37,51 @@ export const load: PageServerLoad = async (event) => {
 		agora: agenda.data.agora,
 		timezone: agenda.data.timezone,
 		date,
-		today,
+		// O "hoje" da tela sai do relógio que veio NA RESPOSTA, não do `me`. O `me` é carregado
+		// pelo layout, e o SvelteKit não reexecuta load de layout em navegação client-side
+		// (`goto`) — um `today` derivado dali congelaria no instante em que a aba abriu, e uma
+		// aba atravessando a meia-noite passaria a marcar "Hoje" no dia errado.
+		today: todayInZone(agenda.data.agora, agenda.data.timezone),
 		hidden: parseHiddenProfs(event.url.searchParams.get('profs'))
 	};
 };
 
-// Um dia = a agenda + o expediente de cada coluna.
+// O fuso da clínica ativa, do /me que o layout já carregou (ADR-009). Sem ele, UTC: pior dia
+// mostrado na janela noturna, nunca tela de erro.
+async function fusoDaClinica(event: Parameters<PageServerLoad>[0]): Promise<string> {
+	const { me } = await event.parent();
+	return me.timezone ?? 'UTC';
+}
+
+// Um dia = a agenda + o expediente de cada coluna. Duas requisições, sempre: a da agenda e a
+// do expediente de TODAS as colunas de uma vez.
 //
-// `GET /api/availability` recorta por UM profissional, e o doc 25 §6 quer a hachura do
-// buraco REAL de cada coluna (não um "almoço" 12–13 igual para todos, que é o GAP-05). Então
-// é uma chamada por profissional — disparadas em `Promise.all`, não em fila. Só dá para saber
-// QUAIS profissionais depois da resposta da agenda, daí a agenda vir primeiro.
+// O doc 25 §6 quer a hachura do buraco REAL de cada coluna (não um "almoço" 12–13 igual para
+// todos, que é o GAP-05), e `/api/availability` recortava por UM profissional — daí o fan-out
+// de uma requisição por coluna que existia aqui, e que o achado (f) do doc 26 mediu em até
+// ~480 leituras no banco para um dia com 10 profissionais. Hoje o endpoint aceita a lista
+// inteira. A agenda continua vindo primeiro porque é ela que diz QUAIS são as colunas.
 async function carregarDia(event: Parameters<PageServerLoad>[0], date: string) {
 	const agenda = await fetchAgenda(event, { from: date, to: date });
 	if (!agenda.data) return { agenda, availability: [] as ColumnAvailability[] };
 
 	const profs = agenda.data.professionals ?? [];
-	const availability = await Promise.all(
-		profs.map(async (p): Promise<ColumnAvailability> => {
-			const r = await fetchAvailability(event, {
-				professional_id: p.id,
-				date_from: date,
-				date_to: date
-			});
-			// Sem resposta para o dia, a coluna é tratada como FECHADA (hachura inteira) — e
-			// não como "expediente desconhecido", que desenharia uma coluna aberta mentindo.
-			return { professional_id: p.id, ...(r.days[0] ?? { date, periods: [] }) };
+	if (!profs.length) return { agenda, availability: [] as ColumnAvailability[] };
+
+	const r = await fetchAvailability(event, {
+		professional_ids: profs.map((p) => p.id),
+		date_from: date,
+		date_to: date
+	});
+	const porProfissional = new Map(r.professionals.map((p) => [p.professional_id, p.days[0]]));
+
+	// A lista sai das COLUNAS, não da resposta: profissional sem expediente devolvido é tratado
+	// como FECHADO (hachura inteira) — e não como "expediente desconhecido", que desenharia uma
+	// coluna aberta mentindo.
+	const availability = profs.map(
+		(p): ColumnAvailability => ({
+			professional_id: p.id,
+			...(porProfissional.get(p.id) ?? { date, periods: [] })
 		})
 	);
 

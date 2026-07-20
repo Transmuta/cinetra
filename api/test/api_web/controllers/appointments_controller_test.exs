@@ -231,6 +231,11 @@ defmodule ApiWeb.AppointmentsControllerTest do
   end
 
   describe "GET /api/availability" do
+    # A resposta é SEMPRE `professionals: [...]`, com um item por profissional pedido — mesmo
+    # quando se pede um só. A forma anterior (`days:` na raiz) servia a um único profissional e
+    # obrigava o BFF a um fan-out de uma requisição por coluna (achado (f) do doc 26); admitir
+    # as duas formas conforme a quantidade repetiria o defeito que o teste do 422 abaixo existe
+    # para impedir — o mesmo endpoint respondendo em dois formatos.
     test "devolve os períodos do dia", %{conn: conn} do
       ctx = fixture()
 
@@ -239,7 +244,10 @@ defmodule ApiWeb.AppointmentsControllerTest do
         |> authed(ctx.owner)
         |> get("/api/availability?professional_id=#{ctx.prof.id}&date_from=#{@segunda}")
 
-      assert %{"days" => [day]} = json_response(conn, 200)
+      assert %{"professionals" => [%{"professional_id" => pid, "days" => [day]}]} =
+               json_response(conn, 200)
+
+      assert pid == ctx.prof.id
       assert day["date"] == @segunda
       assert day["periods"] == [["08:00", "12:00"], ["13:00", "18:00"]]
     end
@@ -252,9 +260,121 @@ defmodule ApiWeb.AppointmentsControllerTest do
         |> authed(ctx.owner)
         |> get("/api/availability?professional_id=#{ctx.prof.id}&date_from=2026-07-19")
 
-      assert %{"days" => [day]} = json_response(conn, 200)
+      assert %{"professionals" => [%{"days" => [day]}]} = json_response(conn, 200)
       assert day["periods"] == []
       assert day["closed_reason"] == "clinica_fechada"
+    end
+
+    test "vários profissionais numa requisição só, na ordem pedida", %{conn: conn} do
+      ctx = fixture()
+
+      outro =
+        Directory.create_professional!("Dr. Y", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+
+      conn =
+        conn
+        |> authed(ctx.owner)
+        |> get(
+          "/api/availability?professional_id=#{ctx.prof.id},#{outro.id}&date_from=#{@segunda}"
+        )
+
+      assert %{"professionals" => [a, b]} = json_response(conn, 200)
+      assert a["professional_id"] == ctx.prof.id
+      assert b["professional_id"] == outro.id
+      assert a["days"] |> hd() |> Map.get("periods") == [["08:00", "12:00"], ["13:00", "18:00"]]
+    end
+
+    test "professional_id repetido na query também vale", %{conn: conn} do
+      ctx = fixture()
+
+      outro =
+        Directory.create_professional!("Dr. Y", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+
+      conn =
+        conn
+        |> authed(ctx.owner)
+        |> get(
+          "/api/availability?professional_id[]=#{ctx.prof.id}&professional_id[]=#{outro.id}" <>
+            "&date_from=#{@segunda}"
+        )
+
+      assert %{"professionals" => [_, _]} = json_response(conn, 200)
+    end
+
+    # O achado (f) do doc 26, virado teste: eram 254 queries para 30 dias, porque as fontes
+    # eram recarregadas POR DIA e `render_days/3` ainda fazia uma sonda que descartava. O custo
+    # agora não acompanha nem o nº de dias nem o nº de profissionais — é o mesmo punhado de
+    # leituras sempre. O teto é generoso de propósito: fixa a ORDEM DE GRANDEZA (dezenas, não
+    # centenas), não a contagem exata, que muda com refactor legítimo.
+    test "o custo não cresce com a janela nem com o nº de profissionais", %{conn: conn} do
+      ctx = fixture()
+
+      outro =
+        Directory.create_professional!("Dr. Y", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+
+      ids = "#{ctx.prof.id},#{outro.id}"
+
+      um_dia =
+        count_queries(fn ->
+          conn
+          |> authed(ctx.owner)
+          |> get("/api/availability?professional_id=#{ctx.prof.id}&date_from=#{@segunda}")
+          |> json_response(200)
+        end)
+
+      trinta_dias =
+        count_queries(fn ->
+          conn
+          |> authed(ctx.owner)
+          |> get(
+            "/api/availability?professional_id=#{ids}&date_from=2026-07-01&date_to=2026-07-30"
+          )
+          |> json_response(200)
+        end)
+
+      assert trinta_dias <= um_dia + 2,
+             "30 dias × 2 profissionais custou #{trinta_dias} queries contra #{um_dia} de 1 dia × 1 profissional"
+
+      assert trinta_dias < 30, "#{trinta_dias} queries ainda escala com a janela"
+    end
+
+    # Achado (g) do doc 26: eram 5 SELECTs idênticos em `memberships` por request, um por
+    # avaliação de policy. Hoje a membership é resolvida UMA vez (pelo `LoadScope`) e reusada
+    # via `Api.Accounts.ActiveMembership`.
+    #
+    # O teto de 2 não é folga arbitrária: é o que sobra se um caminho voltar a não receber o
+    # escopo. Foi assim que se descobriu que a query de `load:` de relacionamento não herda o
+    # contexto da query de cima — só `:shared` — e que por isso o `OwnAgendaOnly` rodava ali
+    # sem escopo, sem filtrar. Este teste é o que impede essa propagação de sumir calada.
+    test "a membership é resolvida uma vez por request, não a cada policy", %{conn: conn} do
+      ctx = fixture()
+
+      n =
+        count_queries(
+          fn ->
+            conn
+            |> authed(ctx.owner)
+            |> get("/api/appointments?from=#{@segunda}&to=#{@segunda}")
+            |> json_response(200)
+          end,
+          "memberships"
+        )
+
+      assert n <= 2, "#{n} leituras de memberships — o escopo deixou de ser reusado"
+    end
+
+    test "um profissional inexistente na lista é 404", %{conn: conn} do
+      ctx = fixture()
+
+      conn =
+        conn
+        |> authed(ctx.owner)
+        |> get(
+          "/api/availability?professional_id=#{ctx.prof.id},#{Ecto.UUID.generate()}" <>
+            "&date_from=#{@segunda}"
+        )
+
+      assert json_response(conn, 404)
     end
 
     test "sem professional_id é 422", %{conn: conn} do
@@ -337,7 +457,7 @@ defmodule ApiWeb.AppointmentsControllerTest do
           "/api/availability?professional_id=#{ctx.prof.id}&date_from=2026-07-20&date_to=2026-07-22"
         )
 
-      assert %{"days" => days} = json_response(conn, 200)
+      assert %{"professionals" => [%{"days" => days}]} = json_response(conn, 200)
       assert length(days) == 3
     end
 
@@ -352,5 +472,11 @@ defmodule ApiWeb.AppointmentsControllerTest do
 
       assert json_response(conn, 404)
     end
+  end
+
+  # Sem medir, "otimizei" é alegação — o teto no teste é o que impede a regressão voltar calada.
+  defp count_queries(fun, source \\ nil) do
+    {_result, n} = Api.QueryCounter.count(fun, source)
+    n
   end
 end

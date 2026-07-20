@@ -7,15 +7,13 @@ vi.mock('$app/forms', () => ({ enhance: () => ({ destroy() {} }) }));
 
 import Page from './+page.svelte';
 import type { Period } from '$lib/scheduling';
+import { meFixture } from '$lib/testing/fixtures';
 
 // `me`/`theme` vêm do layout; aqui o papel owner libera o editor.
-const me = {
+const me = meFixture({
 	user: { id: 'u1', nome: 'Dona', email: 'dona@ex.com' },
-	active_clinic_id: 'c1',
-	papel: 'owner' as const,
-	professional_id: null,
 	memberships: []
-};
+});
 
 describe('Horário — bloqueia o Salvar quando há período inválido', () => {
 	it('semana válida: sem banner de erro', () => {

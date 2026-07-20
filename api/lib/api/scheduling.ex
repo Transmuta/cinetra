@@ -323,42 +323,120 @@ defmodule Api.Scheduling do
     end)
   end
 
-  defp sources_for(clinic_id, professional_id, date) do
-    opts = [tenant: clinic_id, authorize?: false]
+  @doc """
+  As fontes de disponibilidade de **vários profissionais** ao longo de **uma janela de datas**,
+  em um punhado fixo de leituras.
 
-    %{
-      clinic_hours: list_clinic_hours_rows!(opts),
-      professional_hours:
-        list_professional_hours_rows!(
-          [
-            query:
-              Ash.Query.filter(
-                Api.Scheduling.ProfessionalHours,
-                professional_id == ^professional_id
-              )
-          ] ++ opts
-        ),
-      clinic_exceptions:
-        list_schedule_exceptions!(
-          [
-            query:
-              Ash.Query.filter(
-                Api.Scheduling.ScheduleException,
-                is_nil(professional_id) and data == ^date
-              )
-          ] ++ opts
-        ),
-      professional_exceptions:
-        list_schedule_exceptions!(
-          [
-            query:
-              Ash.Query.filter(
-                Api.Scheduling.ScheduleException,
-                professional_id == ^professional_id and data == ^date
-              )
-          ] ++ opts
-        )
-    }
+  ## Por que existe (achado (f) do doc 26)
+
+  `load_availability_sources/3` responde por *(profissional, dia)*, e o controller a chamava em
+  laço: 30 dias custavam ~254 queries, e o fan-out do BFF (uma requisição por coluna)
+  multiplicava isso por profissional — até ~480 leituras para desenhar um dia com 10 colunas.
+
+  O custo aqui **não acompanha nem os dias nem os profissionais**: são cinco leituras —
+  profissionais, expediente da clínica, grade dos profissionais, exceções da clínica na janela,
+  exceções dos profissionais na janela — e o resto é agrupamento em memória.
+
+  Isso funciona porque `Api.Scheduling.Availability` é puro e já recorta por data (`on_date`) e
+  por dia-da-semana: entregar a ele a janela inteira em vez do dia isolado não muda o veredito
+  de dia nenhum. A composição por dia continua onde sempre esteve; o que mudou foi só de onde
+  vêm as listas.
+
+  Retornos: `{:ok, [{professional, sources}]}` — na ordem de `professional_ids` — ou
+  `{:error, :professional_not_found}` se **algum** id não existir na clínica.
+  """
+  def load_availability_window(clinic_id, professional_ids, %Date{} = from, %Date{} = to)
+      when is_binary(clinic_id) and is_list(professional_ids) do
+    dates = Date.range(from, to) |> Enum.to_list()
+
+    in_clinic(clinic_id, fn ->
+      opts = [tenant: clinic_id, authorize?: false]
+      professionals = professionals_by_id(professional_ids, opts)
+
+      # Fail-closed: id desconhecido (ou de outra clínica, que a RLS já esconde) derruba a
+      # requisição inteira em 404, em vez de devolver silenciosamente menos colunas do que se
+      # pediu — a tela desenharia um dia incompleto sem sinal nenhum de que faltou algo.
+      if Enum.any?(professional_ids, &(not Map.has_key?(professionals, &1))) do
+        {:error, :professional_not_found}
+      else
+        {:ok, window_sources(professional_ids, professionals, dates, opts)}
+      end
+    end)
+  end
+
+  defp professionals_by_id(ids, opts) do
+    query = Ash.Query.filter(Api.Directory.Professional, id in ^ids)
+
+    [query: query]
+    |> Kernel.++(opts)
+    |> Api.Directory.list_professionals!()
+    |> Map.new(&{&1.id, &1})
+  end
+
+  # As quatro fontes de disponibilidade, para N profissionais em N datas. **Ponto único**: a
+  # leitura (`load_availability_window/4`, a agenda) e a escrita
+  # (`load_availability_sources/3`, o `CheckAvailability` que valida expediente ao agendar)
+  # entram as duas por aqui.
+  #
+  # Elas nasceram como duas funções — uma por-dia, outra por-janela — com as mesmas quatro
+  # leituras e só o operador do filtro divergindo (`== ^date` × `in ^dates`). Duas escritas da
+  # mesma regra: uma quinta fonte de disponibilidade, ou uma mudança de filtro, entraria num
+  # lado só, e a agenda passaria a discordar do validador de escrita sobre o que é expediente —
+  # que é literalmente o achado (b) deste mesmo doc 26, só que em outro lugar. Como `in ^lista`
+  # cobre `== ^valor` com lista de um, a forma de janela é a geral e a de dia é o caso
+  # particular.
+  defp gather_sources(ids, dates, opts) do
+    clinic_hours = list_clinic_hours_rows!(opts)
+
+    professional_hours =
+      [query: Ash.Query.filter(Api.Scheduling.ProfessionalHours, professional_id in ^ids)]
+      |> Kernel.++(opts)
+      |> list_professional_hours_rows!()
+      |> Enum.group_by(& &1.professional_id)
+
+    clinic_exceptions =
+      [
+        query:
+          Ash.Query.filter(
+            Api.Scheduling.ScheduleException,
+            is_nil(professional_id) and data in ^dates
+          )
+      ]
+      |> Kernel.++(opts)
+      |> list_schedule_exceptions!()
+
+    professional_exceptions =
+      [
+        query:
+          Ash.Query.filter(
+            Api.Scheduling.ScheduleException,
+            professional_id in ^ids and data in ^dates
+          )
+      ]
+      |> Kernel.++(opts)
+      |> list_schedule_exceptions!()
+      |> Enum.group_by(& &1.professional_id)
+
+    Map.new(ids, fn id ->
+      {id,
+       %{
+         clinic_hours: clinic_hours,
+         professional_hours: Map.get(professional_hours, id, []),
+         clinic_exceptions: clinic_exceptions,
+         professional_exceptions: Map.get(professional_exceptions, id, [])
+       }}
+    end)
+  end
+
+  defp window_sources(ids, professionals, dates, opts) do
+    sources = gather_sources(ids, dates, opts)
+    Enum.map(ids, &{Map.fetch!(professionals, &1), Map.fetch!(sources, &1)})
+  end
+
+  defp sources_for(clinic_id, professional_id, date) do
+    [professional_id]
+    |> gather_sources([date], tenant: clinic_id, authorize?: false)
+    |> Map.fetch!(professional_id)
   end
 
   # ---- ClinicHours (expediente semanal) ----

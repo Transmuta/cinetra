@@ -3,17 +3,15 @@ import '@testing-library/jest-dom/vitest';
 import { render, fireEvent } from '@testing-library/svelte';
 import UserMenu from './UserMenu.svelte';
 import type { Me } from '$lib/session';
+import { meFixture, membershipFixture } from '$lib/testing/fixtures';
 
-const me: Me = {
+const me: Me = meFixture({
 	user: { id: 'u1', nome: 'Ana Paula', email: 'ana@x.com' },
-	active_clinic_id: 'c1',
-	papel: 'owner',
-	professional_id: null,
 	memberships: [
-		{ clinic_id: 'c1', clinic_nome: 'Centro', clinic_cnpj: null, clinic_endereco: null, papel: 'owner', professional_id: null },
-		{ clinic_id: 'c2', clinic_nome: 'Zona Sul', clinic_cnpj: null, clinic_endereco: null, papel: 'admin', professional_id: null }
+		membershipFixture({ clinic_id: 'c1', clinic_nome: 'Centro', papel: 'owner' }),
+		membershipFixture({ clinic_id: 'c2', clinic_nome: 'Zona Sul', papel: 'admin' })
 	]
-};
+});
 
 describe('UserMenu', () => {
 	it('mostra o avatar com as iniciais e começa fechado', () => {

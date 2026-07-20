@@ -7,14 +7,12 @@ vi.mock('$app/forms', () => ({ enhance: () => ({ destroy() {} }) }));
 
 import Page from './+page.svelte';
 import type { Me } from '$lib/session';
+import { meFixture } from '$lib/testing/fixtures';
 
-const owner: Me = {
+const owner: Me = meFixture({
 	user: { id: 'u1', nome: 'Dona', email: 'dona@ex.com' },
-	active_clinic_id: 'c1',
-	papel: 'owner' as const,
-	professional_id: null,
 	memberships: []
-};
+});
 
 const recep: Me = { ...owner, papel: 'recepcao' };
 

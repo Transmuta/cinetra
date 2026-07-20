@@ -69,22 +69,30 @@ export async function fetchAgenda(
 }
 
 export interface AvailabilityParams {
-	professional_id?: string;
+	// Vários numa requisição só: a API aceita `a,b,c`. Era um por chamada, e a agenda
+	// compensava com uma requisição por coluna do dia (achado (f) do doc 26).
+	professional_ids?: string[];
 	date_from: string;
 	date_to: string;
 }
 
 export function availabilityQuery(params: AvailabilityParams): string {
 	const qs = new URLSearchParams();
-	if (params.professional_id) qs.set('professional_id', params.professional_id);
+	const ids = params.professional_ids ?? [];
+	if (ids.length) qs.set('professional_id', ids.join(','));
 	qs.set('date_from', params.date_from);
 	qs.set('date_to', params.date_to);
 	return `?${qs.toString()}`;
 }
 
+export interface ProfessionalAvailability {
+	professional_id: string;
+	days: AvailabilityDay[];
+}
+
 export interface AvailabilityResult {
 	status: number;
-	days: AvailabilityDay[];
+	professionals: ProfessionalAvailability[];
 }
 
 // O expediente é a HACHURA da grade, não o conteúdo dela. Por isso a falha aqui degrada
@@ -98,11 +106,11 @@ export async function fetchAvailability(
 		const res = await apiFetch(event, `/api/availability${availabilityQuery(params)}`, {
 			headers: { accept: 'application/json' }
 		});
-		if (!res.ok) return { status: res.status, days: [] };
-		const body = (await res.json()) as { days?: AvailabilityDay[] };
-		return { status: res.status, days: body.days ?? [] };
+		if (!res.ok) return { status: res.status, professionals: [] };
+		const body = (await res.json()) as { professionals?: ProfessionalAvailability[] };
+		return { status: res.status, professionals: body.professionals ?? [] };
 	} catch {
-		return { status: 0, days: [] };
+		return { status: 0, professionals: [] };
 	}
 }
 
