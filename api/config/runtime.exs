@@ -75,7 +75,14 @@ if config_env() == :prod do
         raise("Missing environment variable `TOKEN_SIGNING_SECRET`!")
 
   # Destino do redirect pós-login (BFF SvelteKit). O :google_oauth é setado acima (todos os envs).
-  config :api, :web_app_url, System.get_env("WEB_APP_URL") || "https://#{host}"
+  web_app_url = System.get_env("WEB_APP_URL") || "https://#{host}"
+  config :api, :web_app_url, web_app_url
+
+  # O WebSocket da agenda (Entrega 3) é aberto pelo browser **do outro host**: o usuário está
+  # no app web e o socket vai para a API. O default de `check_origin` é só o host do próprio
+  # endpoint, então sem esta linha o Phoenix recusaria o upgrade — e o sintoma seria tempo real
+  # morto em produção com tudo verde em dev, onde `check_origin: false` (dev.exs:22).
+  config :api, ApiWeb.Endpoint, check_origin: [web_app_url]
 
   # Mailer de produção: configure aqui o adapter real (ex.: Swoosh.Adapters.Mailgun/SMTP)
   # via env quando houver provedor. Sem isso, o adapter Local do config.exs é usado.

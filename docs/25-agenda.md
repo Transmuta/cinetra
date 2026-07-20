@@ -193,7 +193,8 @@ Padrões estabelecidos que esta fatia herda: tenancy por atributo + `Api.Tenancy
 
 **Parcial**: `Clinic.slot_minutos` (default 15) e `AppointmentType.duracao_minutos` existem e
 **ninguém os consome** — é o GAP-02 replicado no código real. `GET /api/realtime/token` existe
-(`auth_controller.ex:123`) mas não há Channel, socket nem notifier. Os endpoints
+(`auth_controller.ex:123`) mas não há Channel, socket nem notifier *(sanado na Entrega 3 — ver
+o status no §9)*. Os endpoints
 `PATCH /api/clinic-hours` e `POST /api/clinic-exceptions` **aceitam e ignoram** um `confirm`
 (H2, [`22:47`](22-horarios-e-excecoes.md)).
 
@@ -383,7 +384,7 @@ bugs assim. Verificação por `psql` no container faz parte do pronto.
 | `btree_gist` | **ausente** | `Api.Repo.installed_extensions/0` devolve `["ash-functions", "citext"]` |
 | Banco de timezone (`tz`) | **ausente** | `api/mix.exs`. Sem ele, `DateTime.new/4` com `America/Sao_Paulo` devolve `{:error, :utc_only_time_zone_database}` — e `Clinic.timezone` é decorativo |
 | Relógio no `Api.Scope` | **ausente** | `Api.Scope` tem só `[:user, :clinic_id, :papel, :professional_id, :membership]`; e `defimpl Ash.Scope.ToOpts` tem `get_context(_), do: :error` — a mudança **não é aditiva** |
-| `phoenix` (npm) | **ausente** | `web/package.json` — necessário para os Channels (ADR-004), só na Entrega 3 |
+| `phoenix` (npm) | **ausente** *(instalado na Entrega 3)* | `web/package.json` — necessário para os Channels (ADR-004), só na Entrega 3 |
 | `ash_paper_trail` | **ausente** | `api/mix.exs` — exigido pela A-D6(c). Ver §11 |
 
 **Sobre o relógio (ADR-009 / GAP-01)**: o protótipo congela tempo em 22 ocorrências de
@@ -667,6 +668,66 @@ Dia↔Semana, que é o ponto de B-D2) e tem teste garantindo que o agendamento d
 em número nenhum. **Se profissional deve ou não enxergar a escala do colega é pergunta de
 produto**, não de implementação — e vale para as duas visões de uma vez.
 
+## 8c. Decisões da Entrega 3 (2026-07-20)
+
+O §9 travava a arquitetura do tempo real (PubSub alimentado por notificação do Ash) e os dois
+tópicos. Cinco perguntas ficaram para a construção.
+
+**R-D1 — quem aplica o recorte A7 no push?**
+**DECIDIDO: o canal relê o bloco com o escopo de cada assinante.** É a decisão de fundo desta
+entrega. O tópico é da clínica inteira, mas o papel `profissional` só pode ver a própria agenda
+— e o WebSocket **não atravessa** nem a policy do recurso nem a RLS do Postgres, que é o que
+protege o REST. Havia duas saídas: repetir o filtro de `OwnAgendaOnly` na fronteira do canal, ou
+mandar só o **id** no evento e deixar cada canal resolver o bloco por `load_visible_appointment/2`.
+
+A segunda foi escolhida porque a primeira é literalmente o achado (b) do doc 26 nascendo de novo
+— a mesma regra com duas implementações, uma para ler e outra para empurrar, divergindo na
+primeira vez que alguém mexer numa delas. Relendo, quem não pode ler recebe `nil` e não recebe
+push nenhum: **correto por construção**, não por vigilância. O custo é uma leitura por assinante
+por escrita, e ele é conhecido: são as pessoas olhando o mesmo dia, que é o número que o desenho
+de tópicos já limita.
+
+**R-D2 — o payload leva os pacientes citados?**
+**DECIDIDO: sim, sidecar como no `GET`.** Um bloco novo pode citar um paciente que a janela
+carregada não conhece, e o mapa de nomes é montado do sidecar — sem ele o bloco entra na tela
+como "Paciente" genérico até o próximo refresh. Sai de graça da releitura de R-D1. Verificado ao
+vivo com um paciente criado depois da página aberta.
+
+**R-D3 — o que o mês recebe?**
+**DECIDIDO: `{day, change: "count"}` e o cliente recarrega a contagem**, conforme RN-56. Com uma
+ressalva que a Entrega 2 não tinha: a recarga é **atrasada e coalescida** (400 ms) no cliente.
+Não é polimento — a leitura de janela ainda varre o histórico da clínica (achado (a) do doc 27),
+então uma recepção marcando cinco horários seguidos dispararia cinco varreduras por assinante.
+Com o coalescing, uma.
+
+**R-D4 — Semana assina o quê?**
+**DECIDIDO: os 5–7 tópicos de dia**, como o doc 04 §6.1 previa — e não o tópico do mês, que
+seria mais barato mas **não cobre a semana que atravessa a virada de mês** (a de 27/jul a
+2/ago). Semana reage ao evento recarregando contagem, igual ao Mês: ela renderiza agregado, não
+bloco (B-D1).
+
+**R-D5 — renovação do token.**
+**DECIDIDO: `params` como função + busca no `onError`.** O token vale 15 min; o socket vive
+enquanto a aba estiver aberta. Uma aba parada a tarde inteira reconecta com token vencido e
+ficaria muda **em silêncio**. O Phoenix reavalia `params` a cada tentativa, então basta o
+`onError` buscar um token novo no BFF e a próxima tentativa já vai com ele. Nada renova por
+timer: sem queda, não há o que renovar.
+
+### O que a Entrega 3 mexeu fora dela
+
+- **`ApiWeb.AgendaJSON`** — a serialização do bloco saiu do controller para um módulo próprio.
+  Não é arrumação: o cliente aplica o evento do canal **como patch** sobre a lista que veio do
+  REST, então duas serializações divergentes fariam o bloco mudar de forma ao ser atualizado em
+  tempo real — defeito que só aparece na segunda aba, depois da escrita, e que nenhum teste de
+  controller percorre.
+- **`ApiWeb.RealtimeToken`** — o salt e a validade viviam no `AuthController` (quem assina) e
+  seriam copiados no `UserSocket` (quem verifica). Fonte única.
+- **`check_origin` em produção** (`runtime.exs`) — o socket é aberto pelo browser **do host do
+  app web** contra a API. O default do Phoenix é só o host do próprio endpoint; sem isso o
+  upgrade seria recusado em produção com tudo verde em dev, onde `check_origin: false`.
+- **CSP `connect-src`** (`svelte.config.js`) — mesma história do outro lado: `'self'` não cobre
+  a origem da API. Hosts explícitos, não `ws:` genérico.
+
 ## 9. Fatiamento sugerido
 
 Cinco entregas fecháveis. A primeira é a fatia deste doc; as demais estão desenhadas aqui para
@@ -790,6 +851,36 @@ leve `{day, change: :count}`. Riscos próprios: validar `clinic_id` do tópico c
 `join` (senão é vazamento por fora da RLS); remarcar entre dias emite em **dois** tópicos de dia
 — esquecer o de origem deixa bloco fantasma; emitir fora da transação com
 `return_notifications?`, como `update_clinic_hours/2` já faz.
+
+> **Status (2026-07-20): Entrega 3 CONSTRUÍDA.** Decisões R-D1..R-D5 em §8c. Backend:
+> `ApiWeb.UserSocket` (token efêmero, `socket "/socket"` no endpoint), `ApiWeb.AgendaChannel`
+> (as duas resoluções de tópico, `clinic_id` conferido no `join`, vínculo **relido** do banco),
+> `Api.Scheduling.AgendaNotifier` (dois broadcasts, dia local da clínica),
+> `Scheduling.load_visible_appointment/2`, e os extraídos `ApiWeb.AgendaJSON` /
+> `ApiWeb.RealtimeToken`. Frontend: `phoenix` no npm, `$lib/realtime.ts` (tópicos por visão,
+> conexão, renovação de token), `$lib/agenda-live.ts` (patch por `version`, merge do sidecar),
+> `GET /api/realtime/token` no BFF, e o `depends('agenda:dados')` que liga o sinal à recarga.
+> Backend 560 testes / 90,4%; web 888 testes / 93,4% stmts, 81,1% branch.
+>
+> **Verificado ao vivo, com duas sessões de usuários diferentes** (owner no navegador,
+> profissional por `curl` com cookie jar próprio): o bloco criado por um **apareceu no outro sem
+> refresh** — no grid do Dia (com o contador da coluna indo de 1 para 2), na Lista, e a célula
+> do Mês passando de "4 agend." para "5 agend." pelo sinal leve. O sidecar foi verificado com um
+> paciente **criado depois** da página aberta: o bloco chegou com o nome certo, não com
+> "Paciente". Zero erro de console, zero violação de CSP.
+>
+> **Um defeito que só o log do servidor mostrou.** O efeito de conexão lia `data.view`/`data.date`
+> direto, então **toda recarga reabria o WebSocket** — e como o sinal do Mês chama `invalidate`,
+> cada evento derrubava e reconectava o socket. A tela funcionava; o custo era invisível na UI.
+> Corrigido derivando uma **chave de tópicos** (string) e dependendo só dela: o `$derived` só
+> notifica quando ela muda de fato. Medido depois: uma carga de página = **uma** conexão, e a
+> recarga por evento agora não reconecta (8 → 8 conexões).
+>
+> **O que NÃO entrou:** `Phoenix.Presence` (09 §7.4) e derrubar o socket no sign-out — o
+> `UserSocket.id/1` já nasce por usuário para permitir o `disconnect`, mas ligá-lo é da Entrega
+> 4, junto das transições de status. Os eventos de ciclo de vida (`rescheduled`,
+> `status_changed`, `canceled`) também são de lá; o cliente casa por nome de evento e ignora o
+> que não conhece, então acrescentá-los não mexe no que existe.
 
 **Entrega 4 — Ciclo de vida (Fatia 2 do roadmap).** Drag & drop, remarcar, as seis transições,
 máquina de status, `expected_version` + 409, drawer completo. Aqui mora a decisão de qual

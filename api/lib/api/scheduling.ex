@@ -263,6 +263,31 @@ defmodule Api.Scheduling do
   end
 
   @doc """
+  Um agendamento **como este escopo o enxerga**, com os pacientes citados — ou `nil`.
+
+  Existe para o push do `ApiWeb.AgendaChannel` (Entrega 3). O tópico do canal é da clínica
+  inteira, mas o papel `profissional` só pode ver a própria agenda: em vez de reimplementar
+  esse recorte na fronteira do WebSocket, o canal relê o bloco por aqui com o escopo de cada
+  assinante. Quem não pode lê-lo recebe `nil` — a preparation `OwnAgendaOnly` filtra a linha
+  e o `get` não acha nada. Uma regra, um caminho.
+
+  Devolve os pacientes junto pelo mesmo motivo que `GET /api/appointments` devolve: o bloco
+  carrega `patient_ids`, e o cliente pode não ter aqueles nomes na janela que já baixou.
+  """
+  def load_visible_appointment(%Api.Scope{} = scope, appointment_id)
+      when is_binary(appointment_id) do
+    in_clinic(scope, fn ->
+      case get_appointment(appointment_id, scope: scope, load: [:attendances]) do
+        {:ok, appointment} ->
+          %{appointment: appointment, patients: patients_for(scope, [appointment])}
+
+        _ ->
+          nil
+      end
+    end)
+  end
+
+  @doc """
   As contagens das visões Semana e Mês (doc 25 §9, Entrega 2), quebradas por **dia ×
   profissional**.
 
@@ -394,8 +419,19 @@ defmodule Api.Scheduling do
       |> Enum.uniq()
 
     case ids do
-      [] -> []
-      ids -> Api.Records.list_patients!(scope: scope, query: [filter: [id: [in: ids]]])
+      [] ->
+        []
+
+      ids ->
+        # `select` enxuto: `AgendaJSON.patient/1` usa quatro campos, e a leitura crua traz as ~39
+        # colunas do cadastro — CPF, RG, `prefs` — e agora **por assinante por evento**, já que a
+        # releitura do canal (`load_visible_appointment/2`) passa por aqui. É o mesmo corte que o
+        # doc 27 (Causa 2) aplicou a `load_counts`, que ficou de fora de `patients_for`. Corta PII
+        # que não é usada e o peso de coluna no caminho quente do tempo real.
+        Api.Records.list_patients!(
+          scope: scope,
+          query: [filter: [id: [in: ids]], select: [:id, :nome, :tel, :ativo]]
+        )
     end
   end
 

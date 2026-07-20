@@ -29,10 +29,16 @@ type LoadOk = {
 // primeira busca, para resolver que dia é na clínica (achado (f)(4) do doc 26). O relógio é
 // do próprio BFF, e o `today` que vai para a tela vem da resposta da API.
 let parentSpy: ReturnType<typeof vi.fn>;
+let dependsSpy: ReturnType<typeof vi.fn>;
 
 function ev(search = '', me: Partial<Me> = {}) {
 	parentSpy = vi.fn(async () => ({ me: meFixture(me) }));
-	return { url: new URL(`http://x/agenda${search}`), parent: parentSpy } as never;
+	dependsSpy = vi.fn();
+	return {
+		url: new URL(`http://x/agenda${search}`),
+		parent: parentSpy,
+		depends: dependsSpy
+	} as never;
 }
 
 const runLoad = async (search = '', me: Partial<Me> = {}): Promise<LoadOk> =>
@@ -217,6 +223,15 @@ describe('load', () => {
 		m.fetchAgenda.mockResolvedValue(payload());
 		await runLoad('');
 		expect(parentSpy).toHaveBeenCalledTimes(1);
+	});
+
+	// A etiqueta é o que liga o tempo real (Entrega 3) à recarga: sem ela, `invalidate` não
+	// acha este load e Semana/Mês nunca atualizariam — em silêncio, porque o socket continuaria
+	// entregando eventos que ninguém consegue aplicar.
+	it('registra a etiqueta de invalidação do tempo real', async () => {
+		m.fetchAgenda.mockResolvedValue(payload());
+		await runLoad('?date=2026-07-20');
+		expect(dependsSpy).toHaveBeenCalledWith('agenda:dados');
 	});
 
 	// O `today` da tela sai do relógio da API na resposta, NÃO do /me. O `me` é carregado pelo

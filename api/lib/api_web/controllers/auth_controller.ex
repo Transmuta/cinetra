@@ -126,26 +126,23 @@ defmodule ApiWeb.AuthController do
   # (ADR-014, 09 §8). Escopo do token: `user_id` + `clinic_id` ativo, para o `join`
   # validar o tópico. Vida curta; trocar de tenant reemite (o BFF chama de novo). É o
   # único token que vai ao browser — o resto é cookie de sessão.
-  @realtime_salt "realtime socket"
-  @realtime_max_age 900
-
+  #
+  # O salt e a validade moram em `ApiWeb.RealtimeToken`, com quem verifica (`ApiWeb.UserSocket`).
+  #
+  # Devolve o `clinic_id` junto: o cliente precisa dele para montar o nome do tópico
+  # (`clinic:<id>:agenda:<dia>`), e tirá-lo daqui evita que a página da agenda tenha de
+  # buscar o `/me` só por causa disso.
   def realtime_token(conn, _params) do
     case conn.assigns[:scope] do
       %Scope{user: user, clinic_id: clinic_id} when is_binary(clinic_id) ->
-        token =
-          Phoenix.Token.sign(
-            ApiWeb.Endpoint,
-            @realtime_salt,
-            %{user_id: user.id, clinic_id: clinic_id},
-            max_age: @realtime_max_age
-          )
+        token = ApiWeb.RealtimeToken.sign(%{user_id: user.id, clinic_id: clinic_id})
 
         expires_at =
           DateTime.utc_now()
-          |> DateTime.add(@realtime_max_age, :second)
+          |> DateTime.add(ApiWeb.RealtimeToken.max_age(), :second)
           |> DateTime.to_iso8601()
 
-        json(conn, %{token: token, expires_at: expires_at})
+        json(conn, %{token: token, expires_at: expires_at, clinic_id: clinic_id})
 
       %Scope{} ->
         conn |> put_status(:conflict) |> json(%{error: "no_active_clinic"})

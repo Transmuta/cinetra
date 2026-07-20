@@ -21,6 +21,22 @@ export function parseView(raw: string | null | undefined): AgendaView {
 	return (VIEWS as readonly string[]).includes(raw ?? '') ? (raw as AgendaView) : 'dia';
 }
 
+/**
+ * A visão renderiza CONTAGEM agregada (barras de `data.days`), não a lista de blocos?
+ *
+ * É o que decide, no tempo real, entre remendar o bloco recebido e recarregar a janela. Semana
+ * e Mês desenham ocupação por dia — um bloco chegando por evento não dá para remendar numa
+ * barra (não há como recalcular `capacidade_minutos` a partir de um agendamento), então o
+ * evento vira refetch. Dia e Lista desenham os blocos e remendam direto.
+ *
+ * Sem este corte, a Semana (que assina os tópicos de DIA para ter granularidade por dia)
+ * recebia o bloco cheio, o remendava em `live.appointments` — um store que ela não renderiza —
+ * e a barra ficava congelada até um refresh manual.
+ */
+export function viewRendersCounts(view: AgendaView): boolean {
+	return view === 'semana' || view === 'mes';
+}
+
 // ---------------------------------------------------------------------------
 // Wire de `GET /api/appointments/counts`
 // ---------------------------------------------------------------------------

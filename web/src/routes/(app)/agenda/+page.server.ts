@@ -32,6 +32,13 @@ import {
 // que recorta a agenda do `profissional` pela policy A7); só a escrita exige papel.
 
 export const load: PageServerLoad = async (event) => {
+	// Etiqueta de invalidação do tempo real (Entrega 3). O evento do canal é OTIMIZAÇÃO sobre um
+	// estado que o REST sempre pode reconstituir (09 §7.5): Semana e Mês recarregam por aqui (a
+	// contagem agregada não dá para remendar a partir de um bloco), e é também o caminho de
+	// ressincronização depois de uma reconexão. `invalidate` desta chave reexecuta só este load
+	// — `invalidateAll` arrastaria junto o do layout.
+	event.depends('agenda:dados');
+
 	const view = parseView(event.url.searchParams.get('view'));
 
 	// "Pediram uma data" ≠ "mandaram alguma coisa em `?date=`": `?date=ontem` é lixo e cai no

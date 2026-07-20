@@ -52,7 +52,7 @@ defmodule ApiWeb.AppointmentsController do
         {:ok, appointment} ->
           conn
           |> put_status(:created)
-          |> json(%{appointment: render_appointment(appointment, scope)})
+          |> json(%{appointment: render_appointment(appointment)})
 
         {:error, error} ->
           error_response(conn, error)
@@ -125,7 +125,7 @@ defmodule ApiWeb.AppointmentsController do
     agenda = Scheduling.load_agenda(scope, from, to, filter: professional_filter(params))
 
     json(conn, %{
-      appointments: Enum.map(agenda.appointments, &render_appointment(&1, scope)),
+      appointments: Enum.map(agenda.appointments, &render_appointment/1),
       professionals: Enum.map(agenda.professionals, &render_professional/1),
       appointment_types: Enum.map(agenda.appointment_types, &render_type/1),
       # Só os pacientes citados na janela — e não o cadastro inteiro, que cresce sem limite
@@ -144,60 +144,14 @@ defmodule ApiWeb.AppointmentsController do
 
   defp professional_filter(_), do: []
 
-  # ---- serialização (à mão, omitindo clinic_id — convenção do projeto) ----
+  # ---- serialização ----
+  #
+  # Mora em `ApiWeb.AgendaJSON` desde a Entrega 3, porque deixou de ser exclusiva deste
+  # controller: o push do canal serializa o **mesmo** bloco, e o cliente aplica um sobre o
+  # outro como patch. Duas cópias divergiriam sem quebrar teste nenhum daqui.
 
-  defp render_appointment(appt, _scope) do
-    %{
-      id: appt.id,
-      starts_at: DateTime.to_iso8601(appt.starts_at),
-      ends_at: DateTime.to_iso8601(appt.ends_at),
-      status: appt.status,
-      encaixe: appt.encaixe,
-      obs: appt.obs,
-      professional_id: appt.professional_id,
-      appointment_type_id: appt.appointment_type_id,
-      package_id: appt.package_id,
-      version: appt.version,
-      created_by_id: appt.created_by_id,
-      patient_ids: patient_ids(appt)
-    }
-  end
-
-  defp patient_ids(%{attendances: attendances}) when is_list(attendances),
-    do: Enum.map(attendances, & &1.patient_id)
-
-  defp patient_ids(_), do: []
-
-  defp render_professional(prof) do
-    %{
-      id: prof.id,
-      nome: prof.nome,
-      nome_exibicao: prof.nome_exibicao,
-      crefito: prof.crefito,
-      cor_indice: prof.cor_indice,
-      segue_horario_clinica: prof.segue_horario_clinica
-    }
-  end
-
-  # Mínimo para o bloco e o cartão do drawer — nada de ficha clínica aqui (ADR-013/D16).
-  defp render_patient(paciente) do
-    %{
-      id: paciente.id,
-      nome: paciente.nome,
-      tel: paciente.tel,
-      ativo: paciente.ativo
-    }
-  end
-
-  defp render_type(tipo) do
-    %{
-      id: tipo.id,
-      nome: tipo.nome,
-      duracao_minutos: tipo.duracao_minutos,
-      cor: tipo.cor,
-      icon: tipo.icon,
-      grupo: tipo.grupo,
-      capacidade: tipo.capacidade
-    }
-  end
+  defp render_appointment(appt), do: ApiWeb.AgendaJSON.appointment(appt)
+  defp render_professional(prof), do: ApiWeb.AgendaJSON.professional(prof)
+  defp render_patient(paciente), do: ApiWeb.AgendaJSON.patient(paciente)
+  defp render_type(tipo), do: ApiWeb.AgendaJSON.appointment_type(tipo)
 end

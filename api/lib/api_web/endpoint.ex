@@ -13,9 +13,10 @@ defmodule ApiWeb.Endpoint do
     same_site: "Lax"
   ]
 
-  # socket "/live", Phoenix.LiveView.Socket,
-  #   websocket: [connect_info: [session: @session_options]],
-  #   longpoll: [connect_info: [session: @session_options]]
+  # O tempo real da agenda (ADR-004, Entrega 3). Autenticação pelo token efêmero, não pela
+  # sessão — ver `ApiWeb.UserSocket`. Sem `longpoll`: o cliente é o pacote `phoenix` no
+  # browser, e o fallback só acrescentaria superfície.
+  socket "/socket", ApiWeb.UserSocket, websocket: true, longpoll: false
 
   # Serve at "/" the static files from "priv/static" directory.
   #

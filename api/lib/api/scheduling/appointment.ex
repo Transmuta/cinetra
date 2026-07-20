@@ -36,7 +36,10 @@ defmodule Api.Scheduling.Appointment do
     domain: Api.Scheduling,
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer],
-    extensions: [AshPaperTrail.Resource]
+    extensions: [AshPaperTrail.Resource],
+    # RN-56: as mutações viram evento de tempo real. Fica só no `Appointment` — `:add_participant`
+    # também cria `Attendance`, e um notifier lá em cima emitiria o mesmo evento duas vezes.
+    notifiers: [Api.Scheduling.AgendaNotifier]
 
   postgres do
     table "appointments"

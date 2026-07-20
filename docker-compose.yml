@@ -64,6 +64,11 @@ services:
     environment:
       # Endereço da API server-to-server (BFF -> Phoenix), pela rede do compose.
       API_URL: http://api:4000
+      # Endereço da API **pelo browser**. Só o WebSocket da agenda e o redirect do OAuth usam:
+      # são as duas exceções ao ADR-005 (o resto do tráfego passa pelo BFF). É `localhost:4010`
+      # porque quem disca é o navegador do host, não um container — `http://api:4000` não
+      # resolve fora da rede do compose.
+      API_PUBLIC_ORIGIN: http://localhost:4010
     ports:
       - "5173:5173"
     volumes:

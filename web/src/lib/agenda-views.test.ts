@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
 	VIEWS,
 	parseView,
+	viewRendersCounts,
 	shiftByView,
 	viewLabel,
 	weekDays,
@@ -26,6 +27,23 @@ describe('parseView', () => {
 		expect(parseView('')).toBe('dia');
 		expect(parseView(null)).toBe('dia');
 		expect(parseView(undefined)).toBe('dia');
+	});
+});
+
+describe('viewRendersCounts', () => {
+	// É o que decide, no tempo real, entre remendar um bloco e recarregar a contagem. Semana e
+	// Mês renderizam `data.days` (barras agregadas), não a lista de blocos — um bloco chegando
+	// por evento não muda a barra, então o evento tem de virar refetch. Dia e Lista renderizam
+	// os blocos e remendam. Errar isto foi o bug: a Semana assinava tópicos de dia, recebia o
+	// bloco, o remendava num store que ela não mostra, e a barra ficava congelada.
+	it('Semana e Mês renderizam contagem (→ refetch)', () => {
+		expect(viewRendersCounts('semana')).toBe(true);
+		expect(viewRendersCounts('mes')).toBe(true);
+	});
+
+	it('Dia e Lista renderizam blocos (→ patch)', () => {
+		expect(viewRendersCounts('dia')).toBe(false);
+		expect(viewRendersCounts('lista')).toBe(false);
 	});
 });
 

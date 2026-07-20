@@ -1,7 +1,8 @@
 <script lang="ts">
 	// Agenda (doc 25, Entregas 1 e 2). Quatro visões: Dia e Lista leem blocos do dia; Semana e
 	// Mês leem contagens. Remarcar, arrastar e mudar status são a Entrega 4.
-	import { goto } from '$app/navigation';
+	import { untrack } from 'svelte';
+	import { goto, invalidate } from '$app/navigation';
 	import { page as pageState } from '$app/state';
 	import AgendaNav from '$lib/components/agenda/AgendaNav.svelte';
 	import DayGrid from '$lib/components/agenda/DayGrid.svelte';
@@ -10,7 +11,16 @@
 	import ListView from '$lib/components/agenda/ListView.svelte';
 	import NewAppointmentModal from '$lib/components/agenda/NewAppointmentModal.svelte';
 	import { toast } from '$lib/toast.svelte';
-	import { canCreateAppointment, patientNameMap, type SearchResult } from '$lib/agenda';
+	import {
+		canCreateAppointment,
+		patientNameMap,
+		type SearchResult,
+		type Appointment,
+		type AgendaPatient
+	} from '$lib/agenda';
+	import { agendaTopics, connectAgenda, type RealtimeConfig } from '$lib/realtime';
+	import { applyAppointment, mergePatients } from '$lib/agenda-live';
+	import { viewRendersCounts } from '$lib/agenda-views';
 	import ProfessionalChips from '$lib/components/agenda/ProfessionalChips.svelte';
 	import { mediaQuery, AGENDA_MOBILE } from '$lib/media.svelte';
 	import type { AgendaView } from '$lib/agenda-views';
@@ -32,10 +42,106 @@
 		goto(qs ? `/agenda?${qs}` : '/agenda', { keepFocus: true, noScroll: true, replaceState: true });
 	}
 
+	// ---- Tempo real (Entrega 3, ADR-004) --------------------------------------------------
+	//
+	// O que a tela mostra é `data` do load COM o patch dos eventos por cima. `live` é esse
+	// patch, e ele é jogado fora a cada dado novo do servidor: o REST é a fonte de verdade e o
+	// evento é otimização sobre ele (09 §7.5), nunca o contrário.
+	let live = $state<{ appointments: Appointment[]; patients: AgendaPatient[] } | null>(null);
+	let realtime = $state<RealtimeConfig | null>(null);
+
+	const appointments = $derived(live?.appointments ?? data.appointments);
+	const patients = $derived(live?.patients ?? data.patients);
+
+	$effect(() => {
+		// Lido para criar a dependência: qualquer carga nova descarta o patch acumulado.
+		data.appointments;
+		data.patients;
+		live = null;
+	});
+
+	// O token do socket, uma vez por aba. Vem do BFF (o cookie de sessão é HttpOnly) junto da
+	// origem pública da API — o WebSocket é a exceção ao ADR-005 e fala direto com o Phoenix.
+	// Sem token a agenda continua funcionando, só não atualiza sozinha.
+	$effect(() => {
+		let vivo = true;
+
+		fetch('/api/realtime/token')
+			.then((r) => (r.ok ? r.json() : null))
+			.then((cfg) => {
+				if (vivo && cfg?.token) realtime = cfg as RealtimeConfig;
+			})
+			.catch(() => {});
+
+		return () => {
+			vivo = false;
+		};
+	});
+
+	// Recarrega a janela visível. Semana e Mês vivem de contagem agregada, que não dá para
+	// remendar a partir de um bloco (não dá para recalcular `capacidade_minutos` de um evento);
+	// e é este também o caminho de ressincronização depois de reconectar.
+	//
+	// Com atraso, e cancelando o anterior: uma rajada de escritas (recepção marcando cinco
+	// horários seguidos) vira UMA recarga. Não é polimento — a leitura de janela ainda varre o
+	// histórico da clínica (achado (a) do doc 27), então cada recarga é cara.
+	let recarga: ReturnType<typeof setTimeout> | null = null;
+
+	function recarregar() {
+		if (recarga) clearTimeout(recarga);
+		recarga = setTimeout(() => {
+			recarga = null;
+			void invalidate('agenda:dados');
+		}, 400);
+	}
+
+	// A conexão depende dos TÓPICOS, não de `data`. A diferença aparece só ao vivo, no log do
+	// servidor: um efeito que lê `data.view`/`data.date` direto re-executa a cada carga nova —
+	// e como o sinal do Mês chama `invalidate`, cada evento derrubava e reabria o WebSocket.
+	// Funcionava, e era churn puro. A chave é string: o `$derived` só notifica quando ela MUDA
+	// de fato, então recarregar o mesmo dia não mexe na conexão.
+	const topicsKey = $derived(
+		realtime ? agendaTopics(realtime.clinic_id, data.view as AgendaView, data.date).join('|') : ''
+	);
+
+	$effect(() => {
+		const key = topicsKey;
+		if (!key) return;
+
+		// Fora do rastreamento: `realtime` já entra pela chave acima, e lê-lo aqui só
+		// acrescentaria uma reconexão por renovação de token.
+		const cfg = untrack(() => realtime);
+		if (!cfg) return;
+
+		return connectAgenda(cfg, key.split('|'), {
+			onAppointment: (evento) => {
+				// Semana assina tópicos de DIA (granularidade por dia), mas renderiza contagem:
+				// o bloco não dá para remendar numa barra, então vira refetch — o mesmo caminho
+				// que o sinal do Mês toma. Sem isto a barra da Semana ficava congelada (o bloco
+				// ia para `live.appointments`, que a Semana não mostra). Dia e Lista remendam.
+				if (viewRendersCounts(data.view as AgendaView)) {
+					recarregar();
+					return;
+				}
+
+				live = {
+					appointments: applyAppointment(
+						live?.appointments ?? data.appointments,
+						evento.appointment
+					),
+					patients: mergePatients(live?.patients ?? data.patients, evento.patients ?? [])
+				};
+			},
+			onSignal: recarregar,
+			onResync: recarregar
+		});
+	});
+
 	// Nome do paciente por id, do sidecar `patients` do GET. O mapa é montado por
 	// `patientNameMap` (pura, testada) e não aqui: é lá que fica registrado que arquivado
-	// TAMBÉM entra.
-	const patientNames = $derived(patientNameMap(data.patients));
+	// TAMBÉM entra. Sai de `patients` (já com o patch), não de `data.patients`: um bloco que
+	// chega por evento pode citar alguém que a janela carregada não conhecia.
+	const patientNames = $derived(patientNameMap(patients));
 
 	// Mobile: a visão Dia troca de render abaixo de 860px — uma coluna por vez (protótipo
 	// :1703). É comportamento, não layout, então não dá para resolver com classe do Tailwind.
@@ -109,7 +215,7 @@
 			/>
 		{:else if data.view === 'lista'}
 			<ListView
-				appointments={data.appointments}
+				{appointments}
 				professionals={data.professionals}
 				appointmentTypes={data.appointmentTypes}
 				{patientNames}
@@ -132,7 +238,7 @@
 				today={data.today}
 				timezone={data.timezone}
 				agora={data.agora}
-				appointments={data.appointments}
+				{appointments}
 				professionals={data.professionals}
 				appointmentTypes={data.appointmentTypes}
 				availability={data.availability}

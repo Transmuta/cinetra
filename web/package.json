@@ -25,6 +25,7 @@
 		"@testing-library/jest-dom": "^6.9.1",
 		"@testing-library/svelte": "^5.4.2",
 		"@testing-library/user-event": "^14.6.1",
+		"@types/phoenix": "^1.6.7",
 		"@vitest/coverage-v8": "^4.1.10",
 		"jsdom": "^29.1.1",
 		"svelte": "^5.56.1",
@@ -37,7 +38,8 @@
 	"dependencies": {
 		"@fontsource-variable/hanken-grotesk": "^5.2.8",
 		"@fontsource/martian-mono": "^5.2.7",
-		"@lucide/svelte": "^1.24.0"
+		"@lucide/svelte": "^1.24.0",
+		"phoenix": "~1.8.0"
 	},
 	"overrides": {
 		"cookie": "^0.7.0"

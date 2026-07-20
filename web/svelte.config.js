@@ -22,7 +22,17 @@ const config = {
 				'style-src': ['self', 'unsafe-inline'],
 				'img-src': ['self', 'data:'],
 				'font-src': ['self'],
-				'connect-src': ['self'],
+				// O WebSocket da agenda (Entrega 3) é a única conexão do browser que NÃO passa pelo
+				// BFF: ele vai direto ao Phoenix (ADR-004/005), então `self` não basta. Os hosts
+				// são fixos por ambiente e ficam explícitos aqui — `ws:`/`wss:` genéricos
+				// liberariam qualquer destino, que é o que a CSP existe para impedir.
+				'connect-src': [
+					'self',
+					'http://localhost:4010',
+					'ws://localhost:4010',
+					'https://movimento-api.fly.dev',
+					'wss://movimento-api.fly.dev'
+				],
 				'base-uri': ['self'],
 				'form-action': ['self'],
 				'frame-ancestors': ['none'],
