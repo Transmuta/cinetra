@@ -222,10 +222,23 @@ literalmente *"paleta categórica dos avatares da agenda"*), `tint`/`iconCompone
 | A6 | Disponibilidade | Validação Ash → **422**; independente do conflito | RN-14 ([`02:160`](02-regras-e-lacunas.md)): as duas checagens são obrigatórias e separadas |
 | A7 | Leitura | Profissional vê **só a própria** agenda | D1 ([`10:26`](10-decisoes-de-produto-v1.md)). Exige `FilterCheck` novo — `HasClinicRole` é `SimpleCheck` e não filtra linhas |
 | A8 | Escrita | `owner`·`admin`·`recepcao`·`profissional` (este só a própria) | Recepção é quem agenda; o par `with_admin_scope`/`with_member_scope` de hoje não serve |
-| A9 | Encaixe | Só `owner`·`admin`·`recepcao` criam | D2 ([`10:32`](10-decisoes-de-produto-v1.md)). Como é atributo e não ação, vira ação separada `:schedule_encaixe` |
+| A9 | Encaixe | Só `owner`·`admin`·`recepcao` criam | D2 ([`10:32`](10-decisoes-de-produto-v1.md)). **Implementado como policy condicional** sobre `:schedule`, não como ação separada — ver nota |
 | A10 | Erro de conflito | **422 sem campo**, com `code` estável | [`09:605`](09-contrato-api.md): pintar `starts_at` de vermelho mente. `409` fica reservado a concorrência |
 | A11 | `layoutAppts` | Fica **no cliente**, como função pura | ADR-006 e [`08:183`](08-roadmap.md) — *"o único dos quatro motores que fica no cliente"* |
 | A12 | Faixa vertical do grid | Derivada do expediente, não 08–18 fixo | RN-03 ([`02:48`](02-regras-e-lacunas.md)): 08–18 é limite de renderização, não regra. Fecha GAP-05 (almoço decorativo) |
+
+> **Nota sobre A9 (ratificada em 2026-07-19, D6).** O texto original previa uma ação separada
+> `:schedule_encaixe`. Foi implementada como **policy condicional** sobre `:schedule`
+> (`Checks.CreatingEncaixe`, lendo o **argumento** — o atributo só existe depois do
+> `change set_attribute/2`, e a ordem entre policy e change não é garantida). O resultado
+> observável é o mesmo que o §7 exige (403 para `profissional`) sem duplicar a ação inteira.
+>
+> Registro de como isto foi descoberto: a A9 **nunca chegou a ser implementada** na primeira
+> passada — o recurso tinha um comentário afirmando que "uma policy decide" e a policy não
+> existia. Um `profissional` criava com `encaixe: true`, que é exatamente o predicado que
+> **isenta a linha da exclusion constraint**: o papel menos privilegiado desligava a proteção
+> contra dupla-marcação mandando um booleano no corpo. Achado pelo bate-volta
+> ([26](26-auditoria-bate-volta-agenda.md) §3).
 
 ### Decisões tomadas por padrão (sem pergunta)
 
@@ -604,9 +617,19 @@ que o schema já as comporte.
 constraint + `btree_gist` + `tz` + relógio no `Api.Scope` + `Availability` + a **trilha de
 auditoria** gravando (A-D6c, §11 — só gravar; a tela é fatia própria) +
 `GET/POST /api/appointments` + `GET /api/availability` + a rota `/agenda` com visão **Dia** e o
-modal de criar. Pronto quando: dois navegadores no mesmo dia, um cria e aparece nos dois sem
-refresh; criar fora do expediente é recusado com mensagem; sobrepor é recusado **pela constraint
-sob corrida**, com 422 e não 500 ([`08:200`](08-roadmap.md)).
+modal de criar.
+
+**Pronto quando** (corrigido em 2026-07-19 — ver nota abaixo): criar fora do expediente é
+recusado com mensagem; sobrepor é recusado **pela constraint sob corrida**, com 422 e não 500
+([`08:200`](08-roadmap.md)); a turma respeita capacidade e funde participantes; e tipo
+arquivado / profissional ou paciente inativo são recusados.
+
+> **Correção do critério (D1).** A redação anterior exigia *"dois navegadores no mesmo dia, um
+> cria e aparece nos dois **sem refresh**"* — isso é PubSub/Channel, que este mesmo §9 atribui à
+> **Entrega 3**. O critério contradizia o fatiamento. Removido daqui: tempo real fecha na
+> Entrega 3, e o valor dele só aparece quando houver operação simultânea real. Puxá-lo para cá
+> reabriria um eixo de risco inteiro (validar `clinic_id` do tópico no `join`, dois broadcasts
+> por escrita, remarcação entre dias emitindo em dois tópicos) numa entrega já grande.
 
 > **Status (2026-07-19): Entrega 1 CONSTRUÍDA.** Backend: `Appointment`, `Attendance`, os dois
 > enums, `Availability`, `LocalTime`, a exclusion constraint, `btree_gist`, `tz`, o relógio no

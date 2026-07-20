@@ -8,6 +8,12 @@ defmodule ApiWeb.TenantScope do
   O `clinic_id` vem **sempre** do escopo, nunca do corpo (09 §8).
   """
   import Plug.Conn
+
+  # Teto de janela de datas (doc 25 §5): sem ele, `?from=2000-01-01&to=2100-01-01` varre a
+  # tabela. Mora aqui, e não em cada controller, porque é a mesma regra de fronteira para
+  # qualquer endpoint que aceite intervalo — hoje agenda e disponibilidade.
+  @max_dias 31
+
   import Phoenix.Controller, only: [json: 2]
 
   alias Api.Scope
@@ -28,28 +34,23 @@ defmodule ApiWeb.TenantScope do
   end
 
   @doc """
-  Agenda (A8): `owner`·`admin`·`recepcao`·`profissional` de uma clínica ativa.
+  Leitura: qualquer membro de uma clínica ativa, independentemente do papel.
 
-  Nem `with_admin_scope` (exclui recepção, que é justamente quem agenda) nem
-  `with_member_scope` (aceita qualquer papel) servem — daí a terceira guarda. O recorte
-  *dentro* do papel `profissional` ("só a própria agenda", A7) não é feito aqui e sim na
-  preparation `OwnAgendaOnly`, porque é sobre **linhas**, não sobre permissão de entrar.
+  A agenda (A8) usava uma terceira guarda, `with_scheduling_scope`, que enumerava
+  `[:owner, :admin, :recepcao, :profissional]` — que é a lista **inteira** de
+  `Api.Accounts.Role`. Era `:any` escrito por extenso, e o moduledoc justificava uma
+  distinção que não existia. Colapsada aqui, com a divisão de responsabilidade explícita:
+
+    * esta guarda responde **"você é membro de uma clínica ativa?"** (401 · 403);
+    * **qual papel pode fazer o quê** é da policy do recurso — para agendamento, a policy de
+      `Api.Scheduling.Appointment`, que é fail-closed e continua sendo a autoridade;
+    * o recorte *dentro* do papel `profissional` ("só a própria agenda", A7) é da preparation
+      `OwnAgendaOnly`, porque é sobre **linhas**, não sobre permissão de entrar.
+
+  Consequência a conhecer: se um papel novo nascer em `Role`, ele entra aqui por default. É o
+  mesmo contrato de todos os outros controllers (pacientes, profissionais, clínica), e quem
+  barra continua sendo a policy do recurso.
   """
-  def with_scheduling_scope(conn, fun) do
-    case conn.assigns[:scope] do
-      %Scope{clinic_id: cid, papel: papel} = scope
-      when not is_nil(cid) and papel in [:owner, :admin, :recepcao, :profissional] ->
-        fun.(scope)
-
-      %Scope{} ->
-        forbidden(conn)
-
-      _ ->
-        unauthorized(conn)
-    end
-  end
-
-  @doc "Leitura: qualquer membro de uma clínica ativa, independentemente do papel."
   def with_member_scope(conn, fun) do
     case conn.assigns[:scope] do
       %Scope{clinic_id: cid} = scope when not is_nil(cid) ->
@@ -93,14 +94,66 @@ defmodule ApiWeb.TenantScope do
     |> json(%{error: "conflict", code: code, details: [%{field: nil, message: message}]})
   end
 
-  # 422 com `code` estável no topo (A10). Dois casos precisam de tratamento especial, e os
-  # dois são "o campo certo é NENHUM campo":
-  #
-  #   * conflito de horário — o Ecto exige uma chave para a exclusion constraint e escolhemos
-  #     `starts_at`, mas pintar esse input de vermelho **mente**: o horário digitado está
-  #     certo, o mundo é que está ocupado. Vira `field: null` + `schedule_conflict`.
-  #   * expediente — `CheckAvailability` já emite `field: nil` e manda o código em `vars`.
-  defp unprocessable(conn, details) do
+  @doc """
+  Atalho para o 422 de um erro que não é de campo nenhum (parâmetro de query malformado, teto
+  de janela). Era o `invalid/2` copiado nos controllers de agenda e disponibilidade.
+  """
+  def invalid(conn, message), do: unprocessable(conn, [%{field: nil, message: message}])
+
+  @doc """
+  Lê e valida uma janela de datas de `params` (`from_key`/`to_key`, ambas `YYYY-MM-DD`).
+
+  Era 27 linhas duplicadas byte a byte entre os controllers de agenda e disponibilidade —
+  divergindo só no **nome do parâmetro dentro da mensagem**, que agora é interpolado. `to_key`
+  ausente vale como igual a `from_key` (janela de um dia só).
+
+  Retornos: `{:ok, from, to}` · `{:error, message}` (pronto para `invalid/2`).
+  """
+  def parse_window(params, from_key, to_key, max_dias \\ @max_dias) do
+    with {:ok, from} <- parse_date(params[from_key], from_key),
+         {:ok, to} <- parse_date(params[to_key] || params[from_key], to_key),
+         :ok <- validate_window(from, to, from_key, to_key, max_dias) do
+      {:ok, from, to}
+    end
+  end
+
+  defp parse_date(nil, key), do: {:error, "informe o parâmetro #{key} (YYYY-MM-DD)"}
+
+  defp parse_date(value, _key) when is_binary(value) do
+    case Date.from_iso8601(value) do
+      {:ok, date} -> {:ok, date}
+      {:error, _} -> {:error, "data inválida: #{value}"}
+    end
+  end
+
+  defp parse_date(_value, _key), do: {:error, "data inválida"}
+
+  defp validate_window(from, to, from_key, to_key, max_dias) do
+    cond do
+      Date.compare(to, from) == :lt -> {:error, "#{to_key} não pode ser anterior a #{from_key}"}
+      Date.diff(to, from) >= max_dias -> {:error, "janela máxima de #{max_dias} dias"}
+      true -> :ok
+    end
+  end
+
+  @doc """
+  **Fonte única do corpo 422** — `{"error":"invalid", "code"?: ..., "details":[...]}`.
+
+  Antes havia cinco lugares montando este corpo à mão, em **dois formatos**: os `invalid/2`
+  privados dos controllers nunca emitiam `code`, e esta função sempre promove o que vier — o
+  mesmo endpoint respondia 422 em formatos diferentes conforme o caminho que falhasse.
+  `code` continua **opcional**: `details` sem código produz exatamente o corpo antigo, que é o
+  que professionais/horário-da-clínica já contratam.
+
+  `code` estável no topo (A10). Dois casos precisam de tratamento especial, e os dois são
+  "o campo certo é NENHUM campo":
+
+    * conflito de horário — o Ecto exige uma chave para a exclusion constraint e escolhemos
+      `starts_at`, mas pintar esse input de vermelho **mente**: o horário digitado está
+      certo, o mundo é que está ocupado. Vira `field: null` + `schedule_conflict`.
+    * expediente — `CheckAvailability` já emite `field: nil` e manda o código em `vars`.
+  """
+  def unprocessable(conn, details) do
     {code, details} = extract_code(details)
 
     body =

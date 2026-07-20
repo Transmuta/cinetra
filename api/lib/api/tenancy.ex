@@ -19,8 +19,19 @@ defmodule Api.Tenancy do
 
   Só para **leitura**: envolver escrita numa transação externa quebra o caminho de erro (o
   rollback do Ash na transação interna arrebenta a de fora e um 422 vira 500).
+
+  Aceita um `Api.Scope` **ou o `clinic_id` cru**. A segunda forma existe porque nem todo
+  chamador tem escopo: as fontes de disponibilidade são carregadas de dentro de uma ação, que
+  conhece o tenant e não a sessão. Sem ela esses pontos reescreviam o desembrulho do
+  `Api.Repo.with_clinic/2` à mão — era a mesma linha copiada em três lugares.
   """
+  def in_clinic(scope_or_clinic_id, fun)
+
   def in_clinic(%Api.Scope{clinic_id: clinic_id}, fun) when is_binary(clinic_id) do
+    in_clinic(clinic_id, fun)
+  end
+
+  def in_clinic(clinic_id, fun) when is_binary(clinic_id) do
     {:ok, result} = Api.Repo.with_clinic(clinic_id, fun)
     result
   end

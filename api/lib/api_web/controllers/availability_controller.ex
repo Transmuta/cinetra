@@ -15,15 +15,12 @@ defmodule ApiWeb.AvailabilityController do
 
   alias Api.Scheduling
 
-  @max_dias 31
-
   # GET /api/availability?professional_id=&date_from=&date_to=
+  # A leitura da janela (e o teto de 31 dias) mora em `TenantScope.parse_window/4`.
   def index(conn, params) do
-    with_scheduling_scope(conn, fn scope ->
+    with_member_scope(conn, fn scope ->
       with {:ok, professional_id} <- fetch_professional(params),
-           {:ok, from} <- parse_date(params["date_from"]),
-           {:ok, to} <- parse_date(params["date_to"] || params["date_from"]),
-           :ok <- validate_window(from, to) do
+           {:ok, from, to} <- parse_window(params, "date_from", "date_to") do
         render_days(conn, scope, professional_id, from, to)
       else
         {:error, :not_found} -> not_found(conn)
@@ -64,29 +61,4 @@ defmodule ApiWeb.AvailabilityController do
     do: {:ok, id}
 
   defp fetch_professional(_), do: {:error, "informe professional_id"}
-
-  defp parse_date(nil), do: {:error, "informe date_from (YYYY-MM-DD)"}
-
-  defp parse_date(value) when is_binary(value) do
-    case Date.from_iso8601(value) do
-      {:ok, date} -> {:ok, date}
-      {:error, _} -> {:error, "data inválida: #{value}"}
-    end
-  end
-
-  defp parse_date(_), do: {:error, "data inválida"}
-
-  defp validate_window(from, to) do
-    cond do
-      Date.compare(to, from) == :lt -> {:error, "date_to não pode ser anterior a date_from"}
-      Date.diff(to, from) >= @max_dias -> {:error, "janela máxima de #{@max_dias} dias"}
-      true -> :ok
-    end
-  end
-
-  defp invalid(conn, message) do
-    conn
-    |> put_status(:unprocessable_entity)
-    |> json(%{error: "invalid", details: [%{field: nil, message: message}]})
-  end
 end

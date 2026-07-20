@@ -22,7 +22,7 @@ defmodule Api.Scheduling.Appointment.Changes.CheckAvailability do
   """
   use Ash.Resource.Change
 
-  alias Api.Scheduling.{Availability, LocalTime}
+  alias Api.Scheduling.{Availability, CodedError, LocalTime}
 
   @impl true
   def change(changeset, _opts, _context) do
@@ -96,23 +96,13 @@ defmodule Api.Scheduling.Appointment.Changes.CheckAvailability do
     Enum.map_join(periods, ", ", fn [ini, fim] -> "#{ini}–#{fim}" end)
   end
 
-  # `code` viaja em `vars` — é como uma validação de recurso nomeia o erro sem conhecer HTTP;
-  # a fronteira o promove ao topo do 422 (A10). Construímos a exception explicitamente porque
-  # `add_error/2` com keyword list **aninha** o que recebe (`vars: [vars: [code: ...]]`).
-  defp error(changeset, field, message, code \\ nil) do
-    vars = if code, do: [code: code], else: []
+  # O `code` viaja em `vars` e a exception é montada à mão — ver `Api.Scheduling.CodedError`,
+  # que centraliza o porquê (e a armadilha do `add_error/2` aninhando keyword lists).
+  defp error(changeset, field, message, code \\ nil)
 
-    error =
-      if field do
-        Ash.Error.Changes.InvalidAttribute.exception(
-          field: field,
-          message: message,
-          vars: vars
-        )
-      else
-        Ash.Error.Changes.InvalidChanges.exception(message: message, vars: vars)
-      end
+  defp error(changeset, nil, message, code),
+    do: Ash.Changeset.add_error(changeset, CodedError.invalid_changes(message, code))
 
-    Ash.Changeset.add_error(changeset, error)
-  end
+  defp error(changeset, field, message, code),
+    do: Ash.Changeset.add_error(changeset, CodedError.invalid_attribute(field, message, code))
 end

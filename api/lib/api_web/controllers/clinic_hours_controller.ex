@@ -29,7 +29,7 @@ defmodule ApiWeb.ClinicHoursController do
           json(conn, %{clinic_hours: hours_map(rows)})
 
         {:error, {:invalid, details}} ->
-          conn |> put_status(:unprocessable_entity) |> json(%{error: "invalid", details: details})
+          unprocessable(conn, details)
 
         {:error, error} ->
           error_response(conn, error)

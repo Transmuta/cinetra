@@ -92,7 +92,7 @@ defmodule ApiWeb.ProfessionalsController do
           not_found(conn)
 
         {:error, {:invalid, details}} ->
-          conn |> put_status(:unprocessable_entity) |> json(%{error: "invalid", details: details})
+          unprocessable(conn, details)
 
         {:error, error} ->
           error_response(conn, error)

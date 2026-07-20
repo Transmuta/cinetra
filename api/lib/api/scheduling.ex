@@ -5,9 +5,16 @@ defmodule Api.Scheduling do
   semanal) e `ScheduleException` (feriados e exceções de data). `ProfessionalHours` e a
   exceção por profissional entram com a seção Profissionais (doc 22 §5).
 
-  Os wrappers `*_clinic_*` centralizam aqui o `Api.Repo.with_clinic/2` (GUC de tenant para a
-  RLS) na leitura, como em `Api.Directory` — controllers e changes não falam com o Repo. A
-  escrita seta a GUC dentro da própria ação, via `Api.Tenancy.SetTenantGuc`.
+  Os wrappers deste módulo centralizam aqui o `Api.Repo.with_clinic/2` (GUC de tenant para a
+  RLS) na leitura — é por isso que **os controllers não falam com o Repo** e chamam estas
+  funções em vez das code interfaces cruas. A escrita seta a GUC dentro da própria ação, via
+  `Api.Tenancy.SetTenantGuc`.
+
+  A frase antiga dizia "controllers e changes não falam com o Repo". Vale para os controllers;
+  **não** vale para os changes: `Appointment.Changes.ComputeEndsAt` chama `Api.Repo.with_clinic/2`
+  direto, porque precisa da GUC de dentro da transação da própria ação — um `in_clinic` externo
+  ali quebraria o caminho de erro (ver `Api.Tenancy`). O que a regra de fato garante é que a
+  **fronteira HTTP** não fala com o Repo.
   """
   use Ash.Domain, otp_app: :api, extensions: [AshPaperTrail.Domain]
 
@@ -26,12 +33,29 @@ defmodule Api.Scheduling do
   resources do
     resource Api.Scheduling.Appointment do
       define :list_appointments, action: :in_range, args: [:from, :to]
+      define :find_appointments, action: :read
       define :get_appointment, action: :read, get_by: [:id]
-      define :schedule_appointment, action: :schedule
+
+      # A interface **crua** da criação. Quem agenda de fora chama `schedule_appointment/2`
+      # (abaixo), que decide entre criar e fundir numa turma existente (A-D4).
+      define :create_appointment_slot, action: :schedule
+      define :add_appointment_participants, action: :add_participant
     end
 
     resource Api.Scheduling.Attendance do
       define :list_attendances, action: :read
+    end
+
+    # Os recursos `*.Version` acima nasciam registrados (`include_versions?`) mas **sem code
+    # interface** — então ler a trilha exigia `Ash.read!` cru, que é justamente o que
+    # `.claude/rules/ash.md` manda evitar (e o teste da trilha fazia). Com o `define`, a
+    # trilha se lê como qualquer outra coleção do domínio.
+    resource Api.Scheduling.Appointment.Version do
+      define :list_appointment_versions, action: :read
+    end
+
+    resource Api.Scheduling.Attendance.Version do
+      define :list_attendance_versions, action: :read
     end
 
     resource Api.Scheduling.ClinicHours do
@@ -50,6 +74,156 @@ defmodule Api.Scheduling do
       define :list_professional_hours_rows, action: :read
       define :set_professional_hours_day, action: :set_day
     end
+  end
+
+  # ---- Agenda: escrita ----
+
+  @doc """
+  Agenda — **criando** o bloco, ou **fundindo** o participante numa turma que já existe (A-D4).
+
+  ## Por que a fusão não é uma sutileza estética
+
+  No protótipo, criar num slot com bloco coincidente (mesmo profissional/data/hora/tipo) funde
+  o paciente ([`:1053`]) e nunca chama `checkConflict` para grupo — omissão registrada em
+  `12:102`. Com a exclusion constraint `appointments_no_overlap`, isso deixou de ser escolha:
+  um **segundo** `Appointment` no mesmo profissional/horário é rejeitado pelo banco. Sem a
+  fusão, portanto, adicionar o segundo participante de uma turma simplesmente **falha**, com
+  um 422 de conflito que descreve mal o que aconteceu.
+
+  ## Lookup-then-add, e por que isso importa para a capacidade
+
+  A fusão é feita como *lookup-then-add*: acha a turma e delega para `:add_participant`. O
+  ganho é que criar e fundir passam pela **mesma** validação de capacidade
+  (`Validations.GroupCapacity`) — sem isso o teto ficaria validado num caminho e furado no
+  outro, que é exatamente o bug do protótipo (A-D3).
+
+  Só tipo de **grupo** funde. Tipo individual no mesmo slot continua sendo conflito, e é o
+  banco quem diz. Uma turma `pkg_hold` (Fatia 3) é invisível à leitura por RN-05 e portanto não
+  funde — cairia em conflito; o `slot_held` (409) que trataria isso é da Entrega 4.
+
+  ## Sobre a corrida
+
+  Entre o lookup e a escrita há janela: dois recepcionistas criando a mesma turma no mesmo
+  instante fazem os dois lookups voltarem vazios, e o segundo `INSERT` bate na constraint →
+  422 de conflito, não 500 nem linha duplicada. O banco continua sendo a autoridade (A5).
+  """
+  def schedule_appointment(attrs, opts \\ []) when is_map(attrs) do
+    case find_turma(attrs, opts) do
+      nil ->
+        create_appointment_slot(attrs, opts)
+
+      turma ->
+        add_appointment_participants(
+          turma,
+          %{
+            patient_ids: List.wrap(fetch(attrs, :patient_ids)),
+            encaixe: fetch(attrs, :encaixe) in [true, "true"]
+          },
+          opts
+        )
+    end
+  end
+
+  # A turma existente para estes atributos, ou `nil`. Devolve `nil` em toda dúvida (tipo
+  # individual, tipo não encontrado, `starts_at` malformado): quem recusa entrada inválida são
+  # as validações da ação, com a mensagem certa — não este lookup, calado.
+  defp find_turma(attrs, opts) do
+    with clinic_id when is_binary(clinic_id) <- clinic_id_from(opts),
+         type_id when is_binary(type_id) <- fetch(attrs, :appointment_type_id),
+         professional_id when is_binary(professional_id) <- fetch(attrs, :professional_id),
+         {:ok, _capacidade} <- Api.Directory.appointment_type_capacity(type_id, clinic_id),
+         {:ok, starts_at} <- cast_starts_at(fetch(attrs, :starts_at)) do
+      query =
+        Ash.Query.filter(
+          Api.Scheduling.Appointment,
+          professional_id == ^professional_id and appointment_type_id == ^type_id and
+            starts_at == ^starts_at and status != :cancelado
+        )
+
+      case in_clinic_or_tenant(opts, clinic_id, fn ->
+             find_appointments!(Keyword.put(opts, :query, query))
+           end) do
+        [turma | _] -> turma
+        _ -> nil
+      end
+    else
+      _ -> nil
+    end
+  end
+
+  defp cast_starts_at(%DateTime{} = starts_at), do: {:ok, starts_at}
+
+  defp cast_starts_at(value) when is_binary(value) do
+    case Ash.Type.cast_input(:utc_datetime, value) do
+      {:ok, starts_at} -> {:ok, starts_at}
+      _ -> :error
+    end
+  end
+
+  defp cast_starts_at(_), do: :error
+
+  defp clinic_id_from(opts) do
+    case Keyword.get(opts, :scope) do
+      %Api.Scope{clinic_id: clinic_id} -> clinic_id
+      _ -> opts |> Keyword.get(:tenant) |> normalize_tenant()
+    end
+  end
+
+  defp normalize_tenant(nil), do: nil
+  defp normalize_tenant(tenant), do: to_string(tenant)
+
+  # A leitura precisa da GUC (ADR-018) — e `in_clinic/2` exige um `Api.Scope`. Chamada interna
+  # com `tenant:` cru (seed, teste) usa o `with_clinic` direto.
+  defp in_clinic_or_tenant(opts, clinic_id, fun) do
+    case Keyword.get(opts, :scope) do
+      %Api.Scope{} = scope ->
+        in_clinic(scope, fun)
+
+      _ ->
+        {:ok, result} = Api.Repo.with_clinic(clinic_id, fun)
+        result
+    end
+  end
+
+  # `attrs` chega com chaves atom (testes, code interfaces) ou string (corpo HTTP).
+  defp fetch(attrs, key) do
+    Map.get(attrs, key, Map.get(attrs, Atom.to_string(key)))
+  end
+
+  @doc """
+  O teto de participantes de uma turma: `AppointmentType.capacidade`, ou o
+  `Clinic.cap_turma_padrao` quando o tipo é de grupo sem teto próprio (A-D3).
+
+  Retornos: `{:ok, capacidade}` (tipo de grupo) · `:individual` · `:error`.
+  """
+  def group_capacity(clinic_id, appointment_type_id)
+      when is_binary(clinic_id) and is_binary(appointment_type_id) do
+    case Api.Directory.appointment_type_capacity(appointment_type_id, clinic_id) do
+      {:ok, capacidade} when is_integer(capacidade) -> {:ok, capacidade}
+      {:ok, nil} -> {:ok, load_clinic(clinic_id).cap_turma_padrao}
+      other -> other
+    end
+  end
+
+  @doc """
+  Quantos participantes um agendamento já tem — o `N` do `N/cap` (A-D3).
+
+  Lido **sem escopo** de propósito: é contagem de invariante, não de exibição. Sob o recorte
+  da A7, um `profissional` contaria menos participantes do que a turma tem e o teto se abriria
+  sozinho para ele.
+  """
+  def count_participants(clinic_id, appointment_id)
+      when is_binary(clinic_id) and is_binary(appointment_id) do
+    {:ok, attendances} =
+      Api.Repo.with_clinic(clinic_id, fn ->
+        list_attendances!(
+          tenant: clinic_id,
+          authorize?: false,
+          query: [filter: [appointment_id: appointment_id]]
+        )
+      end)
+
+    length(attendances)
   end
 
   # ---- Agenda: leitura da tela ----
@@ -131,25 +305,22 @@ defmodule Api.Scheduling do
   """
   def load_availability_sources(clinic_id, professional_id, %Date{} = date)
       when is_binary(clinic_id) and is_binary(professional_id) do
-    {:ok, result} =
-      Api.Repo.with_clinic(clinic_id, fn ->
-        case Api.Directory.get_professional(professional_id,
-               tenant: clinic_id,
-               authorize?: false,
-               not_found_error?: false
-             ) do
-          {:ok, nil} ->
-            {:error, :professional_not_found}
+    in_clinic(clinic_id, fn ->
+      case Api.Directory.get_professional(professional_id,
+             tenant: clinic_id,
+             authorize?: false,
+             not_found_error?: false
+           ) do
+        {:ok, nil} ->
+          {:error, :professional_not_found}
 
-          {:error, _} ->
-            {:error, :professional_not_found}
+        {:error, _} ->
+          {:error, :professional_not_found}
 
-          {:ok, professional} ->
-            {:ok, professional, sources_for(clinic_id, professional_id, date)}
-        end
-      end)
-
-    result
+        {:ok, professional} ->
+          {:ok, professional, sources_for(clinic_id, professional_id, date)}
+      end
+    end)
   end
 
   defp sources_for(clinic_id, professional_id, date) do

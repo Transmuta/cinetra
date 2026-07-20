@@ -69,6 +69,40 @@ defmodule Api.Scheduling.AppointmentTest do
     dt
   end
 
+  defp grupo_tipo(ctx, capacidade) do
+    Directory.create_appointment_type!(
+      %{
+        nome: "Turma #{System.unique_integer([:positive])}",
+        duracao_minutos: 50,
+        cor: "#0FB5A6",
+        icon: "Users",
+        grupo: true,
+        capacidade: capacidade
+      },
+      tenant: ctx.clinic.id,
+      actor: ctx.owner
+    )
+  end
+
+  defp novo_paciente(ctx) do
+    Records.create_patient!("Paciente #{System.unique_integer([:positive])}", %{},
+      tenant: ctx.clinic.id,
+      actor: ctx.owner
+    )
+  end
+
+  # Os `code`s estáveis do contrato (doc 25 §5) viajam em `vars[:code]` — é assim que a
+  # fronteira HTTP os promove ao topo do 422. Afirmar o código, e não a mensagem, é o que
+  # torna o teste um teste de contrato.
+  defp codes(%Ash.Error.Invalid{errors: errors}) do
+    Enum.flat_map(errors, fn error ->
+      case Map.get(error, :vars) do
+        vars when is_list(vars) -> List.wrap(Keyword.get(vars, :code))
+        _ -> []
+      end
+    end)
+  end
+
   defp schedule(ctx, attrs) do
     base = %{
       starts_at: at("08:00"),
@@ -401,15 +435,304 @@ defmodule Api.Scheduling.AppointmentTest do
     end
   end
 
+  describe "A-D4 — merge idempotente de turma" do
+    test "segundo participante no mesmo slot FUNDE no agendamento existente" do
+      ctx = setup_clinic()
+      turma = grupo_tipo(ctx, 4)
+      outro = novo_paciente(ctx)
+
+      assert {:ok, primeiro} = schedule(ctx, %{appointment_type_id: turma.id})
+
+      assert {:ok, segundo} =
+               schedule(ctx, %{appointment_type_id: turma.id, patient_ids: [outro.id]})
+
+      # Mesmo bloco, não um segundo: com a exclusion constraint, criar outro Appointment no
+      # mesmo profissional/horário seria rejeitado pelo banco (A-D4).
+      assert segundo.id == primeiro.id
+
+      assert [_, _] = Scheduling.list_attendances!(scope: ctx.scope)
+      assert [_] = Scheduling.list_appointments!(at("00:00"), at("23:00"), scope: ctx.scope)
+    end
+
+    test "o merge é por profissional/data/hora/TIPO — outro tipo de turma não funde" do
+      ctx = setup_clinic()
+      turma = grupo_tipo(ctx, 4)
+      outra_turma = grupo_tipo(ctx, 4)
+
+      assert {:ok, _} = schedule(ctx, %{appointment_type_id: turma.id})
+
+      # Mesmo profissional e horário, tipo diferente: não é a mesma turma, então vale a
+      # não-sobreposição normal.
+      assert {:error, %Ash.Error.Invalid{}} =
+               schedule(ctx, %{
+                 appointment_type_id: outra_turma.id,
+                 patient_ids: [novo_paciente(ctx).id]
+               })
+    end
+
+    test "tipo individual NÃO funde: continua sendo conflito" do
+      ctx = setup_clinic()
+      assert {:ok, _} = schedule(ctx, %{})
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               schedule(ctx, %{patient_ids: [novo_paciente(ctx).id]})
+    end
+
+    test "o mesmo paciente duas vezes na turma é recusado também pelo merge" do
+      ctx = setup_clinic()
+      turma = grupo_tipo(ctx, 4)
+
+      assert {:ok, _} = schedule(ctx, %{appointment_type_id: turma.id})
+      assert {:error, %Ash.Error.Invalid{}} = schedule(ctx, %{appointment_type_id: turma.id})
+    end
+
+    test "funde também com o corpo COMO CHEGA DO HTTP: chaves string e `starts_at` ISO" do
+      ctx = setup_clinic()
+      turma = grupo_tipo(ctx, 4)
+
+      {:ok, primeiro} = schedule(ctx, %{appointment_type_id: turma.id})
+
+      # É o formato exato que o controller monta (`whitelist/2` devolve chave atom com valor
+      # cru do JSON). Se o lookup só entendesse `%DateTime{}`, o merge não aconteceria **em
+      # produção** e a suíte continuaria verde — a mesma classe de bug que já mordeu esta
+      # fatia duas vezes.
+      attrs = %{
+        "starts_at" => DateTime.to_iso8601(at("08:00")),
+        "professional_id" => ctx.prof.id,
+        "appointment_type_id" => turma.id,
+        "patient_ids" => [novo_paciente(ctx).id]
+      }
+
+      assert {:ok, segundo} = Scheduling.schedule_appointment(attrs, scope: ctx.scope)
+      assert segundo.id == primeiro.id
+    end
+
+    test "funde também quando o chamador passa `tenant:` cru, sem escopo" do
+      ctx = setup_clinic()
+      turma = grupo_tipo(ctx, 4)
+
+      {:ok, primeiro} = schedule(ctx, %{appointment_type_id: turma.id})
+
+      attrs = %{
+        starts_at: at("08:00"),
+        professional_id: ctx.prof.id,
+        appointment_type_id: turma.id,
+        patient_ids: [novo_paciente(ctx).id]
+      }
+
+      assert {:ok, segundo} =
+               Scheduling.schedule_appointment(attrs,
+                 tenant: ctx.clinic.id,
+                 actor: ctx.owner
+               )
+
+      assert segundo.id == primeiro.id
+    end
+
+    test "tipo de OUTRA clínica não funde nem agenda" do
+      ctx = setup_clinic()
+      outra = setup_clinic()
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               schedule(ctx, %{appointment_type_id: outra.tipo.id})
+    end
+
+    test "`starts_at` malformado não funde: quem recusa é a ação, não o lookup" do
+      ctx = setup_clinic()
+      turma = grupo_tipo(ctx, 4)
+
+      attrs = %{
+        starts_at: "isto-não-é-uma-data",
+        professional_id: ctx.prof.id,
+        appointment_type_id: turma.id,
+        patient_ids: [ctx.paciente.id]
+      }
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               Scheduling.schedule_appointment(attrs, scope: ctx.scope)
+    end
+
+    test "o merge grava versão de trilha do participante que entrou (A-D14)" do
+      ctx = setup_clinic()
+      turma = grupo_tipo(ctx, 4)
+
+      {:ok, _} = schedule(ctx, %{appointment_type_id: turma.id})
+
+      {:ok, _} =
+        schedule(ctx, %{appointment_type_id: turma.id, patient_ids: [novo_paciente(ctx).id]})
+
+      versions = Scheduling.list_attendance_versions!(tenant: ctx.clinic.id, authorize?: false)
+      assert [_, _] = versions
+    end
+  end
+
+  describe "A-D3 — capacidade de turma (teto soft, `group_full`)" do
+    test "turma no limite passa" do
+      ctx = setup_clinic()
+      turma = grupo_tipo(ctx, 2)
+
+      assert {:ok, _} =
+               schedule(ctx, %{
+                 appointment_type_id: turma.id,
+                 patient_ids: [ctx.paciente.id, novo_paciente(ctx).id]
+               })
+    end
+
+    test "limite + 1 é recusado com `group_full`, sem campo" do
+      ctx = setup_clinic()
+      turma = grupo_tipo(ctx, 2)
+
+      assert {:error, %Ash.Error.Invalid{} = erro} =
+               schedule(ctx, %{
+                 appointment_type_id: turma.id,
+                 patient_ids: [ctx.paciente.id, novo_paciente(ctx).id, novo_paciente(ctx).id]
+               })
+
+      assert "group_full" in codes(erro)
+    end
+
+    test "o MERGE também respeita o teto — é o furo do protótipo" do
+      ctx = setup_clinic()
+      turma = grupo_tipo(ctx, 2)
+
+      {:ok, _} =
+        schedule(ctx, %{
+          appointment_type_id: turma.id,
+          patient_ids: [ctx.paciente.id, novo_paciente(ctx).id]
+        })
+
+      assert {:error, %Ash.Error.Invalid{} = erro} =
+               schedule(ctx, %{
+                 appointment_type_id: turma.id,
+                 patient_ids: [novo_paciente(ctx).id]
+               })
+
+      assert "group_full" in codes(erro)
+    end
+
+    test "encaixe FURA o teto (soft): criar" do
+      ctx = setup_clinic()
+      turma = grupo_tipo(ctx, 2)
+
+      assert {:ok, _} =
+               schedule(ctx, %{
+                 appointment_type_id: turma.id,
+                 encaixe: true,
+                 patient_ids: [ctx.paciente.id, novo_paciente(ctx).id, novo_paciente(ctx).id]
+               })
+    end
+
+    test "encaixe FURA o teto (soft): merge" do
+      ctx = setup_clinic()
+      turma = grupo_tipo(ctx, 2)
+
+      {:ok, _} =
+        schedule(ctx, %{
+          appointment_type_id: turma.id,
+          patient_ids: [ctx.paciente.id, novo_paciente(ctx).id]
+        })
+
+      assert {:ok, _} =
+               schedule(ctx, %{
+                 appointment_type_id: turma.id,
+                 encaixe: true,
+                 patient_ids: [novo_paciente(ctx).id]
+               })
+    end
+
+    test "tipo individual não tem teto de turma" do
+      ctx = setup_clinic()
+
+      assert {:ok, _} =
+               schedule(ctx, %{patient_ids: [ctx.paciente.id, novo_paciente(ctx).id]})
+    end
+
+    test "sem `capacidade` no tipo, o teto é o `cap_turma_padrao` da clínica" do
+      ctx = setup_clinic()
+      turma = grupo_tipo(ctx, 10)
+
+      # A coluna é nullable e a exigência "capacidade sse grupo" vive nas ações do tipo —
+      # linha antiga (ou escrita fora delas) pode ter grupo sem teto. O fallback existe para
+      # esse caso; escrita direta é como os testes de `pkg_hold` e de cancelamento exercitam
+      # estado que ainda não tem ação.
+      Api.Repo.query!("UPDATE appointment_types SET capacidade = NULL WHERE id = $1", [
+        Ecto.UUID.dump!(turma.id)
+      ])
+
+      Accounts.update_clinic_settings!(ctx.clinic, %{cap_turma_padrao: 2},
+        actor: ctx.owner,
+        tenant: ctx.clinic.id
+      )
+
+      assert {:error, %Ash.Error.Invalid{} = erro} =
+               schedule(ctx, %{
+                 appointment_type_id: turma.id,
+                 patient_ids: [ctx.paciente.id, novo_paciente(ctx).id, novo_paciente(ctx).id]
+               })
+
+      assert "group_full" in codes(erro)
+    end
+  end
+
+  describe "§7 — tipo arquivado / profissional ou paciente inativo" do
+    test "tipo arquivado é recusado" do
+      ctx = setup_clinic()
+      Directory.archive_appointment_type!(ctx.tipo, tenant: ctx.clinic.id, actor: ctx.owner)
+
+      assert {:error, %Ash.Error.Invalid{}} = schedule(ctx, %{})
+    end
+
+    test "tipo arquivado é recusado MESMO com duration_minutos (que pula o lookup do tipo)" do
+      ctx = setup_clinic()
+      Directory.archive_appointment_type!(ctx.tipo, tenant: ctx.clinic.id, actor: ctx.owner)
+
+      assert {:error, %Ash.Error.Invalid{}} = schedule(ctx, %{duration_minutos: 30})
+    end
+
+    test "profissional inativo é recusado — e explicitamente, não por acidente" do
+      ctx = setup_clinic()
+      Directory.deactivate_professional!(ctx.prof, tenant: ctx.clinic.id, actor: ctx.owner)
+
+      assert {:error, %Ash.Error.Invalid{} = erro} = schedule(ctx, %{})
+
+      assert Enum.any?(erro.errors, &(Map.get(&1, :field) == :professional_id))
+    end
+
+    test "paciente inativo é recusado" do
+      ctx = setup_clinic()
+      Records.deactivate_patient!(ctx.paciente, tenant: ctx.clinic.id, actor: ctx.owner)
+
+      assert {:error, %Ash.Error.Invalid{} = erro} = schedule(ctx, %{})
+
+      assert Enum.any?(erro.errors, &(Map.get(&1, :field) == :patient_ids))
+    end
+
+    test "agendamento JÁ CRIADO continua válido depois de arquivar o tipo" do
+      ctx = setup_clinic()
+      {:ok, appt} = schedule(ctx, %{})
+
+      Directory.archive_appointment_type!(ctx.tipo, tenant: ctx.clinic.id, actor: ctx.owner)
+      Directory.deactivate_professional!(ctx.prof, tenant: ctx.clinic.id, actor: ctx.owner)
+      Records.deactivate_patient!(ctx.paciente, tenant: ctx.clinic.id, actor: ctx.owner)
+
+      # Não revalidamos o passado: a agenda de ontem não pode sumir porque o catálogo mudou.
+      assert %{id: id} = Scheduling.get_appointment!(appt.id, scope: ctx.scope)
+      assert id == appt.id
+      assert [_] = Scheduling.list_appointments!(at("00:00"), at("23:00"), scope: ctx.scope)
+    end
+  end
+
   describe "trilha de auditoria (A-D6c)" do
     test "criar um agendamento grava uma versão com a ação e o autor" do
       ctx = setup_clinic()
       {:ok, appt} = schedule(ctx, %{})
 
       versions =
-        Api.Scheduling.Appointment.Version
-        |> Ash.Query.filter(version_source_id: appt.id)
-        |> Ash.read!(tenant: ctx.clinic.id, authorize?: false)
+        Scheduling.list_appointment_versions!(
+          tenant: ctx.clinic.id,
+          authorize?: false,
+          query: [filter: [version_source_id: appt.id]]
+        )
 
       assert [version] = versions
       assert version.version_action_name == :schedule
@@ -422,8 +745,7 @@ defmodule Api.Scheduling.AppointmentTest do
       {:ok, _appt} = schedule(ctx, %{})
 
       versions =
-        Api.Scheduling.Attendance.Version
-        |> Ash.read!(tenant: ctx.clinic.id, authorize?: false)
+        Scheduling.list_attendance_versions!(tenant: ctx.clinic.id, authorize?: false)
 
       assert [_] = versions
     end
@@ -439,9 +761,11 @@ defmodule Api.Scheduling.AppointmentTest do
 
       user = member_with_role(ctx.clinic, :profissional, ctx.prof.id)
 
-      for resource <- [Api.Scheduling.Appointment.Version, Api.Scheduling.Attendance.Version] do
-        assert {:ok, []} =
-                 Ash.read(resource, tenant: ctx.clinic.id, actor: user, authorize?: true)
+      for ler <- [
+            &Scheduling.list_appointment_versions/1,
+            &Scheduling.list_attendance_versions/1
+          ] do
+        assert {:ok, []} = ler.(tenant: ctx.clinic.id, actor: user, authorize?: true)
       end
     end
 
@@ -452,7 +776,7 @@ defmodule Api.Scheduling.AppointmentTest do
       user = member_with_role(ctx.clinic, :recepcao)
 
       assert {:ok, []} =
-               Ash.read(Api.Scheduling.Appointment.Version,
+               Scheduling.list_appointment_versions(
                  tenant: ctx.clinic.id,
                  actor: user,
                  authorize?: true
@@ -464,7 +788,7 @@ defmodule Api.Scheduling.AppointmentTest do
       {:ok, _appt} = schedule(ctx, %{})
 
       assert {:ok, [_]} =
-               Ash.read(Api.Scheduling.Appointment.Version,
+               Scheduling.list_appointment_versions(
                  tenant: ctx.clinic.id,
                  actor: ctx.owner,
                  authorize?: true
@@ -476,8 +800,7 @@ defmodule Api.Scheduling.AppointmentTest do
       {:ok, appt} = schedule(ctx, %{})
 
       [version] =
-        Api.Scheduling.Appointment.Version
-        |> Ash.read!(tenant: ctx.clinic.id, authorize?: false)
+        Scheduling.list_appointment_versions!(tenant: ctx.clinic.id, authorize?: false)
 
       # Input completo de propósito: um changeset inválido pararia nas validações e nunca
       # chegaria à policy — o teste passaria sem provar nada.

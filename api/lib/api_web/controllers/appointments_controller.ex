@@ -17,27 +17,25 @@ defmodule ApiWeb.AppointmentsController do
   alias Api.Scheduling
   alias Api.Scheduling.LocalTime
 
-  # Teto de janela (doc 25 §5): sem ele, `?from=2000-01-01&to=2100-01-01` varre a tabela.
-  @max_dias 31
-
   # GET /api/appointments?from=YYYY-MM-DD&to=YYYY-MM-DD&professional_id=
+  # A leitura da janela (e o teto de 31 dias) mora em `TenantScope.parse_window/4`.
   def index(conn, params) do
-    with_scheduling_scope(conn, fn scope ->
+    with_member_scope(conn, fn scope ->
       clinic = Scheduling.load_clinic(scope.clinic_id)
 
-      with {:ok, from_date} <- parse_date(params["from"]),
-           {:ok, to_date} <- parse_date(params["to"] || params["from"]),
-           :ok <- validate_window(from_date, to_date) do
-        render_range(conn, scope, clinic, from_date, to_date, params)
-      else
-        {:error, message} -> invalid(conn, message)
+      case parse_window(params, "from", "to") do
+        {:ok, from_date, to_date} ->
+          render_range(conn, scope, clinic, from_date, to_date, params)
+
+        {:error, message} ->
+          invalid(conn, message)
       end
     end)
   end
 
   # POST /api/appointments
   def create(conn, params) do
-    with_scheduling_scope(conn, fn scope ->
+    with_member_scope(conn, fn scope ->
       attrs =
         whitelist(params, [
           :starts_at,
@@ -151,32 +149,5 @@ defmodule ApiWeb.AppointmentsController do
       grupo: tipo.grupo,
       capacidade: tipo.capacidade
     }
-  end
-
-  # ---- entrada ----
-
-  defp parse_date(nil), do: {:error, "informe o parâmetro from (YYYY-MM-DD)"}
-
-  defp parse_date(value) when is_binary(value) do
-    case Date.from_iso8601(value) do
-      {:ok, date} -> {:ok, date}
-      {:error, _} -> {:error, "data inválida: #{value}"}
-    end
-  end
-
-  defp parse_date(_), do: {:error, "data inválida"}
-
-  defp validate_window(from, to) do
-    cond do
-      Date.compare(to, from) == :lt -> {:error, "to não pode ser anterior a from"}
-      Date.diff(to, from) >= @max_dias -> {:error, "janela máxima de #{@max_dias} dias"}
-      true -> :ok
-    end
-  end
-
-  defp invalid(conn, message) do
-    conn
-    |> put_status(:unprocessable_entity)
-    |> json(%{error: "invalid", details: [%{field: nil, message: message}]})
   end
 end

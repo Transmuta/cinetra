@@ -90,7 +90,25 @@ defmodule Api.MixProject do
     [
       setup: ["deps.get"],
       precommit: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "test"],
-      test: ["ash.setup --quiet", "test"]
+      test: [&skippable_ash_setup/1, "test"]
     ]
+  end
+
+  # `mix test` normalmente prepara o banco antes (criar + migrar). Isso exige DDL, que só o
+  # usuário privilegiado tem.
+  #
+  # O gate de RLS (`mix test --only rls`, job `api-rls` do CI) roda como `movimento_app` —
+  # NOBYPASSRLS e, por desenho, **sem CREATE no schema**. Ali o setup precisa ter sido feito
+  # antes, como `postgres`, e esta etapa tem de sair do caminho: sem isso o alias derruba a
+  # suíte com `ERROR 42501 permission denied for schema public` antes de rodar um teste.
+  #
+  # A alternativa seria conceder CREATE ao role restrito. Não: o gate existe justamente para
+  # rodar com os privilégios de produção, e afrouxá-los para o teste passar esvazia o gate.
+  defp skippable_ash_setup(_args) do
+    if System.get_env("SKIP_DB_SETUP") in ["1", "true"] do
+      :ok
+    else
+      Mix.Task.run("ash.setup", ["--quiet"])
+    end
   end
 end

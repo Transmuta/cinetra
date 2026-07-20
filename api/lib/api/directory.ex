@@ -153,4 +153,80 @@ defmodule Api.Directory do
   end
 
   def professional_in_clinic?(_professional_id, _clinic_id), do: false
+
+  @doc """
+  Verdadeiro só quando o profissional **existe nesta clínica e está inativo**.
+
+  A forma negativa é deliberada: id inexistente ou de outra clínica responde `false`, porque
+  quem recusa esse caso é o lookup escopado de `CheckAvailability`, com a mensagem certa
+  ("profissional não encontrado nesta clínica"). Uma função que respondesse `true` para
+  "não achei" empilharia dois erros diferentes sobre o mesmo campo.
+  """
+  def professional_inactive?(professional_id, clinic_id)
+      when is_binary(professional_id) and is_binary(clinic_id) do
+    {:ok, inactive?} =
+      Api.Repo.with_clinic(clinic_id, fn ->
+        case get_professional(professional_id,
+               tenant: clinic_id,
+               authorize?: false,
+               not_found_error?: false
+             ) do
+          {:ok, %Api.Directory.Professional{ativo: false}} -> true
+          _ -> false
+        end
+      end)
+
+    inactive?
+  end
+
+  def professional_inactive?(_professional_id, _clinic_id), do: false
+
+  @doc """
+  Verdadeiro só quando o tipo **existe nesta clínica e está arquivado** (T2: arquivar, não
+  excluir). Mesma forma negativa de `professional_inactive?/2`, pelo mesmo motivo.
+  """
+  def appointment_type_archived?(type_id, clinic_id)
+      when is_binary(type_id) and is_binary(clinic_id) do
+    {:ok, archived?} =
+      Api.Repo.with_clinic(clinic_id, fn ->
+        case get_appointment_type(type_id,
+               tenant: clinic_id,
+               authorize?: false,
+               not_found_error?: false
+             ) do
+          {:ok, %Api.Directory.AppointmentType{ativo: false}} -> true
+          _ -> false
+        end
+      end)
+
+    archived?
+  end
+
+  def appointment_type_archived?(_type_id, _clinic_id), do: false
+
+  @doc """
+  O teto de participantes de uma turma: `capacidade` do tipo, ou `nil` quando o tipo é de
+  grupo mas não define teto (o chamador cai no `cap_turma_padrao` da clínica).
+
+  Retornos: `{:ok, capacidade | nil}` (tipo de grupo) · `:individual` · `:error` (não achado).
+  """
+  def appointment_type_capacity(type_id, clinic_id)
+      when is_binary(type_id) and is_binary(clinic_id) do
+    {:ok, result} =
+      Api.Repo.with_clinic(clinic_id, fn ->
+        case get_appointment_type(type_id,
+               tenant: clinic_id,
+               authorize?: false,
+               not_found_error?: false
+             ) do
+          {:ok, %Api.Directory.AppointmentType{grupo: true, capacidade: cap}} -> {:ok, cap}
+          {:ok, %Api.Directory.AppointmentType{}} -> :individual
+          _ -> :error
+        end
+      end)
+
+    result
+  end
+
+  def appointment_type_capacity(_type_id, _clinic_id), do: :error
 end

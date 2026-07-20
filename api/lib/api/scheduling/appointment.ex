@@ -144,10 +144,46 @@ defmodule Api.Scheduling.Appointment do
 
       # Paciente de outra clínica não vira participante desta agenda.
       validate Api.Scheduling.Appointment.Validations.PatientsInClinic
+      validate Api.Scheduling.Appointment.Validations.PatientsActive
+
+      # Tipo arquivado / profissional inativo (doc 25 §7). Só aqui: o passado não é revalidado.
+      validate Api.Scheduling.Appointment.Validations.ReferencesActive
+      validate Api.Scheduling.Appointment.Validations.GroupCapacity
 
       change set_attribute(:encaixe, arg(:encaixe))
       change Api.Scheduling.Appointment.Changes.ComputeEndsAt
       change Api.Scheduling.Appointment.Changes.CheckAvailability
+
+      change manage_relationship(:patient_ids, :attendances,
+               type: :create,
+               value_is_key: :patient_id
+             )
+    end
+
+    # Acrescenta participantes a uma turma que já existe — o outro lado do merge (A-D4).
+    #
+    # É para cá que `Api.Scheduling.schedule_appointment/2` delega quando acha turma
+    # coincidente, e é por isso que o teto de capacidade mora numa validação compartilhada com
+    # `:schedule`: um caminho só, em vez do teto validado na criação e furado na fusão (o bug
+    # do protótipo).
+    #
+    # Não toca em `starts_at`, `ends_at` nem `encaixe`: entrar numa turma não remarca nem
+    # reclassifica o bloco de ninguém.
+    update :add_participant do
+      # `SetTenantGuc` é `before_action`, e hook de before_action é incompatível com update
+      # atômico — mesma razão de `archive`/`restore` em `AppointmentType`.
+      require_atomic? false
+
+      argument :patient_ids, {:array, :uuid}, allow_nil?: false
+
+      # `encaixe` aqui **só fura o teto** (A-D3); de propósito não vira atributo. Marcar a
+      # turma inteira como encaixe por causa de um participante extra a isentaria da exclusion
+      # constraint — trocaria um limite operacional por um buraco na garantia de A5.
+      argument :encaixe, :boolean, default: false
+
+      validate Api.Scheduling.Appointment.Validations.PatientsInClinic
+      validate Api.Scheduling.Appointment.Validations.PatientsActive
+      validate Api.Scheduling.Appointment.Validations.GroupCapacity
 
       change manage_relationship(:patient_ids, :attendances,
                type: :create,
@@ -166,7 +202,12 @@ defmodule Api.Scheduling.Appointment do
     end
 
     # A8: recepção é quem agenda — o par admin/membro de hoje não serve.
-    policy action_type(:create) do
+    #
+    # As três policies de escrita nomeiam as ações em vez de casar por `action_type`: desde o
+    # merge (A-D4), agendar é `:schedule` **ou** `:add_participant`, e a segunda é um
+    # `update`. Casar por tipo deixaria o caminho da fusão sem policy nenhuma — e ação sem
+    # policy é ação proibida, ou seja, o merge nasceria morto e o erro apareceria como 403.
+    policy action([:schedule, :add_participant]) do
       authorize_if {Api.Accounts.Checks.HasClinicRole,
                     roles: [:owner, :admin, :recepcao, :profissional], clinic_from: :tenant}
     end
@@ -175,7 +216,7 @@ defmodule Api.Scheduling.Appointment do
     # é `profissional`, e então exige a própria coluna. Sem ela o profissional não conseguia
     # LER a agenda do colega mas escrevia nela às cegas, mandando outro `professional_id`.
     policy [
-      action_type(:create),
+      action([:schedule, :add_participant]),
       {Api.Accounts.Checks.HasClinicRole, roles: [:profissional], clinic_from: :tenant}
     ] do
       authorize_if Api.Scheduling.Appointment.Checks.OwnProfessionalColumn
@@ -184,7 +225,12 @@ defmodule Api.Scheduling.Appointment do
     # A9: encaixe é de recepção para cima. `encaixe = true` isenta a linha da exclusion
     # constraint (A5) — sem esta policy, o papel menos privilegiado desligava a proteção
     # contra dupla-marcação mandando um booleano no corpo.
-    policy [action_type(:create), Api.Scheduling.Appointment.Checks.CreatingEncaixe] do
+    # Em `:add_participant` o mesmo argumento fura o teto da turma (A-D3) em vez de isentar a
+    # constraint — e a decisão de quem pode furar um limite combinado é a mesma.
+    policy [
+      action([:schedule, :add_participant]),
+      Api.Scheduling.Appointment.Checks.CreatingEncaixe
+    ] do
       authorize_if {Api.Accounts.Checks.HasClinicRole,
                     roles: [:owner, :admin, :recepcao], clinic_from: :tenant}
     end

@@ -149,4 +149,31 @@ defmodule Api.Records do
 
     ids -- Enum.map(found, & &1.id)
   end
+
+  @doc """
+  Quais dos `ids` são pacientes desta clínica **arquivados** (doc 25 §7).
+
+  Separado de `patients_outside_clinic/2` porque as duas perguntas têm respostas diferentes na
+  fronteira: id de outra clínica não pode nem ser confirmado como existente, enquanto "está
+  arquivado" é informação que o operador precisa ver para saber que basta reativar.
+
+  Abre a própria transação com a GUC (mesma razão da irmã): sem ela a leitura volta vazia sob a
+  RLS no servidor real — e **passa** no `mix test`, onde o sandbox conecta como `postgres`
+  (BYPASSRLS). Voltar vazia aqui significaria "nenhum arquivado", ou seja, a validação
+  desligada em produção e verde na suíte.
+  """
+  def inactive_patients(ids, clinic_id) when is_list(ids) and is_binary(clinic_id) do
+    ids = ids |> Enum.filter(&is_binary/1) |> Enum.uniq()
+
+    {:ok, found} =
+      Api.Repo.with_clinic(clinic_id, fn ->
+        list_patients!(
+          tenant: clinic_id,
+          authorize?: false,
+          query: [filter: [id: [in: ids], ativo: false]]
+        )
+      end)
+
+    Enum.map(found, & &1.id)
+  end
 end

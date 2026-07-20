@@ -300,6 +300,33 @@ defmodule ApiWeb.AppointmentsControllerTest do
       assert json_response(conn, 422)
     end
 
+    # Fixa o formato do 422 depois de unificar as cinco fontes numa só
+    # (`TenantScope.unprocessable/2`). Antes disto, o `invalid/2` privado de cada controller
+    # nunca emitia `code` e a função compartilhada sempre emitia — o MESMO endpoint respondia
+    # em dois formatos conforme o caminho que falhasse. O contrato escolhido: a forma base é
+    # `error` + `details`, e `code` é **opcional**, presente só quando o erro nomeia um código
+    # (A10). Sem esta asserção, uma regressão que passasse a mandar `code: null` em todo 422
+    # (ou que sumisse com ele no conflito) passaria calada.
+    test "422 de parâmetro tem a forma base, sem `code`", %{conn: conn} do
+      ctx = fixture()
+
+      requisicoes = [
+        "/api/availability?professional_id=#{ctx.prof.id}&date_from=amanha",
+        "/api/availability?date_from=#{@segunda}",
+        "/api/appointments?from=ontem",
+        "/api/appointments?from=2026-01-01&to=2026-12-31"
+      ]
+
+      for rota <- requisicoes do
+        body = conn |> authed(ctx.owner) |> get(rota) |> json_response(422)
+
+        assert body["error"] == "invalid"
+        assert [%{"field" => nil, "message" => mensagem}] = body["details"]
+        assert is_binary(mensagem) and mensagem != ""
+        refute Map.has_key?(body, "code")
+      end
+    end
+
     test "intervalo de vários dias devolve um item por dia", %{conn: conn} do
       ctx = fixture()
 
