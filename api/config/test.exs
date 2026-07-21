@@ -13,6 +13,10 @@ config :api, Api.Repo,
 
 config :ash, policies: [show_policy_breakdowns?: true], disable_async?: true
 
+# Oban em modo manual no teste: sem cron e sem filas rodando. O worker de limpeza é exercido
+# chamando `perform/1` direto (o cron é config, não lógica).
+config :api, Oban, testing: :manual
+
 # E-mails vão para a caixa de teste (Swoosh.Adapters.Test); assert com Swoosh.TestAssertions.
 config :api, Api.Mailer, adapter: Swoosh.Adapters.Test
 

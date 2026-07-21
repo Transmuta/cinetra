@@ -141,6 +141,18 @@ defmodule ApiWeb.Router do
 
     # Cálculo, não coleção (09:253): a composição das 4 camadas de expediente.
     get "/availability", AvailabilityController, :index
+
+    # Fila de espera (Entrega 5, doc 09 §3.6). As rotas com sufixo (`/slots`, `/offer`,
+    # `/convert`) vêm antes da paramétrica pura pela mesma razão de `/appointments/counts`.
+    get "/waitlist", WaitlistController, :index
+    # Literal antes da paramétrica: "candidates" não pode virar um `:id`.
+    get "/waitlist/candidates", WaitlistController, :candidates
+    post "/waitlist", WaitlistController, :create
+    get "/waitlist/:id/slots", WaitlistController, :slots
+    post "/waitlist/:id/offer", WaitlistController, :offer
+    post "/waitlist/:id/convert", WaitlistController, :convert
+    patch "/waitlist/:id", WaitlistController, :update
+    delete "/waitlist/:id", WaitlistController, :delete
   end
 
   # Máquina OAuth do AshAuthentication (Assent): request + callback do Google. Chama

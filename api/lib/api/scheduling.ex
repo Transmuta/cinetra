@@ -83,6 +83,15 @@ defmodule Api.Scheduling do
       define :list_professional_hours_rows, action: :read
       define :set_professional_hours_day, action: :set_day
     end
+
+    # A reserva de vaga da fila (Entrega 5). Mora aqui — não em `Api.Waitlist` — porque a garantia
+    # é a mesma exclusion constraint do agendamento (doc 09 §6.2). A orquestração oferta→conversão
+    # vive em `Api.Waitlist`, que consome estas interfaces.
+    resource Api.Scheduling.SlotHold do
+      define :list_slot_holds, action: :read
+      define :create_slot_hold, action: :offer
+      define :release_slot_hold, action: :release
+    end
   end
 
   # ---- Agenda: escrita ----
@@ -528,6 +537,22 @@ defmodule Api.Scheduling do
   """
   def load_clinic(clinic_id) when is_binary(clinic_id) do
     Api.Accounts.get_clinic!(clinic_id, authorize?: false)
+  end
+
+  @doc """
+  O relógio da clínica ativa (ADR-009) já resolvido: `%{timezone, today, now_minutes}` a partir
+  do `scope.now`. Fonte única — `Api.Waitlist.find_slots`/`who_fits` e a fronteira derivavam este
+  trio (`load_clinic` → `timezone` → `to_local_date`/`to_local_minutes`) cada um por si, e o
+  `candidates` chegava a ler a clínica duas vezes por request (bate-volta E5, achado D1).
+  """
+  def clinic_now(%Api.Scope{clinic_id: clinic_id, now: now}) do
+    tz = load_clinic(clinic_id).timezone
+
+    %{
+      timezone: tz,
+      today: Api.Scheduling.LocalTime.to_local_date(now, tz),
+      now_minutes: Api.Scheduling.LocalTime.to_local_minutes(now, tz)
+    }
   end
 
   @doc """

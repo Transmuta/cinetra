@@ -76,7 +76,13 @@ const fake = vi.hoisted(() => {
 
 vi.mock('phoenix', () => ({ Socket: fake.FakeSocket }));
 
-import { socketUrl, agendaTopics, connectAgenda, type AgendaHandlers } from './realtime';
+import {
+	socketUrl,
+	agendaTopics,
+	connectAgenda,
+	connectWaitlist,
+	type AgendaHandlers
+} from './realtime';
 
 const config = { origin: 'http://localhost:4010', token: 'tok-1', clinic_id: 'c1' };
 
@@ -229,6 +235,56 @@ describe('connectAgenda', () => {
 		desligar();
 
 		expect(socket.channels.every((c) => c.left)).toBe(true);
+		expect(socket.disconnected).toBe(true);
+	});
+});
+
+describe('connectWaitlist', () => {
+	it('entra no tópico único da clínica', () => {
+		connectWaitlist(config, { onChange() {} });
+		const socket = fake.FakeSocket.last!;
+
+		expect(socket.connected).toBe(true);
+		expect(socket.channels.map((c) => c.topic)).toEqual(['waitlist:c1']);
+	});
+
+	it('o sinal waitlist_changed dispara onChange', () => {
+		let mudancas = 0;
+		connectWaitlist(config, { onChange: () => (mudancas += 1) });
+
+		fake.FakeSocket.last!.channels[0].emit('waitlist_changed', { change: 'entry_upserted' });
+
+		expect(mudancas).toBe(1);
+	});
+
+	it('o primeiro join não recarrega; o rejoin sim (pode ter perdido eventos)', () => {
+		let mudancas = 0;
+		connectWaitlist(config, { onChange: () => (mudancas += 1) });
+
+		const canal = fake.FakeSocket.last!.channels[0];
+		canal.acceptJoin();
+		expect(mudancas).toBe(0);
+
+		canal.acceptJoin();
+		expect(mudancas).toBe(1);
+	});
+
+	it('renova o token quando o socket dá erro', async () => {
+		const refreshToken = vi.fn().mockResolvedValue('tok-2');
+		connectWaitlist(config, { onChange() {} }, { refreshToken });
+
+		const socket = fake.FakeSocket.last!;
+		socket.errorHandler!();
+		await vi.waitFor(() => expect(socket.opts.params()).toEqual({ token: 'tok-2' }));
+	});
+
+	it('a função de desligar sai do canal e fecha o socket', () => {
+		const desligar = connectWaitlist(config, { onChange() {} });
+		const socket = fake.FakeSocket.last!;
+
+		desligar();
+
+		expect(socket.channels[0].left).toBe(true);
 		expect(socket.disconnected).toBe(true);
 	});
 });

@@ -14,9 +14,17 @@
 	import UserPlus from '@lucide/svelte/icons/user-plus';
 	import Plus from '@lucide/svelte/icons/plus';
 	import Check from '@lucide/svelte/icons/check';
+	import Clock4 from '@lucide/svelte/icons/clock-4';
 	import { sectionOf, SECTION_TITLES, CONFIG_LINKS } from './nav';
 	import { canManageProfessionals, countByStatus, type Professional } from '$lib/professionals';
 	import { canManagePatients, type PatientCounts } from '$lib/patients';
+	import {
+		canManageWaitlist,
+		priorityCounts,
+		PRIORITY_META,
+		type Entry,
+		type PriorityFilter
+	} from '$lib/waitlist';
 	import { avatarColor } from '$lib/avatar';
 	import type { Papel } from '$lib/session';
 
@@ -67,6 +75,22 @@
 	);
 	const canManagePat = $derived(canManagePatients(page.data.me?.papel as Papel | null | undefined));
 	const patFilter = $derived(page.url.searchParams.get('filter') ?? 'todos');
+
+	// Sidebar contextual da Fila (doc 25, Entrega 5). "Adicionar à fila" (viaja por `?novo=1`, o
+	// gatilho que a página lê para abrir o modal) + o filtro por prioridade com contagens. Como na
+	// agenda, é um ramo `if` explícito, não um default — cada seção nova declara a sua.
+	const FILA_FILTERS: ReadonlyArray<{ key: PriorityFilter; label: string }> = [
+		{ key: 'todas', label: 'Todas' },
+		{ key: 'urgente', label: 'Urgente' },
+		{ key: 'alta', label: 'Alta' },
+		{ key: 'normal', label: 'Normal' },
+		{ key: 'baixa', label: 'Baixa' }
+	];
+	const waitlist = $derived((page.data.waitlist as Entry[] | undefined) ?? []);
+	const filaCounts = $derived(priorityCounts(waitlist));
+	const canManageFila = $derived(canManageWaitlist(page.data.me?.papel as Papel | null | undefined));
+	const filaPrio = $derived(page.url.searchParams.get('prio') ?? 'todas');
+	const filaHref = (key: PriorityFilter) => (key === 'todas' ? '/fila' : `/fila?prio=${key}`);
 
 	// Sidebar contextual da Agenda (doc 25 §6). No protótipo `sbAgenda()` é o ramo `default:`
 	// de `sidebarBody` [:1407]; aqui é um `if` EXPLÍCITO por decisão — um default silencioso
@@ -243,6 +267,44 @@
 					<span class={isActive ? 'text-teal-text' : 'text-faint'}><fil.icon size={15} /></span>
 					<span class="flex-1 truncate">{fil.label}</span>
 					<span class="font-mono text-[11px] text-faint">{patCounts[fil.key]}</span>
+				</a>
+			{/each}
+		</div>
+	{/if}
+
+	{#if section === 'fila'}
+		<div class="flex-1 overflow-auto px-3 py-1">
+			{#if canManageFila}
+				<a
+					href="/fila?novo=1"
+					class="mb-2 flex items-center justify-center gap-1.5 rounded-lg bg-ink px-3 py-2.5 text-[13px] font-semibold text-canvas hover:opacity-90"
+				>
+					<Plus size={15} /> Adicionar à fila
+				</a>
+			{/if}
+
+			<div class="px-2 pb-1.5 pt-3 text-[10.5px] font-bold uppercase tracking-[.06em] text-faint">
+				Prioridade
+			</div>
+			{#each FILA_FILTERS as fil (fil.key)}
+				{@const isActive = filaPrio === fil.key}
+				<a
+					href={filaHref(fil.key)}
+					aria-current={isActive ? 'page' : undefined}
+					class="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13px] {isActive
+						? 'bg-surface-2 font-semibold text-ink'
+						: 'font-medium text-muted hover:bg-surface-2'}"
+				>
+					<!-- Bolinha na cor da prioridade (hex fixo do protótipo); "Todas" leva o relógio. -->
+					{#if fil.key === 'todas'}
+						<span class={isActive ? 'text-teal-text' : 'text-faint'}><Clock4 size={15} /></span>
+					{:else}
+						<span class="grid size-[15px] place-items-center">
+							<span class="size-2.5 rounded-full" style="background:{PRIORITY_META[fil.key].color}"></span>
+						</span>
+					{/if}
+					<span class="flex-1 truncate">{fil.label}</span>
+					<span class="font-mono text-[11px] text-faint">{filaCounts[fil.key]}</span>
 				</a>
 			{/each}
 		</div>

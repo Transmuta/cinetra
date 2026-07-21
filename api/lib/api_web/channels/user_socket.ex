@@ -12,6 +12,9 @@ defmodule ApiWeb.UserSocket do
   use Phoenix.Socket
 
   channel "clinic:*", ApiWeb.AgendaChannel
+  # Fila de espera (Entrega 5). Prefixo próprio: `clinic:*` já consome tudo que começa com
+  # `clinic:`, então a fila usa `waitlist:<clinic_id>` para não colidir no roteamento.
+  channel "waitlist:*", ApiWeb.WaitlistChannel
 
   @impl true
   def connect(%{"token" => token}, socket, _connect_info) do

@@ -64,6 +64,10 @@ defmodule Api.MixProject do
       {:ash_phoenix, "~> 2.0"},
       {:ash_postgres, "~> 2.0"},
       {:ash, "~> 3.0"},
+      # Backstop de limpeza dos `SlotHold` vencidos (doc 09 §6.2): um cron de 1 min apaga o que
+      # ninguém tentou reservar. A garantia da corrida NÃO depende dele — é a exclusion constraint
+      # + o `DELETE` in-transaction da própria `offer`; o Oban é só higiene.
+      {:oban, "~> 2.18"},
       {:igniter, "~> 0.6", only: [:dev, :test]},
       {:phoenix, "~> 1.8.9"},
       {:telemetry_metrics, "~> 1.0"},

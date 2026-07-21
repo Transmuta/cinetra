@@ -771,6 +771,64 @@ banco (a exclusion constraint vale para `:reschedule` como para `:schedule`).
 | `cancel_reason` | não existe | coluna gravável pela API, **sem UI ainda** | D4 (motivo opcional); a UI do drawer cancela em um clique como o protótipo. Superfície pequena para uma tela depois |
 | Arraste no mobile | perde ghost/pan [`:1703`] | arraste **desligado** no mobile | Fiel: abaixo de 860px a visão Dia é uma coluna por vez, sem arraste |
 
+## 8e. Decisões da Entrega 5 (2026-07-21)
+
+A Entrega 5 (Fila de espera) era a única sem seção de decisões — o §9 só a nomeava. As três em
+aberto foram fechadas **com o humano**; as demais seguem os docs 01/02/09 ou o padrão do projeto e
+estão registradas para rastreabilidade.
+
+**D-E5.1 — a observação (`obs`) do item de fila é cifrada?**
+[`01 §4.5`](01-dominio-ash.md) modelava `obs` como `sensitive?: true` + AshCloak ("queixa clínica,
+PII, ADR-007"). Mas o projeto **reverteu a cifra** repetidamente: D18 (CPF texto puro), a fatia de
+Pacientes ("CPF/tags texto puro, reverte `06 §3.1`") e a A-D7 (o `obs` do **agendamento** não é
+cifrado, e a A-D13 o retém em claro na trilha).
+**DECIDIDO: texto puro.** Coerente com A-D7 e a fatia de Pacientes; a proteção vem das policies da
+fila, não da cifra. Tratar `obs` como dado clínico por precaução custaria busca/exibição para
+proteger um conteúdo que, no uso real, raramente é sensível — o mesmo raciocínio da A-D13.
+
+**D-E5.2 — qual o escopo da reserva de vaga (`SlotHold`)?**
+O protótipo **não tem reserva** — "Oferecer" só pré-preenche um modal ([`:2596`]) e dois atendentes
+caem na mesma vaga (GAP-16). Opções: (a) fluxo completo sem Oban; (b) completo + Oban agora;
+(c) fiel-sem-reserva.
+**DECIDIDO: (b) — reserva completa + Oban agora.** Recurso `SlotHold` + `offer`/`convert` + **409
+`slot_held`** com quem segura e até quando. A corrida é fechada pela exclusion constraint
+`slot_holds_no_overlap` (sem predicado de tempo — `now()` é `STABLE`) + o `DELETE` dos vencidos
+**in-transaction** na `offer` (doc 09 §6.2, passo 2 — a garantia real). O cron do Oban é **só
+higiene** dos holds que ninguém tentou reservar; como roda sob RLS sem tenant, **itera as clínicas**
+com a GUC. Divergência de infra assumida: Oban entra no projeto (dep + supervisão + migration).
+
+**D-E5.3 — a fila ganha tempo real dedicado?**
+**DECIDIDO: sim, agora.** Tópico próprio `waitlist:<clinic_id>` (não `clinic:<id>:waitlist` do
+doc 09 — o socket roteia `clinic:*` inteiro para o `AgendaChannel`, então um prefixo separado evita
+o conflito de roteamento) + `WaitlistNotifier` + `ApiWeb.WaitlistChannel`, com as **duas guardas**
+do `AgendaChannel` (clinic do tópico conferido, vínculo relido). Como a fila **não é recortada por
+papel**, o push é **sinal-e-recarrega** (`waitlist_changed` → o cliente recarrega a lista), no molde
+do sinal do Mês — não patch por item. **Fora**, deferido como a Presence na E3: o indicador ao vivo
+"alguém está oferecendo esta vaga" (por-vaga). A corrida já é segura pelo 409; o indicador exigiria
+rastrear holds ativos por item. Registrado como **não feito**, não esquecido.
+
+**D-E5.4 — "Quem cabe aqui?" preserva o casamento frouxo do protótipo?**
+O `modalQuemCabe` filtra candidatos **só por profissional** ([`:2252`]), ignorando janela/regras/
+horário, e chama de "compatíveis" quem não é (RN-45).
+**DECIDIDO: corrigir** (divergência deliberada, como as do §8d). O `who_fits` reusa o **motor**
+(`SlotFinder.matches_slot?`) para mostrar só quem de fato cabe na vaga liberada — preferência de
+profissional **e** janela/regras. A vaga já está livre (foi uma falta), então não se checa
+expediente nem ocupação, só a preferência. Uma regra, um lugar (evita o achado (b) do doc 26).
+
+### Decididas pelos docs / padrão (registradas, não perguntadas)
+
+| # | Decisão | Escolha | Por quê |
+| --- | --- | --- | --- |
+| E5-a | TTL do hold | **10 min** | D8; o "5 min" dos docs 01/02/09 é resíduo, corrigido por [`12`](12-divergencias-interface-vs-regras.md) Parte C |
+| E5-b | Tipo do range da constraint | **`tsrange`**, não `tstzrange` | Mesma correção de `appointments_no_overlap`: `:utc_datetime` → `timestamp(0) without tz` (§4) |
+| E5-c | Trilha na fila | **não** (sem paper-trail) | A-D14: a trilha é só de `Appointment`/`Attendance`. Sem tabelas de versão |
+| E5-d | `dias_na_fila` | **derivado** de `inserted_at` no relógio do escopo | Correção h de `01 §4.5`; computado no `WaitlistJSON`, não em `today()` de banco (UTC erraria na virada) |
+| E5-e | upsert por paciente | identity `one_entry_per_patient` + `pre_check?` | `addFila` [:1189]; `pre_check?` porque sob RLS o `unique_violation` vem sem DETAIL |
+| E5-f | Ordenação da fila | **de domínio** (prioridade, em Elixir) | O Postgres ordena o enum alfabético; a ordem de urgência é aplicada por `priority_rank/1` |
+| E5-g | `convert` dedicado | endpoint próprio; cria o agendamento, tira da fila e consome o hold (cascade) | Funciona com ou sem oferta prévia (o "agendar manualmente" não passa por offer) |
+| E5-h | Duração de varredura | **50 min** fixo | Fiel ao `filaVagas`: o item não carrega tipo; o tipo/duração reais são escolhidos na conversão |
+| E5-i | Leitura de agendamentos no motor | **invariante** (`authorize?: false`) | Sob o recorte A7 um profissional veria colegas como livres — mesmo motivo de `count_participants` |
+
 ## 9. Fatiamento sugerido
 
 Cinco entregas fecháveis. A primeira é a fatia deste doc; as demais estão desenhadas aqui para
@@ -970,6 +1028,38 @@ fora do expediente mas o **arraste não valida disponibilidade** — mesma regra
 com TTL de **10 min** (D8 — os 5 min de [`01:788`](01-dominio-ash.md), [`02:714`](02-regras-e-lacunas.md)
 e [`09:739`](09-contrato-api.md) são resíduo já corrigido por
 [`12:181`](12-divergencias-interface-vs-regras.md)).
+
+> **Status (2026-07-21): Entrega 5 CONSTRUÍDA.** Escopo completo (D-E5.1..D-E5.4 em §8e):
+> `obs` texto puro, reserva de vaga real + Oban, tempo real dedicado, e o "quem cabe" corrigido.
+>
+> Backend: domínio `Api.Waitlist` (`WaitlistEntry` upsert-por-paciente + `AvailabilityRule` via
+> `manage_relationship` + 3 enums), `Api.Scheduling.SlotHold` (a `offer` purga os vencidos
+> in-transaction antes de inserir), o motor puro `SlotFinder` (port de `filaVagas`, tabela-verdade
+> de 14 casos), `offer_slot`/`convert`/`who_fits`, Oban + o `CleanupWorker`, `WaitlistController`
+> (index/create/update/delete/slots/offer/convert/candidates) + `WaitlistJSON` + rotas,
+> `WaitlistNotifier` + `ApiWeb.WaitlistChannel` (tópico `waitlist:<clinic_id>`, sinal-e-recarrega),
+> e a exclusion constraint `slot_holds_no_overlap` (`tsrange`, sem predicado de tempo) + RLS nas 3
+> tabelas novas. **643 testes.** Frontend: rota `/fila` (lista + Sidebar), `AddToWaitlistModal` +
+> `OfferSlotModal` (reusando `PatientPicker`/`PeriodEditor`), o cliente `connectWaitlist` +
+> `invalidate`. **1014 testes web.**
+>
+> **RLS verificada por `psql` como `movimento_app`** (NOBYPASSRLS, o detector real — o `mix test`
+> é `postgres`/BYPASS): sem GUC → 0 linhas; com GUC → só a própria clínica; `WITH CHECK` barra
+> INSERT com `clinic_id` alheio. **Verificado ao vivo no navegador:** a rota, o ramo `fila` da
+> sidebar (as duas instâncias, o gotcha do CNPJ), o modal de adicionar e a busca de paciente pelo
+> BFF — zero erro de console.
+>
+> **Bate-volta:** [`29-auditoria-bate-volta-fila-de-espera.md`](29-auditoria-bate-volta-fila-de-espera.md)
+> — 3 caças paralelas. Um achado de **segurança LOW** (ref cross-tenant não validada no `offer`/
+> `enqueue`) corrigido na raiz com validações de tenant; um índice de FK faltando em
+> `availability_rules.clinic_id` (achado-h) corrigido; e o relógio da clínica extraído para
+> `Api.Scheduling.clinic_now/1` (D1). Isolamento RLS, corrida do hold, canal e IDOR **provados
+> defendidos**. Estruturais/negócio (Oban O(clínicas)/min, CVE pré-existente do `mint`) no relatório.
+>
+> **O que NÃO entrou:** a UI de falta→quem-cabe (o backend `who_fits`/`candidates` está pronto e
+> testado; o gatilho no drawer é fatiável, como a tela de auditoria foi separada de gravar a
+> trilha); o indicador ao vivo "alguém está oferecendo esta vaga" (`Presence`-like, deferido como
+> na E3); e paginação da fila (bounded hoje, follow-up quando crescer).
 
 ### Explicitamente FORA
 

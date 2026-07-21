@@ -156,9 +156,20 @@ describe('load', () => {
 	});
 
 	it('`?date=` inválido cai no hoje da clínica em vez de estourar', async () => {
-		m.fetchAgenda.mockResolvedValue(payload());
-		const r = await runLoad('?date=ontem');
-		expect(r.date).toBe(r.today);
+		// O fallback de data inválida usa o relógio do BFF (`new Date()`); o `today` da tela usa o
+		// `agora` da API. Em produção são o mesmo instante do mesmo servidor; aqui o `agora` é fixo
+		// no fixture (2026-07-20), então cravamos o relógio do BFF no mesmo dia — senão o teste
+		// depende da data de parede e quebra ao virar a meia-noite.
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date('2026-07-20T14:00:00Z'));
+		try {
+			m.fetchAgenda.mockResolvedValue(payload());
+			const r = await runLoad('?date=ontem');
+			expect(r.date).toBe(r.today);
+			expect(r.date).toBe('2026-07-20');
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it('`?profs=` lista os profissionais ocultos', async () => {

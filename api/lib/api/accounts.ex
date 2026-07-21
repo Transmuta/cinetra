@@ -18,6 +18,7 @@ defmodule Api.Accounts do
 
     resource Api.Accounts.Clinic do
       define :onboard_clinic, action: :onboard, args: [:nome]
+      define :list_clinics, action: :read
       define :get_clinic, action: :read, get_by: [:id]
       define :update_clinic_settings, action: :update_settings
       define :update_clinic_info, action: :update_info

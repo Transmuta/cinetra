@@ -15,8 +15,9 @@ defmodule Api.Application do
       # no plug (auditoria doc 13, causa A).
       {Api.RateLimiter, [clean_period: :timer.minutes(1)]},
       {Phoenix.PubSub, name: Api.PubSub},
-      # Start a worker by calling: Api.Worker.start_link(arg)
-      # {Api.Worker, arg},
+      # Oban — o cron de limpeza dos `SlotHold` vencidos (doc 09 §6.2). Em teste sobe em modo
+      # manual (config/test.exs), sem cron nem filas.
+      {Oban, Application.fetch_env!(:api, Oban)},
       # Start to serve requests, typically the last entry
       ApiWeb.Endpoint,
       {AshAuthentication.Supervisor, [otp_app: :api]}

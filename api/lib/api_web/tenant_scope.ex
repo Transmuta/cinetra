@@ -87,11 +87,15 @@ defmodule ApiWeb.TenantScope do
   errado"; 409 = "seu pedido estava certo, o mundo mudou"**. Reservado a concorrência
   (`version_conflict` na Entrega 4, `slot_held` na 5) — conflito de horário é 422, porque o
   pedido *está* errado no momento em que chega.
+
+  A 4-aridade carrega um `meta` (mapa) no corpo — a Entrega 5 o usa para dizer **quem** segura a
+  vaga e **até quando** (`slot_held`, doc 09 §6.2), o que transforma a corrida num aviso útil
+  ("João está oferecendo, expira em 4 min") em vez de um erro seco. `meta` vazio não vai no corpo.
   """
-  def conflict(conn, code, message) do
-    conn
-    |> put_status(:conflict)
-    |> json(%{error: "conflict", code: code, details: [%{field: nil, message: message}]})
+  def conflict(conn, code, message, meta \\ %{}) do
+    body = %{error: "conflict", code: code, details: [%{field: nil, message: message}]}
+    body = if map_size(meta) > 0, do: Map.put(body, :meta, meta), else: body
+    conn |> put_status(:conflict) |> json(body)
   end
 
   @doc """

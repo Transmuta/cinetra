@@ -132,3 +132,49 @@ export function connectAgenda(
 		socket.disconnect();
 	};
 }
+
+export interface WaitlistHandlers {
+	/** Qualquer mutação na fila (entrada/edição/saída) OU um rejoin de reconexão. */
+	onChange(): void;
+}
+
+/**
+ * Conecta ao tópico único da fila (`waitlist:<clinic_id>`, Entrega 5, D-E5.3) e devolve a função
+ * de desligar. Muito mais simples que a agenda: a fila **não é recortada por papel**, então o
+ * push é um **sinal** (`waitlist_changed`) e o cliente recarrega a lista inteira pelo REST — não
+ * há bloco para remendar. A renovação de token no `onError` é a mesma da agenda (o socket vive
+ * mais que o token de 15 min). O rejoin de reconexão também dispara `onChange` (pode ter perdido
+ * eventos enquanto esteve fora).
+ */
+export function connectWaitlist(
+	config: RealtimeConfig,
+	handlers: WaitlistHandlers,
+	deps: { refreshToken?: () => Promise<string | null> } = {}
+): () => void {
+	const refreshToken = deps.refreshToken ?? buscarToken;
+	let token = config.token;
+
+	const socket = new Socket(socketUrl(config.origin), { params: () => ({ token }) });
+
+	socket.onError(() => {
+		void refreshToken().then((novo) => {
+			if (novo) token = novo;
+		});
+	});
+
+	socket.connect();
+
+	const channel = socket.channel(`waitlist:${config.clinic_id}`, {});
+	channel.on('waitlist_changed', () => handlers.onChange());
+
+	let entrou = false;
+	channel.join().receive('ok', () => {
+		if (entrou) handlers.onChange();
+		entrou = true;
+	});
+
+	return () => {
+		channel.leave();
+		socket.disconnect();
+	};
+}

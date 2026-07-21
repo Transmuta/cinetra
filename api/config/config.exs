@@ -72,8 +72,18 @@ config :spark,
 config :api,
   generators: [timestamp_type: :utc_datetime],
   ecto_repos: [Api.Repo],
-  ash_domains: [Api.Meta, Api.Accounts, Api.Directory, Api.Scheduling, Api.Records],
+  ash_domains: [Api.Meta, Api.Accounts, Api.Directory, Api.Scheduling, Api.Records, Api.Waitlist],
   ash_authentication: [return_error_on_invalid_magic_link_token?: true]
+
+# Oban — só a fila `housekeeping` e o cron de limpeza de `SlotHold` vencidos (doc 09 §6.2). O
+# worker itera as clínicas com a GUC (a tabela está sob RLS e o Oban não tem tenant). Backstop:
+# a correção da corrida é da constraint + do `DELETE` in-transaction da `offer`, nunca daqui.
+config :api, Oban,
+  repo: Api.Repo,
+  queues: [housekeeping: 2],
+  plugins: [
+    {Oban.Plugins.Cron, crontab: [{"* * * * *", Api.Scheduling.SlotHold.CleanupWorker}]}
+  ]
 
 # Magic link sem página de interação: o callback GET assina a sessão direto (09 §8).
 config :ash_authentication, bypass_require_interaction_for_magic_link?: true
