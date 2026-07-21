@@ -1,6 +1,7 @@
 import { redirect } from '@sveltejs/kit';
 import type { LayoutServerLoad } from './$types';
 import { loadMe } from '$lib/server/auth';
+import { fetchUnreadCount } from '$lib/server/notifications';
 
 // Guarda de auth do shell administrativo: sem sessão, volta para /entrar. Com sessão mas
 // sem clínica ativa, vai para o onboarding (/comecar) — o shell exige um tenant. ADR-005: o
@@ -9,5 +10,11 @@ export const load: LayoutServerLoad = async (event) => {
 	const me = await loadMe(event);
 	if (!me) redirect(303, '/entrar');
 	if (!me.active_clinic_id) redirect(303, '/comecar');
-	return { me };
+
+	// O badge do sino (doc 31). `depends` deixa o tempo real revalidar SÓ esta contagem
+	// (`invalidate('app:unread')`) quando chega uma notificação, sem recarregar a página.
+	event.depends('app:unread');
+	const unread = await fetchUnreadCount(event);
+
+	return { me, unread };
 };

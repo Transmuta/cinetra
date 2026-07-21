@@ -154,6 +154,13 @@ defmodule ApiWeb.Router do
     patch "/waitlist/:id", WaitlistController, :update
     delete "/waitlist/:id", WaitlistController, :delete
 
+    # Notificações in-app (doc 31). Leitura para todo membro (cada um só vê a própria caixa, pela
+    # policy do recurso); "marcar lida" é a única escrita da UI. `clinic_id` sempre do escopo.
+    get "/notifications", NotificationsController, :index
+    # Literal antes da paramétrica: "read-all" não pode virar um `:id`.
+    post "/notifications/read-all", NotificationsController, :mark_all_read
+    post "/notifications/:id/read", NotificationsController, :mark_read
+
     # Trilha de auditoria (doc 25 §11.4, tela /configuracoes/auditoria). Owner·admin only —
     # a guarda vive no controller (with_admin_scope) e nas policies do recurso de versão.
     # `clinic_id` sempre do escopo; a página e os filtros viajam na query string.

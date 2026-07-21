@@ -133,6 +133,51 @@ export function connectAgenda(
 	};
 }
 
+export interface NotificationHandlers {
+	/** Chegou uma notificação para este usuário (o Rail sobe o badge). */
+	onNotification(): void;
+}
+
+/**
+ * Conecta ao tópico da caixa deste usuário (`notifications:<clinic_id>`, doc 31 §5) e devolve a
+ * função de desligar. Simples como a fila: o push é um sinal (`notification_created`) e o cliente
+ * reage subindo o badge (e, se a tela `/notificacoes` estiver aberta, revalidando o load). A
+ * renovação de token no `onError` é a mesma da agenda. O rejoin de reconexão também dispara
+ * `onNotification` — pode ter chegado algo enquanto o socket esteve fora.
+ */
+export function connectNotifications(
+	config: RealtimeConfig,
+	handlers: NotificationHandlers,
+	deps: { refreshToken?: () => Promise<string | null> } = {}
+): () => void {
+	const refreshToken = deps.refreshToken ?? buscarToken;
+	let token = config.token;
+
+	const socket = new Socket(socketUrl(config.origin), { params: () => ({ token }) });
+
+	socket.onError(() => {
+		void refreshToken().then((novo) => {
+			if (novo) token = novo;
+		});
+	});
+
+	socket.connect();
+
+	const channel = socket.channel(`notifications:${config.clinic_id}`, {});
+	channel.on('notification_created', () => handlers.onNotification());
+
+	let entrou = false;
+	channel.join().receive('ok', () => {
+		if (entrou) handlers.onNotification();
+		entrou = true;
+	});
+
+	return () => {
+		channel.leave();
+		socket.disconnect();
+	};
+}
+
 export interface WaitlistHandlers {
 	/** Qualquer mutação na fila (entrada/edição/saída) OU um rejoin de reconexão. */
 	onChange(): void;

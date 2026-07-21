@@ -72,7 +72,15 @@ config :spark,
 config :api,
   generators: [timestamp_type: :utc_datetime],
   ecto_repos: [Api.Repo],
-  ash_domains: [Api.Meta, Api.Accounts, Api.Directory, Api.Scheduling, Api.Records, Api.Waitlist],
+  ash_domains: [
+    Api.Meta,
+    Api.Accounts,
+    Api.Directory,
+    Api.Scheduling,
+    Api.Records,
+    Api.Waitlist,
+    Api.Notifications
+  ],
   ash_authentication: [return_error_on_invalid_magic_link_token?: true]
 
 # Oban — só a fila `housekeeping` e o cron de limpeza de `SlotHold` vencidos (doc 09 §6.2). O

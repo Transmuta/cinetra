@@ -13,6 +13,7 @@ import { meFixture } from '$lib/testing/fixtures';
 // `me`/`theme` vêm do layout; aqui só o `papel` importa (owner → pode gerir).
 const data = {
 	theme: null,
+	unread: 0,
 	me: meFixture({
 		user: { id: 'u1', nome: 'Dona', email: 'dona@ex.com' },
 		memberships: []

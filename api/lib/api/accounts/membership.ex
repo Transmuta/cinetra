@@ -10,7 +10,10 @@ defmodule Api.Accounts.Membership do
     otp_app: :api,
     domain: Api.Accounts,
     data_layer: AshPostgres.DataLayer,
-    authorizers: [Ash.Policy.Authorizer]
+    authorizers: [Ash.Policy.Authorizer],
+    # Convite aceito → notifica owner/admin (doc 31). Só `:accept_invite` interessa; o notifier
+    # ignora as demais ações.
+    notifiers: [Api.Notifications.Notifier]
 
   # Global: o vínculo vive no schema público (liga entidades globais User<->Clinic),
   # sem bloco `multitenancy`. FKs para users e clinics (ambos públicos).

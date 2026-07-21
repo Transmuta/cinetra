@@ -81,6 +81,7 @@ import {
 	agendaTopics,
 	connectAgenda,
 	connectWaitlist,
+	connectNotifications,
 	type AgendaHandlers
 } from './realtime';
 
@@ -280,6 +281,56 @@ describe('connectWaitlist', () => {
 
 	it('a função de desligar sai do canal e fecha o socket', () => {
 		const desligar = connectWaitlist(config, { onChange() {} });
+		const socket = fake.FakeSocket.last!;
+
+		desligar();
+
+		expect(socket.channels[0].left).toBe(true);
+		expect(socket.disconnected).toBe(true);
+	});
+});
+
+describe('connectNotifications', () => {
+	it('entra no tópico da caixa do usuário na clínica', () => {
+		connectNotifications(config, { onNotification() {} });
+		const socket = fake.FakeSocket.last!;
+
+		expect(socket.connected).toBe(true);
+		expect(socket.channels.map((c) => c.topic)).toEqual(['notifications:c1']);
+	});
+
+	it('notification_created dispara onNotification', () => {
+		let avisos = 0;
+		connectNotifications(config, { onNotification: () => (avisos += 1) });
+
+		fake.FakeSocket.last!.channels[0].emit('notification_created', { id: 'n1', title: 'Oi' });
+
+		expect(avisos).toBe(1);
+	});
+
+	it('o primeiro join não avisa; o rejoin sim', () => {
+		let avisos = 0;
+		connectNotifications(config, { onNotification: () => (avisos += 1) });
+
+		const canal = fake.FakeSocket.last!.channels[0];
+		canal.acceptJoin();
+		expect(avisos).toBe(0);
+
+		canal.acceptJoin();
+		expect(avisos).toBe(1);
+	});
+
+	it('renova o token quando o socket dá erro', async () => {
+		const refreshToken = vi.fn().mockResolvedValue('tok-2');
+		connectNotifications(config, { onNotification() {} }, { refreshToken });
+
+		const socket = fake.FakeSocket.last!;
+		socket.errorHandler!();
+		await vi.waitFor(() => expect(socket.opts.params()).toEqual({ token: 'tok-2' }));
+	});
+
+	it('a função de desligar sai do canal e fecha o socket', () => {
+		const desligar = connectNotifications(config, { onNotification() {} });
 		const socket = fake.FakeSocket.last!;
 
 		desligar();

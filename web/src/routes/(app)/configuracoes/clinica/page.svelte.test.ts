@@ -25,7 +25,7 @@ const clinic: { id: string; nome: string; cnpj: string | null; endereco: string 
 
 // `theme`/`me` vêm do layout; montamos o `data` da página com eles.
 function data(me: Me, c = clinic) {
-	return { theme: null, me, clinic: c };
+	return { theme: null, unread: 0, me, clinic: c };
 }
 
 describe('Clínica — edição (owner/admin)', () => {

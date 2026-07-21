@@ -21,4 +21,28 @@ describe('Rail', () => {
 		const { getByRole } = render(Rail, { props: { pathname: '/agenda', theme: 'light' } });
 		expect(getByRole('button', { name: /tema/i })).toBeInTheDocument();
 	});
+
+	it('o sino é um link para /notificacoes', () => {
+		const { getByTitle } = render(Rail, { props: { pathname: '/agenda' } });
+		expect(getByTitle('Notificações')).toHaveAttribute('href', '/notificacoes');
+	});
+
+	it('sem não-lidas não mostra badge; com não-lidas mostra o número', () => {
+		const semBadge = render(Rail, { props: { pathname: '/agenda', unread: 0 } });
+		expect(semBadge.getByLabelText('Notificações')).toBeInTheDocument();
+
+		const comBadge = render(Rail, { props: { pathname: '/agenda', unread: 3 } });
+		expect(comBadge.getByText('3')).toBeInTheDocument();
+		expect(comBadge.getByLabelText('Notificações (3 não lidas)')).toBeInTheDocument();
+	});
+
+	it('acima de 9 o badge vira "9+"', () => {
+		const { getByText } = render(Rail, { props: { pathname: '/agenda', unread: 42 } });
+		expect(getByText('9+')).toBeInTheDocument();
+	});
+
+	it('destaca o sino quando em /notificacoes', () => {
+		const { getByTitle } = render(Rail, { props: { pathname: '/notificacoes' } });
+		expect(getByTitle('Notificações')).toHaveAttribute('aria-current', 'page');
+	});
 });

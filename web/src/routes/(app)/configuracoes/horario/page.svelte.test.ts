@@ -17,13 +17,13 @@ const me = meFixture({
 
 describe('Horário — bloqueia o Salvar quando há período inválido', () => {
 	it('semana válida: sem banner de erro', () => {
-		const data = { theme: null, me, clinicHours: { '1': [['08:00', '12:00']] as Period[] } };
+		const data = { theme: null, unread: 0, me, clinicHours: { '1': [['08:00', '12:00']] as Period[] } };
 		const { queryByText } = render(Page, { props: { data, form: null } });
 		expect(queryByText('Corrija os horários destacados.')).toBeNull();
 	});
 
 	it('dia inválido: mostra "Corrija os horários destacados." e desabilita Salvar', () => {
-		const data = { theme: null, me, clinicHours: { '1': [['14:00', '12:00']] as Period[] } };
+		const data = { theme: null, unread: 0, me, clinicHours: { '1': [['14:00', '12:00']] as Period[] } };
 		const { getByText, getByRole } = render(Page, { props: { data, form: null } });
 
 		expect(getByText('Corrija os horários destacados.')).toBeInTheDocument();
