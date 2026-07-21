@@ -172,3 +172,45 @@ export function createAppointment(
 ): Promise<MutationResult> {
 	return mutate(event, '/api/appointments', 'POST', input);
 }
+
+// ---------------------------------------------------------------------------
+// Ciclo de vida (Entrega 4) — uma função por transição, espelho das rotas nomeadas
+// (doc 25 §5). `expected_version` viaja em todas: é o guard de 409 (locking otimista).
+// ---------------------------------------------------------------------------
+
+/** Remarcar (arraste e modal). `starts_at` já em UTC; `professional_id` muda de coluna. */
+export function rescheduleAppointment(
+	event: RequestEvent,
+	id: string,
+	input: { starts_at: string; professional_id?: string; encaixe?: boolean; expected_version: number }
+): Promise<MutationResult> {
+	return mutate(event, `/api/appointments/${id}/reschedule`, 'PATCH', input);
+}
+
+export function completeAppointment(event: RequestEvent, id: string, expected_version: number) {
+	return mutate(event, `/api/appointments/${id}/complete`, 'POST', { expected_version });
+}
+
+export function missAppointment(event: RequestEvent, id: string, expected_version: number) {
+	return mutate(event, `/api/appointments/${id}/miss`, 'POST', { expected_version });
+}
+
+export function cancelAppointment(
+	event: RequestEvent,
+	id: string,
+	input: { cancel_reason?: string; expected_version: number }
+) {
+	return mutate(event, `/api/appointments/${id}/cancel`, 'POST', input);
+}
+
+export function reopenAppointment(event: RequestEvent, id: string, expected_version: number) {
+	return mutate(event, `/api/appointments/${id}/reopen`, 'POST', { expected_version });
+}
+
+export function justifyAbsence(
+	event: RequestEvent,
+	id: string,
+	input: { justificada: boolean; expected_version: number }
+) {
+	return mutate(event, `/api/appointments/${id}/justify-absence`, 'POST', input);
+}

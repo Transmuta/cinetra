@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applyAppointment, mergePatients } from './agenda-live';
+import { applyAppointment, applyToDay, mergePatients } from './agenda-live';
 import type { Appointment, AgendaPatient } from './agenda';
 
 function appt(over: Partial<Appointment> = {}): Appointment {
@@ -15,6 +15,8 @@ function appt(over: Partial<Appointment> = {}): Appointment {
 		package_id: null,
 		version: 1,
 		created_by_id: null,
+		cancel_reason: null,
+		falta_justificada: false,
 		patient_ids: ['pac1'],
 		...over
 	};
@@ -84,5 +86,27 @@ describe('mergePatients', () => {
 
 	it('tolera sidecar vazio dos dois lados', () => {
 		expect(mergePatients([], [])).toEqual([]);
+	});
+});
+
+describe('applyToDay (remarcação entre dias, Entrega 4)', () => {
+	const TZ = 'America/Sao_Paulo';
+
+	it('aplica normalmente o bloco que continua no dia', () => {
+		// 14:00Z = 11:00 em São Paulo, dia 2026-07-20.
+		const lista = applyToDay([], appt({ starts_at: '2026-07-20T14:00:00Z' }), '2026-07-20', TZ);
+		expect(lista.map((a) => a.id)).toEqual(['a1']);
+	});
+
+	it('REMOVE o bloco que foi remarcado para outro dia (fecha o bloco fantasma)', () => {
+		const atual = [appt({ id: 'a1', starts_at: '2026-07-20T14:00:00Z' })];
+		// O tópico do dia de origem recebe o mesmo bloco, agora no dia seguinte.
+		const lista = applyToDay(atual, appt({ id: 'a1', starts_at: '2026-07-21T14:00:00Z', version: 2 }), '2026-07-20', TZ);
+		expect(lista).toEqual([]);
+	});
+
+	it('ignorar um bloco de outro dia não o adiciona', () => {
+		const lista = applyToDay([], appt({ id: 'a9', starts_at: '2026-07-25T14:00:00Z' }), '2026-07-20', TZ);
+		expect(lista).toEqual([]);
 	});
 });

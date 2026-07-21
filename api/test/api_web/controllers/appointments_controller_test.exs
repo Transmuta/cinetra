@@ -639,6 +639,133 @@ defmodule ApiWeb.AppointmentsControllerTest do
     end
   end
 
+  # Cria um bloco via HTTP e devolve `{id, version}` — o `version` é o que o guard de 409 exige.
+  defp create_appt(conn, ctx, overrides \\ %{}) do
+    resp = conn |> authed(ctx.owner) |> post("/api/appointments", payload(ctx, overrides))
+    appt = json_response(resp, 201)["appointment"]
+    {appt["id"], appt["version"]}
+  end
+
+  describe "ciclo de vida (Entrega 4)" do
+    test "PATCH reschedule move o bloco e avança a versão", %{conn: conn} do
+      ctx = fixture()
+      {id, version} = create_appt(conn, ctx)
+
+      resp =
+        conn
+        |> authed(ctx.owner)
+        |> patch("/api/appointments/#{id}/reschedule", %{
+          "starts_at" => "2026-07-20T12:00:00Z",
+          "expected_version" => version
+        })
+
+      appt = json_response(resp, 200)["appointment"]
+      assert appt["starts_at"] == "2026-07-20T12:00:00Z"
+      assert appt["version"] == version + 1
+    end
+
+    test "reschedule para fora do expediente → 422 outside_business_hours (GAP-03)", %{conn: conn} do
+      ctx = fixture()
+      {id, version} = create_appt(conn, ctx)
+
+      resp =
+        conn
+        |> authed(ctx.owner)
+        # 12:30 local cai no almoço.
+        |> patch("/api/appointments/#{id}/reschedule", %{
+          "starts_at" => "2026-07-20T15:30:00Z",
+          "expected_version" => version
+        })
+
+      assert json_response(resp, 422)["code"] == "outside_business_hours"
+    end
+
+    test "reschedule sobre outro bloco → 422 schedule_conflict SEM campo (A10)", %{conn: conn} do
+      ctx = fixture()
+      create_appt(conn, ctx, %{"starts_at" => "2026-07-20T12:00:00Z"})
+      {id, version} = create_appt(conn, ctx)
+
+      resp =
+        conn
+        |> authed(ctx.owner)
+        |> patch("/api/appointments/#{id}/reschedule", %{
+          "starts_at" => "2026-07-20T12:00:00Z",
+          "expected_version" => version
+        })
+
+      body = json_response(resp, 422)
+      assert body["code"] == "schedule_conflict"
+      assert [%{"field" => nil}] = body["details"]
+    end
+
+    test "expected_version obsoleto → 409 version_conflict", %{conn: conn} do
+      ctx = fixture()
+      {id, version} = create_appt(conn, ctx)
+
+      resp =
+        conn
+        |> authed(ctx.owner)
+        |> post("/api/appointments/#{id}/cancel", %{"expected_version" => version + 5})
+
+      body = json_response(resp, 409)
+      assert body["code"] == "version_conflict"
+    end
+
+    test "POST cancel com motivo preserva o registro", %{conn: conn} do
+      ctx = fixture()
+      {id, version} = create_appt(conn, ctx)
+
+      resp =
+        conn
+        |> authed(ctx.owner)
+        |> post("/api/appointments/#{id}/cancel", %{
+          "cancel_reason" => "paciente pediu",
+          "expected_version" => version
+        })
+
+      appt = json_response(resp, 200)["appointment"]
+      assert appt["status"] == "cancelado"
+      assert appt["cancel_reason"] == "paciente pediu"
+    end
+
+    test "POST reopen devolve o bloco a agendado", %{conn: conn} do
+      ctx = fixture()
+      {id, v0} = create_appt(conn, ctx)
+      conn |> authed(ctx.owner) |> post("/api/appointments/#{id}/cancel", %{"expected_version" => v0})
+
+      resp = conn |> authed(ctx.owner) |> post("/api/appointments/#{id}/reopen", %{})
+      assert json_response(resp, 200)["appointment"]["status"] == "agendado"
+    end
+
+    test "POST justify-absence marca o selo", %{conn: conn} do
+      ctx = fixture()
+      {id, _} = create_appt(conn, ctx)
+
+      resp =
+        conn
+        |> authed(ctx.owner)
+        |> post("/api/appointments/#{id}/justify-absence", %{"justificada" => true})
+
+      assert json_response(resp, 200)["appointment"]["falta_justificada"] == true
+    end
+
+    test "transição em bloco inexistente → 404", %{conn: conn} do
+      ctx = fixture()
+      fake = Ash.UUID.generate()
+
+      for path <- ["complete", "miss", "reopen"] do
+        resp = conn |> authed(ctx.owner) |> post("/api/appointments/#{fake}/#{path}", %{})
+        assert json_response(resp, 404)
+      end
+    end
+
+    test "sem sessão → 401", %{conn: conn} do
+      ctx = fixture()
+      {id, _} = create_appt(conn, ctx)
+      assert conn |> post("/api/appointments/#{id}/cancel", %{}) |> json_response(401)
+    end
+  end
+
   # Sem medir, "otimizei" é alegação — o teto no teste é o que impede a regressão voltar calada.
   defp count_queries(fun, source \\ nil) do
     {_result, n} = Api.QueryCounter.count(fun, source)

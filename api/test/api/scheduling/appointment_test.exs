@@ -881,4 +881,180 @@ defmodule Api.Scheduling.AppointmentTest do
       assert Ash.Resource.Info.action(Api.Scheduling.Appointment.Version, :destroy) == nil
     end
   end
+
+  # ---- Ciclo de vida (Entrega 4) ----
+
+  defp scope_at(user, clinic, %DateTime{} = now) do
+    membership = Accounts.get_active_membership!(user.id, clinic.id, authorize?: false)
+    Api.Scope.with_membership(user, membership, now: now)
+  end
+
+  # O bloco recém-criado, para as transições. `now` fixa o relógio do escopo (ADR-009) para as
+  # regras temporais serem determinísticas.
+  defp agendado(ctx) do
+    {:ok, appt} = schedule(ctx, %{})
+    appt
+  end
+
+  describe "remarcar (:reschedule)" do
+    test "move o horário e preserva a duração, avançando a versão" do
+      ctx = setup_clinic()
+      appt = agendado(ctx)
+
+      assert {:ok, movido} =
+               Scheduling.transition_appointment(ctx.scope, appt.id, :reschedule, %{
+                 starts_at: at("09:00")
+               })
+
+      assert DateTime.compare(movido.starts_at, at("09:00")) == :eq
+      # Duração de 50 min preservada (não relê o catálogo).
+      assert DateTime.diff(movido.ends_at, movido.starts_at, :minute) == 50
+      assert movido.version == appt.version + 1
+    end
+
+    test "GAP-03 corrigido: remarcar para fora do expediente é recusado (422 com code)" do
+      ctx = setup_clinic()
+      appt = agendado(ctx)
+
+      # 12:30 cai no almoço (12:00–13:00 fechado no seed): o formulário já recusava; o arraste
+      # passava reto no protótipo. Agora recusa igual.
+      assert {:error, error} =
+               Scheduling.transition_appointment(ctx.scope, appt.id, :reschedule, %{
+                 starts_at: at("12:30")
+               })
+
+      assert "outside_business_hours" in codes(error)
+    end
+
+    test "remarcar para cima de outro bloco é recusado pela constraint (422, não 500)" do
+      ctx = setup_clinic()
+      {:ok, _fixo} = schedule(ctx, %{starts_at: at("09:00")})
+      appt = agendado(ctx)
+
+      # A constraint devolve InvalidAttribute na `:starts_at` com a mensagem única; o `code`
+      # estável `schedule_conflict` é promovido na fronteira HTTP (ver o teste do controller).
+      assert {:error, %Ash.Error.Invalid{}} =
+               Scheduling.transition_appointment(ctx.scope, appt.id, :reschedule, %{
+                 starts_at: at("09:00")
+               })
+    end
+
+    test "remarcar como encaixe fura o conflito (A-D2/A5)" do
+      ctx = setup_clinic()
+      {:ok, _fixo} = schedule(ctx, %{starts_at: at("09:00")})
+      appt = agendado(ctx)
+
+      assert {:ok, movido} =
+               Scheduling.transition_appointment(ctx.scope, appt.id, :reschedule, %{
+                 starts_at: at("09:00"),
+                 encaixe: true
+               })
+
+      assert movido.encaixe == true
+      assert DateTime.compare(movido.starts_at, at("09:00")) == :eq
+    end
+  end
+
+  describe "concluir / faltar (gated por 'começou', D-E4.1)" do
+    test "concluir antes da sessão começar é recusado" do
+      ctx = setup_clinic()
+      appt = agendado(ctx)
+      # Relógio 1h ANTES do início.
+      scope = scope_at(ctx.owner, ctx.clinic, DateTime.add(at("08:00"), -3600, :second))
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               Scheduling.transition_appointment(scope, appt.id, :complete)
+    end
+
+    test "concluir depois de começar seta o bloco e as presenças" do
+      ctx = setup_clinic()
+      appt = agendado(ctx)
+      scope = scope_at(ctx.owner, ctx.clinic, DateTime.add(at("08:00"), 3600, :second))
+
+      assert {:ok, concluido} = Scheduling.transition_appointment(scope, appt.id, :complete)
+      assert concluido.status == :concluido
+      assert [%{status: :concluida}] = Scheduling.list_attendances!(scope: ctx.scope)
+    end
+
+    test "faltar incrementa o agregado de faltas do paciente; justificar zera; reabrir também" do
+      ctx = setup_clinic()
+      appt = agendado(ctx)
+      scope = scope_at(ctx.owner, ctx.clinic, DateTime.add(at("08:00"), 3600, :second))
+
+      {:ok, _} = Scheduling.transition_appointment(scope, appt.id, :miss)
+      assert faltas(ctx) == 1
+
+      {:ok, just} =
+        Scheduling.transition_appointment(scope, appt.id, :justify, %{justificada: true})
+
+      assert faltas(ctx) == 0
+      # A serialização do bloco reflete a justificativa.
+      assert ApiWeb.AgendaJSON.appointment(just).falta_justificada == true
+
+      {:ok, reaberto} = Scheduling.transition_appointment(scope, appt.id, :reopen)
+      assert reaberto.status == :agendado
+      assert [%{status: :prevista, falta_justificada: false}] =
+               Scheduling.list_attendances!(scope: ctx.scope)
+
+      assert faltas(ctx) == 0
+    end
+  end
+
+  describe "cancelar e locking otimista (409)" do
+    test "cancelar preserva o registro com o motivo" do
+      ctx = setup_clinic()
+      appt = agendado(ctx)
+
+      assert {:ok, cancelado} =
+               Scheduling.transition_appointment(ctx.scope, appt.id, :cancel, %{
+                 cancel_reason: "paciente pediu"
+               })
+
+      assert cancelado.status == :cancelado
+      assert cancelado.cancel_reason == "paciente pediu"
+    end
+
+    test "expected_version obsoleto → {:error, :version_conflict}" do
+      ctx = setup_clinic()
+      appt = agendado(ctx)
+
+      assert {:error, :version_conflict} =
+               Scheduling.transition_appointment(
+                 ctx.scope,
+                 appt.id,
+                 :cancel,
+                 %{},
+                 appt.version + 99
+               )
+    end
+
+    test "id fora do tenant → {:error, :not_found}" do
+      ctx = setup_clinic()
+
+      assert {:error, :not_found} =
+               Scheduling.transition_appointment(ctx.scope, Ash.UUID.generate(), :cancel)
+    end
+  end
+
+  describe "A7 na escrita do ciclo de vida" do
+    test "profissional não remarca para a coluna de um colega (403)" do
+      ctx = setup_clinic()
+      colega = Directory.create_professional!("Dr. Colega", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+
+      appt = agendado(ctx)
+
+      user = member_with_role(ctx.clinic, :profissional, ctx.prof.id)
+      scope = scope_for(user, ctx.clinic)
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Scheduling.transition_appointment(scope, appt.id, :reschedule, %{
+                 starts_at: at("09:00"),
+                 professional_id: colega.id
+               })
+    end
+  end
+
+  defp faltas(ctx) do
+    Records.get_patient!(ctx.paciente.id, scope: ctx.scope, load: [:faltas]).faltas
+  end
 end

@@ -217,7 +217,93 @@ defmodule Api.Scheduling.Appointment do
                value_is_key: :patient_id
              )
     end
+
+    # ---- Ciclo de vida (Entrega 4, doc 25 §9 / §8d) ----
+    #
+    # Ações **nomeadas**, nunca `PATCH` de `status` (doc 25 §3): a intenção — remarcou,
+    # concluiu, faltou, cancelou, reabriu — é o que a trilha (`store_action_name?`) grava e o que
+    # o cliente casa no evento de tempo real. Todas `require_atomic? false` porque `SetTenantGuc`
+    # é `before_action` (mesma razão de `archive`/`deactivate` no diretório), e todas avançam o
+    # `version` (locking otimista, guard de 409 no wrapper do domínio).
+
+    # Remarca o bloco (arraste e modal). GAP-03 corrigido (D-E4.3): valida expediente igual ao
+    # formulário — o protótipo só validava sobreposição no arraste. A não-sobreposição continua
+    # sendo do banco (exclusion constraint); "Mover como encaixe" manda `encaixe: true`.
+    update :reschedule do
+      require_atomic? false
+      accept [:starts_at, :professional_id]
+      argument :encaixe, :boolean
+
+      change Api.Scheduling.Appointment.Changes.SetEncaixeIfGiven
+      change Api.Scheduling.Appointment.Changes.ShiftEndsAt
+      change Api.Scheduling.Appointment.Changes.CheckAvailability
+      change Api.Scheduling.Appointment.Changes.BumpVersion
+    end
+
+    # Concluir e faltar: bloqueadas até a sessão começar (D-E4.1, `SessionStarted`).
+    update :mark_completed do
+      require_atomic? false
+      validate Api.Scheduling.Appointment.Validations.SessionStarted
+      change set_attribute(:status, :concluido)
+      change {Api.Scheduling.Appointment.Changes.CascadeToAttendances, status: :concluida}
+      change Api.Scheduling.Appointment.Changes.BumpVersion
+    end
+
+    update :mark_missed do
+      require_atomic? false
+      validate Api.Scheduling.Appointment.Validations.SessionStarted
+      change set_attribute(:status, :faltou)
+      change {Api.Scheduling.Appointment.Changes.CascadeToAttendances, status: :faltou}
+      change Api.Scheduling.Appointment.Changes.BumpVersion
+    end
+
+    # Cancelar preserva o registro (doc 25 §3, "sem hard delete"). Motivo opcional (D4).
+    update :cancel do
+      require_atomic? false
+      accept [:cancel_reason]
+      change set_attribute(:status, :cancelado)
+      change {Api.Scheduling.Appointment.Changes.CascadeToAttendances, status: :cancelada}
+      change Api.Scheduling.Appointment.Changes.BumpVersion
+    end
+
+    # Reabrir → agendado (D-E4.2): desfaz um clique errado. Zera `falta_justificada` e devolve
+    # as presenças a `:prevista`, então o agregado de faltas do paciente recua junto.
+    update :reopen do
+      require_atomic? false
+      change set_attribute(:status, :agendado)
+      change set_attribute(:cancel_reason, nil)
+
+      change {Api.Scheduling.Appointment.Changes.CascadeToAttendances,
+              status: :prevista, reset_justificada?: true}
+
+      change Api.Scheduling.Appointment.Changes.BumpVersion
+    end
+
+    # Justificar/desjustificar a falta (o bloco "Falta justificada" do drawer). Não mexe no
+    # status; só na `falta_justificada` das presenças — que é o que faz a falta parar de contar.
+    update :set_falta_justificada do
+      require_atomic? false
+      argument :justificada, :boolean, allow_nil?: false
+
+      change {Api.Scheduling.Appointment.Changes.CascadeToAttendances, justify_from: :justificada}
+
+      change Api.Scheduling.Appointment.Changes.BumpVersion
+    end
   end
+
+  # As ações de escrita, para as policies abaixo não repetirem a lista.
+  @write_actions [
+    :schedule,
+    :add_participant,
+    :reschedule,
+    :mark_completed,
+    :mark_missed,
+    :cancel,
+    :reopen,
+    :set_falta_justificada
+  ]
+  # Onde `encaixe` pode ser marcado — os únicos caminhos que a A9 precisa guardar.
+  @encaixe_actions [:schedule, :add_participant, :reschedule]
 
   policies do
     # A7/D1: todo membro lê, mas o `profissional` só enxerga a própria agenda — e o
@@ -228,13 +314,10 @@ defmodule Api.Scheduling.Appointment do
       authorize_if {Api.Accounts.Checks.HasClinicRole, roles: :any, clinic_from: :tenant}
     end
 
-    # A8: recepção é quem agenda — o par admin/membro de hoje não serve.
-    #
-    # As três policies de escrita nomeiam as ações em vez de casar por `action_type`: desde o
-    # merge (A-D4), agendar é `:schedule` **ou** `:add_participant`, e a segunda é um
-    # `update`. Casar por tipo deixaria o caminho da fusão sem policy nenhuma — e ação sem
-    # policy é ação proibida, ou seja, o merge nasceria morto e o erro apareceria como 403.
-    policy action([:schedule, :add_participant]) do
+    # A8: recepção é quem agenda — o par admin/membro de hoje não serve. A lista `@write_actions`
+    # cobre o merge (A-D4, `:add_participant`) e todo o ciclo de vida da Entrega 4: casar por
+    # `action_type` deixaria alguma delas sem policy, e ação sem policy é ação proibida (403).
+    policy action(@write_actions) do
       authorize_if {Api.Accounts.Checks.HasClinicRole,
                     roles: [:owner, :admin, :recepcao, :profissional], clinic_from: :tenant}
     end
@@ -242,8 +325,11 @@ defmodule Api.Scheduling.Appointment do
     # A7 **na escrita**. As policies do Ash são AND entre si: esta só se aplica quando o actor
     # é `profissional`, e então exige a própria coluna. Sem ela o profissional não conseguia
     # LER a agenda do colega mas escrevia nela às cegas, mandando outro `professional_id`.
+    # Vale para todo o ciclo de vida: nas transições de status o `professional_id` não muda
+    # (o check lê o valor atual do bloco, que já é o dele), e na remarcação impede mover o
+    # bloco para a coluna de um colega.
     policy [
-      action([:schedule, :add_participant]),
+      action(@write_actions),
       {Api.Accounts.Checks.HasClinicRole, roles: [:profissional], clinic_from: :tenant}
     ] do
       authorize_if Api.Scheduling.Appointment.Checks.OwnProfessionalColumn
@@ -252,10 +338,10 @@ defmodule Api.Scheduling.Appointment do
     # A9: encaixe é de recepção para cima. `encaixe = true` isenta a linha da exclusion
     # constraint (A5) — sem esta policy, o papel menos privilegiado desligava a proteção
     # contra dupla-marcação mandando um booleano no corpo.
-    # Em `:add_participant` o mesmo argumento fura o teto da turma (A-D3) em vez de isentar a
-    # constraint — e a decisão de quem pode furar um limite combinado é a mesma.
+    # Em `:add_participant` o mesmo argumento fura o teto da turma (A-D3); na remarcação volta a
+    # isentar a constraint. A decisão de quem pode furar um limite combinado é a mesma.
     policy [
-      action([:schedule, :add_participant]),
+      action(@encaixe_actions),
       Api.Scheduling.Appointment.Checks.CreatingEncaixe
     ] do
       authorize_if {Api.Accounts.Checks.HasClinicRole,

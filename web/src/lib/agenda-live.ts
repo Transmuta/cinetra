@@ -7,6 +7,29 @@
 // O evento é OTIMIZAÇÃO sobre um estado que o REST sempre pode reconstituir (09 §7.5): se um
 // patch não for aplicável, o caminho é recarregar, nunca inventar.
 import type { Appointment, AgendaPatient } from './agenda';
+import { zonedParts } from './agenda';
+
+/**
+ * Aplica um bloco a uma lista de **um dia** (Dia/Lista), removendo-o quando ele deixou de
+ * pertencer àquele dia.
+ *
+ * É o que fecha o "bloco fantasma" da remarcação entre dias (Entrega 4, risco do doc 25 §9): o
+ * tópico de origem recebe o mesmo evento, agora com o `starts_at` no dia de destino. Sem esta
+ * checagem, `applyAppointment` re-inseriria o bloco na lista do dia de origem, num horário
+ * fora da grade. Com ela, o dia de origem o **remove** (ele foi embora) e o de destino o adiciona.
+ */
+export function applyToDay(
+	list: Appointment[],
+	incoming: Appointment,
+	date: string,
+	timezone: string
+): Appointment[] {
+	if (zonedParts(incoming.starts_at, timezone).date === date) {
+		return applyAppointment(list, incoming);
+	}
+	// Saiu deste dia: some daqui (se estava). Não é "descartar o evento" — é aplicá-lo.
+	return list.filter((a) => a.id !== incoming.id);
+}
 
 /**
  * Aplica um bloco recebido por evento sobre a lista atual.

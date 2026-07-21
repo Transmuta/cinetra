@@ -114,4 +114,55 @@ defmodule Api.Scheduling.AgendaNotifierTest do
     assert AgendaNotifier.month_topic("c1", ~D[2026-07-20]) == "agenda_events:c1:month:2026-07"
     assert AgendaNotifier.day_topic("c1", ~D[2026-07-20]) == "agenda_events:c1:2026-07-20"
   end
+
+  test "remarcar ENTRE dias publica no dia de origem E no de destino (Entrega 4)" do
+    ctx = fixture()
+    origem = ~D[2026-07-20]
+    destino = ~D[2026-07-21]
+
+    {:ok, appt} =
+      Scheduling.schedule_appointment(
+        %{
+          starts_at: "2026-07-20T12:00:00Z",
+          professional_id: ctx.prof.id,
+          appointment_type_id: ctx.tipo.id,
+          patient_ids: [ctx.paciente.id]
+        },
+        scope: ctx.scope
+      )
+
+    :ok = AgendaNotifier.subscribe(AgendaNotifier.day_topic(ctx.clinic.id, origem))
+    :ok = AgendaNotifier.subscribe(AgendaNotifier.day_topic(ctx.clinic.id, destino))
+
+    {:ok, _} =
+      Scheduling.transition_appointment(ctx.scope, appt.id, :reschedule, %{
+        starts_at: "2026-07-21T12:00:00Z"
+      })
+
+    # O de origem some (o cliente remove o bloco fantasma), o de destino recebe — os dois
+    # eventos saem, cada um com a sua data. Esquecer o de origem é o risco que o doc 25 §9 nomeia.
+    assert_receive {:agenda_event, %{event: "appointment_rescheduled", date: ^origem}}
+    assert_receive {:agenda_event, %{event: "appointment_rescheduled", date: ^destino}}
+  end
+
+  test "cancelar publica appointment_canceled; concluir/faltar publicam status_changed" do
+    ctx = fixture()
+    dia = ~D[2026-07-20]
+
+    {:ok, appt} =
+      Scheduling.schedule_appointment(
+        %{
+          starts_at: "2026-07-20T12:00:00Z",
+          professional_id: ctx.prof.id,
+          appointment_type_id: ctx.tipo.id,
+          patient_ids: [ctx.paciente.id]
+        },
+        scope: ctx.scope
+      )
+
+    :ok = AgendaNotifier.subscribe(AgendaNotifier.day_topic(ctx.clinic.id, dia))
+
+    {:ok, _} = Scheduling.transition_appointment(ctx.scope, appt.id, :cancel)
+    assert_receive {:agenda_event, %{event: "appointment_canceled"}}
+  end
 end

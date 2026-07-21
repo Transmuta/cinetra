@@ -60,6 +60,84 @@ defmodule ApiWeb.AppointmentsController do
     end)
   end
 
+  # ---- ciclo de vida (Entrega 4, doc 25 §5/§8d) ----
+  #
+  # Ações **nomeadas**, uma rota por transição — nunca um `PATCH /status` genérico (doc 25 §3).
+  # Todas passam por `with_member_scope` (é membro de clínica ativa?); **qual** papel pode o quê
+  # é da policy do recurso, e o recorte A7 (profissional só a própria agenda) vem do fetch, que
+  # devolve 404 para o bloco do colega. O `expected_version` do corpo vira o guard de 409.
+
+  # PATCH /api/appointments/:id/reschedule — arraste e modal (GAP-03 corrigido no recurso).
+  def reschedule(conn, %{"id" => id} = params) do
+    with_member_scope(conn, fn scope ->
+      transition(conn, scope, id, :reschedule, whitelist(params, [:starts_at, :professional_id, :encaixe]), params)
+    end)
+  end
+
+  # POST /api/appointments/:id/complete
+  def complete(conn, %{"id" => id} = params) do
+    with_member_scope(conn, fn scope -> transition(conn, scope, id, :complete, %{}, params) end)
+  end
+
+  # POST /api/appointments/:id/miss
+  def miss(conn, %{"id" => id} = params) do
+    with_member_scope(conn, fn scope -> transition(conn, scope, id, :miss, %{}, params) end)
+  end
+
+  # POST /api/appointments/:id/cancel — motivo opcional (D4).
+  def cancel(conn, %{"id" => id} = params) do
+    with_member_scope(conn, fn scope ->
+      transition(conn, scope, id, :cancel, whitelist(params, [:cancel_reason]), params)
+    end)
+  end
+
+  # POST /api/appointments/:id/reopen — desfaz um clique errado (D-E4.2).
+  def reopen(conn, %{"id" => id} = params) do
+    with_member_scope(conn, fn scope -> transition(conn, scope, id, :reopen, %{}, params) end)
+  end
+
+  # POST /api/appointments/:id/justify-absence — o toggle "Falta justificada" do drawer.
+  def justify_absence(conn, %{"id" => id} = params) do
+    with_member_scope(conn, fn scope ->
+      transition(conn, scope, id, :justify, %{justificada: truthy(params["justificada"])}, params)
+    end)
+  end
+
+  defp transition(conn, scope, id, kind, input, params) do
+    case Scheduling.transition_appointment(scope, id, kind, input, expected_version(params)) do
+      {:ok, appointment} ->
+        json(conn, %{appointment: render_appointment(appointment)})
+
+      {:error, :not_found} ->
+        not_found(conn)
+
+      {:error, :version_conflict} ->
+        conflict(
+          conn,
+          "version_conflict",
+          "Este agendamento mudou desde que você o abriu. Recarregue e tente de novo."
+        )
+
+      {:error, error} ->
+        error_response(conn, error)
+    end
+  end
+
+  # `expected_version` chega como string do corpo HTTP; ausente pula o guard (mas o cliente
+  # sempre manda o que leu, ver `agenda-live.ts`).
+  defp expected_version(%{"expected_version" => v}) when is_integer(v), do: v
+
+  defp expected_version(%{"expected_version" => v}) when is_binary(v) do
+    case Integer.parse(v) do
+      {n, ""} -> n
+      _ -> nil
+    end
+  end
+
+  defp expected_version(_params), do: nil
+
+  defp truthy(v), do: v in [true, "true", "1", 1]
+
   # GET /api/appointments/counts?from=YYYY-MM-DD&to=YYYY-MM-DD
   #
   # As visões Semana e Mês (Entrega 2). Não devolve blocos: devolve, por dia e por

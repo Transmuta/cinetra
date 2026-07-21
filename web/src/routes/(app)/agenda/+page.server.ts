@@ -4,8 +4,15 @@ import {
 	fetchAgenda,
 	fetchAvailability,
 	fetchCounts,
-	createAppointment
+	createAppointment,
+	rescheduleAppointment,
+	completeAppointment,
+	missAppointment,
+	cancelAppointment,
+	reopenAppointment,
+	justifyAbsence
 } from '$lib/server/appointments';
+import type { MutationResult } from '$lib/server/mutate';
 import {
 	parseDateParam,
 	parseHiddenProfs,
@@ -214,8 +221,110 @@ export const actions: Actions = {
 		}
 
 		return { ok: true, action: 'criar' };
+	},
+
+	// ---- Ciclo de vida (Entrega 4) ----
+	//
+	// Uma action por transição, todas com o mesmo formato de retorno (`ok`/`action` ou `fail`
+	// com `error`/`code`). O `expected_version` é o guard de 409: o cliente manda o `version`
+	// que leu, e a API recusa se o mundo mudou. As mutações do drawer e o arraste usam estas
+	// mesmas actions (o arraste submete a `?/remarcar` programaticamente).
+
+	remarcar: async (event) => {
+		const s = await submission(event, 'remarcar');
+		if (!('id' in s)) return s;
+		const { form, id } = s;
+
+		const starts_at = String(form.get('starts_at') ?? '');
+		if (!Number.isFinite(Date.parse(starts_at))) {
+			return fail(400, { action: 'remarcar', error: 'Escolha uma data e um horário válidos.' });
+		}
+
+		const professional_id = String(form.get('professional_id') ?? '');
+
+		return finish(
+			'remarcar',
+			await rescheduleAppointment(event, id, {
+				starts_at,
+				...(professional_id ? { professional_id } : {}),
+				encaixe: form.get('encaixe') === 'on' || form.get('encaixe') === 'true',
+				expected_version: expectedVersion(form)
+			})
+		);
+	},
+
+	concluir: (event) => transition(event, 'concluir', (e, id, v) => completeAppointment(e, id, v)),
+	faltar: (event) => transition(event, 'faltar', (e, id, v) => missAppointment(e, id, v)),
+	reabrir: (event) => transition(event, 'reabrir', (e, id, v) => reopenAppointment(e, id, v)),
+
+	cancelar: async (event) => {
+		const s = await submission(event, 'cancelar');
+		if (!('id' in s)) return s;
+		const { form, id } = s;
+
+		const cancel_reason = String(form.get('cancel_reason') ?? '').trim();
+
+		return finish(
+			'cancelar',
+			await cancelAppointment(event, id, {
+				...(cancel_reason ? { cancel_reason } : {}),
+				expected_version: expectedVersion(form)
+			})
+		);
+	},
+
+	justificar: async (event) => {
+		const s = await submission(event, 'justificar');
+		if (!('id' in s)) return s;
+		const { form, id } = s;
+
+		return finish(
+			'justificar',
+			await justifyAbsence(event, id, {
+				justificada: form.get('justificada') === 'true' || form.get('justificada') === 'on',
+				expected_version: expectedVersion(form)
+			})
+		);
 	}
 };
+
+// Lê o corpo e exige o `id` do agendamento — o preâmbulo que as quatro actions de ciclo de
+// vida com corpo próprio repetiam. Devolve `{form, id}` OU o `fail(400)` pronto (o chamador
+// faz `if (!('id' in s)) return s`). O `transition/3` abaixo (transições sem corpo) usa o mesmo.
+async function submission(event: Parameters<Actions[string]>[0], action: string) {
+	const form = await event.request.formData();
+	const id = String(form.get('id') ?? '');
+	if (!id) return fail(400, { action, error: 'Agendamento não informado.' });
+	return { form, id };
+}
+
+// Molde comum das transições sem corpo próprio (concluir/faltar/reabrir): id + versão.
+async function transition(
+	event: Parameters<Actions[string]>[0],
+	action: string,
+	run: (event: Parameters<Actions[string]>[0], id: string, version: number) => Promise<MutationResult>
+) {
+	const s = await submission(event, action);
+	if (!('id' in s)) return s;
+	return finish(action, await run(event, s.id, expectedVersion(s.form)));
+}
+
+// Traduz o resultado do BFF no retorno da action. O `code` é o que deixa a tela distinguir
+// "recarregue" (`version_conflict`, 409) de "marque como encaixe" (`schedule_conflict`, 422).
+function finish(action: string, result: MutationResult) {
+	if (result.ok) return { ok: true, action };
+	return fail(result.status || 400, {
+		action,
+		error: result.error,
+		code: result.code,
+		details: result.details
+	});
+}
+
+function expectedVersion(form: FormData): number {
+	const v = Number(form.get('expected_version'));
+	return Number.isFinite(v) ? v : 0;
+}
 
 // Os ids vêm como JSON num campo hidden (o form é montado pelo modal). Qualquer coisa fora
 // da forma esperada vira lista vazia — e a validação acima devolve a mensagem certa.

@@ -30,8 +30,20 @@ export interface AgendaHandlers {
 	onResync(): void;
 }
 
-/** Os eventos que carregam bloco (09 §7.2). Os de ciclo de vida entram na Entrega 4. */
-const EVENTOS_DE_BLOCO = ['appointment_scheduled', 'participant_added'];
+/**
+ * Os eventos que carregam o bloco serializado (09 §7.2). Todos entram pelo mesmo `onAppointment`
+ * e são aplicados como patch por `version` — o cliente casa pelo nome e ignora o que não conhece.
+ * Os de ciclo de vida (Entrega 4) chegam com o bloco relido pelo canal; um `appointment_canceled`
+ * traz o bloco já `cancelado`, e um `appointment_rescheduled` com o novo horário (o cliente
+ * remove-o do dia se ele saiu dali).
+ */
+const EVENTOS_DE_BLOCO = [
+	'appointment_scheduled',
+	'participant_added',
+	'appointment_rescheduled',
+	'appointment_status_changed',
+	'appointment_canceled'
+];
 
 /** `http://x` → `ws://x/socket`; `https://x` → `wss://x/socket`. */
 export function socketUrl(origin: string): string {

@@ -2,7 +2,8 @@
 	// Agenda (doc 25, Entregas 1 e 2). Quatro visões: Dia e Lista leem blocos do dia; Semana e
 	// Mês leem contagens. Remarcar, arrastar e mudar status são a Entrega 4.
 	import { untrack } from 'svelte';
-	import { goto, invalidate } from '$app/navigation';
+	import { goto, invalidate, invalidateAll } from '$app/navigation';
+	import { deserialize } from '$app/forms';
 	import { page as pageState } from '$app/state';
 	import AgendaNav from '$lib/components/agenda/AgendaNav.svelte';
 	import DayGrid from '$lib/components/agenda/DayGrid.svelte';
@@ -10,16 +11,20 @@
 	import MonthView from '$lib/components/agenda/MonthView.svelte';
 	import ListView from '$lib/components/agenda/ListView.svelte';
 	import NewAppointmentModal from '$lib/components/agenda/NewAppointmentModal.svelte';
+	import AppointmentDrawer from '$lib/components/agenda/AppointmentDrawer.svelte';
+	import RescheduleModal from '$lib/components/agenda/RescheduleModal.svelte';
 	import { toast } from '$lib/toast.svelte';
 	import {
 		canCreateAppointment,
 		patientNameMap,
+		toUtcIso,
 		type SearchResult,
 		type Appointment,
 		type AgendaPatient
 	} from '$lib/agenda';
+	import type { ActionResult } from '@sveltejs/kit';
 	import { agendaTopics, connectAgenda, type RealtimeConfig } from '$lib/realtime';
-	import { applyAppointment, mergePatients } from '$lib/agenda-live';
+	import { applyToDay, mergePatients } from '$lib/agenda-live';
 	import { viewRendersCounts } from '$lib/agenda-views';
 	import ProfessionalChips from '$lib/components/agenda/ProfessionalChips.svelte';
 	import { mediaQuery, AGENDA_MOBILE } from '$lib/media.svelte';
@@ -125,9 +130,14 @@
 				}
 
 				live = {
-					appointments: applyAppointment(
+					// `applyToDay` (não `applyAppointment`): Dia e Lista mostram UM dia, e um
+					// `appointment_rescheduled` que moveu o bloco para outro dia precisa REMOVÊ-lo
+					// daqui — senão vira bloco fantasma (Entrega 4, doc 25 §9).
+					appointments: applyToDay(
 						live?.appointments ?? data.appointments,
-						evento.appointment
+						evento.appointment,
+						data.date,
+						data.timezone
 					),
 					patients: mergePatients(live?.patients ?? data.patients, evento.patients ?? [])
 				};
@@ -162,9 +172,64 @@
 
 	let modal = $state<{ professional_id: string; hora: string } | null>(null);
 
-	// O drawer do agendamento é da Entrega 4 (ciclo de vida). Até lá, selecionar não faz nada —
-	// melhor que abrir um painel vazio. Um ponto só, porque o grid e a lista selecionam igual.
-	function selecionar(_id: string) {}
+	// ---- Ciclo de vida (Entrega 4) ----------------------------------------------------------
+	//
+	// O drawer abre ao selecionar um bloco; a remarcação abre por cima dele (ou pelo arraste).
+	// `selecionado` é DERIVADO da lista atual (já com o patch de tempo real): quando uma mutação
+	// reexecuta o load, o bloco no drawer reflete o novo estado sem fechar — e um bloco que
+	// desaparecer da janela fecha o drawer sozinho, em vez de mostrar um estado congelado.
+	let selectedId = $state<string | null>(null);
+	let remarcando = $state(false);
+
+	const selecionado = $derived(appointments.find((a) => a.id === selectedId) ?? null);
+
+	// O drawer fecha sozinho se o bloco saiu da janela (remarcado para outro dia, por exemplo).
+	$effect(() => {
+		if (selectedId && !selecionado) {
+			selectedId = null;
+			remarcando = false;
+		}
+	});
+
+	const selTipo = $derived(
+		selecionado ? data.appointmentTypes.find((t) => t.id === selecionado.appointment_type_id) : undefined
+	);
+	const selProf = $derived(
+		selecionado ? data.professionals.find((p) => p.id === selecionado.professional_id) : undefined
+	);
+
+	function selecionar(id: string) {
+		selectedId = id;
+		remarcando = false;
+	}
+
+	// Remarcar por arraste (Entrega 4). O arraste não abre modal, então submete a MESMA action
+	// `?/remarcar` do drawer programaticamente, e trata o resultado inline (o modal cuidaria da
+	// oferta de encaixe; aqui o erro do arraste — conflito, fora do expediente, 409 — vira toast
+	// e o bloco volta ao lugar quando o load reexecuta). A data nunca muda no arraste.
+	async function dragReschedule(pre: { id: string; professional_id: string; hora: string }) {
+		const appt = appointments.find((a) => a.id === pre.id);
+		if (!appt) return;
+
+		const starts_at = toUtcIso(data.date, pre.hora, data.timezone);
+		if (starts_at === appt.starts_at && pre.professional_id === appt.professional_id) return;
+
+		const body = new FormData();
+		body.set('id', pre.id);
+		body.set('starts_at', starts_at);
+		body.set('professional_id', pre.professional_id);
+		body.set('expected_version', String(appt.version));
+
+		const res = await fetch('?/remarcar', { method: 'POST', body });
+		const result = deserialize(await res.text()) as ActionResult;
+
+		if (result.type === 'success') {
+			toast('Remarcado');
+			await invalidateAll();
+		} else if (result.type === 'failure') {
+			toast(String(result.data?.error ?? 'Não foi possível remarcar.'));
+		}
+	}
 
 	async function search(q: string): Promise<SearchResult> {
 		const res = await fetch(`/agenda/pacientes?q=${encodeURIComponent(q)}`);
@@ -172,13 +237,34 @@
 		return (await res.json()) as SearchResult;
 	}
 
-	// Resultado da action `criar`. O erro NÃO fecha o modal: é lá dentro que mora a saída
-	// ("marcar como encaixe"), e fechar jogaria fora o que a pessoa já preencheu.
+	// Resultado das actions. O erro NÃO fecha o modal: é lá dentro que mora a saída ("marcar
+	// como encaixe"), e fechar jogaria fora o que a pessoa já preencheu. No sucesso, uma
+	// mensagem por ação — o load já reexecutou (default do form action), então o drawer e o
+	// grid refletem o novo estado sem trabalho extra aqui.
+	const SUCESSO: Record<string, string> = {
+		criar: 'Agendamento criado',
+		remarcar: 'Remarcado',
+		concluir: 'Sessão concluída',
+		faltar: 'Falta registrada',
+		cancelar: 'Agendamento cancelado',
+		reabrir: 'Agendamento reaberto',
+		justificar: 'Falta atualizada'
+	};
+
+	let ultimoForm = $state<unknown>(null);
 	$effect(() => {
-		if (!form) return;
-		if (form.ok && form.action === 'criar') {
-			modal = null;
-			toast('Agendamento criado');
+		// Só reage a um resultado NOVO (o mesmo objeto não deve retoastar em rerender).
+		if (!form || form === ultimoForm) return;
+		ultimoForm = form;
+
+		if (form.ok) {
+			if (form.action === 'criar') modal = null;
+			if (form.action === 'remarcar') remarcando = false;
+			toast(SUCESSO[form.action as string] ?? 'Feito');
+		} else if (form.action !== 'criar' && form.action !== 'remarcar') {
+			// Erros de criar/remarcar aparecem DENTRO do modal (com a saída de encaixe). As demais
+			// mutações não têm modal aberto — o erro (ex.: 409 "recarregue") vira toast.
+			toast(String(form.error ?? 'Não foi possível concluir a ação.'));
 		}
 	});
 </script>
@@ -250,6 +336,7 @@
 					if (podeCriar) modal = pre;
 				}}
 				onSelect={selecionar}
+				onReschedule={podeCriar && !mobile.current ? dragReschedule : undefined}
 			/>
 		{/if}
 	</div>
@@ -267,4 +354,31 @@
 		{form}
 		onClose={() => (modal = null)}
 	/>
+{/if}
+
+{#if selecionado}
+	<AppointmentDrawer
+		appt={selecionado}
+		tipo={selTipo}
+		professional={selProf}
+		{patients}
+		agora={data.agora}
+		timezone={data.timezone}
+		papel={data.me?.papel ?? null}
+		{form}
+		onClose={() => (selectedId = null)}
+		onReschedule={() => (remarcando = true)}
+		onToast={(m) => toast(m)}
+	/>
+
+	{#if remarcando}
+		<RescheduleModal
+			appt={selecionado}
+			timezone={data.timezone}
+			professionals={data.professionals}
+			papel={data.me?.papel ?? null}
+			{form}
+			onClose={() => (remarcando = false)}
+		/>
+	{/if}
 {/if}

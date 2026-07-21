@@ -116,6 +116,14 @@ defmodule ApiWeb.AuthController do
   # DELETE /api/auth/sign-out — invalida a sessão. Revoga o token no servidor (não só
   # limpa o cookie): mesmo um cookie capturado deixa de valer (o `jti` vira revogado).
   def sign_out(conn, _params) do
+    # Derruba os WebSockets vivos do usuário (Entrega 4). A revogação do cookie não alcança um
+    # socket já aberto — o `UserSocket.id/1` nasceu por usuário justamente para permitir isto.
+    # Sem o disconnect, uma aba com a agenda aberta seguiria recebendo push da clínica depois do
+    # sign-out, por fora da sessão que acabou de ser revogada.
+    if user = conn.assigns[:current_user] do
+      ApiWeb.Endpoint.broadcast("user_socket:#{user.id}", "disconnect", %{})
+    end
+
     conn
     |> Helpers.revoke_session_tokens(:api)
     |> clear_session()

@@ -14,6 +14,9 @@ import {
 	conflictIds,
 	canCreateAppointment,
 	canCreateEncaixe,
+	canMutateAppointment,
+	isTerminal,
+	statusActions,
 	gridRange,
 	closedIntervals,
 	toInterval,
@@ -39,6 +42,8 @@ function appt(over: Partial<Appointment> = {}): Appointment {
 		package_id: null,
 		version: 1,
 		created_by_id: null,
+		cancel_reason: null,
+		falta_justificada: false,
 		patient_ids: ['pat1'],
 		...over
 	};
@@ -470,5 +475,65 @@ describe('timeToMinutes — fonte única de HH:MM → minutos', () => {
 	// no fallback, e não numa faixa de altura NaN que apaga a agenda inteira.
 	it('período ilegível não contamina a faixa vertical da grade', () => {
 		expect(gridRange([[['xx:xx', '18:00']]], [])).toEqual({ start: 480, end: 1080 });
+	});
+});
+
+describe('ciclo de vida (Entrega 4)', () => {
+	function appt(over: Partial<Appointment> = {}): Appointment {
+		return {
+			id: 'a1',
+			starts_at: '2026-07-20T11:00:00Z',
+			ends_at: '2026-07-20T11:50:00Z',
+			status: 'agendado',
+			encaixe: false,
+			obs: null,
+			cancel_reason: null,
+			falta_justificada: false,
+			professional_id: 'p1',
+			appointment_type_id: 't1',
+			package_id: null,
+			version: 1,
+			created_by_id: null,
+			patient_ids: ['pac1'],
+			...over
+		};
+	}
+
+	it('isTerminal reconhece concluído/faltou/cancelado', () => {
+		expect(isTerminal('agendado')).toBe(false);
+		expect(isTerminal('confirmado')).toBe(false);
+		expect(isTerminal('concluido')).toBe(true);
+		expect(isTerminal('faltou')).toBe(true);
+		expect(isTerminal('cancelado')).toBe(true);
+	});
+
+	it('canMutateAppointment = quem agenda (inclui profissional)', () => {
+		expect(canMutateAppointment('recepcao')).toBe(true);
+		expect(canMutateAppointment('profissional')).toBe(true);
+		expect(canMutateAppointment(null)).toBe(false);
+	});
+
+	it('statusActions: antes de começar, concluir/faltar desabilitados com o title', () => {
+		// agora 06:00 local (09:00Z) < início 08:00 local.
+		const acoes = statusActions(appt(), '2026-07-20T09:00:00Z');
+		const concluir = acoes.find((a) => a.kind === 'concluir')!;
+		const cancelar = acoes.find((a) => a.kind === 'cancelar')!;
+		expect(concluir.disabled).toBe(true);
+		expect(concluir.title).toBe('Disponível após o horário da sessão');
+		// Cancelar nunca é bloqueado por horário.
+		expect(cancelar.disabled).toBe(false);
+	});
+
+	it('statusActions: depois de começar, tudo habilitado', () => {
+		const acoes = statusActions(appt(), '2026-07-20T17:00:00Z');
+		expect(acoes.every((a) => !a.disabled)).toBe(true);
+	});
+
+	it('statusActions: a ação que já é o status atual fica marcada e nunca desabilitada', () => {
+		// Faltou antes de "começar" seria desabilitado, mas por ser o status atual fica `on`.
+		const acoes = statusActions(appt({ status: 'faltou' }), '2026-07-20T09:00:00Z');
+		const faltar = acoes.find((a) => a.kind === 'faltar')!;
+		expect(faltar.on).toBe(true);
+		expect(faltar.disabled).toBe(false);
 	});
 });

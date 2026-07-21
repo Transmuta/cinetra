@@ -62,7 +62,11 @@ export async function errorInfo(res: Response): Promise<ErrorInfo> {
 	if (res.status === 404) return { error: 'Registro não encontrado.' };
 	try {
 		const body = await res.json();
-		if (body?.error === 'invalid') {
+		// `invalid` (422) e `conflict` (409) têm o mesmo formato de corpo — `code` + `details`
+		// com a mensagem em `field: null`. O 409 é o canal do locking otimista (Entrega 4):
+		// `version_conflict` significa "recarregue, o bloco mudou". Sem tratá-lo aqui a tela
+		// cairia na mensagem genérica e perderia o code que distingue "recarregue" de "erro".
+		if (body?.error === 'invalid' || body?.error === 'conflict') {
 			const details = parseDetails(body?.details);
 			const code = typeof body?.code === 'string' ? body.code : undefined;
 			// A mensagem do servidor ganha da genérica: ela é específica e, no caso

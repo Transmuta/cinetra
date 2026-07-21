@@ -2,10 +2,11 @@
 	// "Novo agendamento" (protótipo `modalNovoAgendamento` :1965).
 	import { untrack } from 'svelte';
 	import { enhance } from '$app/forms';
-	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 	import Modal from '$lib/components/Modal.svelte';
 	import Field, { CONTROL_CLASS, CONTROL_PX } from '$lib/components/Field.svelte';
 	import PatientPicker from './PatientPicker.svelte';
+	import ConflictErrorBox from './ConflictErrorBox.svelte';
+	import EncaixeCheckbox from './EncaixeCheckbox.svelte';
 	import {
 		canCreateEncaixe,
 		toUtcIso,
@@ -143,39 +144,9 @@
 			{/snippet}
 		</Field>
 
-		{#if podeEncaixe}
-			<label class="flex cursor-pointer items-center gap-2 py-1 text-[13px]">
-				<input
-					type="checkbox"
-					name="encaixe"
-					bind:checked={encaixe}
-					class="size-4 accent-teal"
-				/>
-				Encaixe
-				<span class="text-[12px] text-faint">(ignora conflito de horário)</span>
-			</label>
-		{/if}
+		<EncaixeCheckbox bind:checked={encaixe} {podeEncaixe} />
 
-		{#if erro}
-			<div
-				class="mt-2 flex items-start gap-2 rounded-lg px-3 py-2.5 text-[12.5px]"
-				style="background:color-mix(in srgb, var(--color-danger) 10%, transparent); color:var(--color-danger)"
-			>
-				<TriangleAlert size={16} class="mt-0.5 shrink-0" />
-				<div class="min-w-0">
-					<div>{erro}</div>
-					{#if ofereceEncaixe}
-						<button
-							type="button"
-							onclick={() => (encaixe = true)}
-							class="mt-1.5 rounded-md border border-current px-2 py-1 text-[12px] font-semibold"
-						>
-							Marcar como encaixe
-						</button>
-					{/if}
-				</div>
-			</div>
-		{/if}
+		<ConflictErrorBox {erro} {ofereceEncaixe} onEncaixe={() => (encaixe = true)} />
 	</form>
 
 	{#snippet footer()}

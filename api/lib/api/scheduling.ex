@@ -40,6 +40,15 @@ defmodule Api.Scheduling do
       # (abaixo), que decide entre criar e fundir numa turma existente (A-D4).
       define :create_appointment_slot, action: :schedule
       define :add_appointment_participants, action: :add_participant
+
+      # Interfaces **cruas** do ciclo de vida (Entrega 4). Quem chama de fora usa
+      # `transition_appointment/5`, que faz o fetch-then-update com o guard de `version` (409).
+      define :reschedule_appointment_slot, action: :reschedule
+      define :complete_appointment_slot, action: :mark_completed
+      define :miss_appointment_slot, action: :mark_missed
+      define :cancel_appointment_slot, action: :cancel
+      define :reopen_appointment_slot, action: :reopen
+      define :justify_appointment_absence, action: :set_falta_justificada
     end
 
     resource Api.Scheduling.Attendance do
@@ -225,6 +234,79 @@ defmodule Api.Scheduling do
 
     length(attendances)
   end
+
+  @doc """
+  Ciclo de vida do bloco (Entrega 4): remarcar, concluir, faltar, cancelar, reabrir, justificar
+  falta. **fetch-then-update** com o guard de locking otimista.
+
+  ## O guard de versão, e por que ele mora aqui (não numa validação atômica)
+
+  `expected_version` é o `version` que o cliente leu. Se o valor no banco já não for esse, a
+  escrita é recusada com `{:error, :version_conflict}` → **409** ("seu pedido estava certo, o
+  mundo mudou", `09:659`). O guard é feito no fetch, e não como `atomic_update(:version, …)`
+  ([`01:535`]), porque `SetTenantGuc` força `require_atomic? false` em toda escrita por-tenant —
+  as duas coisas não coexistem (doc 25 §10). A janela entre o fetch e o update que sobra é
+  fechada, para conflito de horário, pela exclusion constraint. `expected_version` `nil` pula o
+  guard (chamada interna, seed).
+
+  Fora do tenant / inexistente → `{:error, :not_found}` (a preparation `OwnAgendaOnly` some com
+  o bloco do colega para o papel `profissional`, então "não é meu" também cai aqui como 404).
+  """
+  def transition_appointment(scope, id, kind, input \\ %{}, expected_version \\ nil)
+
+  def transition_appointment(%Api.Scope{} = scope, id, kind, input, expected_version)
+      when is_binary(id) and is_atom(kind) do
+    # A **leitura** vai sob `in_clinic` (GUC para a RLS); a **escrita** NÃO — envolver a escrita
+    # numa transação externa quebra o caminho de erro (o 422 vira 500) e segura as notificações
+    # do notifier dentro da transação (o push de tempo real não sairia). É o que o moduledoc de
+    # `Api.Tenancy.in_clinic/2` avisa; a escrita seta a própria GUC via `SetTenantGuc`.
+    with {:ok, appt} <- fetch_for_transition(scope, id, expected_version),
+         {:ok, updated} <- dispatch_transition(kind, appt, input, scope) do
+      {:ok, load_attendances(updated, scope)}
+    end
+  end
+
+  defp fetch_for_transition(scope, id, expected_version) do
+    case in_clinic(scope, fn ->
+           get_appointment(id, scope: scope, load: [:attendances], not_found_error?: false)
+         end) do
+      {:ok, %{} = appt} ->
+        if version_ok?(appt, expected_version),
+          do: {:ok, appt},
+          else: {:error, :version_conflict}
+
+      _ ->
+        {:error, :not_found}
+    end
+  end
+
+  # A serialização do bloco lê `patient_ids` das `attendances` (`AgendaJSON`). O resultado de um
+  # `update` não traz o relacionamento carregado (as ações de status até trazem, via cascata,
+  # mas a remarcação não), então recarregamos uma vez aqui — uma forma só de bloco sai por todas
+  # as portas. Leitura, então sob `in_clinic`.
+  defp load_attendances(appointment, scope),
+    do: in_clinic(scope, fn -> Ash.load!(appointment, [:attendances], scope: scope) end)
+
+  defp version_ok?(_appt, nil), do: true
+  defp version_ok?(%{version: version}, expected), do: version == expected
+
+  defp dispatch_transition(:reschedule, appt, input, scope),
+    do: reschedule_appointment_slot(appt, input, scope: scope)
+
+  defp dispatch_transition(:complete, appt, _input, scope),
+    do: complete_appointment_slot(appt, %{}, scope: scope)
+
+  defp dispatch_transition(:miss, appt, _input, scope),
+    do: miss_appointment_slot(appt, %{}, scope: scope)
+
+  defp dispatch_transition(:cancel, appt, input, scope),
+    do: cancel_appointment_slot(appt, input, scope: scope)
+
+  defp dispatch_transition(:reopen, appt, _input, scope),
+    do: reopen_appointment_slot(appt, %{}, scope: scope)
+
+  defp dispatch_transition(:justify, appt, input, scope),
+    do: justify_appointment_absence(appt, input, scope: scope)
 
   # ---- Agenda: leitura da tela ----
 
@@ -430,7 +512,10 @@ defmodule Api.Scheduling do
         # que não é usada e o peso de coluna no caminho quente do tempo real.
         Api.Records.list_patients!(
           scope: scope,
-          query: [filter: [id: [in: ids]], select: [:id, :nome, :tel, :ativo]]
+          query: [filter: [id: [in: ids]], select: [:id, :nome, :tel, :ativo]],
+          # `faltas` (agregado) alimenta o cartão do paciente no drawer (Entrega 4). Uma
+          # agregação por leitura da janela — e, no caminho quente do tempo real, por bloco.
+          load: [:faltas]
         )
     end
   end

@@ -8,6 +8,12 @@ import {
 	fetchAvailability,
 	fetchCounts,
 	createAppointment,
+	rescheduleAppointment,
+	completeAppointment,
+	missAppointment,
+	cancelAppointment,
+	reopenAppointment,
+	justifyAbsence,
 	agendaQuery,
 	availabilityQuery
 } from './appointments';
@@ -269,5 +275,58 @@ describe('createAppointment', () => {
 		expect(r.ok).toBe(false);
 		expect(r.code).toBe('schedule_conflict');
 		expect(r.error).toBe('Esse horário sobrepõe outro agendamento.');
+	});
+});
+
+describe('ciclo de vida (Entrega 4)', () => {
+	it('rescheduleAppointment: PATCH na rota nomeada, com starts_at e expected_version', async () => {
+		m.apiFetch.mockResolvedValueOnce(res(200, { appointment: { id: 'a1' } }));
+		const r = await rescheduleAppointment(event, 'a1', {
+			starts_at: '2026-07-20T12:00:00Z',
+			professional_id: 'p2',
+			encaixe: true,
+			expected_version: 3
+		});
+		expect(r.ok).toBe(true);
+		const [, path, init] = m.apiFetch.mock.calls[0];
+		expect(path).toBe('/api/appointments/a1/reschedule');
+		expect(init.method).toBe('PATCH');
+		const body = JSON.parse(init.body);
+		expect(body.expected_version).toBe(3);
+		expect(body.professional_id).toBe('p2');
+	});
+
+	it('409 version_conflict propaga o code (locking otimista)', async () => {
+		m.apiFetch.mockResolvedValueOnce(
+			res(409, { error: 'conflict', code: 'version_conflict', details: [{ field: null, message: 'Recarregue.' }] })
+		);
+		const r = await cancelAppointment(event, 'a1', { expected_version: 1 });
+		expect(r.ok).toBe(false);
+		expect(r.status).toBe(409);
+		expect(r.code).toBe('version_conflict');
+		expect(r.error).toBe('Recarregue.');
+	});
+
+	it('complete/miss/reopen batem nas rotas POST nomeadas', async () => {
+		for (const [fn, path] of [
+			[completeAppointment, 'complete'],
+			[missAppointment, 'miss'],
+			[reopenAppointment, 'reopen']
+		] as const) {
+			m.apiFetch.mockResolvedValueOnce(res(200, { appointment: { id: 'a1' } }));
+			await fn(event, 'a1', 7);
+			const call = m.apiFetch.mock.calls.at(-1)!;
+			expect(call[1]).toBe(`/api/appointments/a1/${path}`);
+			expect(call[2].method).toBe('POST');
+			expect(JSON.parse(call[2].body).expected_version).toBe(7);
+		}
+	});
+
+	it('justifyAbsence manda justificada + versão', async () => {
+		m.apiFetch.mockResolvedValueOnce(res(200, { appointment: { id: 'a1' } }));
+		await justifyAbsence(event, 'a1', { justificada: true, expected_version: 2 });
+		const body = JSON.parse(m.apiFetch.mock.calls[0][2].body);
+		expect(body.justificada).toBe(true);
+		expect(body.expected_version).toBe(2);
 	});
 });

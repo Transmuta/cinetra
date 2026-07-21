@@ -25,6 +25,7 @@
 		type AgendaAppointmentType
 	} from '$lib/agenda';
 	import { layoutAppts, columnWidth } from '$lib/agenda-layout';
+	import { dropMinutes, passouLimiar } from '$lib/agenda-drag';
 
 	let {
 		date,
@@ -40,6 +41,7 @@
 		only = null,
 		onEmptyClick,
 		onSelect,
+		onReschedule = undefined,
 		onShowAll
 	}: {
 		date: string;
@@ -60,6 +62,12 @@
 		only?: string | null;
 		onEmptyClick: (pre: { professional_id: string; hora: string }) => void;
 		onSelect: (id: string) => void;
+		/**
+		 * Remarcar por arraste (Entrega 4). Ausente = arraste desligado (sem permissão, ou
+		 * mobile). A data NUNCA muda no arraste (protótipo): só hora e coluna. `hora` já vem
+		 * arredondada; quem converte para instante é o `+page` (com o fuso).
+		 */
+		onReschedule?: (pre: { id: string; professional_id: string; hora: string }) => void;
 		onShowAll: () => void;
 	} = $props();
 
@@ -125,6 +133,98 @@
 
 	const topDe = (min: number) => PAD + (min - range.start) * PPM;
 
+	// ---- Arraste (Entrega 4, protótipo `startDrag` :1231) -----------------------------------
+	//
+	// Clique e arraste começam com o MESMO `pointerdown` num bloco. O que os separa é o limiar
+	// (`passouLimiar`): abaixo dele é clique (abre o drawer, via `onSelect` do bloco); acima é
+	// arraste. No `pointerup`, se arrastou, calcula coluna (eixo X) + minuto (eixo Y) e remarca
+	// — e suprime o clique que dispararia logo depois, senão soltar o bloco abriria o drawer.
+	const ivPorId = $derived(
+		new Map(
+			colunas.flatMap((c) => c.appts.map((a) => [a.id, { iv: c.intervalos.get(a.id)!, profId: c.prof.id }]))
+		)
+	);
+
+	type Drag = {
+		id: string;
+		dur: number;
+		downX: number;
+		downY: number;
+		x: number;
+		y: number;
+		active: boolean;
+		hora: string | null;
+		profId: string | null;
+	};
+	let drag = $state<Drag | null>(null);
+	let justDragged = false;
+
+	// Coluna + corpo sob um ponto da tela (o eixo X do arraste). `null` fora das colunas.
+	function colunaEm(clientX: number, clientY: number) {
+		const el = document.elementFromPoint(clientX, clientY) as HTMLElement | null;
+		const col = el?.closest('[data-prof-id]') as HTMLElement | null;
+		if (!col) return null;
+		const body = col.querySelector('[data-column-body]') as HTMLElement | null;
+		return { profId: col.dataset.profId ?? null, bodyTop: body?.getBoundingClientRect().top ?? 0 };
+	}
+
+	function alvo(clientX: number, clientY: number, dur: number) {
+		const c = colunaEm(clientX, clientY);
+		if (!c || !c.profId) return null;
+		return { profId: c.profId, hora: m2t(dropMinutes(clientY, c.bodyTop, range, PPM, PAD, dur)) };
+	}
+
+	function onPointerDown(event: PointerEvent) {
+		if (!onReschedule) return;
+		const el = (event.target as HTMLElement).closest('[data-appt-id]') as HTMLElement | null;
+		const id = el?.dataset.apptId;
+		if (!id) return;
+		const info = ivPorId.get(id);
+		// Cancelado não se arrasta (não disputa a grade — mesma regra de `ocupaGrade`).
+		if (!info || !ocupaGrade({ status: appointments.find((a) => a.id === id)!.status })) return;
+
+		drag = {
+			id,
+			dur: info.iv.end - info.iv.start,
+			downX: event.clientX,
+			downY: event.clientY,
+			x: event.clientX,
+			y: event.clientY,
+			active: false,
+			hora: null,
+			profId: null
+		};
+		(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+	}
+
+	function onPointerMove(event: PointerEvent) {
+		if (!drag) return;
+		const active = drag.active || passouLimiar(event.clientX - drag.downX, event.clientY - drag.downY);
+		const preview = active ? alvo(event.clientX, event.clientY, drag.dur) : null;
+		drag = { ...drag, x: event.clientX, y: event.clientY, active, hora: preview?.hora ?? null, profId: preview?.profId ?? null };
+	}
+
+	function onPointerUp(event: PointerEvent) {
+		const d = drag;
+		drag = null;
+		if (!d || !d.active || !onReschedule) return;
+
+		// Soltar abre um `click` logo em seguida (é o mesmo gesto): suprimi-lo evita abrir o
+		// drawer por cima da remarcação.
+		justDragged = true;
+
+		const t = alvo(event.clientX, event.clientY, d.dur);
+		if (t) onReschedule({ id: d.id, professional_id: t.profId, hora: t.hora });
+	}
+
+	// Captura ANTES do clique do bloco: se acabou de arrastar, engole o clique.
+	function onClickCapture(event: MouseEvent) {
+		if (!justDragged) return;
+		justDragged = false;
+		event.stopPropagation();
+		event.preventDefault();
+	}
+
 	// Clicar em vazio abre o modal já preenchido com coluna, data e hora arredondada.
 	function emptyClick(event: MouseEvent, profId: string) {
 		const alvo = event.target as HTMLElement;
@@ -147,7 +247,15 @@
 	<AgendaEmptyState {onShowAll} />
 {:else}
 	<div class="relative h-full overflow-auto bg-canvas">
-		<div class="relative flex" style="min-width:{GUTTER + colunas.reduce((s, c) => s + c.width, 0)}px">
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div
+			class="relative flex"
+			style="min-width:{GUTTER + colunas.reduce((s, c) => s + c.width, 0)}px"
+			onpointerdown={onPointerDown}
+			onpointermove={onPointerMove}
+			onpointerup={onPointerUp}
+			onclickcapture={onClickCapture}
+		>
 			<!-- Gutter de horas, sticky à esquerda. -->
 			<div class="sticky left-0 z-6 shrink-0 bg-canvas" style="width:{GUTTER}px">
 				<div class="sticky top-0 z-7 border-b border-edge bg-canvas" style="height:{HEADER}px"></div>
@@ -164,6 +272,7 @@
 			{#each colunas as col (col.prof.id)}
 				<div
 					data-column
+					data-prof-id={col.prof.id}
 					class="relative border-l border-edge"
 					style="flex:1 0 {col.width}px; min-width:{col.width}px"
 				>
@@ -260,6 +369,17 @@
 				>
 					{m2t(agoraMin)}
 				</span>
+			</div>
+		{/if}
+
+		{#if drag?.active}
+			<!-- Fantasma: acompanha o ponteiro e mostra o horário-alvo (protótipo :1231, ghost
+			     tracejado teal). `fixed` porque o cursor pode sair do container ao arrastar. -->
+			<div
+				class="pointer-events-none fixed z-9 rounded-md border border-dashed border-teal bg-teal/15 px-2 py-1 font-mono text-[11px] font-semibold text-teal-text shadow-sm"
+				style="left:{drag.x + 12}px; top:{drag.y + 12}px"
+			>
+				{drag.hora ?? '—'}
 			</div>
 		{/if}
 	</div>

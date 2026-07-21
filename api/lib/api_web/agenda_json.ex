@@ -20,6 +20,9 @@ defmodule ApiWeb.AgendaJSON do
       status: appt.status,
       encaixe: appt.encaixe,
       obs: appt.obs,
+      # Entrega 4: o drawer mostra o motivo do cancelamento e o selo "Falta justificada".
+      cancel_reason: appt.cancel_reason,
+      falta_justificada: falta_justificada(appt),
       professional_id: appt.professional_id,
       appointment_type_id: appt.appointment_type_id,
       package_id: appt.package_id,
@@ -35,7 +38,10 @@ defmodule ApiWeb.AgendaJSON do
       id: paciente.id,
       nome: paciente.nome,
       tel: paciente.tel,
-      ativo: paciente.ativo
+      ativo: paciente.ativo,
+      # Entrega 4: o cartão do paciente no drawer mostra "Faltas". Agregado (`Patient.faltas`),
+      # não carregado → `nil` (o `GET` da agenda carrega; a busca do picker não).
+      faltas: Map.get(paciente, :faltas)
     }
   end
 
@@ -68,4 +74,12 @@ defmodule ApiWeb.AgendaJSON do
     do: Enum.map(attendances, & &1.patient_id)
 
   defp patient_ids(_appt), do: []
+
+  # Bloco-nível a partir das presenças (`set_falta_justificada` cascateia para todas, então elas
+  # são sempre uniformes). Vazio ou não-carregado → `false`. É o que o drawer lê para o bloco
+  # "Falta justificada".
+  defp falta_justificada(%{attendances: [_ | _] = attendances}),
+    do: Enum.all?(attendances, & &1.falta_justificada)
+
+  defp falta_justificada(_appt), do: false
 end

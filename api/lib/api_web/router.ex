@@ -131,6 +131,14 @@ defmodule ApiWeb.Router do
     get "/appointments", AppointmentsController, :index
     post "/appointments", AppointmentsController, :create
 
+    # Ciclo de vida (Entrega 4): ações nomeadas, uma rota por transição (doc 25 §3).
+    patch "/appointments/:id/reschedule", AppointmentsController, :reschedule
+    post "/appointments/:id/complete", AppointmentsController, :complete
+    post "/appointments/:id/miss", AppointmentsController, :miss
+    post "/appointments/:id/cancel", AppointmentsController, :cancel
+    post "/appointments/:id/reopen", AppointmentsController, :reopen
+    post "/appointments/:id/justify-absence", AppointmentsController, :justify_absence
+
     # Cálculo, não coleção (09:253): a composição das 4 camadas de expediente.
     get "/availability", AvailabilityController, :index
   end

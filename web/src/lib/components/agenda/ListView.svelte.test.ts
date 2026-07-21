@@ -20,6 +20,8 @@ const appt = (over: Partial<Appointment> = {}): Appointment => ({
 	package_id: null,
 	version: 1,
 	created_by_id: null,
+	cancel_reason: null,
+	falta_justificada: false,
 	patient_ids: ['pat1'],
 	...over
 });

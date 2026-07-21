@@ -88,6 +88,7 @@
 <button
 	type="button"
 	data-appt
+	data-appt-id={appt.id}
 	data-variant={variant}
 	data-strike={meta.strike ? 'true' : undefined}
 	aria-label={rotulo}

@@ -73,6 +73,15 @@ defmodule Api.Scheduling.Attendance do
       primary? true
       accept [:patient_id, :appointment_id]
     end
+
+    # A presença acompanha o ciclo de vida do bloco (Entrega 4). Só é chamada **em cascata**,
+    # de dentro da transação da ação do `Appointment` (ver `CascadeToAttendances`), com
+    # `authorize?: false` — o bloco já autorizou. Aceita `status` e `falta_justificada` em
+    # separado porque as transições mexem em um, a justificativa no outro.
+    update :transition do
+      require_atomic? false
+      accept [:status, :falta_justificada]
+    end
   end
 
   policies do
@@ -80,7 +89,7 @@ defmodule Api.Scheduling.Attendance do
       authorize_if {Api.Accounts.Checks.HasClinicRole, roles: :any, clinic_from: :tenant}
     end
 
-    policy action_type(:create) do
+    policy action_type([:create, :update]) do
       authorize_if {Api.Accounts.Checks.HasClinicRole,
                     roles: [:owner, :admin, :recepcao, :profissional], clinic_from: :tenant}
     end

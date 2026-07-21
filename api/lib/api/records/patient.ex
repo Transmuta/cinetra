@@ -266,5 +266,20 @@ defmodule Api.Records.Patient do
   relationships do
     # clinic_id é a coluna de tenant (FK -> clinics.id, garante integridade).
     belongs_to :clinic, Api.Accounts.Clinic, allow_nil?: false
+
+    # A presença por participante (`Attendance`) alimenta o agregado `faltas`. Relação
+    # cross-domínio: `Attendance` mora em `Api.Scheduling`, e o `belongs_to :patient` de lá é o
+    # outro lado desta.
+    has_many :attendances, Api.Scheduling.Attendance
+  end
+
+  aggregates do
+    # doc 25 §4: o `faltas` que o moduledoc dizia estar de fora *"porque os recursos que os
+    # alimentam ainda não existem"*. Agregado, **nunca** contador denormalizado — o protótipo
+    # mantinha `p.faltas` na mão ([`:1041`]) e dessincronizava. Conta presença `:faltou` **não**
+    # justificada: justificar é o que faz a falta parar de contar (`set_falta_justificada`).
+    count :faltas, :attendances do
+      filter expr(status == :faltou and falta_justificada == false)
+    end
   end
 end

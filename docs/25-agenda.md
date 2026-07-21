@@ -728,6 +728,49 @@ timer: sem queda, não há o que renovar.
 - **CSP `connect-src`** (`svelte.config.js`) — mesma história do outro lado: `'self'` não cobre
   a origem da API. Hosts explícitos, não `ws:` genérico.
 
+## 8d. Decisões da Entrega 4 (2026-07-20)
+
+Três perguntas que o §9 nomeava como abertas para o ciclo de vida — todas respondidas com o
+humano (a decisão de qual transição é legal *"mora aqui"*). Onde divergimos do protótipo, está
+marcado.
+
+**D-E4.1 — quais transições de status a fatia implementa?**
+No protótipo o drawer só produz **Concluir/Faltar/Cancelar** (`setStatus` [`:1032`], grid
+[`:1807`]), com concluir/faltar **desabilitados até a sessão começar**; `confirmado` e
+`em_atendimento` só nascem do seed, e *"Enviar confirmação"* é só um toast [`:1846`] (não há
+mensageria na v1).
+**DECIDIDO: fiel — três ações nomeadas** (`mark_completed`, `mark_missed`, `cancel`), concluir e
+faltar guardadas por `SessionStarted` (`starts_at <= agora`, RN-58 — a fronteira "já começou",
+não "terminou"). `confirmado`/`em_atendimento` **continuam só de seed**; *"Enviar confirmação"*
+segue toast. Adicionar `confirmar`/`iniciar_atendimento` como ações reais dependeria de decisões
+de produto que a v1 não tem (o que "confirmar" significa sem WhatsApp? `em_atendimento` deriva do
+relógio?) — fora de escopo, registrado como **não feito**, não como pendência esquecida.
+
+**D-E4.2 — dá para reabrir um estado terminal?**
+O protótipo alterna livremente entre os três terminais, mas **não tem "reabrir"** para agendado.
+**DECIDIDO: permitir reabrir** (`reopen` → `:agendado`). É necessidade operacional real (um clique
+errado em "Faltou" tem de ter volta), custo baixo, e fecha coerente: reabrir zera
+`falta_justificada` e devolve as presenças a `:prevista`, então o agregado `Patient.faltas` recua
+junto — divergência deliberada do protótipo, que não desfazia.
+
+**D-E4.3 — GAP-03: o arraste valida disponibilidade?**
+No protótipo o formulário bloqueia fora do expediente, mas `commitMove` valida **só
+sobreposição** [`:1268`] — dá para arrastar para dentro do almoço, de um feriado ou de um dia que
+o profissional não atende. Mesma regra, duas respostas.
+**DECIDIDO: corrigir o GAP-03.** Remarcar (arraste **e** modal) passa pela **mesma**
+`CheckAvailability` do formulário: expediente + conflito. A não-sobreposição continua sendo do
+banco (a exclusion constraint vale para `:reschedule` como para `:schedule`).
+
+### Divergências menores, todas deliberadas
+
+| O quê | Protótipo | Aqui | Por quê |
+| --- | --- | --- | --- |
+| Conflito no arraste | modal de 3 saídas: cancelar / como encaixe / **mover assim mesmo** [`:2293`] | cancelar / **como encaixe** (sem "mover assim mesmo") | A exclusion constraint (A5) **proíbe** dois blocos não-encaixe sobrepostos: "mover assim mesmo" não tem como criar o conflito real que o protótipo deixava. Encaixe é o único caminho para uma sobreposição visível (A-D2b) |
+| Excluir (lixeira) | lixeira que apaga sem confirmar nem desfazer [`:1847`] | **não existe** | Sem hard delete no projeto (doc 25 §3); cancelar preserva o registro e é reversível por reabrir |
+| Duração ao remarcar | `saveRemarcar` mantém `dur` [`:1133`] | preserva `ends_at - starts_at`, **não** relê o catálogo (`ShiftEndsAt`) | O tipo pode ter mudado desde a criação (snapshot de A3) ou ter `duration_minutos` próprio (A-D8) |
+| `cancel_reason` | não existe | coluna gravável pela API, **sem UI ainda** | D4 (motivo opcional); a UI do drawer cancela em um clique como o protótipo. Superfície pequena para uma tela depois |
+| Arraste no mobile | perde ghost/pan [`:1703`] | arraste **desligado** no mobile | Fiel: abaixo de 860px a visão Dia é uma coluna por vez, sem arraste |
+
 ## 9. Fatiamento sugerido
 
 Cinco entregas fecháveis. A primeira é a fatia deste doc; as demais estão desenhadas aqui para
@@ -886,6 +929,42 @@ leve `{day, change: :count}`. Riscos próprios: validar `clinic_id` do tópico c
 máquina de status, `expected_version` + 409, drawer completo. Aqui mora a decisão de qual
 transição é legal (dá para reabrir `faltou`?) e a de GAP-03: no protótipo o formulário bloqueia
 fora do expediente mas o **arraste não valida disponibilidade** — mesma regra, duas respostas.
+
+> **Status (2026-07-20): Entrega 4 CONSTRUÍDA.** Decisões D-E4.1..D-E4.3 em §8d.
+>
+> Backend: seis ações nomeadas em `Appointment` (`reschedule`, `mark_completed`, `mark_missed`,
+> `cancel`, `reopen`, `set_falta_justificada`) + `Attendance.transition`; os changes/validações
+> compartilhados (`ShiftEndsAt`, `SessionStarted`, `BumpVersion`, `CascadeToAttendances`,
+> `SetEncaixeIfGiven`); `Scheduling.transition_appointment/5` (fetch-then-update com o guard de
+> `version` → **409 `version_conflict`**); o agregado `Patient.faltas`; as seis rotas nomeadas +
+> os endpoints; a `AgendaNotifier` estendida (eventos `appointment_rescheduled`/
+> `appointment_status_changed`/`appointment_canceled`, com **dois tópicos de dia na remarcação
+> entre dias**); `AgendaJSON` com `cancel_reason`/`falta_justificada`/`faltas`; e o **disconnect
+> do WebSocket no sign-out**. **Nenhuma migration**: `version`/`cancel_reason`/`falta_justificada`
+> nasceram na Entrega 1 e `faltas` é agregado. Backend 582 testes / 90,6%.
+>
+> Frontend: `AppointmentDrawer` (status pill, horário, obs, motivo, cartão do paciente com faltas
+> ou lista da turma, grid Concluir/Faltou/Cancelar guardado por "começou", Reabrir, toggle de
+> falta justificada, "Enviar confirmação" só-toast); `RescheduleModal` (com a oferta "marcar como
+> encaixe" no conflito); **arraste** no `DayGrid` (fantasma, snap de 15, troca de coluna, a data
+> nunca muda) com a matemática pura isolada em `agenda-drag.ts`; os eventos de ciclo de vida em
+> `realtime.ts`; `applyToDay` (remove o bloco-fantasma da remarcação entre dias); o 409 tratado
+> em `mutate.ts`; e as seis actions em `+page.server.ts`. Web 919 testes / 92,9% stmts, 78,3%
+> branch.
+>
+> **RLS verificada por sonda como `movimento_app` (NOBYPASSRLS)**, o detector real (o `mix test`
+> conecta como `postgres`/BYPASS): a cadeia `criar → faltar → reabrir → remarcar` escreveu
+> corretamente sob RLS, o agregado de faltas subiu para 1 e voltou a 0, a trilha
+> (`appointments_versions`/`attendances_versions`) gravou, o `version` avançou 1→4 e o
+> `expected_version` obsoleto devolveu 409.
+>
+> **O que NÃO foi clicado ao vivo no navegador:** o gesto do arraste em si (ponteiro real) — a
+> matemática (`dropMinutes`/`passouLimiar`) e o endpoint de remarcação estão cobertos por teste,
+> mas o arrasto ponta-a-ponta num browser fica como verificação a fazer.
+>
+> Remarcar entre dias emite em dois tópicos (origem + destino) para não deixar bloco fantasma; a
+> `Presence` (09 §7.4, "quem está vendo") continua **fora** — não está no protótipo e não é
+> ciclo de vida.
 
 **Entrega 5 — Fila de espera (Fatia 4 do roadmap).** `Api.Waitlist`, `find_slots`, `SlotHold`
 com TTL de **10 min** (D8 — os 5 min de [`01:788`](01-dominio-ash.md), [`02:714`](02-regras-e-lacunas.md)

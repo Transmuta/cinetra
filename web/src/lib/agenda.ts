@@ -44,6 +44,9 @@ export interface Appointment {
 	status: AppointmentStatus;
 	encaixe: boolean;
 	obs: string | null;
+	/** Entrega 4: motivo do cancelamento (opcional, D4) e o selo "Falta justificada". */
+	cancel_reason: string | null;
+	falta_justificada: boolean;
 	professional_id: string;
 	appointment_type_id: string;
 	/** Gancho da Fatia 3 (pacotes); nesta fatia só desenha a tarja lateral. */
@@ -89,6 +92,8 @@ export interface AgendaPatient {
 	ativo?: boolean;
 	/** Só o endpoint de busca do picker manda (para a cor do avatar); o sidecar não. */
 	cor_indice?: number;
+	/** Entrega 4: faltas do paciente (agregado). Só o sidecar do GET manda; o picker não. */
+	faltas?: number;
 }
 
 // id → nome, para o bloco resolver quem é o paciente. Função pura e testada, e não uma
@@ -352,6 +357,65 @@ export function canCreateAppointment(papel: Papel | null | undefined): boolean {
 /** A9 / D2: encaixe fura a grade, então é de quem responde pela agenda — profissional não. */
 export function canCreateEncaixe(papel: Papel | null | undefined): boolean {
 	return papel === 'owner' || papel === 'admin' || papel === 'recepcao';
+}
+
+// ---------------------------------------------------------------------------
+// Ciclo de vida (Entrega 4) — espelho de UX; a autoridade é a policy/máquina do servidor
+// ---------------------------------------------------------------------------
+
+/** Quem mexe no ciclo de vida (remarcar, status) é quem agenda (A8). Mesma lista. */
+export const canMutateAppointment = canCreateAppointment;
+
+/** Estados terminais (D-E4.2): de onde "Reabrir" faz sentido. */
+export function isTerminal(status: AppointmentStatus): boolean {
+	return status === 'concluido' || status === 'faltou' || status === 'cancelado';
+}
+
+// As actions de ciclo de vida disparadas de DENTRO do drawer (não pelos modais criar/remarcar).
+// Fonte única: o drawer usa esta lista para saber quais `form.error` são dele. Renomear uma
+// action sem tocar aqui deixaria o erro do 409/422 sem aparecer no drawer — por isso não é uma
+// lista solta no componente.
+export const DRAWER_ACTIONS = ['concluir', 'faltar', 'cancelar', 'reabrir', 'justificar'] as const;
+
+/**
+ * As ações do grid "Mudar status" do drawer e seu estado (protótipo :1807). Fiel à decisão
+ * D-E4.1: concluir e faltar ficam **desabilitados até a sessão começar** (com o title do
+ * protótipo); cancelar é sempre possível. `on` marca a ação que já é o status atual.
+ */
+export interface StatusAction {
+	kind: 'concluir' | 'faltar' | 'cancelar';
+	label: string;
+	status: AppointmentStatus;
+	icon: string;
+	on: boolean;
+	disabled: boolean;
+	title: string;
+}
+
+export function statusActions(appt: Appointment, agoraIso: string): StatusAction[] {
+	const comecou = started(appt, agoraIso);
+	const gated = comecou ? '' : 'Disponível após o horário da sessão';
+
+	return [
+		action('concluir', 'Concluir', 'concluido', 'Check', appt, !comecou, gated),
+		action('faltar', 'Faltou', 'faltou', 'UserX', appt, !comecou, gated),
+		action('cancelar', 'Cancelar', 'cancelado', 'X', appt, false, '')
+	];
+}
+
+function action(
+	kind: StatusAction['kind'],
+	label: string,
+	status: AppointmentStatus,
+	icon: string,
+	appt: Appointment,
+	disabled: boolean,
+	title: string
+): StatusAction {
+	const on = appt.status === status;
+	// A ação que já é o status atual nunca fica desabilitada (é o destaque, não um alvo de
+	// clique); as outras respeitam o gate de "começou".
+	return { kind, label, status, icon, on, disabled: disabled && !on, title };
 }
 
 // ---------------------------------------------------------------------------
