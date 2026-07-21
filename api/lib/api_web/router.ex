@@ -153,6 +153,11 @@ defmodule ApiWeb.Router do
     post "/waitlist/:id/convert", WaitlistController, :convert
     patch "/waitlist/:id", WaitlistController, :update
     delete "/waitlist/:id", WaitlistController, :delete
+
+    # Trilha de auditoria (doc 25 §11.4, tela /configuracoes/auditoria). Owner·admin only —
+    # a guarda vive no controller (with_admin_scope) e nas policies do recurso de versão.
+    # `clinic_id` sempre do escopo; a página e os filtros viajam na query string.
+    get "/audit", AuditController, :index
   end
 
   # Máquina OAuth do AshAuthentication (Assent): request + callback do Google. Chama

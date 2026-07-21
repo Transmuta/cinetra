@@ -10,6 +10,9 @@ defmodule Api.Accounts do
     resource Api.Accounts.User do
       define :register_user, action: :register, args: [:nome, :email]
       define :get_user, action: :read, get_by: [:id]
+      # Lote de usuários por id — o enriquecimento do autor no feed de auditoria
+      # (`Api.Scheduling.list_audit_log/2`) resolve nomes de N atores numa leitura só.
+      define :list_users, action: :read
       define :get_user_by_email, action: :get_by_email, args: [:email]
       # Auth sem senha (ADR-015): usados pelo ApiWeb.AuthController.
       define :request_magic_link, action: :request_magic_link, args: [:email]

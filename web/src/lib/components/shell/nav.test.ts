@@ -32,10 +32,15 @@ describe('modelo de navegação', () => {
 		}
 	});
 
-	it('Equipe & acessos é o último link de Configurações e o único real', () => {
+	it('Auditoria é o último link de Configurações e é o único restrito a owner·admin', () => {
 		expect(CONFIG_LINKS.at(-1)).toEqual({
-			label: 'Equipe & acessos',
-			href: '/configuracoes/equipe'
+			label: 'Auditoria',
+			href: '/configuracoes/auditoria',
+			ownerAdmin: true
 		});
+
+		// Ela é a única restrita — os demais ajustes são de todo membro (a Sidebar é que oculta).
+		const restritos = CONFIG_LINKS.filter((l) => l.ownerAdmin).map((l) => l.href);
+		expect(restritos).toEqual(['/configuracoes/auditoria']);
 	});
 });

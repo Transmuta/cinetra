@@ -54,11 +54,11 @@ defmodule Api.Scheduling.Attendance do
 
     # O recurso de versão nasceria SEM authorizer — e `authorize?: true` sobre ele seria um
     # no-op, a porta dos fundos da A7. As duas opções abaixo são do DSL do AshPaperTrail:
-    # `version_extensions` injeta o authorizer no `use Ash.Resource` gerado, `mixin` injeta as
-    # policies no corpo dele (ler é owner·admin; escrever, ninguém). Ver
-    # `Api.Scheduling.TrailPolicies`.
+    # `version_extensions` injeta o authorizer no `use Ash.Resource` gerado, `mixin` injeta no
+    # corpo dele as policies (ler é owner·admin; escrever, ninguém) E a leitura paginada
+    # `:audit_log` da tela de auditoria (§11.4). Ver `Api.Scheduling.TrailMixin`.
     version_extensions authorizers: [Ash.Policy.Authorizer]
-    mixin Api.Scheduling.TrailPolicies
+    mixin Api.Scheduling.TrailMixin
 
     # Mesmo motivo do `Appointment` (achado (c) do doc 26) — e aqui é ainda mais direto: a FK
     # de `attendances_versions` foi a que estourou de verdade ao limpar o banco. A trilha

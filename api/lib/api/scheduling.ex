@@ -61,10 +61,13 @@ defmodule Api.Scheduling do
     # trilha se lê como qualquer outra coleção do domínio.
     resource Api.Scheduling.Appointment.Version do
       define :list_appointment_versions, action: :read
+      # A leitura paginada da tela de auditoria (doc 25 §11.4). `list_audit_log/2` a consome.
+      define :page_appointment_versions, action: :audit_log
     end
 
     resource Api.Scheduling.Attendance.Version do
       define :list_attendance_versions, action: :read
+      define :page_attendance_versions, action: :audit_log
     end
 
     resource Api.Scheduling.ClinicHours do
@@ -528,6 +531,276 @@ defmodule Api.Scheduling do
         )
     end
   end
+
+  # ---- Agenda: trilha de auditoria (doc 25 §11.4) ----
+
+  @audit_default_limit 50
+  @audit_max_limit 200
+  # Mesmo teto de robustez de `Api.Records`: um `?offset=` gigante chega cru no Postgrex e
+  # derruba a request com 500. Ninguém pagina até lá — usa os filtros.
+  @audit_max_offset 100_000
+
+  # Colunas de `changes` que NÃO viram linha de diff na tela. Chaves são **strings** (`changes`
+  # é `:map` sobre jsonb). Três grupos:
+  #
+  #   * internas/derivadas — `version` (contador de locking, ruído a cada escrita), a PK, o
+  #     tenant (implícito), `ends_at` (derivado de `starts_at` + duração — dobraria a linha de
+  #     todo remarcar), `pkg_hold`/`package_id` (ganchos da Fatia 3), `inserted_at`/`updated_at`
+  #     (já `ignore_attributes` no paper_trail, aqui por defesa);
+  #   * FKs por-uuid — `professional_id`, `appointment_type_id`, `patient_id`, `appointment_id`,
+  #     `created_by_id`: um diff `<uuid> → <uuid>` não diz nada à recepção, e o **estado atual**
+  #     do profissional/paciente/autor já vem enriquecido por nome (o autor em `actor`).
+  #     Diferenciá-los por nome no próprio diff é enriquecimento a mais, adiado (o §11.4
+  #     exemplifica só `status` e `starts_at`).
+  @audit_diff_ignore ~w(version id clinic_id ends_at pkg_hold package_id inserted_at updated_at
+                        professional_id appointment_type_id patient_id appointment_id created_by_id)
+
+  @doc """
+  Uma **página** da trilha de auditoria da clínica ativa (doc 25 §11.4), pronta para a tela:
+  cada entrada traz **quem · quando · qual ação · qual registro** e o **diff campo-a-campo**.
+
+  Opções (todas opcionais): `:resource` (`:appointment` — default — ou `:attendance`),
+  `:record_id` (histórico de um registro só), `:user_id` (por autor), `:action_name` (por ação),
+  `:from`/`:to` (janela sobre `version_inserted_at`), `:limit`, `:offset`.
+
+  Devolve `%{entries: [...], page: %{limit, offset, total, more}}`.
+
+  ## Por que o diff é montado aqui, não no cliente
+
+  O `change_tracking_mode` é `:changes_only` (A-D13): cada versão guarda **só o valor novo** dos
+  campos que mudaram. Para o *"de 08:00 para 09:00"* a tela precisa do valor **anterior**, que se
+  reconstrói **encadeando** as versões do mesmo registro. O §11.4 é explícito: isso é trabalho do
+  backend — se vazasse para o cliente, viraria N+1 na tabela que mais cresce. Fazemos uma leitura
+  a mais (as cadeias dos registros citados na página) e dobramos em memória.
+
+  ## Autorização
+
+  A leitura da página passa por policy (`authorize?: true` + escopo): a trilha é **owner·admin**
+  (`TrailMixin`), então um papel abaixo recebe página vazia — o mesmo recorte da agenda. As
+  leituras de **enriquecimento** (autor, profissional, paciente, cadeias) são `authorize?: false`,
+  detalhe interno já sob o tenant da GUC — o precedente de `count_participants`/`load_clinic`.
+  """
+  def list_audit_log(%Api.Scope{} = scope, opts \\ []) do
+    resource = Keyword.get(opts, :resource, :appointment)
+    limit = opts |> Keyword.get(:limit) |> clamp_audit_limit()
+    offset = opts |> Keyword.get(:offset) |> clamp_audit_offset()
+
+    in_clinic(scope, fn ->
+      page = page_versions(resource, scope, opts, limit, offset)
+
+      %{
+        entries: enrich_versions(resource, scope, page.results),
+        page: %{limit: page.limit, offset: page.offset, total: page.count, more: page.more?}
+      }
+    end)
+  end
+
+  defp page_versions(:appointment, scope, opts, limit, offset) do
+    query = audit_query(Api.Scheduling.Appointment.Version, opts)
+
+    page_appointment_versions!(
+      scope: scope,
+      query: query,
+      page: [limit: limit, offset: offset, count: true]
+    )
+  end
+
+  defp page_versions(:attendance, scope, opts, limit, offset) do
+    query = audit_query(Api.Scheduling.Attendance.Version, opts)
+
+    page_attendance_versions!(
+      scope: scope,
+      query: query,
+      page: [limit: limit, offset: offset, count: true]
+    )
+  end
+
+  # Filtros do §11.4 aplicados condicionalmente sobre o recurso de versão. Explícitos (uma
+  # cláusula por campo) e não com nome de campo dinâmico: `Ash.Query.filter` é macro, e um
+  # `ref(^field)` só embaralharia o que aqui são cinco linhas legíveis.
+  defp audit_query(resource, opts) do
+    resource
+    |> filter_record(Keyword.get(opts, :record_id))
+    |> filter_user(Keyword.get(opts, :user_id))
+    |> filter_action(Keyword.get(opts, :action_name))
+    |> filter_from(Keyword.get(opts, :from))
+    |> filter_to(Keyword.get(opts, :to))
+  end
+
+  defp filter_record(query, nil), do: query
+  defp filter_record(query, id), do: Ash.Query.filter(query, version_source_id == ^id)
+
+  defp filter_user(query, nil), do: query
+  defp filter_user(query, id), do: Ash.Query.filter(query, user_id == ^id)
+
+  defp filter_action(query, nil), do: query
+  defp filter_action(query, name), do: Ash.Query.filter(query, version_action_name == ^name)
+
+  defp filter_from(query, nil), do: query
+  defp filter_from(query, from), do: Ash.Query.filter(query, version_inserted_at >= ^from)
+
+  defp filter_to(query, nil), do: query
+  defp filter_to(query, to), do: Ash.Query.filter(query, version_inserted_at < ^to)
+
+  defp enrich_versions(_resource, _scope, []), do: []
+
+  defp enrich_versions(:appointment, scope, versions) do
+    diffs = chain_diffs(:appointment, scope, distinct(versions, & &1.version_source_id))
+    actors = actors_map(versions)
+    profs = professionals_map(scope, distinct(versions, & &1.professional_id))
+
+    Enum.map(versions, fn v ->
+      base_entry(v, actors, diffs)
+      |> Map.merge(%{
+        resource: :appointment,
+        starts_at: v.starts_at,
+        professional: Map.get(profs, v.professional_id)
+      })
+    end)
+  end
+
+  defp enrich_versions(:attendance, scope, versions) do
+    diffs = chain_diffs(:attendance, scope, distinct(versions, & &1.version_source_id))
+    actors = actors_map(versions)
+    patients = patients_map(scope, distinct(versions, & &1.patient_id))
+
+    Enum.map(versions, fn v ->
+      base_entry(v, actors, diffs)
+      |> Map.merge(%{
+        resource: :attendance,
+        patient: Map.get(patients, v.patient_id),
+        appointment_id: v.appointment_id
+      })
+    end)
+  end
+
+  # O que appointment e attendance têm em comum. O contexto específico (starts_at/professional
+  # × patient/appointment) é mesclado por cima em `enrich_versions`.
+  defp base_entry(v, actors, diffs) do
+    %{
+      id: v.id,
+      record_id: v.version_source_id,
+      action: v.version_action_name,
+      action_type: v.version_action_type,
+      at: v.version_inserted_at,
+      status: v.status,
+      actor: Map.get(actors, v.user_id),
+      diff: Map.get(diffs, v.id, []),
+      starts_at: nil,
+      professional: nil,
+      patient: nil,
+      appointment_id: nil
+    }
+  end
+
+  defp distinct(versions, fun),
+    do: versions |> Enum.map(fun) |> Enum.reject(&is_nil/1) |> Enum.uniq()
+
+  # O "de X para Y" (§11.4): lê a cadeia inteira (ascendente) de cada registro citado na página
+  # e dobra em memória. Uma leitura para todas as cadeias — `version_source_id in ^ids`.
+  defp chain_diffs(_resource, _scope, []), do: %{}
+
+  defp chain_diffs(:appointment, scope, source_ids) do
+    list_appointment_versions!(
+      scope: scope,
+      authorize?: false,
+      query: [
+        filter: [version_source_id: [in: source_ids]],
+        sort: [version_inserted_at: :asc, id: :asc]
+      ]
+    )
+    |> diffs_for_chains()
+  end
+
+  defp chain_diffs(:attendance, scope, source_ids) do
+    list_attendance_versions!(
+      scope: scope,
+      authorize?: false,
+      query: [
+        filter: [version_source_id: [in: source_ids]],
+        sort: [version_inserted_at: :asc, id: :asc]
+      ]
+    )
+    |> diffs_for_chains()
+  end
+
+  # `%{version_id => [%{field, from, to}]}`. Cada registro é dobrado em separado (o snapshot
+  # acumulado de um não contamina o do outro).
+  defp diffs_for_chains(versions) do
+    versions
+    |> Enum.group_by(& &1.version_source_id)
+    |> Enum.flat_map(fn {_source, chain} -> Map.to_list(diffs_by_version(chain)) end)
+    |> Map.new()
+  end
+
+  # Dobra uma cadeia (já ascendente) mantendo o snapshot acumulado; o "de" de cada campo é o
+  # que o snapshot tinha ANTES desta versão, o "para" é o valor novo em `changes`.
+  defp diffs_by_version(chain) do
+    {_snapshot, by_id} =
+      Enum.reduce(chain, {%{}, %{}}, fn v, {snapshot, acc} ->
+        changes = v.changes || %{}
+
+        diff =
+          changes
+          |> Map.drop(@audit_diff_ignore)
+          |> Enum.map(fn {field, to} -> %{field: field, from: Map.get(snapshot, field), to: to} end)
+          |> Enum.sort_by(& &1.field)
+
+        {Map.merge(snapshot, changes), Map.put(acc, v.id, diff)}
+      end)
+
+    by_id
+  end
+
+  defp actors_map(versions) do
+    case distinct(versions, & &1.user_id) do
+      [] ->
+        %{}
+
+      ids ->
+        # Usuário é GLOBAL (não por-tenant) — sem escopo, `authorize?: false`. `select` enxuto:
+        # a tela mostra só o nome do autor.
+        Api.Accounts.list_users!(
+          authorize?: false,
+          query: [filter: [id: [in: ids]], select: [:id, :nome]]
+        )
+        |> Map.new(&{&1.id, %{id: &1.id, nome: &1.nome}})
+    end
+  end
+
+  defp professionals_map(_scope, []), do: %{}
+
+  defp professionals_map(scope, ids) do
+    Api.Directory.list_professionals!(
+      scope: scope,
+      authorize?: false,
+      query: [filter: [id: [in: ids]], select: [:id, :nome]]
+    )
+    |> Map.new(&{&1.id, %{id: &1.id, nome: &1.nome}})
+  end
+
+  defp patients_map(_scope, []), do: %{}
+
+  defp patients_map(scope, ids) do
+    Api.Records.list_patients!(
+      scope: scope,
+      authorize?: false,
+      query: [filter: [id: [in: ids]], select: [:id, :nome]]
+    )
+    |> Map.new(&{&1.id, %{id: &1.id, nome: &1.nome}})
+  end
+
+  defp clamp_audit_limit(limit) when is_integer(limit) and limit > @audit_max_limit,
+    do: @audit_max_limit
+
+  defp clamp_audit_limit(limit) when is_integer(limit) and limit > 0, do: limit
+  defp clamp_audit_limit(_limit), do: @audit_default_limit
+
+  defp clamp_audit_offset(offset) when is_integer(offset) and offset > @audit_max_offset,
+    do: @audit_max_offset
+
+  defp clamp_audit_offset(offset) when is_integer(offset) and offset > 0, do: offset
+  defp clamp_audit_offset(_offset), do: 0
 
   # ---- Agenda: fontes de disponibilidade ----
 

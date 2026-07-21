@@ -54,6 +54,40 @@ describe('Sidebar', () => {
 	});
 });
 
+// A Auditoria é owner·admin: o link do rail só aparece para quem pode entrar (a policy da API
+// é a autoridade — os demais levariam 403). O papel vem de `page.data.me`.
+describe('Sidebar — Auditoria (owner·admin)', () => {
+	afterEach(() => {
+		for (const k of Object.keys(page.data)) delete (page.data as Record<string, unknown>)[k];
+	});
+
+	function renderConfig(papel: string | null) {
+		Object.assign(page.data, { me: papel ? { papel } : null });
+		return render(Sidebar, { props: { pathname: '/configuracoes/equipe' } });
+	}
+
+	it('owner vê o link de Auditoria', () => {
+		expect(renderConfig('owner').getByRole('link', { name: 'Auditoria' })).toHaveAttribute(
+			'href',
+			'/configuracoes/auditoria'
+		);
+	});
+
+	it('admin vê o link de Auditoria', () => {
+		expect(renderConfig('admin').getByRole('link', { name: 'Auditoria' })).toBeInTheDocument();
+	});
+
+	it('recepção NÃO vê o link (mas vê os demais ajustes)', () => {
+		const { queryByRole, getByRole } = renderConfig('recepcao');
+		expect(queryByRole('link', { name: 'Auditoria' })).toBeNull();
+		expect(getByRole('link', { name: 'Equipe & acessos' })).toBeInTheDocument();
+	});
+
+	it('profissional NÃO vê o link', () => {
+		expect(renderConfig('profissional').queryByRole('link', { name: 'Auditoria' })).toBeNull();
+	});
+});
+
 // Ramo novo da Agenda (doc 25 §6). No protótipo `sbAgenda()` é o ramo `default:` de
 // `sidebarBody` [:1407]; aqui ele é explícito por DECISÃO, não por transcrição — um
 // `default` silencioso faria qualquer seção futura herdar a sidebar da agenda.

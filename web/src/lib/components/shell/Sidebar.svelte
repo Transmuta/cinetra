@@ -15,7 +15,9 @@
 	import Plus from '@lucide/svelte/icons/plus';
 	import Check from '@lucide/svelte/icons/check';
 	import Clock4 from '@lucide/svelte/icons/clock-4';
+	import History from '@lucide/svelte/icons/history';
 	import { sectionOf, SECTION_TITLES, CONFIG_LINKS } from './nav';
+	import { canViewAudit } from '$lib/audit';
 	import { canManageProfessionals, countByStatus, type Professional } from '$lib/professionals';
 	import { canManagePatients, type PatientCounts } from '$lib/patients';
 	import {
@@ -43,8 +45,22 @@
 	const section = $derived(sectionOf(pathname));
 	const title = $derived(section ? SECTION_TITLES[section] : '');
 
-	// Um ícone por item de Configurações, na mesma ordem de CONFIG_LINKS.
-	const CONFIG_ICONS = [Building2, Stethoscope, Clock, CalendarOff, SlidersHorizontal, Users];
+	// Ícone de cada item de Configurações, por href (não por índice — a lista é filtrada por
+	// papel, e um array paralelo desalinharia quando a Auditoria some para não-admin).
+	const CONFIG_ICONS: Record<string, typeof Building2> = {
+		'/configuracoes/clinica': Building2,
+		'/configuracoes/tipos': Stethoscope,
+		'/configuracoes/horario': Clock,
+		'/configuracoes/excecoes': CalendarOff,
+		'/configuracoes/equipe': SlidersHorizontal,
+		'/configuracoes/auditoria': History
+	};
+
+	// A Auditoria é owner·admin: o link só aparece para quem pode entrar (a policy da API é a
+	// autoridade — os demais levariam 403). Os outros itens são de todo membro.
+	const configLinks = $derived(
+		CONFIG_LINKS.filter((link) => !link.ownerAdmin || canViewAudit(page.data.me?.papel as Papel | null | undefined))
+	);
 
 	// Sidebar contextual de Profissionais (profs.png): "Novo profissional" + FILTRAR com
 	// contagens. Os dados vêm do load da rota (`page.data`), não de props — só existem quando a
@@ -153,8 +169,8 @@
 			<div class="px-2 pb-1.5 pt-3 text-[10.5px] font-bold uppercase tracking-[.06em] text-faint">
 				Ajustes
 			</div>
-			{#each CONFIG_LINKS as link, i (link.href)}
-				{@const Icon = CONFIG_ICONS[i]}
+			{#each configLinks as link (link.href)}
+				{@const Icon = CONFIG_ICONS[link.href]}
 				{@const isActive = pathname === link.href}
 				<a
 					href={link.href}
