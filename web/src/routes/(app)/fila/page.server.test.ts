@@ -26,7 +26,7 @@ function ev(search = '', me: Partial<Me> = {}) {
 
 const okWaitlist = {
 	status: 200,
-	data: { waitlist: [{ id: 'e1' }], professionals: [{ id: 'p1' }] }
+	data: { waitlist: [{ id: 'e1' }], professionals: [{ id: 'p1' }], today: '2026-07-21' }
 };
 
 beforeEach(() => {
@@ -54,6 +54,12 @@ describe('load', () => {
 		expect(r.appointmentTypes).toHaveLength(1);
 		expect(r.timezone).toBe('America/Sao_Paulo');
 		expect(r.prio).toBe('todas');
+	});
+
+	it('repassa `today` (data local) para a lista marcar regra expirada', async () => {
+		wl.fetchWaitlist.mockResolvedValueOnce(okWaitlist);
+		const r = (await load(ev())) as { today: string };
+		expect(r.today).toBe('2026-07-21');
 	});
 
 	it('lê o segmento `?prio=` para a sidebar (o filtro em si é do cliente)', async () => {

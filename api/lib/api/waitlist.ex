@@ -231,6 +231,19 @@ defmodule Api.Waitlist do
   mesmo motivo de `Api.Scheduling.count_participants/2` ler sem escopo.
   """
   def find_slots(%Api.Scope{} = scope, entry) do
+    scope |> slots_by_entry([entry]) |> Map.fetch!(entry.id)
+  end
+
+  @doc """
+  As vagas de **toda a fila numa passada só** (`GET /waitlist/slots`), para a coluna
+  "Disponibilidade" da lista pintar o estado "tem vaga". Devolve `%{entry_id => [slot]}`.
+
+  Carrega o expediente e os agendamentos da janela de 14 dias UMA vez, para a **união** dos
+  candidatos de todos os itens, e roda o motor puro (`SlotFinder`) por item sobre esses índices
+  compartilhados — evita o N+1 ao motor que o endpoint por-item (`find_slots/2`) teria se a lista
+  o chamasse item a item. `find_slots/2` (o modal de Oferecer) delega aqui para uma fonte só.
+  """
+  def slots_by_entry(%Api.Scope{} = scope, entries) when is_list(entries) do
     %{timezone: tz, today: today, now_minutes: now_minutes} = Api.Scheduling.clinic_now(scope)
     to = Date.add(today, 13)
 
@@ -239,24 +252,44 @@ defmodule Api.Waitlist do
         Api.Directory.list_professionals!(scope: scope, query: [filter: [ativo: true]])
         |> Map.new(&{&1.id, &1})
 
-      case candidate_ids(entry, active_by_id) do
+      ids = entries |> Enum.flat_map(&candidate_ids(&1, active_by_id)) |> Enum.uniq()
+
+      case ids do
         [] ->
-          []
+          Map.new(entries, &{&1.id, []})
 
         ids ->
           {:ok, pairs} = Api.Scheduling.load_availability_window(scope.clinic_id, ids, today, to)
           {from_utc, to_utc} = LocalTime.window!(today, to, tz)
+          appts = appts_index(scope, from_utc, to_utc, ids, tz)
+          pair_by_id = Map.new(pairs, fn {prof, sources} -> {prof.id, {prof, sources}} end)
 
-          SlotFinder.find_slots(%{
-            entry: %{janela: entry.janela, rules: entry.rules},
-            professionals: Enum.map(pairs, fn {prof, _} -> prof end),
-            sources_by_prof: Map.new(pairs, fn {prof, sources} -> {prof.id, sources} end),
-            appts_by_prof_day: appts_index(scope, from_utc, to_utc, ids, tz),
-            today: today,
-            now_minutes: now_minutes
-          })
+          Map.new(entries, fn entry ->
+            entry_pairs =
+              entry
+              |> candidate_ids(active_by_id)
+              |> Enum.map(&Map.get(pair_by_id, &1))
+              |> Enum.reject(&is_nil/1)
+
+            {entry.id, run_finder(entry, entry_pairs, appts, today, now_minutes)}
+          end)
       end
     end)
+  end
+
+  # O motor puro sobre os índices já carregados. Sem par candidato (nenhum preferido ativo com
+  # expediente), não há o que varrer — devolve vazio, como `candidate_ids == []`.
+  defp run_finder(_entry, [], _appts, _today, _now_minutes), do: []
+
+  defp run_finder(entry, pairs, appts, today, now_minutes) do
+    SlotFinder.find_slots(%{
+      entry: %{janela: entry.janela, rules: entry.rules},
+      professionals: Enum.map(pairs, fn {prof, _} -> prof end),
+      sources_by_prof: Map.new(pairs, fn {prof, sources} -> {prof.id, sources} end),
+      appts_by_prof_day: appts,
+      today: today,
+      now_minutes: now_minutes
+    })
   end
 
   # Preferidos ∩ ativos, ou todos os ativos quando não há preferido (RN-37). Preferido que não

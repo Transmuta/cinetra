@@ -259,6 +259,29 @@ defmodule Api.Waitlist.WaitlistEntryTest do
       assert Enum.map(segunda, & &1.start) == [480, 780]
       assert Enum.all?(segunda, &(&1.freed == false))
     end
+
+    test "slots_by_entry (batch) mapeia cada item e bate com find_slots por item" do
+      {owner, clinic} = owner_and_clinic()
+      membership = Accounts.get_active_membership!(owner.id, clinic.id, authorize?: false)
+      scope = Api.Scope.with_membership(owner, membership, now: ~U[2026-07-20 10:00:00Z])
+      Directory.create_professional!("Dra. X", %{}, tenant: clinic.id, actor: owner)
+      {:ok, a} = Waitlist.enqueue_entry(scope, %{patient_id: patient(clinic, owner, "A").id})
+      {:ok, b} = Waitlist.enqueue_entry(scope, %{patient_id: patient(clinic, owner, "B").id})
+
+      by_entry = Waitlist.slots_by_entry(scope, [a, b])
+
+      assert Map.keys(by_entry) |> Enum.sort() == Enum.sort([a.id, b.id])
+      assert by_entry[a.id] == Waitlist.find_slots(scope, a)
+      assert by_entry[b.id] == Waitlist.find_slots(scope, b)
+    end
+
+    test "slots_by_entry com fila vazia devolve mapa vazio" do
+      {owner, clinic} = owner_and_clinic()
+      membership = Accounts.get_active_membership!(owner.id, clinic.id, authorize?: false)
+      scope = Api.Scope.with_membership(owner, membership, now: ~U[2026-07-20 10:00:00Z])
+
+      assert Waitlist.slots_by_entry(scope, []) == %{}
+    end
   end
 
   describe "who_fits (quem cabe na vaga — D-E5.4)" do

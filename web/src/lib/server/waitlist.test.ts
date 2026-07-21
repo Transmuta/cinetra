@@ -8,6 +8,7 @@ vi.mock('./mutate', () => mut);
 import {
 	fetchWaitlist,
 	fetchSlots,
+	fetchAllSlots,
 	enqueueEntry,
 	updateEntry,
 	dequeueEntry,
@@ -79,6 +80,22 @@ describe('fetchSlots', () => {
 	it('falha de rede também degrada para null', async () => {
 		api.apiFetch.mockRejectedValueOnce(new Error('boom'));
 		expect(await fetchSlots(event, 'e1')).toEqual({ status: 0, data: null });
+	});
+});
+
+describe('fetchAllSlots', () => {
+	it('200 → o mapa entry_id → vagas do motor em lote', async () => {
+		api.apiFetch.mockResolvedValueOnce(res(200, { slots_by_entry: { e1: [{ start: 540 }], e2: [] } }));
+		const r = await fetchAllSlots(event);
+		expect(api.apiFetch.mock.calls[0][1]).toBe('/api/waitlist/slots');
+		expect(r.data?.slots_by_entry.e1).toHaveLength(1);
+	});
+
+	it('erro/rede degrada para data null (a lista fica sem a vaga, não estoura)', async () => {
+		api.apiFetch.mockResolvedValueOnce(res(502));
+		expect((await fetchAllSlots(event)).data).toBeNull();
+		api.apiFetch.mockRejectedValueOnce(new Error('boom'));
+		expect(await fetchAllSlots(event)).toEqual({ status: 0, data: null });
 	});
 });
 

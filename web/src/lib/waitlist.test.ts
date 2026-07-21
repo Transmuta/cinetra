@@ -4,15 +4,21 @@ import {
 	PRIORITY_ORDER,
 	TIME_WINDOW_LABEL,
 	ruleLabel,
+	rulePrefix,
+	ruleExpired,
 	slotDateLabel,
 	sortByPriority,
 	priorityRank,
 	parsePriorityFilter,
 	priorityCounts,
 	canManageWaitlist,
+	dispItems,
+	hasSlots,
 	type Entry,
 	type Rule,
-	type Priority
+	type Slot,
+	type Priority,
+	type TimeWindow
 } from './waitlist';
 
 // Fábrica enxuta: só o que os helpers puros olham (prioridade e o carimbo de entrada).
@@ -109,6 +115,112 @@ describe('slotDateLabel', () => {
 
 	it('domingo é dow 0', () => {
 		expect(slotDateLabel({ date: '2026-07-05', dow: 0 })).toBe('dom 05/07');
+	});
+});
+
+describe('rulePrefix', () => {
+	it('semana → dias ordenados por "/", sem faixas', () => {
+		expect(rulePrefix({ tipo: 'semana', dows: [2, 1], data: null, periodos: [['09:00', '11:00']] })).toBe('Seg/Ter');
+	});
+
+	it('data → só DD/MM (a vaga já traz o horário)', () => {
+		expect(rulePrefix({ tipo: 'data', dows: [], data: '2026-06-25', periodos: [['08:00', '12:00']] })).toBe('25/06');
+	});
+
+	it('data sem data preenchida vira travessão', () => {
+		expect(rulePrefix({ tipo: 'data', dows: [], data: null, periodos: [] })).toBe('—');
+	});
+});
+
+describe('ruleExpired', () => {
+	const rule = (data: string | null): Rule => ({ tipo: 'data', dows: [], data, periodos: [['08:00', '12:00']] });
+
+	it('regra :data anterior a hoje expira', () => {
+		expect(ruleExpired(rule('2026-06-24'), '2026-06-25')).toBe(true);
+	});
+
+	it('regra :data de hoje ou futura não expira (comparação de fronteira)', () => {
+		expect(ruleExpired(rule('2026-06-25'), '2026-06-25')).toBe(false);
+		expect(ruleExpired(rule('2026-07-01'), '2026-06-25')).toBe(false);
+	});
+
+	it('regra :semana nunca expira; :data sem data também não', () => {
+		expect(ruleExpired({ tipo: 'semana', dows: [1], data: null, periodos: [] }, '2026-06-25')).toBe(false);
+		expect(ruleExpired(rule(null), '2026-06-25')).toBe(false);
+	});
+});
+
+describe('hasSlots', () => {
+	it('true só com ao menos uma vaga', () => {
+		expect(hasSlots([slot(0)])).toBe(true);
+		expect(hasSlots([])).toBe(false);
+		expect(hasSlots(undefined)).toBe(false);
+	});
+});
+
+// Fábrica de vaga: só os campos que a célula olha (`rule_index`, `freed`, data/horário do rótulo).
+function slot(rule_index: number | null, over: Partial<Slot> = {}): Slot {
+	return {
+		date: '2026-06-25',
+		start: 540,
+		dur: 50,
+		professional_id: 'p1',
+		dow: 4,
+		rule_index,
+		freed: false,
+		...over
+	};
+}
+
+function withRules(rules: Rule[], janela: TimeWindow = 'qualquer'): Entry {
+	return {
+		id: 'e1',
+		prio: 'normal',
+		janela,
+		obs: null,
+		professional_ids: [],
+		dias_na_fila: 0,
+		rules,
+		patient: { id: 'p1', nome: 'Maria', tel: null, ativo: true, faltas: 0 },
+		inserted_at: '2026-06-20T10:00:00Z'
+	};
+}
+
+const TODAY = '2026-06-25';
+const semana = (dows: number[]): Rule => ({ tipo: 'semana', dows, data: null, periodos: [['09:00', '11:00']] });
+const dataRule = (data: string): Rule => ({ tipo: 'data', dows: [], data, periodos: [['09:00', '11:00']] });
+
+describe('dispItems', () => {
+	it('sem regras e sem vaga: janela "Qualquer horário" + marcador "sem vaga"', () => {
+		expect(dispItems(withRules([]), [], TODAY)).toEqual([
+			{ kind: 'neutral', label: 'Qualquer horário', expired: false, mono: false },
+			{ kind: 'none' }
+		]);
+	});
+
+	it('sem regras COM vaga: a janela vira chip de oferta "Qualquer"', () => {
+		const s = slot(null);
+		expect(dispItems(withRules([], 'manha'), [s], TODAY)).toEqual([{ kind: 'match', label: 'Manhã', slot: s }]);
+	});
+
+	it('regra que casou (pelo rule_index) vira chip de oferta com o prefixo curto', () => {
+		const s = slot(0);
+		const items = dispItems(withRules([semana([1, 2])]), [s], TODAY);
+		expect(items[0]).toEqual({ kind: 'match', label: 'Seg/Ter', slot: s });
+	});
+
+	it('regra sem vaga fica neutra (mono); regra :data no passado fica riscada (expired)', () => {
+		const items = dispItems(withRules([semana([1]), dataRule('2026-06-24')]), [], TODAY);
+		expect(items).toEqual([
+			{ kind: 'neutral', label: 'Seg · 09:00–11:00', expired: false, mono: true },
+			{ kind: 'neutral', label: '24/06 · 09:00–11:00', expired: true, mono: true },
+			{ kind: 'none' }
+		]);
+	});
+
+	it('a janela (não-qualquer) entra como chip antes das regras', () => {
+		const items = dispItems(withRules([semana([1])], 'tarde'), [], TODAY);
+		expect(items[0]).toEqual({ kind: 'neutral', label: 'Tarde', expired: false, mono: false });
 	});
 });
 

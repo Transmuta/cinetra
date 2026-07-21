@@ -99,6 +99,12 @@ defmodule ApiWeb.WaitlistControllerTest do
       assert Enum.map(body["waitlist"], & &1["prio"]) == ["urgente", "baixa"]
       assert length(body["professionals"]) == 1
     end
+
+    test "traz `today` (data local ISO) para a lista marcar regra expirada" do
+      ctx = fixture()
+      body = json_response(as(ctx.owner) |> get("/api/waitlist"), 200)
+      assert {:ok, _} = Date.from_iso8601(body["today"])
+    end
   end
 
   describe "PATCH / DELETE /api/waitlist/:id" do
@@ -132,6 +138,27 @@ defmodule ApiWeb.WaitlistControllerTest do
       body = json_response(conn, 200)
       assert is_list(body["slots"])
       assert Enum.all?(body["slots"], &Map.has_key?(&1, "professional_id"))
+    end
+  end
+
+  describe "GET /api/waitlist/slots (batch)" do
+    test "mapeia entry_id → vagas, e bate com o endpoint por-item" do
+      ctx = fixture()
+      p2 = Records.create_patient!("Outro", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+      a = enqueue(ctx)
+      b = enqueue(Map.put(ctx, :paciente, p2), %{"prio" => "alta"})
+
+      body = json_response(as(ctx.owner) |> get("/api/waitlist/slots"), 200)
+      by_entry = body["slots_by_entry"]
+
+      assert Map.keys(by_entry) |> Enum.sort() == Enum.sort([a["id"], b["id"]])
+      # A passada em lote é idêntica à do endpoint por-item (mesma fonte, `find_slots` delega).
+      per_item = json_response(as(ctx.owner) |> get("/api/waitlist/#{a["id"]}/slots"), 200)["slots"]
+      assert by_entry[a["id"]] == per_item
+    end
+
+    test "sem sessão → 401" do
+      assert json_response(get(Phoenix.ConnTest.build_conn(), "/api/waitlist/slots"), 401)
     end
   end
 

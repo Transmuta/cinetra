@@ -152,6 +152,73 @@ export function slotDateLabel(slot: Pick<Slot, 'date' | 'dow'>): string {
 	return `${WD_SHORT_LOWER[slot.dow] ?? ''} ${ddmm(slot.date)}`.trim();
 }
 
+/**
+ * Prefixo curto de uma regra para o chip de vaga casada (porta `filaRegraPrefix` :2518): só a
+ * "chave" da regra (DD/MM ou "Seg/Ter"), sem as faixas de horário — a vaga já traz o horário.
+ */
+export function rulePrefix(rule: Rule): string {
+	if (rule.tipo === 'data') return rule.data ? ddmm(rule.data) : '—';
+	return [...(rule.dows ?? [])].sort((a, b) => a - b).map((d) => WD_SHORT[d] ?? '?').join('/');
+}
+
+/**
+ * Uma regra `:data` cujo dia já passou (porta `filaRegraExpirada` :2516). `today` é a data local
+ * da clínica (ADR-009, do load) — a comparação é lexicográfica de ISO "YYYY-MM-DD", que é
+ * cronológica, sem `new Date` (que recuaria um dia a oeste de Greenwich). Regra `:semana` nunca expira.
+ */
+export function ruleExpired(rule: Rule, today: string): boolean {
+	return rule.tipo === 'data' && !!rule.data && rule.data < today;
+}
+
+// ---------------------------------------------------------------------------
+// Coluna "Disponibilidade" da lista (porta `filaDispCell` :2599)
+// ---------------------------------------------------------------------------
+
+/**
+ * Um item da célula de disponibilidade:
+ * - `neutral`: chip da janela ou da regra (tracejado + riscado quando `expired`; `mono` nas regras).
+ * - `match`: a regra (ou "Qualquer") casou com uma vaga do motor — vira botão de oferta.
+ * - `none`: o marcador "· sem vaga compatível".
+ */
+export type DispItem =
+	| { kind: 'neutral'; label: string; expired: boolean; mono: boolean }
+	| { kind: 'match'; label: string; slot: Slot }
+	| { kind: 'none' };
+
+/** Há ao menos uma vaga do motor para o item (o estado "tem vaga" da linha). */
+export function hasSlots(slots: Slot[] | undefined): boolean {
+	return !!slots && slots.length > 0;
+}
+
+/**
+ * Monta a célula de disponibilidade de um item a partir das suas regras e das vagas do motor
+ * (porta `filaDispCell` :2606-2618). Cada regra vira: chip de oferta se casou com uma vaga (pelo
+ * `rule_index`), chip riscado se expirou, ou chip neutro se sem vaga. Sem regras, a janela; e o
+ * marcador "sem vaga" fecha a lista quando o motor não achou nada.
+ */
+export function dispItems(entry: Entry, slots: Slot[], today: string): DispItem[] {
+	const items: DispItem[] = [];
+	const janLabel = entry.janela === 'qualquer' ? null : TIME_WINDOW_LABEL[entry.janela];
+
+	if (entry.rules.length) {
+		if (janLabel) items.push({ kind: 'neutral', label: janLabel, expired: false, mono: false });
+		entry.rules.forEach((rule, i) => {
+			const expired = ruleExpired(rule, today);
+			const slot = expired ? undefined : slots.find((s) => s.rule_index === i);
+			if (slot) items.push({ kind: 'match', label: rulePrefix(rule), slot });
+			else items.push({ kind: 'neutral', label: ruleLabel(rule), expired, mono: true });
+		});
+	} else {
+		const slot = slots[0];
+		const label = janLabel ?? (slot ? 'Qualquer' : 'Qualquer horário');
+		if (slot) items.push({ kind: 'match', label, slot });
+		else items.push({ kind: 'neutral', label, expired: false, mono: false });
+	}
+
+	if (!slots.length) items.push({ kind: 'none' });
+	return items;
+}
+
 // ---------------------------------------------------------------------------
 // Ordenação e filtro por prioridade (a fila é bounded — filtra-se no cliente, como o protótipo)
 // ---------------------------------------------------------------------------

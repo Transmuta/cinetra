@@ -145,8 +145,9 @@ defmodule ApiWeb.Router do
     # Fila de espera (Entrega 5, doc 09 §3.6). As rotas com sufixo (`/slots`, `/offer`,
     # `/convert`) vêm antes da paramétrica pura pela mesma razão de `/appointments/counts`.
     get "/waitlist", WaitlistController, :index
-    # Literal antes da paramétrica: "candidates" não pode virar um `:id`.
+    # Literais antes da paramétrica: "candidates"/"slots" não podem virar um `:id`.
     get "/waitlist/candidates", WaitlistController, :candidates
+    get "/waitlist/slots", WaitlistController, :all_slots
     post "/waitlist", WaitlistController, :create
     get "/waitlist/:id/slots", WaitlistController, :slots
     post "/waitlist/:id/offer", WaitlistController, :offer

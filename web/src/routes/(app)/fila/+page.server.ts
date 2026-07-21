@@ -41,6 +41,8 @@ export const load: PageServerLoad = async (event) => {
 		// Ativos E arquivados (a API manda os dois); o seletor da conversão filtra os ativos.
 		appointmentTypes: types.data?.appointment_types ?? [],
 		timezone: me.timezone ?? 'UTC',
+		// Data local de hoje (ADR-009): a lista marca a regra `:data` no passado como expirada.
+		today: wl.data.today,
 		prio: parsePriorityFilter(event.url.searchParams.get('prio'))
 	};
 };

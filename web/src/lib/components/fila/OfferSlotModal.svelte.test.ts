@@ -126,6 +126,14 @@ describe('OfferSlotModal — conversão', () => {
 		// De volta à lista: a vaga clicável reaparece.
 		expect(screen.getByRole('button', { name: /09:00/ })).toBeInTheDocument();
 	});
+
+	// Clique num chip de vaga casada na lista → o modal abre JÁ na conversão (preselect).
+	it('com preselect, abre direto no passo de conversão da vaga dada', async () => {
+		render(OfferSlotModal, { props: { ...base, preselect: slot({ start: 600 }) } });
+		// 10:00 em São Paulo é 13:00Z — o passo de conversão já está montado, sem clicar.
+		expect(hidden('starts_at')?.value).toBe('2026-07-21T13:00:00.000Z');
+		expect(screen.getByRole('button', { name: 'Agendar' })).toBeInTheDocument();
+	});
 });
 
 describe('OfferSlotModal — conflito na conversão', () => {

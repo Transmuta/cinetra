@@ -24,6 +24,7 @@
 
 	let {
 		entry,
+		preselect = null,
 		professionals,
 		appointmentTypes = [],
 		timezone,
@@ -32,6 +33,8 @@
 		form = undefined
 	}: {
 		entry: Entry;
+		/** Vaga pré-escolhida (clique num chip de vaga casada na lista): abre já no passo de conversão. */
+		preselect?: Slot | null;
 		professionals: Professional[];
 		/** Tipos ativos E arquivados (o seletor filtra os ativos); vazio degrada o passo de conversão. */
 		appointmentTypes?: AppointmentType[];
@@ -46,7 +49,10 @@
 
 	let loading = $state(true);
 	let slots = $state<Slot[]>([]);
-	let selected = $state<Slot | null>(null);
+	// Pré-selecionada abre direto na conversão; "‹ Horários" volta à lista (buscada em segundo plano).
+	// Captura só o valor inicial de propósito: o modal remonta a cada abertura (`{#if offering}`).
+	// svelte-ignore state_referenced_locally
+	let selected = $state<Slot | null>(preselect);
 	let encaixe = $state(false);
 	let obs = $state('');
 

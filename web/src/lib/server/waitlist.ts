@@ -12,6 +12,8 @@ export interface WaitlistData {
 	waitlist: Entry[];
 	/** A barra lateral e a coluna "Preferência" precisam do diretório — vem junto do GET. */
 	professionals: Professional[];
+	/** Data local de hoje (ISO, ADR-009) para a lista marcar a regra `:data` no passado. */
+	today: string;
 }
 
 export interface WaitlistResult {
@@ -35,13 +37,36 @@ export interface SlotsResult {
 }
 
 // As vagas de UM item (o motor `find_slots`). Consumido pelo modal de Oferecer via `fetch` do
-// cliente para o endpoint `/fila/[id]/slots` (não no load da lista: seriam N chamadas ao motor,
-// uma por item — o mesmo N+1 que a agenda evitou no expediente).
+// cliente para o endpoint `/fila/[id]/slots`.
 export async function fetchSlots(event: RequestEvent, id: string): Promise<SlotsResult> {
 	try {
 		const res = await apiFetch(event, `${path(id)}/slots`, { headers: { accept: 'application/json' } });
 		if (!res.ok) return { status: res.status, data: null };
 		return { status: res.status, data: (await res.json()) as { slots: Slot[] } };
+	} catch {
+		return { status: 0, data: null };
+	}
+}
+
+/** `{ entry_id => vagas }` — o mapa que a lista usa para pintar o estado "tem vaga". */
+export type SlotsByEntry = Record<string, Slot[]>;
+
+export interface AllSlotsResult {
+	status: number;
+	data: { slots_by_entry: SlotsByEntry } | null;
+}
+
+// As vagas de TODA a fila numa passada (`GET /api/waitlist/slots`, o motor em lote). A lista
+// enriquece cada linha com isto DEPOIS de renderizar — a falha degrada para o mapa vazio (a
+// linha só não mostra a vaga), sem estourar. Batch de propósito: o endpoint por-item faria N
+// chamadas ao motor a partir do load da lista.
+export async function fetchAllSlots(event: RequestEvent): Promise<AllSlotsResult> {
+	try {
+		const res = await apiFetch(event, '/api/waitlist/slots', {
+			headers: { accept: 'application/json' }
+		});
+		if (!res.ok) return { status: res.status, data: null };
+		return { status: res.status, data: (await res.json()) as { slots_by_entry: SlotsByEntry } };
 	} catch {
 		return { status: 0, data: null };
 	}

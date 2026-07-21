@@ -17,10 +17,13 @@
 	--mv-font-sans: 'Hanken Grotesk Variable', 'Hanken Grotesk', system-ui, sans-serif;
 	--mv-font-mono: 'Martian Mono', ui-monospace, monospace;
 
-	/* Raios (8px campos/botões, 14px cards, 999px pill) */
+	/* Raios. Campos/botões = 8px — e o utilitário de fato usado no app para eles é
+	   `rounded-lg` (77 usos: botões, inputs, painéis pequenos), então `--mv-radius-lg`
+	   PRECISA valer 8px, não 14px. Cards não usam `rounded-lg`: cada superfície leva um
+	   raio arbitrário próprio (rounded-[10px] listas, rounded-[12px] fila/modais). Pill = 999px. */
 	--mv-radius-sm: 6px;
 	--mv-radius: 8px;
-	--mv-radius-lg: 14px;
+	--mv-radius-lg: 8px; /* era 14px — deixava todo botão/campo do app arredondado demais */
 	--mv-radius-pill: 999px;
 
 	/* Sombras — sutil no claro; pop de menus/cards flutuantes */

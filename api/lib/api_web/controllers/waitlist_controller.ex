@@ -20,7 +20,10 @@ defmodule ApiWeb.WaitlistController do
 
       json(conn, %{
         waitlist: Enum.map(entries, &WaitlistJSON.entry(&1, today, tz)),
-        professionals: Enum.map(professionals, &WaitlistJSON.professional/1)
+        professionals: Enum.map(professionals, &WaitlistJSON.professional/1),
+        # Data local de hoje (ADR-009): a lista marca a regra `:data` no passado como expirada
+        # (tracejada) sem refazer o cálculo de fuso no cliente.
+        today: Date.to_iso8601(today)
       })
     end)
   end
@@ -64,6 +67,19 @@ defmodule ApiWeb.WaitlistController do
         {:error, :not_found} -> not_found(conn)
         {:error, error} -> error_response(conn, error)
       end
+    end)
+  end
+
+  # GET /api/waitlist/slots  — o motor para a fila inteira, numa passada (batch, sem N+1)
+  def all_slots(conn, _params) do
+    with_member_scope(conn, fn scope ->
+      %{entries: entries} = Waitlist.list_entries(scope)
+      by_entry = Waitlist.slots_by_entry(scope, entries)
+
+      json(conn, %{
+        slots_by_entry:
+          Map.new(by_entry, fn {id, slots} -> {id, Enum.map(slots, &WaitlistJSON.slot/1)} end)
+      })
     end)
   end
 

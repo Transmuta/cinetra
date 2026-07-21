@@ -23,12 +23,13 @@
 	import { stripTitle } from '$lib/patients';
 	import {
 		canManageWaitlist,
-		ruleLabel,
+		dispItems,
+		slotDateLabel,
 		sortByPriority,
-		TIME_WINDOW_LABEL,
-		type Entry
+		type Entry,
+		type Slot
 	} from '$lib/waitlist';
-	import type { SearchResult } from '$lib/agenda';
+	import { m2t, type SearchResult } from '$lib/agenda';
 	import type { ActionResult } from '@sveltejs/kit';
 	import type { PageData } from './$types';
 
@@ -66,8 +67,20 @@
 	const showAdd = $derived(canManage && pageState.url.searchParams.has('novo'));
 	let editing = $state<Entry | null>(null);
 	let offering = $state<Entry | null>(null);
+	// A vaga pré-escolhida ao clicar num chip de vaga casada — o modal abre já no passo de conversão
+	// (o `offerVaga(f,slot)` do protótipo :2597). Nulo = abriu pelo botão "Oferecer" (lista de vagas).
+	let preselecting = $state<Slot | null>(null);
 	let removing = $state<Entry | null>(null);
 	let removingBusy = $state(false);
+
+	function openOffer(entry: Entry, slot: Slot | null = null) {
+		preselecting = slot;
+		offering = entry;
+	}
+	function closeOffer() {
+		offering = null;
+		preselecting = null;
+	}
 
 	// Aplica um patch na query string e navega (molde de `pacientes/+page.svelte`). Usado para
 	// fechar o modal de adicionar (limpar `?novo`), sem empilhar histórico.
@@ -85,6 +98,31 @@
 		const res = await fetch(`/fila/pacientes?q=${encodeURIComponent(q)}`);
 		if (!res.ok) return { patients: [], total: 0 };
 		return (await res.json()) as SearchResult;
+	}
+
+	// ---- Vagas (camada "quem cabe" / motor find_slots em lote) ------------------------------
+	// A lista carrega SEM as vagas (o load não chama o motor); logo após, um GET em lote
+	// (`/fila/slots`) enriquece cada linha com o estado "tem vaga". Reexecuta sempre que a fila
+	// muda (edição, remoção, tempo real) — depende da identidade de `data.waitlist`, que o load
+	// renova a cada reexecução. A falha degrada para o mapa vazio: a linha só não mostra a vaga.
+	let slotsByEntry = $state<Record<string, Slot[]>>({});
+
+	$effect(() => {
+		void data.waitlist; // redispara ao recarregar a fila
+		let vivo = true;
+		fetch('/fila/slots')
+			.then((r) => (r.ok ? r.json() : { slots_by_entry: {} }))
+			.then((d: { slots_by_entry?: Record<string, Slot[]> }) => {
+				if (vivo) slotsByEntry = d.slots_by_entry ?? {};
+			})
+			.catch(() => {});
+		return () => {
+			vivo = false;
+		};
+	});
+
+	function slotsFor(entry: Entry): Slot[] {
+		return slotsByEntry[entry.id] ?? [];
 	}
 
 	// ---- Tempo real (D-E5.3) ----------------------------------------------------------------
@@ -172,7 +210,12 @@
 
 	const COLS =
 		'md:grid-cols-[minmax(160px,1.7fr)_100px_minmax(200px,2fr)_minmax(90px,0.9fr)_64px_148px]';
-	const chip = 'rounded border border-edge px-[7px] py-px text-[10.5px] leading-[1.5] text-ink';
+	const chip =
+		'rounded-[5px] border border-edge-strong px-[7px] py-0.5 text-[10.5px] leading-[1.5] text-ink';
+	// Chip de vaga casada (protótipo :2605): mesmo formato do chip, mas clicável e teal — sólido
+	// quando a vaga ABRIU (cancelamento/falta), suave quando é uma brecha geral.
+	const matchChip =
+		'inline-flex items-center gap-x-[5px] gap-y-1 rounded-[5px] border px-[7px] py-0.5 text-[10.5px] font-semibold leading-[1.5]';
 	const iconBtn =
 		'grid size-8 place-items-center rounded-md border border-edge bg-surface text-muted hover:bg-surface-2';
 </script>
@@ -181,26 +224,56 @@
 
 {#snippet dispCell(entry: Entry)}
 	<div class="flex flex-wrap items-center gap-1">
-		{#if entry.janela !== 'qualquer'}
-			<span class={chip}>{TIME_WINDOW_LABEL[entry.janela]}</span>
-		{/if}
-		{#each entry.rules as rule (rule.id ?? ruleLabel(rule))}
-			<span class="{chip} font-mono">{ruleLabel(rule)}</span>
+		{#each dispItems(entry, slotsFor(entry), data.today) as item, i (i)}
+			{#if item.kind === 'neutral'}
+				<span
+					class="{chip} {item.mono ? 'font-mono' : ''} {item.expired
+						? 'border-dashed text-faint line-through'
+						: ''}">{item.label}</span
+				>
+			{:else if item.kind === 'match'}
+				<button
+					type="button"
+					onclick={() => openOffer(entry, item.slot)}
+					title="Oferecer {slotDateLabel(item.slot)} às {m2t(item.slot.start)}{item.slot.freed
+						? ' · vaga que abriu'
+						: ''}"
+					class="{matchChip} {item.slot.freed
+						? 'border-teal bg-teal text-white'
+						: 'border-teal-border bg-teal-subtle text-teal-text'}"
+				>
+					<span class="size-1.5 shrink-0 rounded-full {item.slot.freed ? 'bg-white' : 'bg-teal'}"></span>
+					<span class="whitespace-nowrap">{item.label}</span>
+					<span class="font-mono font-bold whitespace-nowrap">
+						{slotDateLabel(item.slot)} {m2t(item.slot.start)}
+					</span>
+					{#if item.slot.freed}
+						<span class="rounded-[3px] bg-white/25 px-1 py-px text-[8.5px] font-extrabold tracking-[.05em]">
+							ABRIU
+						</span>
+					{/if}
+				</button>
+			{:else}
+				<span class="text-[10.5px] text-faint italic">· sem vaga compatível</span>
+			{/if}
 		{/each}
-		{#if !entry.rules.length && entry.janela === 'qualquer'}
-			<span class={chip}>Qualquer horário</span>
-		{/if}
 	</div>
 {/snippet}
 
-{#snippet oferecerBtn(entry: Entry, block: boolean)}
+{#snippet oferecerBtn(entry: Entry)}
+	{@const slots = slotsFor(entry)}
+	{@const has = slots.length > 0}
 	<button
 		type="button"
-		onclick={() => (offering = entry)}
-		class="inline-flex items-center justify-center gap-1.5 rounded-lg border border-teal-border bg-teal-subtle px-3 py-1.5 text-[12.5px] font-semibold text-teal-text hover:opacity-90 {block
-			? 'flex-1'
-			: ''}"
+		onclick={() => openOffer(entry)}
+		title={has
+			? `Próxima vaga: ${slotDateLabel(slots[0])} ${m2t(slots[0].start)}`
+			: 'Sem vaga compatível — oferecer manualmente'}
+		class="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-1.5 text-[12.5px] font-semibold hover:opacity-90 {has
+			? 'border-teal-border bg-teal-subtle text-teal-text'
+			: 'border-edge-strong bg-transparent text-muted'}"
 	>
+		{#if has}<span class="size-1.5 shrink-0 rounded-full bg-teal"></span>{/if}
 		Oferecer vaga
 	</button>
 {/snippet}
@@ -222,7 +295,7 @@
 	{/if}
 
 	{#if list.length}
-		<div class="overflow-hidden rounded-[10px] border border-edge bg-surface">
+		<div class="overflow-hidden rounded-[12px] border border-edge bg-surface">
 			<!-- Cabeçalho (desktop) -->
 			<div
 				class="hidden gap-4 border-b border-edge px-4 pb-2.5 pt-3 text-[12px] font-medium text-faint md:grid {COLS}"
@@ -232,9 +305,13 @@
 			</div>
 
 			{#each list as entry (entry.id)}
-				<!-- Desktop: linha em grid -->
+				{@const rowSlots = slotsFor(entry)}
+				{@const rowHasVaga = rowSlots.length > 0}
+				<!-- Desktop: linha em grid. Barra teal à esquerda quando há vaga (protótipo :2878). -->
 				<div
-					class="hidden items-center gap-4 border-b border-edge px-4 py-2.5 last:border-b-0 md:grid {COLS}"
+					class="hidden items-center gap-4 border-b border-edge px-4 py-2.5 last:border-b-0 md:grid {COLS} {rowHasVaga
+						? 'shadow-[inset_3px_0_0_var(--mv-teal-solid)]'
+						: ''}"
 				>
 					<span class="flex min-w-0 items-center gap-2.5">
 						<span
@@ -270,9 +347,15 @@
 						{#if canManage}
 							<button
 								type="button"
-								onclick={() => (offering = entry)}
-								class="inline-flex items-center gap-1.5 rounded-lg border border-teal-border bg-teal-subtle px-2.5 py-1.5 text-[12px] font-semibold text-teal-text hover:opacity-90"
+								onclick={() => openOffer(entry)}
+								title={rowHasVaga
+									? `Próxima vaga: ${slotDateLabel(rowSlots[0])} ${m2t(rowSlots[0].start)}`
+									: 'Sem vaga compatível — oferecer manualmente'}
+								class="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[12px] font-semibold hover:opacity-90 {rowHasVaga
+									? 'border-teal-border bg-teal-subtle text-teal-text'
+									: 'border-edge-strong bg-transparent text-muted'}"
 							>
+								{#if rowHasVaga}<span class="size-1.5 shrink-0 rounded-full bg-teal"></span>{/if}
 								Oferecer
 							</button>
 							<button
@@ -293,8 +376,12 @@
 					</span>
 				</div>
 
-				<!-- Mobile: cartão -->
-				<div class="flex flex-col gap-2 border-b border-edge px-4 py-3 last:border-b-0 md:hidden">
+				<!-- Mobile: cartão. Mesma barra teal do "tem vaga". -->
+				<div
+					class="flex flex-col gap-2 border-b border-edge px-4 py-3 last:border-b-0 md:hidden {rowHasVaga
+						? 'shadow-[inset_3px_0_0_var(--mv-teal-solid)]'
+						: ''}"
+				>
 					<div class="flex items-center gap-2.5">
 						<span
 							class="grid size-8.5 shrink-0 place-items-center rounded-full text-[11px] font-bold text-white"
@@ -325,7 +412,7 @@
 
 					{#if canManage}
 						<div class="mt-1 flex gap-2">
-							{@render oferecerBtn(entry, true)}
+							{@render oferecerBtn(entry)}
 							<button
 								type="button"
 								aria-label="Editar item de {entry.patient.nome}"
@@ -380,12 +467,13 @@
 {#if offering}
 	<OfferSlotModal
 		entry={offering}
+		preselect={preselecting}
 		professionals={data.professionals}
 		appointmentTypes={data.appointmentTypes}
 		timezone={data.timezone}
 		papel={data.me?.papel ?? null}
 		{form}
-		onClose={() => (offering = null)}
+		onClose={closeOffer}
 	/>
 {/if}
 
