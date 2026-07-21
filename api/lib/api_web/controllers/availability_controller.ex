@@ -24,6 +24,7 @@ defmodule ApiWeb.AvailabilityController do
   def index(conn, params) do
     with_member_scope(conn, fn scope ->
       with {:ok, professional_ids} <- fetch_professionals(params),
+           :ok <- authorize_professionals(scope, professional_ids),
            {:ok, from, to} <- parse_window(params, "date_from", "date_to") do
         render_availability(conn, scope, professional_ids, from, to)
       else
@@ -32,6 +33,20 @@ defmodule ApiWeb.AvailabilityController do
       end
     end)
   end
+
+  # P1: o papel `profissional` só consulta a **própria** disponibilidade. A lista recortada
+  # (`OwnProfessionalOnly`) já esconde o colega da sidebar, mas aqui o id chega explícito na
+  # query e `load_availability_window` lê as fontes com `authorize?: false` — a RLS garante só
+  # mesma-clínica. Sem esta guarda, um profissional sondaria a escala do colega pela URL.
+  # Pedir a de um colega é indistinguível de pedir a de um id inexistente: 404, como o
+  # cross-tenant que a RLS esconde. `professional_id: nil` (o "UUID mole") fecha em tudo.
+  defp authorize_professionals(%{papel: :profissional, professional_id: pid}, ids)
+       when is_binary(pid) do
+    if Enum.all?(ids, &(&1 == pid)), do: :ok, else: {:error, :not_found}
+  end
+
+  defp authorize_professionals(%{papel: :profissional}, _ids), do: {:error, :not_found}
+  defp authorize_professionals(_scope, _ids), do: :ok
 
   defp render_availability(conn, scope, professional_ids, from, to) do
     dates = Date.range(from, to) |> Enum.to_list()

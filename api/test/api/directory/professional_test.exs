@@ -24,14 +24,13 @@ defmodule Api.Directory.ProfessionalTest do
     {owner, clinic}
   end
 
-  defp member_with_role(clinic, papel) do
+  defp member_with_role(clinic, papel, professional_id \\ nil) do
     user = Accounts.register_user!("Membro #{papel}", email(), authorize?: false)
 
-    {:ok, m} =
-      Accounts.invite_member(%{papel: papel, user_id: user.id, clinic_id: clinic.id},
-        authorize?: false
-      )
+    attrs = %{papel: papel, user_id: user.id, clinic_id: clinic.id}
+    attrs = if professional_id, do: Map.put(attrs, :professional_id, professional_id), else: attrs
 
+    {:ok, m} = Accounts.invite_member(attrs, authorize?: false)
     {:ok, _ativo} = Accounts.accept_invite(m, authorize?: false)
     user
   end
@@ -187,11 +186,11 @@ defmodule Api.Directory.ProfessionalTest do
       end
     end
 
-    test "todos os membros leem o diretório" do
+    test "owner, admin e recepção leem o diretório inteiro" do
       {owner, clinic} = owner_and_clinic()
       Directory.create_professional!("Visível", %{}, tenant: clinic.id, actor: owner)
 
-      for papel <- [:admin, :recepcao, :profissional] do
+      for papel <- [:admin, :recepcao] do
         user = member_with_role(clinic, papel)
 
         nomes =
@@ -199,7 +198,7 @@ defmodule Api.Directory.ProfessionalTest do
           |> then(&Directory.list_professionals!(tenant: &1, actor: user))
           |> Enum.map(& &1.nome)
 
-        assert "Visível" in nomes, "#{papel} deveria ler o diretório"
+        assert "Visível" in nomes, "#{papel} deveria ler o diretório inteiro"
       end
     end
 
@@ -208,6 +207,36 @@ defmodule Api.Directory.ProfessionalTest do
       estranho = Accounts.register_user!("Estranho", email(), authorize?: false)
 
       assert [] = Directory.list_professionals!(tenant: clinic.id, actor: estranho)
+    end
+  end
+
+  # P1 (2026-07-21): o papel `profissional` só enxerga o **próprio** registro no diretório —
+  # não a ficha do colega (CPF, dados bancários) nem a escala dele na agenda/Semana/Mês, que
+  # se alimentam desta mesma leitura. Espelha o recorte A7 da agenda (`OwnAgendaOnly`), com o
+  # mesmo fail-closed do `Membership.professional_id` "mole".
+  describe "P1 — profissional só vê o próprio registro" do
+    test "profissional vê só a si e NÃO vê o colega" do
+      {owner, clinic} = owner_and_clinic()
+      eu = Directory.create_professional!("Eu", %{}, tenant: clinic.id, actor: owner)
+      _colega = Directory.create_professional!("Colega", %{}, tenant: clinic.id, actor: owner)
+
+      user = member_with_role(clinic, :profissional, eu.id)
+
+      nomes =
+        Directory.list_professionals!(tenant: clinic.id, actor: user) |> Enum.map(& &1.nome)
+
+      assert nomes == ["Eu"]
+    end
+
+    test "FAIL-CLOSED: profissional SEM professional_id não vê ninguém" do
+      {owner, clinic} = owner_and_clinic()
+      Directory.create_professional!("Alguém", %{}, tenant: clinic.id, actor: owner)
+
+      # `Membership.professional_id` é allow_nil? true — o "UUID mole". Fail-open aqui daria
+      # a lista inteira ao profissional sem vínculo; tem de fechar.
+      user = member_with_role(clinic, :profissional, nil)
+
+      assert [] = Directory.list_professionals!(tenant: clinic.id, actor: user)
     end
   end
 

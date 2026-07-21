@@ -25,11 +25,11 @@ defmodule ApiWeb.ProfessionalsControllerTest do
     |> AshAuthentication.Plug.Helpers.store_in_session(user)
   end
 
-  defp active_member_session(owner, clinic, papel) do
+  defp active_member_session(owner, clinic, papel, professional_id \\ nil) do
     addr = email()
+    attrs = %{papel: papel, clinic_id: clinic.id, professional_id: professional_id}
 
-    {:ok, pending} =
-      Accounts.invite_member_by_email(addr, %{papel: papel, clinic_id: clinic.id}, actor: owner)
+    {:ok, pending} = Accounts.invite_member_by_email(addr, attrs, actor: owner)
 
     user = Accounts.get_user_by_email!(addr, authorize?: false)
     {:ok, _} = Accounts.accept_invite(pending, actor: user)
@@ -140,6 +140,26 @@ defmodule ApiWeb.ProfessionalsControllerTest do
       _ = other_owner
 
       assert conn |> get(~p"/api/professionals/#{alheio.id}") |> json_response(404)
+    end
+
+    # P1 (2026-07-21): o recorte `OwnProfessionalOnly` vale também na ficha por id — um
+    # profissional lê a própria (200) mas a do colega é indistinguível de inexistente (404),
+    # sem vazar CPF/dados bancários. `list` idem: só a si.
+    test "profissional lê a própria ficha, mas a do colega é 404", %{
+      base_conn: base,
+      owner: owner,
+      clinic: clinic
+    } do
+      eu = create_prof(clinic, "Eu")
+      colega = create_prof(clinic, "Colega")
+      prof = active_member_session(owner, clinic, :profissional, eu.id)
+      conn = authed(base, prof)
+
+      assert conn |> get(~p"/api/professionals/#{eu.id}") |> json_response(200)
+      assert conn |> get(~p"/api/professionals/#{colega.id}") |> json_response(404)
+
+      %{"professionals" => lista} = conn |> get(~p"/api/professionals") |> json_response(200)
+      assert Enum.map(lista, & &1["id"]) == [eu.id]
     end
   end
 

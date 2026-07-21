@@ -305,15 +305,12 @@ defmodule ApiWeb.AppointmentsControllerTest do
       assert [%{"total" => 0, "ocupado_minutos" => 0}] = dia["professionals"]
     end
 
-    # A7: o mesmo recorte da leitura do dia tem de valer aqui. Um endpoint de agregação que
-    # esquece a policy vaza a agenda do colega em forma de número — e um número afirma mais do
-    # que uma coluna vazia.
-    #
-    # As LINHAS continuam sendo uma por profissional ativo, igual às colunas que a visão Dia já
-    # desenha para o papel `profissional`. Recortar as linhas só aqui faria a Semana discordar
-    # do Dia sobre o mesmo dia, que é justamente o defeito que B-D2 existe para evitar. Se
-    # profissional deve ou não enxergar o colega é pergunta de produto, aberta no doc 25.
-    test "o agendamento do colega não entra em número nenhum (A7)", %{conn: conn} do
+    # A7 + P1 (2026-07-21): o recorte da leitura do dia vale aqui, e a decisão P1 fechou a
+    # pergunta que estava aberta — o papel `profissional` só vê a **própria** linha. O colega
+    # não aparece nem como coluna zerada: a lista de profissionais que alimenta a contagem é a
+    # mesma `list_professionals!` recortada por `OwnProfessionalOnly`, então Dia, Semana e Mês
+    # concordam (só o próprio) por construção, sem recorte à parte no endpoint de agregação.
+    test "profissional só vê a própria linha; a do colega nem aparece (A7/P1)", %{conn: conn} do
       ctx = fixture()
 
       outro =
@@ -333,11 +330,9 @@ defmodule ApiWeb.AppointmentsControllerTest do
       por_id = Map.new(dia["professionals"], &{&1["professional_id"], &1})
 
       assert por_id[ctx.prof.id]["total"] == 1
-      # A coluna do colega existe (é a mesma da visão Dia) mas está zerada: o expediente é
-      # informação de escala, o agendamento é que é dado recortado.
-      assert por_id[outro.id]["total"] == 0
-      assert por_id[outro.id]["ocupado_minutos"] == 0
-      assert por_id[outro.id]["capacidade_minutos"] == 540
+      # O colega some inteiro — nem linha zerada. Sua escala é dado recortado, não só sua agenda.
+      assert por_id[outro.id] == nil
+      assert map_size(por_id) == 1
     end
 
     test "sem sessão é 401", %{conn: conn} do
@@ -447,6 +442,39 @@ defmodule ApiWeb.AppointmentsControllerTest do
       assert a["professional_id"] == ctx.prof.id
       assert b["professional_id"] == outro.id
       assert a["days"] |> hd() |> Map.get("periods") == [["08:00", "12:00"], ["13:00", "18:00"]]
+    end
+
+    # P1 (2026-07-21): a lista recortada esconde o colega, mas este endpoint aceita
+    # `professional_id` explícito e lê as fontes com `authorize?: false` — sem guarda, um
+    # profissional sondaria a disponibilidade do colega direto pela URL (a RLS só garante
+    # mesma-clínica, não mesmo-profissional). O recorte fecha no controller, onde o escopo é
+    # conhecido: para o profissional, o id do colega é indistinguível de inexistente → 404.
+    test "P1: profissional NÃO consulta a disponibilidade do colega (404)", %{conn: conn} do
+      ctx = fixture()
+
+      outro =
+        Directory.create_professional!("Dr. Y", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+
+      prof_user = member_session(ctx.owner, ctx.clinic, :profissional, ctx.prof.id)
+
+      # A própria: 200.
+      ok =
+        conn
+        |> authed(prof_user)
+        |> get("/api/availability?professional_id=#{ctx.prof.id}&date_from=#{@segunda}")
+
+      assert %{"professionals" => [%{"professional_id" => pid}]} = json_response(ok, 200)
+      assert pid == ctx.prof.id
+
+      # A do colega (sozinha ou junto da própria): 404, não vaza coluna.
+      for ids <- ["#{outro.id}", "#{ctx.prof.id},#{outro.id}"] do
+        resp =
+          conn
+          |> authed(prof_user)
+          |> get("/api/availability?professional_id=#{ids}&date_from=#{@segunda}")
+
+        assert json_response(resp, 404)
+      end
     end
 
     test "professional_id repetido na query também vale", %{conn: conn} do

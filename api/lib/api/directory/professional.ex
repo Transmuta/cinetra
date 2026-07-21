@@ -142,6 +142,10 @@ defmodule Api.Directory.Professional do
     # Ordem estável (por criação), como o catálogo de tipos — sem ORDER BY o Postgres
     # devolve na ordem que quiser e a lista pisca entre requisições.
     prepare build(sort: [inserted_at: :asc])
+
+    # P1: o papel `profissional` só enxerga o próprio registro (na agenda e no diretório) —
+    # os demais papéis veem a clínica inteira. Recorte análogo ao A7 dos agendamentos.
+    prepare Api.Directory.Preparations.OwnProfessionalOnly
   end
 
   changes do
