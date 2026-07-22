@@ -14,6 +14,11 @@ export interface DragRange {
  * coluna. Faz o snap de 15 (sugestão, A-D1 — não é regra no servidor) e clampa em
  * `[range.start, range.end - dur]` para o bloco caber inteiro na faixa desenhada.
  *
+ * `grabDy` é o offset de onde, DENTRO do bloco, o ponteiro pegou (protótipo `grabDy` [`:1237`],
+ * usado em [`:1247`]). Sem ele o topo do bloco saltaria para o ponteiro e o agendamento pousaria
+ * mais cedo do que se mirou: pegar um bloco de 50 min pela base e soltar o jogava ~50 min acima.
+ * Subtraí-lo mantém sob o ponteiro o MESMO ponto do bloco que a pessoa agarrou.
+ *
  * Fiel a duas regras do protótipo: o snap de 15 min ([`:1248`]) e "a data nunca muda" — este
  * cálculo é só do eixo Y (o eixo X troca de coluna, resolvido no componente).
  */
@@ -24,9 +29,10 @@ export function dropMinutes(
 	ppm: number,
 	pad: number,
 	durMin: number,
-	snap = 15
+	snap = 15,
+	grabDy = 0
 ): number {
-	const bruto = range.start + (y - bodyTop - pad) / ppm;
+	const bruto = range.start + (y - grabDy - bodyTop - pad) / ppm;
 	const snapped = Math.round(bruto / snap) * snap;
 	const teto = Math.max(range.start, range.end - durMin);
 	return Math.max(range.start, Math.min(teto, snapped));

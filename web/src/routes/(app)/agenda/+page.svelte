@@ -16,6 +16,7 @@
 	import { toast } from '$lib/toast.svelte';
 	import {
 		canCreateAppointment,
+		canCreateEncaixe,
 		patientNameMap,
 		toUtcIso,
 		type SearchResult,
@@ -203,10 +204,22 @@
 		remarcando = false;
 	}
 
+	// Semente do modal quando o arraste cai num conflito (fluxo C). `null` = sem modal aberto por
+	// arraste.
+	let dragConflito = $state<{
+		appt: Appointment;
+		date: string;
+		hora: string;
+		profId: string;
+		error?: string;
+	} | null>(null);
+
 	// Remarcar por arraste (Entrega 4). O arraste não abre modal, então submete a MESMA action
-	// `?/remarcar` do drawer programaticamente, e trata o resultado inline (o modal cuidaria da
-	// oferta de encaixe; aqui o erro do arraste — conflito, fora do expediente, 409 — vira toast
-	// e o bloco volta ao lugar quando o load reexecuta). A data nunca muda no arraste.
+	// `?/remarcar` do drawer programaticamente. No conflito (fluxo C, protótipo `modalOverride`
+	// :2294) NÃO é um beco sem saída: abre o RescheduleModal já no destino do arraste, com a
+	// oferta de encaixe — a única saída real (RN-12: sem encaixe, nada sobrepõe). Demais erros
+	// (fora do expediente, 409 "recarregue") viram toast e o bloco volta quando o load reexecuta.
+	// A data nunca muda no arraste.
 	async function dragReschedule(pre: { id: string; professional_id: string; hora: string }) {
 		const appt = appointments.find((a) => a.id === pre.id);
 		if (!appt) return;
@@ -227,7 +240,18 @@
 			toast('Remarcado');
 			await invalidateAll();
 		} else if (result.type === 'failure') {
-			toast(String(result.data?.error ?? 'Não foi possível remarcar.'));
+			const d = result.data as { error?: string; code?: string } | undefined;
+			if (d?.code === 'schedule_conflict' && canCreateEncaixe(data.me?.papel ?? null)) {
+				dragConflito = {
+					appt,
+					date: data.date,
+					hora: pre.hora,
+					profId: pre.professional_id,
+					error: d.error
+				};
+			} else {
+				toast(String(d?.error ?? 'Não foi possível remarcar.'));
+			}
 		}
 	}
 
@@ -251,7 +275,11 @@
 		justificar: 'Falta atualizada'
 	};
 
-	let ultimoForm = $state<unknown>(null);
+	// Marcador "último form já tratado" — NÃO é `$state`: o efeito só depende de `form`. Como
+	// `$state`, o efeito LIA e ESCREVIA `ultimoForm` (a guarda + a atribuição), e essa
+	// autodependência estourava `effect_update_depth_exceeded` ao criar/remarcar — a modal
+	// travava aberta e a tela inteira parava até um F5. Um `let` simples quebra o ciclo.
+	let ultimoForm: unknown = null;
 	$effect(() => {
 		// Só reage a um resultado NOVO (o mesmo objeto não deve retoastar em rerender).
 		if (!form || form === ultimoForm) return;
@@ -259,7 +287,10 @@
 
 		if (form.ok) {
 			if (form.action === 'criar') modal = null;
-			if (form.action === 'remarcar') remarcando = false;
+			if (form.action === 'remarcar') {
+				remarcando = false;
+				dragConflito = null;
+			}
 			toast(SUCESSO[form.action as string] ?? 'Feito');
 		} else if (form.action !== 'criar' && form.action !== 'remarcar') {
 			// Erros de criar/remarcar aparecem DENTRO do modal (com a saída de encaixe). As demais
@@ -381,4 +412,23 @@
 			onClose={() => (remarcando = false)}
 		/>
 	{/if}
+{/if}
+
+{#if dragConflito}
+	<!-- Fluxo C: soltar o bloco caiu num conflito. O modal abre no destino do arraste, com a
+	     saída de encaixe (protótipo `modalOverride` :2294). Fora do `{#if selecionado}` de
+	     propósito — o arraste não abre o drawer atrás. -->
+	<RescheduleModal
+		appt={dragConflito.appt}
+		timezone={data.timezone}
+		professionals={data.professionals}
+		papel={data.me?.papel ?? null}
+		{form}
+		initialDate={dragConflito.date}
+		initialHora={dragConflito.hora}
+		initialProfId={dragConflito.profId}
+		initialConflict
+		initialError={dragConflito.error}
+		onClose={() => (dragConflito = null)}
+	/>
 {/if}

@@ -25,6 +25,11 @@
 		professionals,
 		papel,
 		form = null,
+		initialDate = undefined,
+		initialHora = undefined,
+		initialProfId = undefined,
+		initialConflict = false,
+		initialError = undefined,
 		onClose
 	}: {
 		appt: Appointment;
@@ -32,6 +37,18 @@
 		professionals: AgendaProfessional[];
 		papel: Papel | null;
 		form?: { action?: string; error?: string; code?: string } | null;
+		/**
+		 * Semente do arraste (fluxo C, protótipo `modalOverride` :2294): quando soltar o bloco
+		 * caiu num conflito, o modal abre já preenchido com o DESTINO do arraste e mostrando a
+		 * saída de encaixe — em vez do beco sem saída "toast + o bloco volta". O servidor não
+		 * tem "mover assim mesmo" (RN-12: sem encaixe, nada sobrepõe), então a única saída real é
+		 * a mesma do drawer: marcar encaixe. Reusa `ConflictErrorBox`, não inventa outra caixa.
+		 */
+		initialDate?: string;
+		initialHora?: string;
+		initialProfId?: string;
+		initialConflict?: boolean;
+		initialError?: string;
 		onClose: () => void;
 	} = $props();
 
@@ -40,18 +57,34 @@
 	// NewAppointmentModal): o modal é montado por abertura.
 	const parts = untrack(() => zonedParts(appt.starts_at, timezone));
 
-	let dataStr = $state(parts.date);
-	let hora = $state(m2t(parts.minutes));
-	let profId = $state(untrack(() => appt.professional_id));
+	let dataStr = $state(untrack(() => initialDate ?? parts.date));
+	let hora = $state(untrack(() => initialHora ?? m2t(parts.minutes)));
+	let profId = $state(untrack(() => initialProfId ?? appt.professional_id));
 	let encaixe = $state(false);
 
 	const startsAt = $derived(toUtcIso(dataStr, hora, timezone));
 	const podeEncaixe = $derived(canCreateEncaixe(papel));
 
+	// O destino semeado pelo arraste (imutável): o conflito semeado só vale ENQUANTO os campos
+	// ainda apontam para ele. Se a pessoa edita a data/hora/profissional para um slot livre, a
+	// caixa vermelha some sozinha (some sem `$effect`, só por igualdade dos campos).
+	// Props estáveis por instância (o modal é remontado a cada abertura), mas `$derived` é onde o
+	// compilador quer a leitura — e o valor congela na prática mesmo assim.
+	const seedStarts = $derived(
+		initialConflict ? toUtcIso(initialDate ?? parts.date, initialHora ?? m2t(parts.minutes), timezone) : null
+	);
+	const seedProfId = $derived(initialConflict ? (initialProfId ?? appt.professional_id) : null);
+	const noAlvoSemeado = $derived(seedStarts !== null && startsAt === seedStarts && profId === seedProfId);
+
 	// A-D2(b): o servidor recusou por conflito e a saída (encaixe) existe — alcançável porque o
-	// BFF propaga o `code` do 422. Fora do expediente NÃO há encaixe a oferecer (D14).
-	const conflito = $derived(form?.action === 'remarcar' && form?.code === 'schedule_conflict');
-	const erro = $derived(form?.action === 'remarcar' ? form?.error : undefined);
+	// BFF propaga o `code` do 422; ou porque o arraste já caiu num conflito (`initialConflict`).
+	// Fora do expediente NÃO há encaixe a oferecer (D14).
+	const conflito = $derived(
+		(form?.action === 'remarcar' && form?.code === 'schedule_conflict') || noAlvoSemeado
+	);
+	const erro = $derived(
+		form?.action === 'remarcar' ? form?.error : noAlvoSemeado ? initialError : undefined
+	);
 	const ofereceEncaixe = $derived(conflito && podeEncaixe && !encaixe);
 
 	const mudou = $derived(startsAt !== appt.starts_at || profId !== appt.professional_id || encaixe);

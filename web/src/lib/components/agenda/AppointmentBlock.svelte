@@ -16,6 +16,7 @@
 		height,
 		conflict = false,
 		action = false,
+		dragging = false,
 		patientNames = [],
 		profColor,
 		startLabel,
@@ -30,6 +31,12 @@
 		conflict?: boolean;
 		/** Já terminou e ninguém resolveu (RN-58). */
 		action?: boolean;
+		/**
+		 * Este é o bloco em arraste: esmaece para 0.4 enquanto o fantasma mostra o destino
+		 * (protótipo `dragging` [`:1684`]). É o par visual do ghost — sem ele o bloco de origem
+		 * fica parado e nada sinaliza que está "no ar".
+		 */
+		dragging?: boolean;
 		patientNames?: string[];
 		profColor: string;
 		startLabel: string;
@@ -97,7 +104,8 @@
 		onSelect(appt.id);
 	}}
 	style="top:{top}px; height:{Math.max(height - 2, 18)}px; left:{geo.left}; width:{geo.width};
-	       background:{fill}; border-color:{stroke}; opacity:{meta.dim ? 0.72 : 1};
+	       background:{fill}; border-color:{stroke}; opacity:{dragging ? 0.4 : meta.dim ? 0.72 : 1};
+	       transition:opacity .15s;
 	       border-width:{variant === 'status' ? 1 : 1.5}px; z-index:{variant === 'conflict' ? 3 : 2};"
 	class="absolute flex flex-col gap-0.5 overflow-hidden rounded-lg border border-solid px-1.5 py-1 text-left"
 >

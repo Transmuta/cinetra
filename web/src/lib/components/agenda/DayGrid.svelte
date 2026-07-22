@@ -148,30 +148,46 @@
 	type Drag = {
 		id: string;
 		dur: number;
+		/** Offset de onde o ponteiro pegou o bloco (protótipo `grabDy` :1237). */
+		grabDy: number;
+		/** Coluna de origem: o fallback quando o ponteiro sai da faixa das colunas (:1243). */
+		origProfId: string;
 		downX: number;
 		downY: number;
-		x: number;
-		y: number;
 		active: boolean;
-		hora: string | null;
+		/** Destino (o fantasma): coluna, minuto do topo e rótulo. `null` até passar o limiar. */
 		profId: string | null;
+		startMin: number | null;
+		hora: string | null;
 	};
 	let drag = $state<Drag | null>(null);
 	let justDragged = false;
+	let gridEl: HTMLElement | undefined = $state();
 
-	// Coluna + corpo sob um ponto da tela (o eixo X do arraste). `null` fora das colunas.
-	function colunaEm(clientX: number, clientY: number) {
-		const el = document.elementFromPoint(clientX, clientY) as HTMLElement | null;
-		const col = el?.closest('[data-prof-id]') as HTMLElement | null;
-		if (!col) return null;
-		const body = col.querySelector('[data-column-body]') as HTMLElement | null;
-		return { profId: col.dataset.profId ?? null, bodyTop: body?.getBoundingClientRect().top ?? 0 };
+	// Coluna + topo do corpo sob um X da tela — por VARREDURA dos retângulos das colunas, não por
+	// `elementFromPoint` (protótipo :1242). A diferença importa: varrer nunca "perde" a coluna
+	// sobre o cabeçalho, a calha de horas ou um vão — cai na coluna cujo X envolve o ponteiro, e
+	// fora de todas mantém a de origem. `elementFromPoint` devolvia `null` ali e o drop virava
+	// no-op silencioso.
+	function colunaEm(clientX: number, origProfId: string) {
+		if (!gridEl) return { profId: origProfId, bodyTop: 0 };
+		const cols = Array.from(gridEl.querySelectorAll<HTMLElement>('[data-prof-id]'));
+		let profId = origProfId;
+		for (const col of cols) {
+			const r = col.getBoundingClientRect();
+			if (clientX >= r.left && clientX <= r.right) {
+				profId = col.dataset.profId ?? origProfId;
+				break;
+			}
+		}
+		const alvoCol = gridEl.querySelector<HTMLElement>(`[data-prof-id="${profId}"] [data-column-body]`);
+		return { profId, bodyTop: alvoCol?.getBoundingClientRect().top ?? 0 };
 	}
 
-	function alvo(clientX: number, clientY: number, dur: number) {
-		const c = colunaEm(clientX, clientY);
-		if (!c || !c.profId) return null;
-		return { profId: c.profId, hora: m2t(dropMinutes(clientY, c.bodyTop, range, PPM, PAD, dur)) };
+	function alvo(clientX: number, clientY: number, d: Drag) {
+		const c = colunaEm(clientX, d.origProfId);
+		const startMin = dropMinutes(clientY, c.bodyTop, range, PPM, PAD, d.dur, SNAP, d.grabDy);
+		return { profId: c.profId, startMin, hora: m2t(startMin) };
 	}
 
 	function onPointerDown(event: PointerEvent) {
@@ -186,13 +202,14 @@
 		drag = {
 			id,
 			dur: info.iv.end - info.iv.start,
+			grabDy: event.clientY - el.getBoundingClientRect().top,
+			origProfId: info.profId,
 			downX: event.clientX,
 			downY: event.clientY,
-			x: event.clientX,
-			y: event.clientY,
 			active: false,
-			hora: null,
-			profId: null
+			profId: null,
+			startMin: null,
+			hora: null
 		};
 		(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
 	}
@@ -200,8 +217,14 @@
 	function onPointerMove(event: PointerEvent) {
 		if (!drag) return;
 		const active = drag.active || passouLimiar(event.clientX - drag.downX, event.clientY - drag.downY);
-		const preview = active ? alvo(event.clientX, event.clientY, drag.dur) : null;
-		drag = { ...drag, x: event.clientX, y: event.clientY, active, hora: preview?.hora ?? null, profId: preview?.profId ?? null };
+		const preview = active ? alvo(event.clientX, event.clientY, drag) : null;
+		drag = {
+			...drag,
+			active,
+			profId: preview?.profId ?? null,
+			startMin: preview?.startMin ?? null,
+			hora: preview?.hora ?? null
+		};
 	}
 
 	function onPointerUp(event: PointerEvent) {
@@ -213,8 +236,8 @@
 		// drawer por cima da remarcação.
 		justDragged = true;
 
-		const t = alvo(event.clientX, event.clientY, d.dur);
-		if (t) onReschedule({ id: d.id, professional_id: t.profId, hora: t.hora });
+		const t = alvo(event.clientX, event.clientY, d);
+		onReschedule({ id: d.id, professional_id: t.profId, hora: t.hora });
 	}
 
 	// Captura ANTES do clique do bloco: se acabou de arrastar, engole o clique.
@@ -249,6 +272,7 @@
 	<div class="relative h-full overflow-auto bg-canvas">
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
+			bind:this={gridEl}
 			class="relative flex"
 			style="min-width:{GUTTER + colunas.reduce((s, c) => s + c.width, 0)}px"
 			onpointerdown={onPointerDown}
@@ -345,6 +369,7 @@
 									height={(iv.end - iv.start) * PPM}
 									conflict={conflitos.has(a.id)}
 									action={needsAction(a, agora)}
+									dragging={drag?.active && drag.id === a.id}
 									patientNames={a.patient_ids.map((id) => patientNames[id]).filter(Boolean)}
 									profColor={avatarColor(col.prof.cor_indice)}
 									startLabel={m2t(iv.start)}
@@ -352,6 +377,19 @@
 								/>
 							{/if}
 						{/each}
+
+						{#if drag?.active && drag.profId === col.prof.id && drag.startMin !== null}
+							<!-- Fantasma: bloco tracejado teal na coluna-alvo, com a ALTURA real e o
+							     horário de destino (protótipo :1651). É a prévia espacial de onde o
+							     bloco pousa — o par do bloco de origem esmaecido. -->
+							<div
+								data-testid="drag-ghost"
+								class="pointer-events-none absolute inset-x-1 z-9 flex items-start rounded-lg border-2 border-dashed border-teal bg-teal/12 px-1.5 py-1"
+								style="top:{topDe(drag.startMin)}px; height:{Math.max(drag.dur * PPM - 2, 18)}px"
+							>
+								<span class="font-mono text-[10.5px] font-semibold text-teal-text">{drag.hora}</span>
+							</div>
+						{/if}
 					</div>
 				</div>
 			{/each}
@@ -372,15 +410,5 @@
 			</div>
 		{/if}
 
-		{#if drag?.active}
-			<!-- Fantasma: acompanha o ponteiro e mostra o horário-alvo (protótipo :1231, ghost
-			     tracejado teal). `fixed` porque o cursor pode sair do container ao arrastar. -->
-			<div
-				class="pointer-events-none fixed z-9 rounded-md border border-dashed border-teal bg-teal/15 px-2 py-1 font-mono text-[11px] font-semibold text-teal-text shadow-sm"
-				style="left:{drag.x + 12}px; top:{drag.y + 12}px"
-			>
-				{drag.hora ?? '—'}
-			</div>
-		{/if}
 	</div>
 {/if}

@@ -29,6 +29,14 @@ describe('dropMinutes', () => {
 		// Muito abaixo: teto = end - dur = 1030.
 		expect(at(100000)).toBe(1030);
 	});
+
+	it('grabDy: o ponto agarrado do bloco fica sob o ponteiro (não o topo)', () => {
+		// y=240 dá 600 min sem grab (bem dentro da faixa, longe do clamp). Agarrado 30px
+		// abaixo do topo do bloco, o TOPO sobe grabDy px → ~28,6 min → snap 570.
+		expect(dropMinutes(240, 100, range, PPM, PAD, DUR, 15, 30)).toBe(570);
+		// grabDy = 0 mantém o comportamento antigo (topo no ponteiro).
+		expect(dropMinutes(240, 100, range, PPM, PAD, DUR, 15, 0)).toBe(600);
+	});
 });
 
 describe('passouLimiar', () => {
