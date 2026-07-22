@@ -116,4 +116,29 @@ describe('reemitSession (re-emite _api_key no domínio do web)', () => {
 		const set = (event as unknown as { cookies: { set: ReturnType<typeof vi.fn> } }).cookies.set;
 		expect(set).not.toHaveBeenCalled();
 	});
+
+	// F1 (doc 34): a API emite o cookie _api_key MESMO num 401 (sessão vazia). Tratar "veio
+	// Set-Cookie" como sucesso fazia o /auth/callback mandar para / (parecendo logado) em vez de
+	// mostrar erro. reemitSession só re-emite quando a resposta NÃO é um erro (status < 400).
+	it('resposta de ERRO (401) com _api_key: retorna null e não seta o cookie', () => {
+		const event = fakeEvent();
+		const res = new Response('', {
+			status: 401,
+			headers: { 'set-cookie': `${SESSION_COOKIE}=vazio; Path=/; HttpOnly` }
+		});
+
+		expect(reemitSession(event, res)).toBeNull();
+		const set = (event as unknown as { cookies: { set: ReturnType<typeof vi.fn> } }).cookies.set;
+		expect(set).not.toHaveBeenCalled();
+	});
+
+	it('redirect de sucesso (302) com _api_key: re-emite normalmente', () => {
+		const event = fakeEvent();
+		const res = new Response('', {
+			status: 302,
+			headers: { 'set-cookie': `${SESSION_COOKIE}=tok; Path=/; HttpOnly` }
+		});
+
+		expect(reemitSession(event, res)).toBe('tok');
+	});
 });

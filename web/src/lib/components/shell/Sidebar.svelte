@@ -76,6 +76,9 @@
 	] as const;
 	const profs = $derived((page.data.professionals as Professional[] | undefined) ?? []);
 	const profCounts = $derived(countByStatus(profs));
+	// F3 (doc 34): a lista carrega os profissionais; telas de detalhe/novo, não. Sem a lista, o
+	// número seria um "0" mentiroso (há profissionais) — então escondemos a contagem, não zeramos.
+	const hasProfCounts = $derived(page.data.professionals !== undefined);
 	const canManageProf = $derived(canManageProfessionals(page.data.me?.papel as Papel | null | undefined));
 	const profStatus = $derived(page.url.searchParams.get('status') ?? 'todos');
 
@@ -93,6 +96,8 @@
 	const patCounts = $derived(
 		(page.data.counts as PatientCounts | undefined) ?? { todos: 0, ativos: 0, inativos: 0, resp: 0 }
 	);
+	// F3 (doc 34): idem pacientes — só a lista traz `counts`. Sem eles, esconder em vez de mostrar 0.
+	const hasPatCounts = $derived(page.data.counts !== undefined);
 	const canManagePat = $derived(canManagePatients(page.data.me?.papel as Papel | null | undefined));
 	const patFilter = $derived(page.url.searchParams.get('filter') ?? 'todos');
 
@@ -240,7 +245,9 @@
 				>
 					<span class={isActive ? 'text-teal-text' : 'text-faint'}><fil.icon size={15} /></span>
 					<span class="flex-1 truncate">{fil.label}</span>
-					<span class="font-mono text-[11px] text-faint">{profCounts[fil.key]}</span>
+					{#if hasProfCounts}
+						<span class="font-mono text-[11px] text-faint">{profCounts[fil.key]}</span>
+					{/if}
 				</a>
 			{/each}
 		</div>
@@ -311,7 +318,9 @@
 				>
 					<span class={isActive ? 'text-teal-text' : 'text-faint'}><fil.icon size={15} /></span>
 					<span class="flex-1 truncate">{fil.label}</span>
-					<span class="font-mono text-[11px] text-faint">{patCounts[fil.key]}</span>
+					{#if hasPatCounts}
+						<span class="font-mono text-[11px] text-faint">{patCounts[fil.key]}</span>
+					{/if}
 				</a>
 			{/each}
 		</div>

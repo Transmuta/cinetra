@@ -112,9 +112,17 @@ defmodule Api.Directory do
   def fetch_clinic_professional(%Api.Scope{} = scope, id, opts \\ []) when is_binary(id) do
     load = Keyword.get(opts, :load, [])
 
-    in_clinic(scope, fn ->
-      get_professional(id, scope: scope, load: load, not_found_error?: false)
-    end)
+    # Id malformado (não-UUID) é tratado como inexistente ({:ok, nil} → 404), não como o
+    # `InvalidArgument` que o `get` levanta e viraria 500 no controller.
+    case Ecto.UUID.cast(id) do
+      {:ok, id} ->
+        in_clinic(scope, fn ->
+          get_professional(id, scope: scope, load: load, not_found_error?: false)
+        end)
+
+      :error ->
+        {:ok, nil}
+    end
   end
 
   @doc "Cria um profissional no diretório da clínica ativa do escopo."

@@ -769,6 +769,10 @@ defmodule ApiWeb.AppointmentsControllerTest do
       ctx = fixture()
       {id, _} = create_appt(conn, ctx)
 
+      # Só se justifica uma falta de verdade (F4/doc 34): marca faltou antes de justificar.
+      # O bloco de referência é 20/07 (passado), então o gate `SessionStarted` já liberou.
+      conn |> authed(ctx.owner) |> post("/api/appointments/#{id}/miss", %{})
+
       resp =
         conn
         |> authed(ctx.owner)

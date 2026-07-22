@@ -142,6 +142,11 @@ defmodule ApiWeb.ProfessionalsControllerTest do
       assert conn |> get(~p"/api/professionals/#{alheio.id}") |> json_response(404)
     end
 
+    test "id malformado (não-UUID) → 404, não 500", %{conn: conn} do
+      assert conn |> get(~p"/api/professionals/nao-e-uuid") |> json_response(404)
+      assert conn |> get(~p"/api/professionals/123") |> json_response(404)
+    end
+
     # P1 (2026-07-21): o recorte `OwnProfessionalOnly` vale também na ficha por id — um
     # profissional lê a própria (200) mas a do colega é indistinguível de inexistente (404),
     # sem vazar CPF/dados bancários. `list` idem: só a si.

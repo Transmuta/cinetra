@@ -224,6 +224,11 @@ defmodule ApiWeb.PatientsControllerTest do
       assert conn |> get(~p"/api/patients/#{Ecto.UUID.generate()}") |> json_response(404)
     end
 
+    test "id malformado (não-UUID) → 404, não 500", %{conn: conn} do
+      assert conn |> get(~p"/api/patients/nao-e-uuid") |> json_response(404)
+      assert conn |> get(~p"/api/patients/123") |> json_response(404)
+    end
+
     test "paciente de outra clínica → 404 (isolamento)", %{conn: conn} do
       {_owner_b, clinic_b} = owner_with_clinic()
       alheio = create_patient(clinic_b, "De Outra")

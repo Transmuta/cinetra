@@ -1000,6 +1000,51 @@ defmodule Api.Scheduling.AppointmentTest do
     end
   end
 
+  # F4 (doc 34): o servidor recusa transição a partir de um status de origem inválido — a UI só
+  # mostra o botão certo, mas uma chamada direta à API não pode driblar a máquina de estados.
+  describe "guard de status de origem (F4)" do
+    test "reabrir um bloco JÁ agendado é recusado (não vira no-op com trilha fantasma)" do
+      ctx = setup_clinic()
+      appt = agendado(ctx)
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               Scheduling.transition_appointment(ctx.scope, appt.id, :reopen)
+    end
+
+    test "justificar falta de um bloco que nunca faltou é recusado" do
+      ctx = setup_clinic()
+      appt = agendado(ctx)
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               Scheduling.transition_appointment(ctx.scope, appt.id, :justify, %{justificada: true})
+    end
+
+    test "cancelar um bloco JÁ concluído é recusado (concluído → cancelado inválido)" do
+      ctx = setup_clinic()
+      appt = agendado(ctx)
+      scope = scope_at(ctx.owner, ctx.clinic, DateTime.add(at("08:00"), 3600, :second))
+
+      {:ok, concluido} = Scheduling.transition_appointment(scope, appt.id, :complete)
+      assert concluido.status == :concluido
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               Scheduling.transition_appointment(scope, appt.id, :cancel)
+
+      # e o status permanece concluído.
+      assert %{status: :concluido} = Scheduling.get_appointment!(appt.id, scope: scope)
+    end
+
+    test "concluir um bloco cancelado é recusado" do
+      ctx = setup_clinic()
+      appt = agendado(ctx)
+      {:ok, _} = Scheduling.transition_appointment(ctx.scope, appt.id, :cancel)
+      scope = scope_at(ctx.owner, ctx.clinic, DateTime.add(at("08:00"), 3600, :second))
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               Scheduling.transition_appointment(scope, appt.id, :complete)
+    end
+  end
+
   describe "cancelar e locking otimista (409)" do
     test "cancelar preserva o registro com o motivo" do
       ctx = setup_clinic()

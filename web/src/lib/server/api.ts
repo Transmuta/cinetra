@@ -40,6 +40,12 @@ export function apiFetch(event: RequestEvent, path: string, init: RequestInit = 
 const SESSION_MAX_AGE = 60 * 60 * 24 * 14;
 
 export function reemitSession(event: RequestEvent, res: Response): string | null {
+	// F1 (doc 34): a API seta `_api_key` (sessão VAZIA) mesmo quando REJEITA o login (401 no
+	// callback do magic link / OAuth). Tratar a mera presença do Set-Cookie como sucesso mandava o
+	// usuário para `/` parecendo logado, engolindo o `?erro=…`. Só re-emitimos quando a resposta
+	// não é um erro — sucesso do callback é um redirect (3xx); a falha é 4xx (com Location de erro).
+	if (res.status >= 400) return null;
+
 	const value = extractSessionCookie(res);
 	if (value) {
 		event.cookies.set(SESSION_COOKIE, value, {

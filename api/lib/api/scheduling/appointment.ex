@@ -243,6 +243,11 @@ defmodule Api.Scheduling.Appointment do
     # Concluir e faltar: bloqueadas até a sessão começar (D-E4.1, `SessionStarted`).
     update :mark_completed do
       require_atomic? false
+      # Só um bloco AINDA aberto conclui/falta (F4/doc 34): concluir um cancelado/concluído/faltou
+      # não faz sentido e sujava a trilha. `SessionStarted` continua sendo o gate de horário.
+      validate {Api.Scheduling.Appointment.Validations.StatusIn,
+                from: [:agendado, :confirmado, :em_atendimento]}
+
       validate Api.Scheduling.Appointment.Validations.SessionStarted
       change set_attribute(:status, :concluido)
       change {Api.Scheduling.Appointment.Changes.CascadeToAttendances, status: :concluida}
@@ -251,6 +256,10 @@ defmodule Api.Scheduling.Appointment do
 
     update :mark_missed do
       require_atomic? false
+
+      validate {Api.Scheduling.Appointment.Validations.StatusIn,
+                from: [:agendado, :confirmado, :em_atendimento]}
+
       validate Api.Scheduling.Appointment.Validations.SessionStarted
       change set_attribute(:status, :faltou)
       change {Api.Scheduling.Appointment.Changes.CascadeToAttendances, status: :faltou}
@@ -260,6 +269,10 @@ defmodule Api.Scheduling.Appointment do
     # Cancelar preserva o registro (doc 25 §3, "sem hard delete"). Motivo opcional (D4).
     update :cancel do
       require_atomic? false
+      # Cancela-se um bloco aberto (inclusive futuro); um já-concluído/faltou/cancelado não (F4).
+      validate {Api.Scheduling.Appointment.Validations.StatusIn,
+                from: [:agendado, :confirmado, :em_atendimento]}
+
       accept [:cancel_reason]
       change set_attribute(:status, :cancelado)
       change {Api.Scheduling.Appointment.Changes.CascadeToAttendances, status: :cancelada}
@@ -270,6 +283,11 @@ defmodule Api.Scheduling.Appointment do
     # as presenças a `:prevista`, então o agregado de faltas do paciente recua junto.
     update :reopen do
       require_atomic? false
+      # Só reabre o que está FECHADO (F4): reabrir um já-agendado era no-op que ainda bumpava a
+      # versão e escrevia "reabriu" na trilha.
+      validate {Api.Scheduling.Appointment.Validations.StatusIn,
+                from: [:concluido, :faltou, :cancelado]}
+
       change set_attribute(:status, :agendado)
       change set_attribute(:cancel_reason, nil)
 
@@ -283,6 +301,10 @@ defmodule Api.Scheduling.Appointment do
     # status; só na `falta_justificada` das presenças — que é o que faz a falta parar de contar.
     update :set_falta_justificada do
       require_atomic? false
+      # Só faz sentido justificar quando houve falta (F4): justificar um agendado marcava presenças
+      # que nunca faltaram.
+      validate {Api.Scheduling.Appointment.Validations.StatusIn, from: [:faltou]}
+
       argument :justificada, :boolean, allow_nil?: false
 
       change {Api.Scheduling.Appointment.Changes.CascadeToAttendances, justify_from: :justificada}

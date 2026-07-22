@@ -99,7 +99,12 @@ defmodule Api.Records do
   filtro por atributo não a enxerga) → `{:ok, nil}`, que o controller traduz em 404.
   """
   def fetch_clinic_patient(%Api.Scope{} = scope, id) when is_binary(id) do
-    in_clinic(scope, fn -> get_patient(id, scope: scope, not_found_error?: false) end)
+    # Um id malformado (não-UUID, ex.: link velho/typo) é indistinguível de inexistente: vira
+    # {:ok, nil} → 404, e não o `InvalidArgument` que o `get` levanta e viraria 500 no controller.
+    case Ecto.UUID.cast(id) do
+      {:ok, id} -> in_clinic(scope, fn -> get_patient(id, scope: scope, not_found_error?: false) end)
+      :error -> {:ok, nil}
+    end
   end
 
   @doc "Cria um paciente no cadastro da clínica ativa do escopo (só o nome é obrigatório)."
