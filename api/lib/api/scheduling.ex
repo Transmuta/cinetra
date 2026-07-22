@@ -506,6 +506,216 @@ defmodule Api.Scheduling do
     end
   end
 
+  # ---- Relatórios: snapshot de métricas do período (doc 33, Fatia 9) ----
+
+  @doc """
+  O snapshot de métricas da tela de Relatórios (doc 33): totais por status, taxa de falta,
+  ocupação canônica e as quebras por dia/tipo/profissional para uma janela.
+
+  ## Escopo por papel — uma regra, um caminho (doc 33 §3)
+
+  A leitura dos agendamentos passa pela **mesma** code interface da agenda
+  (`list_appointments!`), então a preparation `OwnAgendaOnly` já recorta o papel `profissional`
+  à própria agenda (fail-closed sem vínculo) — nenhum recorte de papel é reimplementado aqui. O
+  que este código resolve é o *conjunto de profissionais* do denominador de ocupação e das
+  linhas da quebra: para `profissional`, só ele; para os demais, o filtro pedido ou todos os
+  ativos. Relatórios é HTTP puro, então `scope.papel`/`scope.professional_id` são frescos por
+  requisição — a ressalva do moduledoc do `Api.Scope` é sobre processos de Channel (Entrega 3).
+
+  ## Ocupação canônica (doc 33 §2.1, GAP-11)
+
+  `minutos_agendados ÷ minutos_de_expediente`, teto 100% — o mesmo `capacity_minutes/3` que
+  `load_counts` usa para a barra da agenda. Não os "9 slots fixos" do protótipo, que contavam
+  agendamentos e discordavam da agenda. Cancelado fica fora do numerador (não disputa espaço).
+  """
+  def load_summary(%Api.Scope{} = scope, %Date{} = from, %Date{} = to, professional_id, timezone) do
+    dates = Date.range(from, to) |> Enum.to_list()
+    escopo = summary_scope(scope, professional_id)
+
+    in_clinic(scope, fn ->
+      {janela_de, janela_ate} = Api.Scheduling.LocalTime.window!(from, to, timezone)
+
+      # Dois conjuntos, de propósito (doc 33 §3):
+      #   * `breakdown` — o escopo SELECIONADO: alimenta o denominador de ocupação e as linhas da
+      #     quebra por profissional. Um filtro por profissional recorta os dois (activeProfs=1 do
+      #     protótipo). O papel `profissional` fica preso ao próprio.
+      #   * `filter_profs` — a lista da SIDEBAR e o lookup de nome/cor: sempre os ativos (ou só o
+      #     próprio, para o papel `profissional`), independentemente do filtro escolhido — senão
+      #     selecionar um profissional apagaria os outros da própria lista de filtro.
+      breakdown = summary_professionals(scope, escopo)
+      filter_profs = summary_filter_professionals(scope, escopo, breakdown)
+      prof_ids = Enum.map(breakdown, & &1.id)
+
+      appointments =
+        list_appointments!(janela_de, janela_ate,
+          scope: scope,
+          query: [
+            filter: summary_filter(escopo),
+            select: [:starts_at, :ends_at, :status, :professional_id, :appointment_type_id]
+          ]
+        )
+
+      # Todos os tipos (inclusive arquivados): um tipo desativado ainda pode ter atendimento no
+      # período, e a tela precisa do nome/cor para a barra. Lookup-no-cliente por id, como a
+      # agenda (`load_agenda`).
+      types = Api.Directory.list_appointment_types!(scope: scope)
+
+      ativos = Enum.reject(appointments, &(&1.status == :cancelado))
+      sources = gather_sources(prof_ids, dates, tenant: scope.clinic_id, authorize?: false)
+
+      dias = summary_por_dia(ativos, dates, timezone)
+      capacidade_dia = summary_capacidade_por_dia(breakdown, dates, sources)
+      ocupado = summary_ocupado_minutos(ativos)
+
+      %{
+        from: from,
+        to: to,
+        totais: summary_totais(appointments, ativos, ocupado, capacidade_dia, dias),
+        por_dia: dias,
+        por_tipo: summary_por_tipo(ativos),
+        por_profissional: summary_por_profissional(appointments, breakdown),
+        professionals: filter_profs,
+        appointment_types: types
+      }
+    end)
+  end
+
+  # O escopo efetivo de profissionais (doc 33 §3). `:none` é o profissional sem vínculo de
+  # diretório: relatório zerado (a leitura já vem vazia por `OwnAgendaOnly`, mas as linhas da
+  # quebra também não devem existir).
+  defp summary_scope(%Api.Scope{papel: :profissional, professional_id: nil}, _requested), do: :none
+
+  defp summary_scope(%Api.Scope{papel: :profissional, professional_id: pid}, _requested),
+    do: {:one, pid}
+
+  defp summary_scope(_scope, requested) when is_binary(requested) and requested != "",
+    do: {:one, requested}
+
+  defp summary_scope(_scope, _requested), do: :all
+
+  # Filtro da leitura de agendamentos. Para `:none`, `[]` basta: `OwnAgendaOnly` já esvazia a
+  # leitura do profissional sem vínculo, então não há linha a recortar a mais.
+  defp summary_filter({:one, pid}), do: [professional_id: pid]
+  defp summary_filter(_), do: []
+
+  defp summary_professionals(scope, {:one, pid}),
+    do: Api.Directory.list_professionals!(scope: scope, query: [filter: [id: pid]])
+
+  defp summary_professionals(scope, :all),
+    do: Api.Directory.list_professionals!(scope: scope, query: [filter: [ativo: true]])
+
+  defp summary_professionals(_scope, :none), do: []
+
+  # A lista da sidebar/lookup: o papel `profissional` só se enxerga (o `breakdown` já é ele
+  # mesmo, ou vazio); os demais veem todos os ativos, sem depender do filtro escolhido. No caso
+  # `:all` (o default "todos", o caminho quente) o `breakdown` JÁ é a lista de ativos — reusa em
+  # vez de repetir a mesma `list_professionals!` (medido no bate-volta: era 2× na rota todos).
+  defp summary_filter_professionals(%Api.Scope{papel: :profissional}, _escopo, breakdown),
+    do: breakdown
+
+  defp summary_filter_professionals(_scope, :all, breakdown), do: breakdown
+
+  defp summary_filter_professionals(scope, _escopo, _breakdown),
+    do: summary_professionals(scope, :all)
+
+  defp summary_por_dia(ativos, dates, timezone) do
+    by_date =
+      Enum.group_by(ativos, &Api.Scheduling.LocalTime.to_local_date(&1.starts_at, timezone))
+
+    Enum.map(dates, fn date ->
+      list = Map.get(by_date, date, [])
+
+      %{
+        date: date,
+        total: length(list),
+        concluidos: Enum.count(list, &(&1.status == :concluido))
+      }
+    end)
+  end
+
+  # Capacidade (minutos de expediente) por data — a soma do denominador de ocupação sobre os
+  # profissionais no escopo. Guardada por dia para derivar `dias_uteis` (datas com capacidade > 0).
+  defp summary_capacidade_por_dia(professionals, dates, sources) do
+    Enum.map(dates, fn date ->
+      Enum.reduce(professionals, 0, fn prof, acc ->
+        acc + capacity_minutes(prof, date, sources)
+      end)
+    end)
+  end
+
+  defp summary_ocupado_minutos(ativos) do
+    Enum.reduce(ativos, 0, fn appt, acc ->
+      acc + div(DateTime.diff(appt.ends_at, appt.starts_at), 60)
+    end)
+  end
+
+  defp summary_totais(appointments, ativos, ocupado, capacidade_dia, dias) do
+    concluidos = Enum.count(appointments, &(&1.status == :concluido))
+    faltas = Enum.count(appointments, &(&1.status == :faltou))
+    capacidade = Enum.sum(capacidade_dia)
+
+    %{
+      atendimentos: length(ativos),
+      concluidos: concluidos,
+      faltas: faltas,
+      cancelados: Enum.count(appointments, &(&1.status == :cancelado)),
+      futuros:
+        Enum.count(appointments, &(&1.status in [:agendado, :confirmado, :em_atendimento])),
+      taxa_falta: taxa_falta(concluidos, faltas),
+      ocupacao: ocupacao_pct(ocupado, capacidade),
+      ocupado_minutos: ocupado,
+      capacidade_minutos: capacidade,
+      dias_uteis: Enum.count(capacidade_dia, &(&1 > 0)),
+      pico: summary_pico(dias)
+    }
+  end
+
+  defp summary_por_tipo(ativos) do
+    ativos
+    |> Enum.group_by(& &1.appointment_type_id)
+    |> Enum.map(fn {type_id, list} -> %{appointment_type_id: type_id, total: length(list)} end)
+    |> Enum.sort_by(& &1.total, :desc)
+  end
+
+  defp summary_por_profissional(appointments, professionals) do
+    by_prof = Enum.group_by(appointments, & &1.professional_id)
+
+    professionals
+    |> Enum.map(fn prof ->
+      ativos = by_prof |> Map.get(prof.id, []) |> Enum.reject(&(&1.status == :cancelado))
+      concluidos = Enum.count(ativos, &(&1.status == :concluido))
+      faltas = Enum.count(ativos, &(&1.status == :faltou))
+
+      %{
+        professional_id: prof.id,
+        total: length(ativos),
+        concluidos: concluidos,
+        faltas: faltas,
+        taxa_falta: taxa_falta(concluidos, faltas)
+      }
+    end)
+    |> Enum.sort_by(& &1.total, :desc)
+  end
+
+  # O dia mais movimentado (`busiest`, [:3364]). Sem atendimento nenhum não há pico.
+  defp summary_pico(dias) do
+    case Enum.max_by(dias, & &1.total, fn -> nil end) do
+      nil -> nil
+      %{total: 0} -> nil
+      dia -> %{date: dia.date, total: dia.total}
+    end
+  end
+
+  # `falta / (concluídos + faltas)`, arredondado — a mesma fórmula do protótipo ([:3346]).
+  # Denominador zero (nenhuma sessão fechada) é 0%, não divisão por zero.
+  defp taxa_falta(_concluidos, 0), do: 0
+  defp taxa_falta(concluidos, faltas), do: round(faltas / (concluidos + faltas) * 100)
+
+  defp ocupacao_pct(_ocupado, 0), do: 0
+  # `Kernel.min/2` qualificado: o domínio já define um `min` (agregado do Ash) e o
+  # não-qualificado colide na compilação — o mesmo motivo de `Kernel.max/2` em `capacity_minutes`.
+  defp ocupacao_pct(ocupado, capacidade), do: Kernel.min(100, round(ocupado / capacidade * 100))
+
   defp patients_for(scope, appointments) do
     ids =
       appointments

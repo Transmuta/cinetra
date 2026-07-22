@@ -142,6 +142,10 @@ defmodule ApiWeb.Router do
     # Cálculo, não coleção (09:253): a composição das 4 camadas de expediente.
     get "/availability", AvailabilityController, :index
 
+    # Relatórios (Fatia 9, doc 33). Agregado de período; leitura para todo membro, com o recorte
+    # do papel `profissional` vindo de `OwnAgendaOnly` (dados, não 403). `clinic_id` do escopo.
+    get "/reports/summary", ReportsController, :summary
+
     # Fila de espera (Entrega 5, doc 09 §3.6). As rotas com sufixo (`/slots`, `/offer`,
     # `/convert`) vêm antes da paramétrica pura pela mesma razão de `/appointments/counts`.
     get "/waitlist", WaitlistController, :index
