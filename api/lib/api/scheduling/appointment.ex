@@ -54,6 +54,20 @@ defmodule Api.Scheduling.Appointment do
       reference :appointment_type, on_delete: :restrict
     end
 
+    # A duração positiva era invariante só de APLICAÇÃO: `ComputeEndsAt` deriva `ends_at` da
+    # duração, e as duas fontes têm `min: 5` (`duration_minutos` aqui, `duracao_minutos` no tipo).
+    # Nada disso alcança quem escreve por fora da ação — `Ash.Seed`, um seed, um `INSERT` de
+    # manutenção — e um bloco degenerado (`ends_at == starts_at`) é invisível: some de toda leitura
+    # que use sobreposição de range (`tsrange(s, s, '[)')` é o range VAZIO, e vazio não sobrepõe
+    # nada), sem erro nenhum. Achado do bate-volta desta leva: hoje há 0 linhas assim, e é
+    # exatamente por isso que a hora de fechar a porta é agora, com a tabela limpa.
+    check_constraints do
+      check_constraint :ends_at,
+        name: "appointments_ends_after_starts",
+        check: "ends_at > starts_at",
+        message: "A duração precisa ser positiva."
+    end
+
     custom_indexes do
       # ADR-017: `clinic_id` lidera todo índice de recurso por-tenant.
       index [:clinic_id, :professional_id, :starts_at]

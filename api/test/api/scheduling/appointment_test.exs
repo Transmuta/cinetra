@@ -1112,6 +1112,61 @@ defmodule Api.Scheduling.AppointmentTest do
   # atravessava os 743 testes sem uma falha — porque toda chamada de `list_appointments!` do
   # arquivo usa janela larga (00:00–23:00), onde fronteira nunca morde. Estes três testes existem
   # para que a próxima reescrita do predicado tenha rede.
+  # A duração positiva era invariante só de APLICAÇÃO (`min: 5` no tipo e no override). Quem
+  # escreve por fora da ação — `Ash.Seed`, script de manutenção, INSERT à mão — passava direto,
+  # e um bloco degenerado (`ends_at == starts_at`) é pior que um erro: ele SOME de qualquer
+  # leitura por sobreposição de range, porque `tsrange(s, s, '[)')` é o range vazio e vazio não
+  # sobrepõe nada. Achado do bate-volta; fechado no banco enquanto a tabela ainda está limpa.
+  describe "duração positiva — invariante de banco" do
+    test "bloco de duração zero é recusado pelo BANCO, não só pela ação" do
+      ctx = setup_clinic()
+
+      # O `check_constraints` no recurso é o que transforma a violação crua do Postgres num erro
+      # de campo do Ash (422), em vez de deixar o Postgrex subir como 500.
+      erro =
+        assert_raise Ash.Error.Invalid, fn ->
+          Ash.Seed.seed!(
+            Api.Scheduling.Appointment,
+            %{
+              starts_at: at("08:00"),
+              ends_at: at("08:00"),
+              professional_id: ctx.prof.id,
+              appointment_type_id: ctx.tipo.id,
+              status: :agendado,
+              encaixe: true,
+              version: 1,
+              pkg_hold: false
+            },
+            tenant: ctx.clinic.id
+          )
+        end
+
+      assert Exception.message(erro) =~ "duração precisa ser positiva"
+      assert [%Ash.Error.Changes.InvalidAttribute{field: :ends_at}] = erro.errors
+    end
+
+    test "bloco invertido (ends_at antes de starts_at) também é recusado" do
+      ctx = setup_clinic()
+
+      assert_raise Ash.Error.Invalid, fn ->
+        Ash.Seed.seed!(
+          Api.Scheduling.Appointment,
+          %{
+            starts_at: at("09:00"),
+            ends_at: at("08:00"),
+            professional_id: ctx.prof.id,
+            appointment_type_id: ctx.tipo.id,
+            status: :agendado,
+            encaixe: true,
+            version: 1,
+            pkg_hold: false
+          },
+          tenant: ctx.clinic.id
+        )
+      end
+    end
+  end
+
   describe ":in_range — fronteira da janela (semi-aberta)" do
     test "bloco que TERMINA exatamente no início da janela fica de fora" do
       ctx = setup_clinic()
