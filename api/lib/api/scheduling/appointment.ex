@@ -72,6 +72,13 @@ defmodule Api.Scheduling.Appointment do
       # nenhuma noção de tenant. O índice sairia, o gargalo ficaria.
       index [:appointment_type_id], all_tenants?: true
       index [:created_by_id], all_tenants?: true
+
+      # Mesma classe do achado acima, para `professional_id` (D-F, doc 30). O composto
+      # `(clinic_id, professional_id, starts_at)` lidera por `clinic_id` e não serve a um
+      # `WHERE professional_id = $1` puro; o gist da exclusion (`appointments_no_overlap`) é
+      # parcial. Atenuado — profissional **arquiva** em vez de excluir, então a checagem de FK
+      # do DELETE quase nunca dispara — mas o btree dedicado é barato e fecha o buraco.
+      index [:professional_id], all_tenants?: true
     end
 
     # Traduz `exclusion_violation` da constraint num erro de campo do Ash (→ 422), em vez de
