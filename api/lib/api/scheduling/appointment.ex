@@ -266,6 +266,7 @@ defmodule Api.Scheduling.Appointment do
     # Concluir e faltar: bloqueadas até a sessão começar (D-E4.1, `SessionStarted`).
     update :mark_completed do
       require_atomic? false
+
       # Só um bloco AINDA aberto conclui/falta (F4/doc 34): concluir um cancelado/concluído/faltou
       # não faz sentido e sujava a trilha. `SessionStarted` continua sendo o gate de horário.
       validate {Api.Scheduling.Appointment.Validations.StatusIn,
@@ -292,6 +293,7 @@ defmodule Api.Scheduling.Appointment do
     # Cancelar preserva o registro (doc 25 §3, "sem hard delete"). Motivo opcional (D4).
     update :cancel do
       require_atomic? false
+
       # Cancela-se um bloco aberto (inclusive futuro); um já-concluído/faltou/cancelado não (F4).
       validate {Api.Scheduling.Appointment.Validations.StatusIn,
                 from: [:agendado, :confirmado, :em_atendimento]}
@@ -324,6 +326,7 @@ defmodule Api.Scheduling.Appointment do
     # status; só na `falta_justificada` das presenças — que é o que faz a falta parar de contar.
     update :set_falta_justificada do
       require_atomic? false
+
       # Só faz sentido justificar quando houve falta (F4): justificar um agendado marcava presenças
       # que nunca faltaram.
       validate {Api.Scheduling.Appointment.Validations.StatusIn, from: [:faltou]}

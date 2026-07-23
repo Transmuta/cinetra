@@ -80,7 +80,9 @@ defmodule ApiWeb.ReportsControllerTest do
   end
 
   describe "GET /api/reports/summary" do
-    test "devolve o agregado do período com os totais, quebras, profissionais e tipos", %{conn: conn} do
+    test "devolve o agregado do período com os totais, quebras, profissionais e tipos", %{
+      conn: conn
+    } do
       ctx = fixture()
       create_appt(conn, ctx, ctx.owner, "2026-07-20T11:00:00Z")
       create_appt(conn, ctx, ctx.owner, "2026-07-20T12:00:00Z")
@@ -129,7 +131,10 @@ defmodule ApiWeb.ReportsControllerTest do
 
     test "profissional só vê a própria agenda (recorte de dados, não 403)", %{conn: conn} do
       ctx = fixture()
-      outro = Directory.create_professional!("Dr. Y", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+
+      outro =
+        Directory.create_professional!("Dr. Y", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+
       create_appt(conn, ctx, ctx.owner, "2026-07-20T11:00:00Z", ctx.prof.id)
 
       # Vinculado a `outro`, não enxerga o agendamento da Dra. X.

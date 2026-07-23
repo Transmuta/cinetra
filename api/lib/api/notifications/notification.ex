@@ -37,6 +37,7 @@ defmodule Api.Notifications.Notification do
 
     references do
       reference :clinic, on_delete: :delete
+
       # O destinatário some → a caixa dele some junto (a notificação não sobrevive ao usuário).
       reference :recipient, on_delete: :delete
     end
@@ -44,6 +45,7 @@ defmodule Api.Notifications.Notification do
     custom_indexes do
       # O acesso quente: a caixa de um usuário na clínica ativa, não-lidas primeiro, recente no topo.
       index [:clinic_id, :recipient_id, :read_at]
+
       # Apoio ao cascade da FK de destinatário sem índice próprio sob ADR-017 (como em `slot_holds`).
       index [:recipient_id], all_tenants?: true
     end

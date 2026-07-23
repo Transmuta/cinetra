@@ -14,7 +14,10 @@ defmodule Api.Waitlist.WaitlistNotifierTest do
 
   defp fixture do
     owner = Accounts.register_user!("Dono", email(), authorize?: false)
-    clinic = Accounts.onboard_clinic!("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
+
+    clinic =
+      Accounts.onboard_clinic!("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
+
     membership = Accounts.get_active_membership!(owner.id, clinic.id, authorize?: false)
     p = Records.create_patient!("Paciente", %{}, tenant: clinic.id, actor: owner)
     %{clinic: clinic, patient: p, scope: Api.Scope.with_membership(owner, membership)}

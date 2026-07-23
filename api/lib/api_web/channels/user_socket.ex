@@ -15,6 +15,7 @@ defmodule ApiWeb.UserSocket do
   # Fila de espera (Entrega 5). Prefixo próprio: `clinic:*` já consome tudo que começa com
   # `clinic:`, então a fila usa `waitlist:<clinic_id>` para não colidir no roteamento.
   channel "waitlist:*", ApiWeb.WaitlistChannel
+
   # Notificações in-app (doc 31). Prefixo próprio pela mesma razão da fila — `clinic:*` consome
   # tudo que começa com `clinic:`. Tópico por clínica; o canal escuta o interno por-usuário.
   channel "notifications:*", ApiWeb.NotificationChannel

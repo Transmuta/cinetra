@@ -79,6 +79,7 @@ defmodule Api.Waitlist.WaitlistEntry do
     # PATCH /waitlist/:id — editar um item existente (prioridade, janela, preferidos, regras).
     update :update do
       primary? true
+
       # `SetTenantGuc` é `before_action`, incompatível com update atômico (como no resto da agenda).
       require_atomic? false
       accept [:prio, :janela, :obs, :professional_ids]

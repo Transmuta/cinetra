@@ -29,7 +29,12 @@ defmodule Api.Scheduling.AuditLogTest do
 
     tipo =
       Directory.create_appointment_type!(
-        %{nome: "Sessão #{System.unique_integer([:positive])}", duracao_minutos: 50, cor: "#0FB5A6", icon: "Activity"},
+        %{
+          nome: "Sessão #{System.unique_integer([:positive])}",
+          duracao_minutos: 50,
+          cor: "#0FB5A6",
+          icon: "Activity"
+        },
         tenant: clinic.id,
         actor: owner
       )
@@ -79,7 +84,9 @@ defmodule Api.Scheduling.AuditLogTest do
       Scheduling.transition_appointment(ctx.scope, appt.id, :reschedule, %{starts_at: at("09:00")})
 
     {:ok, _} =
-      Scheduling.transition_appointment(ctx.scope, appt.id, :cancel, %{cancel_reason: "paciente pediu"})
+      Scheduling.transition_appointment(ctx.scope, appt.id, :cancel, %{
+        cancel_reason: "paciente pediu"
+      })
 
     appt
   end
@@ -234,7 +241,9 @@ defmodule Api.Scheduling.AuditLogTest do
       admin_scope = scope_for(admin, ctx.clinic)
 
       {:ok, _} =
-        Scheduling.transition_appointment(admin_scope, appt.id, :reschedule, %{starts_at: at("09:00")})
+        Scheduling.transition_appointment(admin_scope, appt.id, :reschedule, %{
+          starts_at: at("09:00")
+        })
 
       %{entries: only_admin} = Scheduling.list_audit_log(ctx.scope, user_id: admin.id)
       assert actions(only_admin) == [:reschedule]

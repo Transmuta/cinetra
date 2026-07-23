@@ -32,7 +32,12 @@ defmodule Api.Notifications.FanoutTest do
 
     tipo =
       Directory.create_appointment_type!(
-        %{nome: "Sessão #{System.unique_integer([:positive])}", duracao_minutos: 50, cor: "#0FB5A6", icon: "Activity"},
+        %{
+          nome: "Sessão #{System.unique_integer([:positive])}",
+          duracao_minutos: 50,
+          cor: "#0FB5A6",
+          icon: "Activity"
+        },
         tenant: clinic.id,
         actor: owner
       )
@@ -100,7 +105,12 @@ defmodule Api.Notifications.FanoutTest do
       owner_scope = scope_for(ctx.owner, ctx.clinic)
 
       {:ok, appt} = schedule(ctx, owner_scope)
-      {:ok, _} = Scheduling.transition_appointment(owner_scope, appt.id, :reschedule, %{starts_at: at("09:00")})
+
+      {:ok, _} =
+        Scheduling.transition_appointment(owner_scope, appt.id, :reschedule, %{
+          starts_at: at("09:00")
+        })
+
       {:ok, appt} = Scheduling.transition_appointment(owner_scope, appt.id, :cancel)
       refute is_nil(appt)
 
@@ -125,7 +135,8 @@ defmodule Api.Notifications.FanoutTest do
       # Item de fila que encaixa em qualquer horário (janela :qualquer, sem regras, sem preferido).
       {:ok, _entry} =
         Waitlist.enqueue_entry(owner_scope, %{
-          patient_id: Records.create_patient!("Fila", %{}, tenant: ctx.clinic.id, actor: ctx.owner).id,
+          patient_id:
+            Records.create_patient!("Fila", %{}, tenant: ctx.clinic.id, actor: ctx.owner).id,
           prio: :urgente,
           janela: :qualquer,
           professional_ids: [],

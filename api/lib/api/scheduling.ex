@@ -583,7 +583,8 @@ defmodule Api.Scheduling do
   # O escopo efetivo de profissionais (doc 33 §3). `:none` é o profissional sem vínculo de
   # diretório: relatório zerado (a leitura já vem vazia por `OwnAgendaOnly`, mas as linhas da
   # quebra também não devem existir).
-  defp summary_scope(%Api.Scope{papel: :profissional, professional_id: nil}, _requested), do: :none
+  defp summary_scope(%Api.Scope{papel: :profissional, professional_id: nil}, _requested),
+    do: :none
 
   defp summary_scope(%Api.Scope{papel: :profissional, professional_id: pid}, _requested),
     do: {:one, pid}
@@ -953,7 +954,9 @@ defmodule Api.Scheduling do
         diff =
           changes
           |> Map.drop(@audit_diff_ignore)
-          |> Enum.map(fn {field, to} -> %{field: field, from: Map.get(snapshot, field), to: to} end)
+          |> Enum.map(fn {field, to} ->
+            %{field: field, from: Map.get(snapshot, field), to: to}
+          end)
           |> Enum.sort_by(& &1.field)
 
         {Map.merge(snapshot, changes), Map.put(acc, v.id, diff)}

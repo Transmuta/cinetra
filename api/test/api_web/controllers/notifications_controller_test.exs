@@ -29,14 +29,20 @@ defmodule ApiWeb.NotificationsControllerTest do
 
   defp fixture do
     owner = sign_in(email())
-    {:ok, clinic} = Accounts.onboard_clinic("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
+
+    {:ok, clinic} =
+      Accounts.onboard_clinic("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
+
     %{owner: owner, clinic: clinic}
   end
 
   defp notify(clinic, recipient, attrs \\ %{}) do
     {:ok, n} =
       Notifications.create_notification(
-        Map.merge(%{recipient_id: recipient.id, kind: :member_joined, title: "T", body: "B", data: %{}}, attrs),
+        Map.merge(
+          %{recipient_id: recipient.id, kind: :member_joined, title: "T", body: "B", data: %{}},
+          attrs
+        ),
         tenant: clinic.id,
         authorize?: false
       )
@@ -83,7 +89,10 @@ defmodule ApiWeb.NotificationsControllerTest do
 
     test "id inexistente/de outro dono responde 404" do
       ctx = fixture()
-      assert as(ctx.owner) |> post("/api/notifications/#{Ecto.UUID.generate()}/read") |> json_response(404)
+
+      assert as(ctx.owner)
+             |> post("/api/notifications/#{Ecto.UUID.generate()}/read")
+             |> json_response(404)
     end
   end
 
@@ -97,12 +106,15 @@ defmodule ApiWeb.NotificationsControllerTest do
       assert body["marked"] == 2
       assert body["unread"] == 0
 
-      assert as(ctx.owner) |> get("/api/notifications") |> json_response(200) |> Map.get("unread") == 0
+      assert as(ctx.owner) |> get("/api/notifications") |> json_response(200) |> Map.get("unread") ==
+               0
     end
   end
 
   defp scope(ctx) do
-    {:ok, membership} = Accounts.get_active_membership(ctx.owner.id, ctx.clinic.id, authorize?: false)
+    {:ok, membership} =
+      Accounts.get_active_membership(ctx.owner.id, ctx.clinic.id, authorize?: false)
+
     Api.Scope.with_membership(ctx.owner, membership)
   end
 end

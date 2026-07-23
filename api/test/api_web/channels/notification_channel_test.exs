@@ -25,7 +25,10 @@ defmodule ApiWeb.NotificationChannelTest do
 
   defp member(owner, clinic, papel) do
     addr = email()
-    {:ok, pending} = Accounts.invite_member_by_email(addr, %{papel: papel, clinic_id: clinic.id}, actor: owner)
+
+    {:ok, pending} =
+      Accounts.invite_member_by_email(addr, %{papel: papel, clinic_id: clinic.id}, actor: owner)
+
     user = Accounts.get_user_by_email!(addr, authorize?: false)
     {:ok, membership} = Accounts.accept_invite(pending, actor: user)
     {sign_in(addr), membership}
@@ -33,7 +36,10 @@ defmodule ApiWeb.NotificationChannelTest do
 
   defp fixture do
     owner = sign_in(email())
-    {:ok, clinic} = Accounts.onboard_clinic("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
+
+    {:ok, clinic} =
+      Accounts.onboard_clinic("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
+
     %{owner: owner, clinic: clinic}
   end
 
@@ -62,7 +68,9 @@ defmodule ApiWeb.NotificationChannelTest do
       ctx = fixture()
 
       assert {:ok, _reply, _socket} =
-               ctx.owner |> socket_for(ctx.clinic) |> subscribe_and_join(ApiWeb.NotificationChannel, topic(ctx.clinic))
+               ctx.owner
+               |> socket_for(ctx.clinic)
+               |> subscribe_and_join(ApiWeb.NotificationChannel, topic(ctx.clinic))
     end
 
     test "tópico de OUTRA clínica é recusado" do
@@ -79,7 +87,9 @@ defmodule ApiWeb.NotificationChannelTest do
       ctx = fixture()
 
       assert {:error, %{reason: "invalid_topic"}} =
-               ctx.owner |> socket_for(ctx.clinic) |> subscribe_and_join(ApiWeb.NotificationChannel, "notifications:")
+               ctx.owner
+               |> socket_for(ctx.clinic)
+               |> subscribe_and_join(ApiWeb.NotificationChannel, "notifications:")
     end
 
     test "vínculo revogado depois do token emitido não entra" do
@@ -88,7 +98,9 @@ defmodule ApiWeb.NotificationChannelTest do
       :ok = Accounts.revoke_access(membership, actor: ctx.owner)
 
       assert {:error, %{reason: "unauthorized"}} =
-               user |> socket_for(ctx.clinic) |> subscribe_and_join(ApiWeb.NotificationChannel, topic(ctx.clinic))
+               user
+               |> socket_for(ctx.clinic)
+               |> subscribe_and_join(ApiWeb.NotificationChannel, topic(ctx.clinic))
     end
   end
 
@@ -97,7 +109,9 @@ defmodule ApiWeb.NotificationChannelTest do
       ctx = fixture()
 
       {:ok, _, _socket} =
-        ctx.owner |> socket_for(ctx.clinic) |> subscribe_and_join(ApiWeb.NotificationChannel, topic(ctx.clinic))
+        ctx.owner
+        |> socket_for(ctx.clinic)
+        |> subscribe_and_join(ApiWeb.NotificationChannel, topic(ctx.clinic))
 
       Api.Notifications.Feed.broadcast_new(notify(ctx.clinic, ctx.owner))
 
@@ -110,7 +124,9 @@ defmodule ApiWeb.NotificationChannelTest do
       {outro, _m} = member(ctx.owner, ctx.clinic, :recepcao)
 
       {:ok, _, _socket} =
-        ctx.owner |> socket_for(ctx.clinic) |> subscribe_and_join(ApiWeb.NotificationChannel, topic(ctx.clinic))
+        ctx.owner
+        |> socket_for(ctx.clinic)
+        |> subscribe_and_join(ApiWeb.NotificationChannel, topic(ctx.clinic))
 
       Api.Notifications.Feed.broadcast_new(notify(ctx.clinic, outro))
 

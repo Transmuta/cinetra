@@ -25,7 +25,12 @@ defmodule Api.Notifications.NotificationTest do
 
   defp member(clinic, papel) do
     user = Accounts.register_user!("Membro #{papel}", email(), authorize?: false)
-    {:ok, m} = Accounts.invite_member(%{papel: papel, user_id: user.id, clinic_id: clinic.id}, authorize?: false)
+
+    {:ok, m} =
+      Accounts.invite_member(%{papel: papel, user_id: user.id, clinic_id: clinic.id},
+        authorize?: false
+      )
+
     {:ok, _} = Accounts.accept_invite(m, authorize?: false)
     user
   end
@@ -38,7 +43,13 @@ defmodule Api.Notifications.NotificationTest do
   defp notify(clinic, recipient, attrs \\ %{}) do
     Notifications.create_notification(
       Map.merge(
-        %{recipient_id: recipient.id, kind: :member_joined, title: "Título", body: "Corpo", data: %{}},
+        %{
+          recipient_id: recipient.id,
+          kind: :member_joined,
+          title: "Título",
+          body: "Corpo",
+          data: %{}
+        },
         attrs
       ),
       tenant: clinic.id,
@@ -69,6 +80,7 @@ defmodule Api.Notifications.NotificationTest do
 
       assert minha.id in owner_ids
       refute minha.id in recep_ids
+
       # A recepção não é destinatária de nada aqui (o member_joined do seu aceite vai ao owner).
       assert recep_ids == []
     end

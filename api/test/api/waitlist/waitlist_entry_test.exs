@@ -247,6 +247,7 @@ defmodule Api.Waitlist.WaitlistEntryTest do
     test "emite as vagas gerais dentro do expediente da clínica" do
       {owner, clinic} = owner_and_clinic()
       membership = Accounts.get_active_membership!(owner.id, clinic.id, authorize?: false)
+
       # Segunda 2026-07-20, 07:00 local (10:00Z): o expediente 08–12/13–18 ainda está no futuro.
       scope = Api.Scope.with_membership(owner, membership, now: ~U[2026-07-20 10:00:00Z])
       Directory.create_professional!("Dra. X", %{}, tenant: clinic.id, actor: owner)
@@ -309,7 +310,9 @@ defmodule Api.Waitlist.WaitlistEntryTest do
         })
 
       # Vaga que abriu: prof_a, segunda 09:00–09:50 (manhã).
-      {:ok, starts} = Api.Scheduling.LocalTime.to_utc(~D[2026-07-20], "09:00", "America/Sao_Paulo")
+      {:ok, starts} =
+        Api.Scheduling.LocalTime.to_utc(~D[2026-07-20], "09:00", "America/Sao_Paulo")
+
       ends = DateTime.add(starts, 50 * 60, :second)
 
       nomes =

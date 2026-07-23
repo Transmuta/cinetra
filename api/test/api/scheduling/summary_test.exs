@@ -166,14 +166,18 @@ defmodule Api.Scheduling.SummaryTest do
 
       por_tipo = summary(ctx, @segunda, @segunda).por_tipo
 
-      assert [%{appointment_type_id: t1, total: 2}, %{appointment_type_id: t2, total: 1}] = por_tipo
+      assert [%{appointment_type_id: t1, total: 2}, %{appointment_type_id: t2, total: 1}] =
+               por_tipo
+
       assert t1 == ctx.tipo.id
       assert t2 == outro.id
     end
 
     test "por_profissional traz total/concluídos/faltas/taxa por profissional" do
       ctx = setup_clinic()
-      bruno = Directory.create_professional!("Dr. Bruno", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+
+      bruno =
+        Directory.create_professional!("Dr. Bruno", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
 
       transition(ctx, schedule(ctx, @segunda, "08:00"), :complete)
       transition(ctx, schedule(ctx, @segunda, "09:00"), :miss)
@@ -193,7 +197,9 @@ defmodule Api.Scheduling.SummaryTest do
   describe "escopo por papel (doc 33 §3)" do
     test "profissional vê só os próprios números" do
       ctx = setup_clinic()
-      bruno = Directory.create_professional!("Dr. Bruno", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+
+      bruno =
+        Directory.create_professional!("Dr. Bruno", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
 
       schedule(ctx, @segunda, "08:00")
       schedule(ctx, @segunda, "09:00")
@@ -210,7 +216,9 @@ defmodule Api.Scheduling.SummaryTest do
 
     test "owner filtrando professional_id recorta ao escolhido" do
       ctx = setup_clinic()
-      bruno = Directory.create_professional!("Dr. Bruno", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+
+      bruno =
+        Directory.create_professional!("Dr. Bruno", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
 
       schedule(ctx, @segunda, "08:00")
       schedule(ctx, @segunda, "10:00", %{professional_id: bruno.id})

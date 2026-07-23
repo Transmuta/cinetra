@@ -70,7 +70,14 @@ defmodule ApiWeb.AppointmentsController do
   # PATCH /api/appointments/:id/reschedule — arraste e modal (GAP-03 corrigido no recurso).
   def reschedule(conn, %{"id" => id} = params) do
     with_member_scope(conn, fn scope ->
-      transition(conn, scope, id, :reschedule, whitelist(params, [:starts_at, :professional_id, :encaixe]), params)
+      transition(
+        conn,
+        scope,
+        id,
+        :reschedule,
+        whitelist(params, [:starts_at, :professional_id, :encaixe]),
+        params
+      )
     end)
   end
 

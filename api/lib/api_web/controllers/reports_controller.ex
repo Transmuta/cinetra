@@ -51,7 +51,8 @@ defmodule ApiWeb.ReportsController do
       por_tipo: report.por_tipo,
       por_profissional: report.por_profissional,
       professionals: Enum.map(report.professionals, &ApiWeb.AgendaJSON.professional/1),
-      appointment_types: Enum.map(report.appointment_types, &ApiWeb.AgendaJSON.appointment_type/1),
+      appointment_types:
+        Enum.map(report.appointment_types, &ApiWeb.AgendaJSON.appointment_type/1),
       agora: DateTime.to_iso8601(scope.now),
       timezone: clinic.timezone
     }

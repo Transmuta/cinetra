@@ -13,8 +13,12 @@ defmodule Api.Accounts.User.Checks.ActorIsTargetUser do
   def describe(_opts), do: "o ator é o usuário alvo da ação"
 
   @impl true
-  def match?(%{id: actor_id}, %{subject: %Ash.ActionInput{arguments: %{user: %{id: user_id}}}}, _opts),
-    do: actor_id == user_id
+  def match?(
+        %{id: actor_id},
+        %{subject: %Ash.ActionInput{arguments: %{user: %{id: user_id}}}},
+        _opts
+      ),
+      do: actor_id == user_id
 
   def match?(_actor, _context, _opts), do: false
 end

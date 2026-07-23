@@ -330,6 +330,7 @@ defmodule ApiWeb.AppointmentsControllerTest do
       por_id = Map.new(dia["professionals"], &{&1["professional_id"], &1})
 
       assert por_id[ctx.prof.id]["total"] == 1
+
       # O colega some inteiro — nem linha zerada. Sua escala é dado recortado, não só sua agenda.
       assert por_id[outro.id] == nil
       assert map_size(por_id) == 1
@@ -759,7 +760,10 @@ defmodule ApiWeb.AppointmentsControllerTest do
     test "POST reopen devolve o bloco a agendado", %{conn: conn} do
       ctx = fixture()
       {id, v0} = create_appt(conn, ctx)
-      conn |> authed(ctx.owner) |> post("/api/appointments/#{id}/cancel", %{"expected_version" => v0})
+
+      conn
+      |> authed(ctx.owner)
+      |> post("/api/appointments/#{id}/cancel", %{"expected_version" => v0})
 
       resp = conn |> authed(ctx.owner) |> post("/api/appointments/#{id}/reopen", %{})
       assert json_response(resp, 200)["appointment"]["status"] == "agendado"

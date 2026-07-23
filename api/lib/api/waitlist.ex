@@ -331,7 +331,13 @@ defmodule Api.Waitlist do
   ([`:2252`](../../../interface/Movimento.dc.html#L2252)) e o rótulo "compatíveis" mentia. A vaga
   já está livre (foi uma falta), então não se checa expediente nem ocupação — só a preferência.
   """
-  def who_fits(%Api.Scope{} = scope, professional_id, %DateTime{} = starts_at, %DateTime{} = ends_at, clock \\ nil)
+  def who_fits(
+        %Api.Scope{} = scope,
+        professional_id,
+        %DateTime{} = starts_at,
+        %DateTime{} = ends_at,
+        clock \\ nil
+      )
       when is_binary(professional_id) do
     # `clock` opcional: o controller já o computou (`clinic_now`) para o JSON, então o passa — sem
     # ele, `candidates` leria a clínica duas vezes por request (bate-volta E5, D1).

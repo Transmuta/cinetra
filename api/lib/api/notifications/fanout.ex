@@ -162,7 +162,14 @@ defmodule Api.Notifications.Fanout do
   # ---- "quem cabe" para o slot_opened ----
 
   defp candidate_count(scope, appointment) do
-    length(Api.Waitlist.who_fits(scope, appointment.professional_id, appointment.starts_at, appointment.ends_at))
+    length(
+      Api.Waitlist.who_fits(
+        scope,
+        appointment.professional_id,
+        appointment.starts_at,
+        appointment.ends_at
+      )
+    )
   rescue
     _ -> 0
   end
@@ -170,7 +177,10 @@ defmodule Api.Notifications.Fanout do
   # Escopo de sistema a partir do autor: o `who_fits` precisa de tenant + actor com autoridade de
   # membro. O autor do cancelamento é membro da clínica, então seu membership serve de escopo.
   defp system_scope(clinic_id, %{id: user_id} = actor) do
-    case Api.Accounts.get_active_membership(user_id, clinic_id, authorize?: false, not_found_error?: false) do
+    case Api.Accounts.get_active_membership(user_id, clinic_id,
+           authorize?: false,
+           not_found_error?: false
+         ) do
       {:ok, %{} = membership} -> Api.Scope.with_membership(actor, membership)
       _ -> nil
     end
@@ -184,7 +194,8 @@ defmodule Api.Notifications.Fanout do
     do: {"Novo agendamento na sua agenda", "Um agendamento foi adicionado em #{when_string}."}
 
   defp appointment_text(:reschedule, when_string),
-    do: {"Agendamento remarcado", "Um agendamento na sua agenda foi remarcado para #{when_string}."}
+    do:
+      {"Agendamento remarcado", "Um agendamento na sua agenda foi remarcado para #{when_string}."}
 
   defp appointment_text(:cancel, when_string),
     do: {"Agendamento cancelado", "O agendamento de #{when_string} foi cancelado."}

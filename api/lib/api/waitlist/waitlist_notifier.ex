@@ -45,6 +45,7 @@ defmodule Api.Waitlist.WaitlistNotifier do
       })
       when name in @events do
     broadcast(internal_topic(clinic_id), %{change: change_name(name), actor: actor_payload(actor)})
+
     :ok
   end
 

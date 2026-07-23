@@ -105,7 +105,10 @@ defmodule ApiWeb.WaitlistController do
           # Um relógio só, passado ao motor E usado no JSON — sem reler a clínica (D1).
           clock = Api.Scheduling.clinic_now(scope)
           entries = Waitlist.who_fits(scope, professional_id, starts_at, ends_at, clock)
-          json(conn, %{candidates: Enum.map(entries, &WaitlistJSON.entry(&1, clock.today, clock.timezone))})
+
+          json(conn, %{
+            candidates: Enum.map(entries, &WaitlistJSON.entry(&1, clock.today, clock.timezone))
+          })
 
         :error ->
           invalid(conn, "informe professional_id, starts_at e ends_at (ISO)")

@@ -15,7 +15,8 @@ defmodule Api.Waitlist.SlotFinderTest do
   defp sources(hours_by_dow) do
     %{
       @prof.id => %{
-        clinic_hours: Enum.map(hours_by_dow, fn {dow, periods} -> %{dow: dow, periods: periods} end),
+        clinic_hours:
+          Enum.map(hours_by_dow, fn {dow, periods} -> %{dow: dow, periods: periods} end),
         professional_hours: [],
         clinic_exceptions: [],
         professional_exceptions: []
@@ -92,7 +93,10 @@ defmodule Api.Waitlist.SlotFinderTest do
   describe "janela (RN-39)" do
     test ":manha rejeita horários >= 12:00" do
       today =
-        find(%{entry: %{janela: :manha}, hours: all_days([["08:00", "12:00"], ["13:00", "18:00"]])})
+        find(%{
+          entry: %{janela: :manha},
+          hours: all_days([["08:00", "12:00"], ["13:00", "18:00"]])
+        })
         |> on(@segunda)
 
       assert starts(today) == [480]
@@ -100,7 +104,10 @@ defmodule Api.Waitlist.SlotFinderTest do
 
     test ":tarde rejeita horários < 12:00" do
       today =
-        find(%{entry: %{janela: :tarde}, hours: all_days([["08:00", "12:00"], ["13:00", "18:00"]])})
+        find(%{
+          entry: %{janela: :tarde},
+          hours: all_days([["08:00", "12:00"], ["13:00", "18:00"]])
+        })
         |> on(@segunda)
 
       assert starts(today) == [780]
@@ -166,7 +173,10 @@ defmodule Api.Waitlist.SlotFinderTest do
       input =
         base()
         |> Map.put(:professionals, [@prof, p2])
-        |> put_in([:sources_by_prof, p2.id], hd(Map.values(sources(all_days([["08:00", "12:00"]])))))
+        |> put_in(
+          [:sources_by_prof, p2.id],
+          hd(Map.values(sources(all_days([["08:00", "12:00"]]))))
+        )
 
       profs = SlotFinder.find_slots(input) |> on(@segunda) |> Enum.map(& &1.professional_id)
       assert Enum.sort(profs) == ["p1", "p2"]

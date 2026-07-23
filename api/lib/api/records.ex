@@ -102,8 +102,11 @@ defmodule Api.Records do
     # Um id malformado (não-UUID, ex.: link velho/typo) é indistinguível de inexistente: vira
     # {:ok, nil} → 404, e não o `InvalidArgument` que o `get` levanta e viraria 500 no controller.
     case Ecto.UUID.cast(id) do
-      {:ok, id} -> in_clinic(scope, fn -> get_patient(id, scope: scope, not_found_error?: false) end)
-      :error -> {:ok, nil}
+      {:ok, id} ->
+        in_clinic(scope, fn -> get_patient(id, scope: scope, not_found_error?: false) end)
+
+      :error ->
+        {:ok, nil}
     end
   end
 

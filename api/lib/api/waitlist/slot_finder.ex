@@ -154,7 +154,17 @@ defmodule Api.Waitlist.SlotFinder do
   # Passada 2 — a primeira brecha livre de cada período.
   defp general_slots(entry, prof_id, date, dow, d_off, periods, busy, now_min) do
     Enum.flat_map(periods, fn [ini, fim] ->
-      first_gap(entry, prof_id, date, dow, d_off, Periods.to_minutes(ini), Periods.to_minutes(fim), busy, now_min)
+      first_gap(
+        entry,
+        prof_id,
+        date,
+        dow,
+        d_off,
+        Periods.to_minutes(ini),
+        Periods.to_minutes(fim),
+        busy,
+        now_min
+      )
     end)
   end
 
@@ -195,7 +205,14 @@ defmodule Api.Waitlist.SlotFinder do
   ([`:2252`](../../../interface/Movimento.dc.html#L2252)) e chamava de "compatível" quem não era.
   A preferência de **profissional** é checada por quem chama (`Api.Waitlist.who_fits/4`), não aqui.
   """
-  @spec matches_slot?(map(), non_neg_integer(), non_neg_integer(), Date.t(), non_neg_integer(), Date.t()) ::
+  @spec matches_slot?(
+          map(),
+          non_neg_integer(),
+          non_neg_integer(),
+          Date.t(),
+          non_neg_integer(),
+          Date.t()
+        ) ::
           boolean()
   def matches_slot?(entry, start, finish, %Date{} = date, dow, %Date{} = today) do
     fits_win(%{janela: entry.janela, rules: entry.rules, today: today}, start, finish, date, dow) !=
@@ -284,6 +301,11 @@ defmodule Api.Waitlist.SlotFinder do
   defp dow(date), do: rem(Date.day_of_week(date), 7)
 
   defp empty_sources do
-    %{clinic_hours: [], professional_hours: [], clinic_exceptions: [], professional_exceptions: []}
+    %{
+      clinic_hours: [],
+      professional_hours: [],
+      clinic_exceptions: [],
+      professional_exceptions: []
+    }
   end
 end

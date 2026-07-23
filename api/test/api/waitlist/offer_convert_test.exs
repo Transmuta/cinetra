@@ -29,7 +29,12 @@ defmodule Api.Waitlist.OfferConvertTest do
 
     tipo =
       Directory.create_appointment_type!(
-        %{nome: "Sessão #{System.unique_integer([:positive])}", duracao_minutos: 50, cor: "#0FB5A6", icon: "Activity"},
+        %{
+          nome: "Sessão #{System.unique_integer([:positive])}",
+          duracao_minutos: 50,
+          cor: "#0FB5A6",
+          icon: "Activity"
+        },
         tenant: clinic.id,
         actor: owner
       )
@@ -37,7 +42,15 @@ defmodule Api.Waitlist.OfferConvertTest do
     p = Records.create_patient!("Paciente", %{}, tenant: clinic.id, actor: owner)
     {:ok, entry} = Waitlist.enqueue_entry(scope, %{patient_id: p.id})
 
-    %{owner: owner, clinic: clinic, scope: scope, prof: prof, tipo: tipo, patient: p, entry: entry}
+    %{
+      owner: owner,
+      clinic: clinic,
+      scope: scope,
+      prof: prof,
+      tipo: tipo,
+      patient: p,
+      entry: entry
+    }
   end
 
   defp scope_for(user, clinic) do
@@ -47,7 +60,12 @@ defmodule Api.Waitlist.OfferConvertTest do
 
   defp member_scope(clinic, papel) do
     user = Accounts.register_user!("Membro #{papel}", email(), authorize?: false)
-    {:ok, m} = Accounts.invite_member(%{papel: papel, user_id: user.id, clinic_id: clinic.id}, authorize?: false)
+
+    {:ok, m} =
+      Accounts.invite_member(%{papel: papel, user_id: user.id, clinic_id: clinic.id},
+        authorize?: false
+      )
+
     {:ok, _} = Accounts.accept_invite(m, authorize?: false)
     scope_for(user, clinic)
   end
@@ -75,13 +93,20 @@ defmodule Api.Waitlist.OfferConvertTest do
     test "vaga já segurada por outro → {:slot_held, meta} com quem segura e até quando" do
       ctx = setup_clinic()
       # O dono segura 09:00–09:50.
-      {:ok, _} = Waitlist.offer_slot(ctx.scope, ctx.entry, %{professional_id: ctx.prof.id, starts_at: at("09:00")})
+      {:ok, _} =
+        Waitlist.offer_slot(ctx.scope, ctx.entry, %{
+          professional_id: ctx.prof.id,
+          starts_at: at("09:00")
+        })
 
       # A recepção tenta um horário sobreposto do mesmo profissional.
       recepcao = member_scope(ctx.clinic, :recepcao)
 
       assert {:error, {:slot_held, meta}} =
-               Waitlist.offer_slot(recepcao, ctx.entry, %{professional_id: ctx.prof.id, starts_at: at("09:30")})
+               Waitlist.offer_slot(recepcao, ctx.entry, %{
+                 professional_id: ctx.prof.id,
+                 starts_at: at("09:30")
+               })
 
       assert meta.held_by.nome == "Dono"
       assert %DateTime{} = meta.expires_at
@@ -89,11 +114,20 @@ defmodule Api.Waitlist.OfferConvertTest do
 
     test "liberada a vaga, a oferta seguinte passa" do
       ctx = setup_clinic()
-      {:ok, hold} = Waitlist.offer_slot(ctx.scope, ctx.entry, %{professional_id: ctx.prof.id, starts_at: at("09:00")})
+
+      {:ok, hold} =
+        Waitlist.offer_slot(ctx.scope, ctx.entry, %{
+          professional_id: ctx.prof.id,
+          starts_at: at("09:00")
+        })
+
       :ok = Scheduling.release_slot_hold(hold, scope: ctx.scope)
 
       assert {:ok, _} =
-               Waitlist.offer_slot(ctx.scope, ctx.entry, %{professional_id: ctx.prof.id, starts_at: at("09:30")})
+               Waitlist.offer_slot(ctx.scope, ctx.entry, %{
+                 professional_id: ctx.prof.id,
+                 starts_at: at("09:30")
+               })
     end
 
     # Bate-volta E5 (segurança): a constraint `slot_holds_no_overlap` é GLOBAL (ADR-017), então
@@ -102,11 +136,20 @@ defmodule Api.Waitlist.OfferConvertTest do
     test "offer com profissional de outra clínica é recusado (não cruza o tenant)" do
       ctx = setup_clinic()
       other_owner = Accounts.register_user!("Dono2", email(), authorize?: false)
-      other = Accounts.onboard_clinic!("Outra #{System.unique_integer([:positive])}", %{}, actor: other_owner)
-      alheio = Directory.create_professional!("Dra. Alheia", %{}, tenant: other.id, actor: other_owner)
+
+      other =
+        Accounts.onboard_clinic!("Outra #{System.unique_integer([:positive])}", %{},
+          actor: other_owner
+        )
+
+      alheio =
+        Directory.create_professional!("Dra. Alheia", %{}, tenant: other.id, actor: other_owner)
 
       assert {:error, %Ash.Error.Invalid{}} =
-               Waitlist.offer_slot(ctx.scope, ctx.entry, %{professional_id: alheio.id, starts_at: at("09:00")})
+               Waitlist.offer_slot(ctx.scope, ctx.entry, %{
+                 professional_id: alheio.id,
+                 starts_at: at("09:00")
+               })
     end
   end
 

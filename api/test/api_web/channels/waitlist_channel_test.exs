@@ -25,7 +25,10 @@ defmodule ApiWeb.WaitlistChannelTest do
 
   defp member(owner, clinic, papel) do
     addr = email()
-    {:ok, pending} = Accounts.invite_member_by_email(addr, %{papel: papel, clinic_id: clinic.id}, actor: owner)
+
+    {:ok, pending} =
+      Accounts.invite_member_by_email(addr, %{papel: papel, clinic_id: clinic.id}, actor: owner)
+
     user = Accounts.get_user_by_email!(addr, authorize?: false)
     {:ok, membership} = Accounts.accept_invite(pending, actor: user)
     {sign_in(addr), membership}
@@ -33,10 +36,19 @@ defmodule ApiWeb.WaitlistChannelTest do
 
   defp fixture do
     owner = sign_in(email())
-    {:ok, clinic} = Accounts.onboard_clinic("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
+
+    {:ok, clinic} =
+      Accounts.onboard_clinic("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
+
     paciente = Records.create_patient!("Paciente", %{}, tenant: clinic.id, actor: owner)
     {:ok, membership} = Accounts.get_active_membership(owner.id, clinic.id, authorize?: false)
-    %{owner: owner, clinic: clinic, paciente: paciente, scope: Api.Scope.with_membership(owner, membership)}
+
+    %{
+      owner: owner,
+      clinic: clinic,
+      paciente: paciente,
+      scope: Api.Scope.with_membership(owner, membership)
+    }
   end
 
   defp socket_for(user, clinic) do
@@ -53,7 +65,9 @@ defmodule ApiWeb.WaitlistChannelTest do
       ctx = fixture()
 
       assert {:ok, _reply, _socket} =
-               ctx.owner |> socket_for(ctx.clinic) |> subscribe_and_join(ApiWeb.WaitlistChannel, topic(ctx.clinic))
+               ctx.owner
+               |> socket_for(ctx.clinic)
+               |> subscribe_and_join(ApiWeb.WaitlistChannel, topic(ctx.clinic))
     end
 
     test "tópico de OUTRA clínica é recusado" do
@@ -70,7 +84,9 @@ defmodule ApiWeb.WaitlistChannelTest do
       ctx = fixture()
 
       assert {:error, %{reason: "invalid_topic"}} =
-               ctx.owner |> socket_for(ctx.clinic) |> subscribe_and_join(ApiWeb.WaitlistChannel, "waitlist:")
+               ctx.owner
+               |> socket_for(ctx.clinic)
+               |> subscribe_and_join(ApiWeb.WaitlistChannel, "waitlist:")
     end
 
     test "vínculo revogado depois do token emitido não entra" do
@@ -79,7 +95,9 @@ defmodule ApiWeb.WaitlistChannelTest do
       :ok = Accounts.revoke_access(membership, actor: ctx.owner)
 
       assert {:error, %{reason: "unauthorized"}} =
-               user |> socket_for(ctx.clinic) |> subscribe_and_join(ApiWeb.WaitlistChannel, topic(ctx.clinic))
+               user
+               |> socket_for(ctx.clinic)
+               |> subscribe_and_join(ApiWeb.WaitlistChannel, topic(ctx.clinic))
     end
   end
 
@@ -88,7 +106,9 @@ defmodule ApiWeb.WaitlistChannelTest do
       ctx = fixture()
 
       {:ok, _, _socket} =
-        ctx.owner |> socket_for(ctx.clinic) |> subscribe_and_join(ApiWeb.WaitlistChannel, topic(ctx.clinic))
+        ctx.owner
+        |> socket_for(ctx.clinic)
+        |> subscribe_and_join(ApiWeb.WaitlistChannel, topic(ctx.clinic))
 
       {:ok, _entry} = Waitlist.enqueue_entry(ctx.scope, %{patient_id: ctx.paciente.id})
 

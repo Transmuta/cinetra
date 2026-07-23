@@ -36,9 +36,14 @@ defmodule ApiWeb.NotificationsController do
   def mark_read(conn, %{"id" => id}) do
     with_member_scope(conn, fn scope ->
       case Notifications.mark_read(scope, id) do
-        {:ok, notification} -> json(conn, %{notification: NotificationsJSON.notification(notification)})
-        {:error, :not_found} -> not_found(conn)
-        {:error, error} -> error_response(conn, error)
+        {:ok, notification} ->
+          json(conn, %{notification: NotificationsJSON.notification(notification)})
+
+        {:error, :not_found} ->
+          not_found(conn)
+
+        {:error, error} ->
+          error_response(conn, error)
       end
     end)
   end

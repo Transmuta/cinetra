@@ -30,12 +30,20 @@ defmodule ApiWeb.WaitlistControllerTest do
 
   defp fixture do
     owner = sign_in(email())
-    {:ok, clinic} = Accounts.onboard_clinic("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
+
+    {:ok, clinic} =
+      Accounts.onboard_clinic("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
+
     prof = Directory.create_professional!("Dra. X", %{}, tenant: clinic.id, actor: owner)
 
     tipo =
       Directory.create_appointment_type!(
-        %{nome: "Sessão #{System.unique_integer([:positive])}", duracao_minutos: 50, cor: "#0FB5A6", icon: "Activity"},
+        %{
+          nome: "Sessão #{System.unique_integer([:positive])}",
+          duracao_minutos: 50,
+          cor: "#0FB5A6",
+          icon: "Activity"
+        },
         tenant: clinic.id,
         actor: owner
       )
@@ -83,7 +91,10 @@ defmodule ApiWeb.WaitlistControllerTest do
 
     test "sem sessão → 401" do
       ctx = fixture()
-      conn = post(Phoenix.ConnTest.build_conn(), "/api/waitlist", %{"patient_id" => ctx.paciente.id})
+
+      conn =
+        post(Phoenix.ConnTest.build_conn(), "/api/waitlist", %{"patient_id" => ctx.paciente.id})
+
       assert json_response(conn, 401)
     end
   end
@@ -153,7 +164,9 @@ defmodule ApiWeb.WaitlistControllerTest do
 
       assert Map.keys(by_entry) |> Enum.sort() == Enum.sort([a["id"], b["id"]])
       # A passada em lote é idêntica à do endpoint por-item (mesma fonte, `find_slots` delega).
-      per_item = json_response(as(ctx.owner) |> get("/api/waitlist/#{a["id"]}/slots"), 200)["slots"]
+      per_item =
+        json_response(as(ctx.owner) |> get("/api/waitlist/#{a["id"]}/slots"), 200)["slots"]
+
       assert by_entry[a["id"]] == per_item
     end
 

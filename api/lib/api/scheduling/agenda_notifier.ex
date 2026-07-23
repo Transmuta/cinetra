@@ -86,7 +86,13 @@ defmodule Api.Scheduling.AgendaNotifier do
   @impl true
   def notify(_notification), do: :ok
 
-  defp affected_dates(:reschedule, _appointment, %Ash.Changeset{data: %{starts_at: old}}, clinic, new_date)
+  defp affected_dates(
+         :reschedule,
+         _appointment,
+         %Ash.Changeset{data: %{starts_at: old}},
+         clinic,
+         new_date
+       )
        when not is_nil(old) do
     [local_date_from(old, clinic), new_date]
   end
@@ -109,8 +115,10 @@ defmodule Api.Scheduling.AgendaNotifier do
   defp event_name(:add_participant), do: "participant_added"
   defp event_name(:reschedule), do: "appointment_rescheduled"
   defp event_name(:cancel), do: "appointment_canceled"
-  defp event_name(name) when name in [:mark_completed, :mark_missed, :reopen, :set_falta_justificada],
-    do: "appointment_status_changed"
+
+  defp event_name(name)
+       when name in [:mark_completed, :mark_missed, :reopen, :set_falta_justificada],
+       do: "appointment_status_changed"
 
   defp actor_payload(%{id: id, nome: nome}), do: %{id: id, nome: nome}
   defp actor_payload(_), do: nil

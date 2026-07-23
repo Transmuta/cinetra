@@ -24,7 +24,10 @@ defmodule Api.Scheduling.SlotHold.CleanupWorkerTest do
 
   test "apaga os holds vencidos e preserva os vivos" do
     owner = Accounts.register_user!("Dono", email(), authorize?: false)
-    clinic = Accounts.onboard_clinic!("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
+
+    clinic =
+      Accounts.onboard_clinic!("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
+
     membership = Accounts.get_active_membership!(owner.id, clinic.id, authorize?: false)
 
     prof1 = Directory.create_professional!("Dra. A", %{}, tenant: clinic.id, actor: owner)
@@ -36,10 +39,13 @@ defmodule Api.Scheduling.SlotHold.CleanupWorkerTest do
 
     # Hold VENCIDO: relógio cravado no passado → expires_at no passado.
     scope_velho = Api.Scope.with_membership(owner, membership, now: ~U[2020-01-01 00:00:00Z])
-    {:ok, vencido} = Waitlist.offer_slot(scope_velho, entry, %{professional_id: prof1.id, starts_at: at("09:00")})
+
+    {:ok, vencido} =
+      Waitlist.offer_slot(scope_velho, entry, %{professional_id: prof1.id, starts_at: at("09:00")})
 
     # Hold VIVO: relógio real → expires_at = agora + 10 min.
-    {:ok, vivo} = Waitlist.offer_slot(scope_vivo, entry, %{professional_id: prof2.id, starts_at: at("11:00")})
+    {:ok, vivo} =
+      Waitlist.offer_slot(scope_vivo, entry, %{professional_id: prof2.id, starts_at: at("11:00")})
 
     assert CleanupWorker.purge_expired() == 1
 

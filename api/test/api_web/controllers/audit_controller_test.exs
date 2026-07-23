@@ -48,7 +48,12 @@ defmodule ApiWeb.AuditControllerTest do
 
     tipo =
       Directory.create_appointment_type!(
-        %{nome: "Sessão #{System.unique_integer([:positive])}", duracao_minutos: 50, cor: "#0FB5A6", icon: "Activity"},
+        %{
+          nome: "Sessão #{System.unique_integer([:positive])}",
+          duracao_minutos: 50,
+          cor: "#0FB5A6",
+          icon: "Activity"
+        },
         tenant: clinic.id,
         actor: owner
       )
@@ -68,7 +73,9 @@ defmodule ApiWeb.AuditControllerTest do
       )
 
     {:ok, _} =
-      Scheduling.transition_appointment(scope, appt.id, :reschedule, %{starts_at: ~U[2026-07-20 12:00:00Z]})
+      Scheduling.transition_appointment(scope, appt.id, :reschedule, %{
+        starts_at: ~U[2026-07-20 12:00:00Z]
+      })
 
     {:ok, _} = Scheduling.transition_appointment(scope, appt.id, :cancel, %{cancel_reason: "x"})
 
