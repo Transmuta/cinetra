@@ -156,7 +156,22 @@ defmodule Api.Scheduling.Appointment do
 
       # Sobreposição com a janela, não contenção: um bloco que começa 07:50 e termina 08:40
       # pertence ao dia pedido mesmo que a janela comece 08:00.
-      filter expr(starts_at < ^arg(:to) and ends_at > ^arg(:from))
+      #
+      # Escrito como sobreposição de range (`&&`) e não como `starts_at < to and ends_at > from`
+      # (predicado idêntico: `[s,e) && [f,t)` ⇔ `s < t and e > f`) para o planner resolver pelo
+      # índice GiST `appointments_clinic_range_gist` (D-A, doc 30). Sem isto, o índice
+      # `(clinic_id, starts_at)` cobria só `starts_at < to` e o `ends_at > from` descartava metade
+      # das linhas no filtro (medido: 5.460 lidas → 120 devolvidas). `tsrange` (não `tstzrange`) e
+      # `'[)'` batem exatamente a expressão do índice e a semântica de `appointments_no_overlap`.
+      filter expr(
+               fragment(
+                 "tsrange(?, ?, '[)') && tsrange(?, ?, '[)')",
+                 starts_at,
+                 ends_at,
+                 ^arg(:from),
+                 ^arg(:to)
+               )
+             )
 
       filter expr(
                is_nil(^arg(:professional_ids)) or
