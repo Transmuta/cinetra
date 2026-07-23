@@ -993,6 +993,7 @@ defmodule Api.Scheduling.AppointmentTest do
 
       {:ok, reaberto} = Scheduling.transition_appointment(scope, appt.id, :reopen)
       assert reaberto.status == :agendado
+
       assert [%{status: :prevista, falta_justificada: false}] =
                Scheduling.list_attendances!(scope: ctx.scope)
 
@@ -1016,7 +1017,9 @@ defmodule Api.Scheduling.AppointmentTest do
       appt = agendado(ctx)
 
       assert {:error, %Ash.Error.Invalid{}} =
-               Scheduling.transition_appointment(ctx.scope, appt.id, :justify, %{justificada: true})
+               Scheduling.transition_appointment(ctx.scope, appt.id, :justify, %{
+                 justificada: true
+               })
     end
 
     test "cancelar um bloco JÁ concluído é recusado (concluído → cancelado inválido)" do
@@ -1084,7 +1087,9 @@ defmodule Api.Scheduling.AppointmentTest do
   describe "A7 na escrita do ciclo de vida" do
     test "profissional não remarca para a coluna de um colega (403)" do
       ctx = setup_clinic()
-      colega = Directory.create_professional!("Dr. Colega", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+
+      colega =
+        Directory.create_professional!("Dr. Colega", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
 
       appt = agendado(ctx)
 
@@ -1199,7 +1204,9 @@ defmodule Api.Scheduling.AppointmentTest do
     # que é onde um cursor não-total pula ou repete linha.
     test "keyset: stream! atravessa as páginas sem pular nem repetir (o uso da Fatia 3)" do
       ctx = setup_clinic()
-      colega = Directory.create_professional!("Dr. Y", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+
+      colega =
+        Directory.create_professional!("Dr. Y", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
 
       for hhmm <- ~w(08:00 09:00 10:00) do
         {:ok, _} = schedule(ctx, %{starts_at: at(hhmm)})
