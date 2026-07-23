@@ -1099,6 +1099,46 @@ defmodule Api.Scheduling.AppointmentTest do
     end
   end
 
+  describe "D-C — paginação do :in_range" do
+    test "sem `page:` a lista inteira volta — os chamadores de hoje não mudam" do
+      ctx = setup_clinic()
+      for hhmm <- ~w(08:00 09:00 10:00), do: {:ok, _} = schedule(ctx, %{starts_at: at(hhmm)})
+
+      assert [_, _, _] = Scheduling.list_appointments!(at("00:00"), at("23:00"), scope: ctx.scope)
+    end
+
+    # Com offset? e keyset? ligados, o Ash só usa offset quando `offset:` vem junto — sem ele a
+    # página volta como keyset. Os dois modos são exercitados: este e o `stream!` abaixo.
+    test "com `page:` offset volta uma página limitada, contada e em ordem" do
+      ctx = setup_clinic()
+      for hhmm <- ~w(08:00 09:00 10:00), do: {:ok, _} = schedule(ctx, %{starts_at: at(hhmm)})
+
+      assert %Ash.Page.Offset{results: [a, b], count: 3, more?: true} =
+               Scheduling.list_appointments!(at("00:00"), at("23:00"),
+                 scope: ctx.scope,
+                 page: [limit: 2, offset: 0, count: true]
+               )
+
+      assert DateTime.compare(a.starts_at, b.starts_at) == :lt
+    end
+
+    test "keyset: stream! atravessa as páginas sem pular nem repetir (o uso da Fatia 3)" do
+      ctx = setup_clinic()
+      for hhmm <- ~w(08:00 09:00 10:00), do: {:ok, _} = schedule(ctx, %{starts_at: at(hhmm)})
+
+      ids =
+        Scheduling.list_appointments!(at("00:00"), at("23:00"),
+          scope: ctx.scope,
+          stream?: true,
+          stream_options: [batch_size: 2]
+        )
+        |> Enum.map(& &1.id)
+
+      assert length(ids) == 3, "o stream perdeu ou repetiu linha na fronteira da página"
+      assert Enum.uniq(ids) == ids
+    end
+  end
+
   defp faltas(ctx) do
     Records.get_patient!(ctx.paciente.id, scope: ctx.scope, load: [:faltas]).faltas
   end

@@ -178,7 +178,23 @@ defmodule Api.Scheduling.Appointment do
                  professional_id in ^arg(:professional_ids)
              )
 
-      prepare build(sort: [starts_at: :asc])
+      # `id` desempata: `starts_at` repete muito (turma, mesmo horário em profissionais
+      # diferentes), e sem desempate a ordem entre empatados é indefinida — o que além de
+      # instável quebraria o keyset, que precisa de um cursor total para não pular nem repetir
+      # linha na fronteira da página.
+      prepare build(sort: [starts_at: :asc, id: :asc])
+
+      # D-C (doc 30): hoje a janela é limitada pelo teto de 31 dias do controller (~2.5k linhas),
+      # mas a Fatia 3 (Pacotes) reusa este mesmo read com janelas bem maiores. `required?: false`
+      # de propósito: quem não passa `page:` continua recebendo a lista inteira (a agenda do dia
+      # renderiza tudo), então nada muda para os chamadores atuais — a paginação fica disponível
+      # para quem precisar. O keyset é o que habilita `Ash.stream!` sobre esta ação, que é a
+      # forma de a série de pacote varrer muitos agendamentos sem carregar todos na memória.
+      pagination offset?: true,
+                 keyset?: true,
+                 required?: false,
+                 default_limit: 100,
+                 max_page_size: 1000
     end
 
     create :schedule do
