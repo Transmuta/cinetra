@@ -8,11 +8,22 @@ seleção aprovada, em frentes coesas por trilha de código + dependência.
 
 Natureza do bloqueio: **[P]** decisão de produto · **[T]** técnico/arquitetura · **[P+T]** ambos.
 
+> ## ▶︎ Onde retomar
+>
+> **Onda 1 e Frente 2 estão FEITAS** (ver "Status de execução" abaixo). O próximo passo é a
+> **Frente 3 (tempo real & escrita)**, e a recomendação é **começar por uma varredura de
+> verificação**, não por código: nesta rodada, **5 de 12 itens atacados já estavam prontos**
+> (D-E, D-P, H60, D-D, D-Q) — o doc 30 envelheceu. Confira cada item da Frente 3 no código
+> antes de codar. Depois vem a Frente 4 (fila).
+>
+> Para rodar a suíte fora do container, ver a receita em "Ambiente" no fim deste doc.
+
 ## Fora desta rodada (deferidos de novo, conscientes)
 
 Registro para não parecerem esquecidos — **não** entram nas ondas abaixo:
 
-- **F1** (quem-cabe UI), **F7** (confirmar/iniciar), **F8** (eliminação LGPD), **F4**? — ver seleção.
+- **F1** (quem-cabe UI), **F7** (confirmar/iniciar) e **F8** (eliminação LGPD) — não selecionados.
+  (**F4** *está* no escopo: é da Frente 4.)
 - **D-B** (mês pede o mês, não a grade) → dias da grade fora do mês seguem sem contagem.
 - **D-I** (cascata N+1 da turma) → transição de turma segue 3N escritas (bounded pela capacidade).
 - **S4** (hold aceita profissional arquivado) → inofensivo, barrado na conversão.
@@ -41,32 +52,35 @@ Registro para não parecerem esquecidos — **não** entram nas ondas abaixo:
 
 ## As frentes
 
-### Frente 0 — Enablers de medição
+### Frente 0 — Enablers de medição ✅ FEITA
 - **D-M** — subconjunto `@tag :rls` rodando como `movimento_app` (NOBYPASSRLS) para o gate do CI
   pegar bug de GUC/RLS. **[T]**
-- **D-S** — seed **idempotente e repetível** (~1.800 linhas) numa clínica de teste dedicada, para
-  tornar mensuráveis D-A/D-D/D-R. **[T]**
+- **D-S** — seed **idempotente e repetível** numa clínica dedicada, para tornar mensuráveis
+  D-A/D-D/D-R. Entregue com **~10k agendamentos** (o doc 30 falava em ~1.800; o alvo foi
+  elevado na execução). **[T]**
 
-### Frente 1 — Quick wins / higiene
-- **I69** — comentário stale em [`nav.ts`](../web/src/lib/components/shell/nav.ts) + nota de
-  proveniência dos docs 01/02/03.
+### Frente 1 — Quick wins / higiene ✅ FEITA
+- **I69** — comentário stale em [`nav.ts`](../web/src/lib/components/shell/nav.ts).
 - **H60** / **D-T** — bumps `@sveltejs/kit` (cookie ≥ 0.7) e `mint` (CVEs).
-- **H61** — `Promise.all([loadMe, loadPings])` no BFF.
+- **H61** — paralelizar o BFF. *(O `loadPings` do doc 13 §G não existe mais; o waterfall real
+  era `loadMe` → `fetchUnreadCount` no layout do app.)*
 - **D-E** / **D-F** — índices FK (`created_by_id`; btree próprio de `professional_id`).
 - **D-P** — política DST: **empurra no gap / primeira ocorrência no ambíguo** + teste com tz DST.
 
-### Frente 2 — Performance de leitura da agenda (medir com D-S)
+### Frente 2 — Performance de leitura da agenda ✅ FEITA
 - **D-C** — paginar o `:in_range`. **Antes da Fatia 3** (Pacotes reusa o read com janelas maiores).
 - **D-A** — índice GiST não-parcial sobre o range (caminho do P5).
-- **D-D** — `/api/availability`: remover sonda duplicada [trivial], carregar fontes 1×/janela,
-  aceitar `professional_id` múltiplo, devolver `timezone` no `/auth/me`.
+- **D-D** — `/api/availability`: remover sonda duplicada, carregar fontes 1×/janela, aceitar
+  `professional_id` múltiplo, devolver `timezone` no `/auth/me`.
 
-### Frente 3 — Tempo real & escrita
+### Frente 3 — Tempo real & escrita ← **PRÓXIMA**
 - **D-G + D-H** — contrato do canal (`block` vs `signal` no join): Semana/Mês só recarregam contagem.
 - **S1** — revogação desconectar sockets já abertos da ex-clínica.
 - **D-K** — cachear fuso da clínica em `persistent_term`, invalidar no `update_clinic_info`.
 - **D-J** — devolver attendances do `after_action` (mata o round-trip pós-commit).
-- **D-Q** — memoizar `memberships`/papel por request (corta as 5 queries do `HasClinicRole`).
+- ~~**D-Q** — memoizar `memberships`/papel por request.~~ **JÁ ESTAVA FEITO** (resolvido pelo
+  `LoadScope` + `Api.Accounts.ActiveMembership`), com teste de contagem de queries próprio em
+  `appointments_controller_test.exs` ("a membership é resolvida uma vez por request").
 - **D-N** — unificar a autoridade do recorte (escrita vs leitura) numa fonte só.
 
 ### Frente 4 — Fila de espera & holds
@@ -112,14 +126,14 @@ Registro para não parecerem esquecidos — **não** entram nas ondas abaixo:
 
 ## Ordem sugerida (ondas)
 
-| Onda | Frentes | Por quê |
-|---|---|---|
-| **1 — Fundação** | 0, 1 | Enablers de medição + higiene barata destravam e iluminam o resto |
-| **2 — Perf & tempo real** | 2, 3, 4 | Mensuráveis com a Onda 1; mesma trilha de código |
-| **3 — Valor central** | 5 → 6 → 7 | Pacotes → Turma → Ficha, sequencial por dependência |
-| **4 — Notificações** | 10 | Perf antes dos gatilhos; #47 só depois da Onda 3 |
-| **5 — Produção** | 11 | Antes do primeiro deploy real |
-| **6 — Soltas + limpeza** | 8, 9, 12, 13 | Features isoladas, auditoria e refactors por último |
+| Onda | Frentes | Estado | Por quê |
+|---|---|---|---|
+| **1 — Fundação** | 0, 1 | ✅ **feita** | Enablers de medição + higiene barata destravam e iluminam o resto |
+| **2 — Perf & tempo real** | 2, 3, 4 | 🟡 Frente 2 feita; **3 e 4 pendentes** | Mensuráveis com a Onda 1; mesma trilha de código |
+| **3 — Valor central** | 5 → 6 → 7 | pendente | Pacotes → Turma → Ficha, sequencial por dependência |
+| **4 — Notificações** | 10 | pendente | Perf antes dos gatilhos; #47 só depois da Onda 3 |
+| **5 — Produção** | 11 | pendente | Antes do primeiro deploy real |
+| **6 — Soltas + limpeza** | 8, 9, 12, 13 | pendente | Features isoladas, auditoria e refactors por último |
 
 **Caminho crítico:** D-C → A1 (Pacotes) → A2 (Turma) → C13/#47.
 
@@ -172,3 +186,46 @@ que cria o role restrito conecta em `psql -d api_test`, enquanto o banco de test
 falha antes de `mix test --only rls`; como o CI só dispara em push→`main`/PR e o trabalho corre na
 `develop`, **o gate nunca rodou verde**. Correção do D-M nesta onda = tornar o gate real (nome do
 banco correto) + provar verde, e não remontá-lo do zero.
+
+---
+
+## Ambiente — rodar a suíte fora do container
+
+O projeto é feito para rodar em container (`docker compose up`). Quando isso não estiver
+disponível (ex.: distro WSL sem integração Docker), a suíte **roda no host** — foi assim que esta
+rodada foi verificada. Elixir 1.18.4/OTP 27 via asdf + um Postgres em container:
+
+```bash
+docker run -d --rm --name pg -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres \
+  -e POSTGRES_DB=postgres -p 5432:5432 postgres:16
+
+cd api && DATABASE_HOST=localhost mix deps.get
+DATABASE_HOST=localhost MIX_ENV=test mix ash.setup     # cria movimento_test
+DATABASE_HOST=localhost MIX_ENV=test mix test          # suíte (como postgres, BYPASSRLS)
+```
+
+**Gate de RLS** (como `movimento_app`, NOBYPASSRLS — é o que prova GUC/tenancy):
+
+```bash
+docker exec -i pg psql -U postgres -d movimento_test -v ON_ERROR_STOP=1 < priv/sql/setup_app_role.sql
+DATABASE_HOST=localhost DATABASE_USER=movimento_app DATABASE_PASSWORD=movimento_app \
+  SKIP_DB_SETUP=1 MIX_ENV=test mix test --only rls
+```
+
+`SKIP_DB_SETUP=1` é obrigatório no gate: o role restrito não tem CREATE no schema (é o desenho).
+
+**Semear volume** (D-S) — `DATABASE_PORT` foi parametrizado nesta rodada justamente para alcançar
+o Postgres do compose (:5434) a partir do host:
+
+```bash
+MIX_ENV=dev DATABASE_HOST=localhost DATABASE_PORT=5434 mix run priv/repo/volume_seed.exs
+```
+
+> **Estado atual:** o `movimento_dev` **já está semeado** (clínica "Volume (perf)", ~10,2k
+> agendamentos) e com todas as migrações aplicadas. O seed é idempotente — rodar de novo não
+> duplica nada.
+
+Dois avisos de ambiente, se a suíte falhar de forma estranha no host: diretórios gerados pelo
+container (`.svelte-kit/`, `api/priv/resource_snapshots/`) podem estar **root-owned**, o que
+quebra `svelte-check`/`vitest` e o `mix ash.codegen` com EACCES; e o `node_modules` do host pode
+estar desatualizado em relação ao `package.json` (rode `npm ci`).

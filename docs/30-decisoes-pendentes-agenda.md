@@ -1,5 +1,11 @@
 # 30 — Decisões pendentes da Agenda (consolidação)
 
+> ⚠️ **Parcialmente desatualizado (2026-07-23).** Vários itens abaixo **já foram resolvidos** em
+> fatias posteriores — verificados como feitos: **D-E, D-P, D-D, D-Q** (boa parte pelo commit
+> `0a07f4c`), além de **D-M, D-F, D-A, D-C, D-S**, entregues na execução do plano.
+> **Confirme no código antes de reabrir qualquer item daqui.** O status corrente de execução vive
+> em [`35-plano-execucao-backlog.md`](35-plano-execucao-backlog.md).
+
 Varredura de **todo o contexto de agenda** — o doc de desenho [`25-agenda.md`](25-agenda.md) (as
 cinco Entregas e o §9/§10) e os cinco bate-voltas [`26`](26-auditoria-bate-volta-agenda.md),
 [`27`](27-auditoria-bate-volta-visoes.md),
