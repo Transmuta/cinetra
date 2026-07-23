@@ -131,9 +131,12 @@ jobs:
         run: mix ash.setup --quiet
 
       # Cria o role + grants + default privileges. Mesmo SQL do entrypoint dev.
+      # O banco é `movimento_test` (config/test.exs) — não o `api_test` default do Phoenix.
+      # Grants são por-banco: apontar para o banco errado deixava o gate decorativo (o passo
+      # falhava com ON_ERROR_STOP antes de `mix test --only rls`).
       - name: Criar role restrito movimento_app
         run: |
-          PGPASSWORD=postgres psql -h localhost -U postgres -d api_test \
+          PGPASSWORD=postgres psql -h localhost -U postgres -d movimento_test \
             -v ON_ERROR_STOP=1 -q -f priv/sql/setup_app_role.sql
 
       # A partir daqui o app é `movimento_app`: sujeito às policies de RLS.
