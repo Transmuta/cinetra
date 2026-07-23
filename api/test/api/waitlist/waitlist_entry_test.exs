@@ -129,6 +129,74 @@ defmodule Api.Waitlist.WaitlistEntryTest do
       prios = scope |> Waitlist.list_entries() |> Map.fetch!(:entries) |> Enum.map(& &1.prio)
       assert prios == [:urgente, :normal, :baixa]
     end
+
+    # A ordem agora é do BANCO (`prio_rank`), mas `priority_rank/1` continua ordenando o que já
+    # está em memória (o `who_fits`). Duas representações da mesma regra só são seguras enquanto
+    # concordam — e é isso que este teste trava, item a item, em vez de confiar na revisão.
+    test "o rank do banco concorda com o rank do Elixir" do
+      {owner, clinic} = owner_and_clinic()
+      scope = scope_for(owner, clinic)
+
+      for prio <- [:baixa, :urgente, :normal, :alta] do
+        Waitlist.enqueue_entry(scope, %{patient_id: patient(clinic, owner).id, prio: prio})
+      end
+
+      entries =
+        scope
+        |> Waitlist.list_entries()
+        |> Map.fetch!(:entries)
+        |> Ash.load!(:prio_rank, authorize?: false, tenant: clinic.id)
+
+      for e <- entries do
+        assert e.prio_rank == Waitlist.priority_rank(e.prio),
+               "prio_rank do banco (#{e.prio_rank}) diverge do Elixir para #{e.prio}"
+      end
+    end
+  end
+
+  # F6: a fila carregava tudo. A paginação e a ordenação-no-banco são a mesma mudança: paginar
+  # sobre uma ordem aplicada em memória daria "página 2" que não continua a página 1.
+  describe "paginação (F6)" do
+    test "limit/offset recortam a fila SEM quebrar a ordem de prioridade" do
+      {owner, clinic} = owner_and_clinic()
+      scope = scope_for(owner, clinic)
+
+      for prio <- [:baixa, :normal, :urgente, :alta, :normal] do
+        Waitlist.enqueue_entry(scope, %{patient_id: patient(clinic, owner).id, prio: prio})
+      end
+
+      pagina1 = Waitlist.list_entries(scope, limit: 2)
+      pagina2 = Waitlist.list_entries(scope, limit: 2, offset: 2)
+
+      assert Enum.map(pagina1.entries, & &1.prio) == [:urgente, :alta]
+      assert Enum.map(pagina2.entries, & &1.prio) == [:normal, :normal]
+
+      # O total é do RECORTE inteiro, não da página — é o "de Z" do rótulo.
+      assert pagina1.page.total == 5
+      assert pagina1.page.more == true
+      assert pagina2.page.offset == 2
+
+      ids1 = MapSet.new(pagina1.entries, & &1.id)
+      ids2 = MapSet.new(pagina2.entries, & &1.id)
+      assert MapSet.disjoint?(ids1, ids2), "a página 2 repetiu item da página 1"
+    end
+
+    test "sem opção nenhuma continua devolvendo a fila (o default não é 'vazio')" do
+      {owner, clinic} = owner_and_clinic()
+      scope = scope_for(owner, clinic)
+      Waitlist.enqueue_entry(scope, %{patient_id: patient(clinic, owner).id})
+
+      assert %{entries: [_], page: %{total: 1, more: false}} = Waitlist.list_entries(scope)
+    end
+
+    test "limit e offset absurdos não derrubam a request" do
+      {owner, clinic} = owner_and_clinic()
+      scope = scope_for(owner, clinic)
+      Waitlist.enqueue_entry(scope, %{patient_id: patient(clinic, owner).id})
+
+      assert %{entries: []} = Waitlist.list_entries(scope, limit: 10_000_000, offset: 999_999_999)
+      assert %{entries: [_]} = Waitlist.list_entries(scope, limit: -5, offset: -3)
+    end
   end
 
   describe "update / dequeue" do

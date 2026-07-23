@@ -86,11 +86,15 @@ config :api,
 # Oban — só a fila `housekeeping` e o cron de limpeza de `SlotHold` vencidos (doc 09 §6.2). O
 # worker itera as clínicas com a GUC (a tabela está sob RLS e o Oban não tem tenant). Backstop:
 # a correção da corrida é da constraint + do `DELETE` in-transaction da `offer`, nunca daqui.
+#
+# **De 5 em 5 minutos**, não de 1 em 1 (D-L): como nada de correto depende deste worker, a única
+# coisa que a frequência compra é o tempo que uma linha morta passa numa tabela quase vazia — e o
+# custo (uma varredura por clínica) é pago mesmo quando não há hold nenhum no sistema.
 config :api, Oban,
   repo: Api.Repo,
   queues: [housekeeping: 2],
   plugins: [
-    {Oban.Plugins.Cron, crontab: [{"* * * * *", Api.Scheduling.SlotHold.CleanupWorker}]}
+    {Oban.Plugins.Cron, crontab: [{"*/5 * * * *", Api.Scheduling.SlotHold.CleanupWorker}]}
   ]
 
 # Magic link sem página de interação: o callback GET assina a sessão direto (09 §8).

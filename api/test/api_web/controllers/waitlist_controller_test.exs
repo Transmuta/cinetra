@@ -236,4 +236,102 @@ defmodule ApiWeb.WaitlistControllerTest do
       assert json_response(as(ctx.owner) |> get("/api/waitlist"), 200)["waitlist"] == []
     end
   end
+
+  # F6: a fila deixou de vir inteira. O que a fronteira acrescenta ao que o domínio já garante é
+  # a tradução dos query params — e o filtro por prioridade, que saiu do cliente junto.
+  describe "GET /api/waitlist paginado (F6)" do
+    test "limit/offset recortam, e o total é do recorte inteiro" do
+      ctx = fixture()
+      for _ <- 1..3, do: enfileira(ctx)
+
+      body = as(ctx.owner) |> get("/api/waitlist?limit=2&offset=0") |> json_response(200)
+
+      assert length(body["waitlist"]) == 2
+      assert body["page"] == %{"limit" => 2, "offset" => 0, "total" => 3, "more" => true}
+    end
+
+    test "?prio filtra no SERVIDOR (o total acompanha o filtro)" do
+      ctx = fixture()
+      enfileira(ctx, "urgente")
+      enfileira(ctx, "normal")
+      enfileira(ctx, "normal")
+
+      body = as(ctx.owner) |> get("/api/waitlist?prio=urgente") |> json_response(200)
+
+      assert [%{"prio" => "urgente"}] = body["waitlist"]
+      assert body["page"]["total"] == 1
+
+      # As contagens da sidebar são da fila INTEIRA, não do recorte filtrado.
+      assert body["counts"]["todas"] == 3
+      assert body["counts"]["normal"] == 2
+    end
+
+    test "limit/offset/prio inválidos não derrubam a request" do
+      ctx = fixture()
+      enfileira(ctx)
+
+      body =
+        as(ctx.owner) |> get("/api/waitlist?limit=abc&offset=-9&prio=lixo") |> json_response(200)
+
+      assert length(body["waitlist"]) == 1
+      assert body["page"]["limit"] == 50
+    end
+  end
+
+  # F4: a lista precisa saber quais vagas já estão reservadas por OUTRA pessoa. A fonte é o
+  # próprio hold (o mesmo que a constraint enxerga), não uma presença de socket.
+  describe "GET /api/waitlist — reservas vivas (F4)" do
+    test "devolve as reservas vivas com quem segura" do
+      ctx = fixture()
+      entry = enfileira(ctx)
+
+      {:ok, _hold} =
+        Api.Waitlist.offer_slot(scope_for(ctx), %{id: entry["id"]}, %{
+          professional_id: ctx.prof.id,
+          starts_at: ~U[2026-07-21 12:00:00Z]
+        })
+
+      body = as(ctx.owner) |> get("/api/waitlist") |> json_response(200)
+
+      assert [hold] = body["holds"]
+      assert hold["professional_id"] == ctx.prof.id
+      assert hold["held_by"]["id"] == ctx.owner.id
+    end
+
+    test "reserva VENCIDA não aparece (a vaga já está livre)" do
+      ctx = fixture()
+      entry = enfileira(ctx)
+
+      # Relógio cravado no passado → `expires_at` nasce vencido.
+      velho = %{scope_for(ctx) | now: ~U[2020-01-01 00:00:00Z]}
+
+      {:ok, _hold} =
+        Api.Waitlist.offer_slot(velho, %{id: entry["id"]}, %{
+          professional_id: ctx.prof.id,
+          starts_at: ~U[2026-07-21 12:00:00Z]
+        })
+
+      body = as(ctx.owner) |> get("/api/waitlist") |> json_response(200)
+      assert body["holds"] == []
+    end
+  end
+
+  defp scope_for(ctx) do
+    {:ok, membership} =
+      Accounts.get_active_membership(ctx.owner.id, ctx.clinic.id, authorize?: false)
+
+    Api.Scope.with_membership(ctx.owner, membership)
+  end
+
+  # Um item por paciente (a fila faz upsert por paciente), então cada chamada cria o seu.
+  defp enfileira(ctx, prio \\ "normal") do
+    paciente =
+      Records.create_patient!("Paciente #{System.unique_integer([:positive])}", %{},
+        tenant: ctx.clinic.id,
+        actor: ctx.owner
+      )
+
+    conn = as(ctx.owner) |> post("/api/waitlist", %{"patient_id" => paciente.id, "prio" => prio})
+    json_response(conn, 201)["entry"]
+  end
 end

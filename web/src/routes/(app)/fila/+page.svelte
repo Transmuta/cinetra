@@ -24,11 +24,16 @@
 		canManageWaitlist,
 		dispItems,
 		slotDateLabel,
-		sortByPriority,
 		type Entry,
-		type Slot
+		type Slot,
+		holdForSlot,
+		holdLabel
 	} from '$lib/waitlist';
 	import { m2t, type SearchResult } from '$lib/agenda';
+	import Lock from '@lucide/svelte/icons/lock';
+	import { pageLabel } from '$lib/pagination';
+	import ChevronLeft from '@lucide/svelte/icons/chevron-left';
+	import ChevronRight from '@lucide/svelte/icons/chevron-right';
 	import type { ActionResult } from '@sveltejs/kit';
 	import type { PageData } from './$types';
 
@@ -37,11 +42,11 @@
 	// Todo membro administra a fila (A8) — inclusive profissional; a autoridade real é a policy.
 	const canManage = $derived(canManageWaitlist(data.me?.papel));
 
-	// Filtra por `?prio=` (o segmento da sidebar) e reordena por prioridade. O filtro é do cliente:
-	// o GET devolve a fila inteira, e ela é curta (aguardando vaga), como o `renderFila` do protótipo.
-	const list = $derived(
-		sortByPriority(data.prio === 'todas' ? data.waitlist : data.waitlist.filter((e) => e.prio === data.prio))
-	);
+	// A lista chega do servidor já FILTRADA (`?prio=`), ORDENADA (prioridade → tempo de espera) e
+	// PAGINADA (F6). Nada disso acontece aqui: filtrar ou reordenar a página no cliente seria
+	// aplicar a regra a um recorte arbitrário — e o rodapé "X–Y de Z" passaria a contar outra
+	// coisa que a tela mostra.
+	const list = $derived(data.waitlist);
 
 	const nameById = $derived(Object.fromEntries(data.professionals.map((p) => [p.id, p.nome])));
 
@@ -93,6 +98,14 @@
 		goto(qs ? `/fila?${qs}` : '/fila', { keepFocus: true, noScroll: true, replaceState: true });
 	}
 
+	// Paginação (F6): `?page=` na URL, sem empilhar histórico — mesmo gesto da lista de Pacientes.
+	function goPage(n: number) {
+		navigate({ page: n > 1 ? String(n) : null });
+	}
+
+	const navBtn =
+		'inline-flex items-center gap-1 rounded-lg border border-edge bg-surface px-2.5 py-1.5 text-[12.5px] font-semibold text-ink hover:bg-surface-2 disabled:opacity-40 disabled:hover:bg-surface';
+
 	async function search(q: string): Promise<SearchResult> {
 		const res = await fetch(`/fila/pacientes?q=${encodeURIComponent(q)}`);
 		if (!res.ok) return { patients: [], total: 0 };
@@ -109,7 +122,9 @@
 	$effect(() => {
 		void data.waitlist; // redispara ao recarregar a fila
 		let vivo = true;
-		fetch('/fila/slots')
+		// A MESMA janela da fila (F6): pedir vagas para a fila inteira calcularia o motor para
+		// quem a tela nem desenha.
+		fetch(`/fila/slots?limit=${data.pageInfo.limit}&offset=${data.pageInfo.offset}`)
 			.then((r) => (r.ok ? r.json() : { slots_by_entry: {} }))
 			.then((d: { slots_by_entry?: Record<string, Slot[]> }) => {
 				if (vivo) slotsByEntry = d.slots_by_entry ?? {};
@@ -231,17 +246,30 @@
 						: ''}">{item.label}</span
 				>
 			{:else if item.kind === 'match'}
+				{@const reserva = holdForSlot(item.slot, data.holds, data.timezone)}
 				<button
 					type="button"
 					onclick={() => openOffer(entry, item.slot)}
-					title="Oferecer {slotDateLabel(item.slot)} às {m2t(item.slot.start)}{item.slot.freed
-						? ' · vaga que abriu'
-						: ''}"
-					class="{matchChip} {item.slot.freed
-						? 'border-teal bg-teal text-white'
-						: 'border-teal-border bg-teal-subtle text-teal-text'}"
+					title={reserva
+						? holdLabel(reserva, data.timezone)
+						: `Oferecer ${slotDateLabel(item.slot)} às ${m2t(item.slot.start)}${item.slot.freed ? ' · vaga que abriu' : ''}`}
+					class="{matchChip} {reserva
+						? 'border-dashed border-edge-strong bg-surface-2 text-muted'
+						: item.slot.freed
+							? 'border-teal bg-teal text-white'
+							: 'border-teal-border bg-teal-subtle text-teal-text'}"
 				>
-					<span class="size-1.5 shrink-0 rounded-full {item.slot.freed ? 'bg-white' : 'bg-teal'}"></span>
+					<!-- F4: a vaga que outra pessoa já está oferecendo perde o destaque e ganha o
+					     cadeado. Continua clicável de propósito: quem clicar leva o 409 com "quem
+					     segura e até quando", que é a informação completa — o chip é o aviso, não
+					     o portão (o portão é a constraint). -->
+					{#if reserva}
+						<Lock size={11} class="shrink-0" />
+					{:else}
+						<span
+							class="size-1.5 shrink-0 rounded-full {item.slot.freed ? 'bg-white' : 'bg-teal'}"
+						></span>
+					{/if}
 					<span class="whitespace-nowrap">{item.label}</span>
 					<span class="font-mono font-bold whitespace-nowrap">
 						{slotDateLabel(item.slot)} {m2t(item.slot.start)}
@@ -440,6 +468,33 @@
 			</div>
 		{/if}
 	</div>
+
+	<!-- Rodapé de paginação (F6): mesmo desenho e mesmos helpers da lista de Pacientes. Só
+	     aparece quando há mais de uma página — a fila curta continua parecendo o que era. -->
+	{#if data.pageInfo.more || data.current > 1}
+		<div class="mt-3 flex items-center gap-3 px-1">
+			<span class="font-mono text-[11.5px] text-faint">
+				{pageLabel(data.pageInfo, list.length)}
+			</span>
+			<div class="flex-1"></div>
+			<button
+				type="button"
+				class={navBtn}
+				disabled={data.current === 1}
+				onclick={() => goPage(data.current - 1)}
+			>
+				<ChevronLeft size={14} /> Anterior
+			</button>
+			<button
+				type="button"
+				class={navBtn}
+				disabled={!data.pageInfo.more}
+				onclick={() => goPage(data.current + 1)}
+			>
+				Próxima <ChevronRight size={14} />
+			</button>
+		</div>
+	{/if}
 </div>
 
 {#if showAdd}

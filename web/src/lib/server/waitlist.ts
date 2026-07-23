@@ -1,7 +1,17 @@
 import type { RequestEvent } from '@sveltejs/kit';
 import { apiFetch } from './api';
 import { mutate, type MutationResult } from './mutate';
-import type { Entry, Professional, Rule, Slot, Priority, TimeWindow } from '$lib/waitlist';
+import type {
+	Entry,
+	Professional,
+	Rule,
+	Slot,
+	Priority,
+	TimeWindow,
+	WaitlistCounts,
+	Hold
+} from '$lib/waitlist';
+import type { PageInfo } from '$lib/pagination';
 
 // BFF da Fila de espera (doc 25, Entrega 5 / ADR-005): fala com `/api/waitlist` server-to-server,
 // repassando o cookie de sessão. `clinic_id` e RBAC vivem no escopo da API — o BFF nunca manda
@@ -14,6 +24,26 @@ export interface WaitlistData {
 	professionals: Professional[];
 	/** Data local de hoje (ISO, ADR-009) para a lista marcar a regra `:data` no passado. */
 	today: string;
+	/** Recorte da página (F6) — o "X–Y de Z" do rodapé. */
+	page: PageInfo;
+	/** Contagens por prioridade da fila INTEIRA (a sidebar), do servidor. */
+	counts: WaitlistCounts;
+	/** Reservas vivas da clínica (F4) — a tela marca a vaga que alguém já está oferecendo. */
+	holds: Hold[];
+}
+
+/** Janela pedida à API. As duas chamadas da tela (fila e vagas) usam a MESMA. */
+export interface Janela {
+	limit: number;
+	offset: number;
+	/** Segmento da sidebar. Filtra no SERVIDOR (F6) — filtrar a página seria filtrar o acaso. */
+	prio?: string;
+}
+
+function qs({ limit, offset, prio }: Janela): string {
+	const p = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+	if (prio && prio !== 'todas') p.set('prio', prio);
+	return `?${p}`;
 }
 
 export interface WaitlistResult {
@@ -21,9 +51,11 @@ export interface WaitlistResult {
 	data: WaitlistData | null;
 }
 
-export async function fetchWaitlist(event: RequestEvent): Promise<WaitlistResult> {
+export async function fetchWaitlist(event: RequestEvent, janela: Janela): Promise<WaitlistResult> {
 	try {
-		const res = await apiFetch(event, '/api/waitlist', { headers: { accept: 'application/json' } });
+		const res = await apiFetch(event, `/api/waitlist${qs(janela)}`, {
+			headers: { accept: 'application/json' }
+		});
 		if (!res.ok) return { status: res.status, data: null };
 		return { status: res.status, data: (await res.json()) as WaitlistData };
 	} catch {
@@ -60,9 +92,9 @@ export interface AllSlotsResult {
 // enriquece cada linha com isto DEPOIS de renderizar — a falha degrada para o mapa vazio (a
 // linha só não mostra a vaga), sem estourar. Batch de propósito: o endpoint por-item faria N
 // chamadas ao motor a partir do load da lista.
-export async function fetchAllSlots(event: RequestEvent): Promise<AllSlotsResult> {
+export async function fetchAllSlots(event: RequestEvent, janela: Janela): Promise<AllSlotsResult> {
 	try {
-		const res = await apiFetch(event, '/api/waitlist/slots', {
+		const res = await apiFetch(event, `/api/waitlist/slots${qs(janela)}`, {
 			headers: { accept: 'application/json' }
 		});
 		if (!res.ok) return { status: res.status, data: null };

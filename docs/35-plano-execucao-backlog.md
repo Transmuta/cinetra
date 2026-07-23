@@ -14,8 +14,9 @@ Natureza do bloqueio: **[P]** decisão de produto · **[T]** técnico/arquitetur
 > (índice que nunca anexava) e removeu o **D-S** (seed sem guarda que ia para a imagem de prod).
 > Ver "Status de execução" abaixo, e "D-A — o diagnóstico correto" antes de tentar de novo.
 >
-> **A Frente 3 (tempo real & escrita) está FEITA** — ver o status abaixo. Próximo passo:
-> **Frente 4 (fila de espera & holds)**: F3, F4, F6, D-L.
+> **As Frentes 3 (tempo real & escrita) e 4 (fila & holds) estão FEITAS** — ver o status abaixo.
+> Com isso a **Onda 2 fecha**, exceto o D-A da Frente 2, que o bate-volta devolveu ao backlog.
+> Próximo passo: **Onda 3 — Frente 5 (Pacotes/A1)**, que é o caminho crítico.
 >
 > A recomendação de **verificar antes de codar** se confirmou de novo: na Frente 3, **2 dos 6
 > itens já estavam prontos** (D-Q e D-N) — 7 no acumulado das três frentes. O doc 30 envelheceu;
@@ -93,11 +94,11 @@ Registro para não parecerem esquecidos — **não** entram nas ondas abaixo:
 - ~~**D-N** — unificar a autoridade do recorte (escrita vs leitura) numa fonte só.~~ **JÁ ESTAVA
   FEITO** — leitura e escrita já entravam pelo mesmo `Api.Accounts.ActiveMembership`.
 
-### Frente 4 — Fila de espera & holds ← **PRÓXIMA**
+### Frente 4 — Fila de espera & holds ✅ FEITA
 - **F3** — `cancel_reason` na UI. **F4** — indicador ao vivo "alguém oferecendo esta vaga".
 - **F6** — paginação da fila. **D-L** — Oban cron O(clínicas)/min → statement único.
 
-### Frente 5 — Pacotes (Fatia 3) *(depende de D-C)*
+### Frente 5 — Pacotes (Fatia 3) *(depende de D-C)* ← **PRÓXIMA**
 - **A1** — `computeSerie` (domínio puro + Oban), débito com falta punitiva, pausar/retomar
   reprojetando p/ futuro (GAP-06). **Precede A2, C13, notificação #47.** **[T]**
 
@@ -139,7 +140,7 @@ Registro para não parecerem esquecidos — **não** entram nas ondas abaixo:
 | Onda | Frentes | Estado | Por quê |
 |---|---|---|---|
 | **1 — Fundação** | 0, 1 | 🟡 Frente 1 feita; Frente 0 parcial (D-S removido) | Enablers de medição + higiene barata destravam e iluminam o resto |
-| **2 — Perf & tempo real** | 2, 3, 4 | 🟡 Frente 2 parcial (D-A revertido); Frente 3 feita; **4 pendente** | Mensuráveis com a Onda 1; mesma trilha de código |
+| **2 — Perf & tempo real** | 2, 3, 4 | 🟡 Frentes 3 e 4 feitas; Frente 2 parcial (**D-A revertido**, volta ao backlog) | Mensuráveis com a Onda 1; mesma trilha de código |
 | **3 — Valor central** | 5 → 6 → 7 | pendente | Pacotes → Turma → Ficha, sequencial por dependência |
 | **4 — Notificações** | 10 | pendente | Perf antes dos gatilhos; #47 só depois da Onda 3 |
 | **5 — Produção** | 11 | pendente | Antes do primeiro deploy real |
@@ -221,6 +222,33 @@ modo `block`, remarcar trocando de profissional deixa **bloco fantasma** na tela
 agenda de origem. A releitura por assinante devolve `nil` (o bloco não é mais dele) e `nil` vira
 "não empurra nada" — faltaria um evento de **remoção**, que é decisão de contrato de wire. O modo
 `signal` não tem o defeito.
+
+### Frente 4 (fila de espera & holds) — COMPLETA
+
+| Item | Estado |
+| --- | --- |
+| **F3** | ✅ Cancelar deixou de ser um clique só: abre confirmação com **motivo opcional**, que viaja no form (a coluna `cancel_reason` e a action do BFF já existiam — faltava quem preenchesse). Opcional de propósito: exigir motivo faz a recepção digitar "asdf" para conseguir cancelar |
+| **F6** | ✅ Fila paginada (50/página, `?page=`), com **três** consequências que andam juntas: a ordem de prioridade virou ordenação de **banco** (calculation `prio_rank` — paginar sobre ordem aplicada em memória daria "página 2" que não continua a 1); o filtro `?prio=` saiu do cliente para o **servidor**; e as contagens da sidebar passaram a vir do servidor (contar a página contaria errado). `/waitlist/slots` aceita a mesma janela — o motor de vagas só calcula para quem a tela desenha |
+| **D-L** | ✅ **Uma transação por lote** (200 clínicas), não por clínica; só os ids são lidos; cron de **5 em 5 min** (era 1). Teste de contagem de `BEGIN` **provado por mutação**: com o código antigo dá "3 transações para 3 clínicas" e falha |
+| **F4** | ✅ Indicador "alguém está oferecendo esta vaga" — **sem `Presence`**. A fonte é o próprio `SlotHold` (a linha que a exclusion constraint enxerga): `GET /api/waitlist` devolve as reservas **vivas** com quem segura, o chip da vaga vira cadeado com "Fulana está oferecendo (até 09:10)", e o notifier da fila passou a emitir `slot_held`/`slot_released` para a outra aba recarregar |
+
+Verde ao fim: api **775/0**, gate RLS **7/0**, web **1179/1179**, `svelte-check` **0 erros**.
+
+**A decisão do D-L que vale registrar:** o doc 30 sugeria "statement único com **conexão
+privilegiada**". Foi **recusado** — um `DELETE` global só existe para quem bypassa RLS, e abrir no
+app um pool (ou uma função `SECURITY DEFINER`) que enxerga todas as clínicas troca um custo
+desprezível por um furo permanente no isolamento de tenant. O ADR-018 existe para não ter esse
+caminho. O que sobrou (lote + menos frequência) resolve o custo real sem tocar no modelo.
+
+**Por que F4 não virou `Presence`:** Presence responderia "fulano está com o modal aberto" — um
+estado que morre com o processo e não sobrevive a um refresh. O hold responde "esta vaga está
+reservada até tal hora", que é o que a recepção precisa saber, já existe no banco, vale entre nós
+e é o **mesmo dado** que o 409 usa. O chip é aviso, não portão: continua clicável, e quem clicar
+leva o 409 com quem segura e até quando.
+
+**Dívida honesta desta frente:** de novo, **nada foi clicado no browser** (mesmo atrito: MCP do
+Playwright quebrado, `web/build` root-owned). E a prova por **mutação** foi feita só no D-L — os
+tetos e chips novos de F3/F4/F6 têm teste, mas não a prova de que mordem.
 
 ### D-A — o diagnóstico correto (para quando voltar)
 

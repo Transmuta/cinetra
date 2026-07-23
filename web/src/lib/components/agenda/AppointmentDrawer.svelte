@@ -18,6 +18,7 @@
 	import CalendarClock from '@lucide/svelte/icons/calendar-clock';
 	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 	import SwitchToggle from '$lib/components/scheduling/SwitchToggle.svelte';
+	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import {
 		STATUS_META,
 		statusActions,
@@ -88,6 +89,23 @@
 	);
 
 	let justifyForm = $state<HTMLFormElement>();
+
+	// Cancelar é a única ação de status que **pergunta** algo antes (F3). A coluna
+	// `cancel_reason` sempre existiu e o drawer já a exibia depois do fato; o que faltava era
+	// alguém para preenchê-la — cancelava-se em um clique e o motivo nascia sempre vazio.
+	//
+	// Vem com confirmação porque é destrutivo e sem desfazer imediato na mesma tela (reabrir
+	// existe, mas é outro clique e outra linha de trilha). O motivo é **opcional**: exigi-lo
+	// faria a recepção digitar qualquer coisa para conseguir cancelar, e "asdf" na trilha é
+	// pior que vazio.
+	let cancelando = $state(false);
+	let motivo = $state('');
+	let cancelForm = $state<HTMLFormElement>();
+
+	function confirmarCancelamento() {
+		cancelando = false;
+		cancelForm?.requestSubmit();
+	}
 </script>
 
 <aside
@@ -218,32 +236,51 @@
 			<div>
 				<div class="mb-1.5 text-[12px] text-faint">Mudar status</div>
 				<div class="grid grid-cols-3 gap-2">
+					<!-- O botão é o mesmo nos dois caminhos; o que muda é quem o envolve. Cancelar
+					     não submete: abre a confirmação, que pergunta o motivo (F3). -->
+					{#snippet botaoAcao(ac: (typeof acoes)[number], Icon: typeof Check, pergunta: boolean)}
+						<button
+							type={pergunta ? 'button' : 'submit'}
+							onclick={pergunta ? () => (cancelando = true) : undefined}
+							disabled={ac.disabled || ac.on}
+							title={ac.title}
+							class="flex w-full items-center justify-center gap-1.5 rounded-lg border px-2 py-2 text-[12.5px] font-semibold transition-colors disabled:cursor-not-allowed
+							{ac.on
+								? 'border-current text-ink'
+								: ac.disabled
+									? 'border-edge text-faint opacity-55'
+									: 'border-edge hover:bg-surface-2'}"
+							style={ac.on && STATUS_META[ac.status].tone
+								? `color:var(--color-${STATUS_META[ac.status].tone}); background:color-mix(in srgb, var(--color-${STATUS_META[ac.status].tone}) 10%, transparent)`
+								: ''}
+						>
+							<Icon size={14} />
+							{ac.label}
+						</button>
+					{/snippet}
+
 					{#each acoes as ac (ac.kind)}
 						{@const Icon = ICON[ac.icon as keyof typeof ICON]}
-						<form method="POST" action="?/{ac.kind}" use:enhance>
-							<input type="hidden" name="id" value={appt.id} />
-							<input type="hidden" name="expected_version" value={appt.version} />
-							<button
-								type="submit"
-								disabled={ac.disabled || ac.on}
-								title={ac.title}
-								class="flex w-full items-center justify-center gap-1.5 rounded-lg border px-2 py-2 text-[12.5px] font-semibold transition-colors disabled:cursor-not-allowed
-								{ac.on
-									? 'border-current text-ink'
-									: ac.disabled
-										? 'border-edge text-faint opacity-55'
-										: 'border-edge hover:bg-surface-2'}"
-								style={ac.on && STATUS_META[ac.status].tone
-									? `color:var(--color-${STATUS_META[ac.status].tone}); background:color-mix(in srgb, var(--color-${STATUS_META[ac.status].tone}) 10%, transparent)`
-									: ''}
-							>
-								<Icon size={14} />
-								{ac.label}
-							</button>
-						</form>
+						{#if ac.kind === 'cancelar'}
+							{@render botaoAcao(ac, Icon, true)}
+						{:else}
+							<form method="POST" action="?/{ac.kind}" use:enhance>
+								<input type="hidden" name="id" value={appt.id} />
+								<input type="hidden" name="expected_version" value={appt.version} />
+								{@render botaoAcao(ac, Icon, false)}
+							</form>
+						{/if}
 					{/each}
 				</div>
 			</div>
+
+			<!-- Fora do laço porque é submetido de fora dele (pela confirmação), e porque leva um
+			     campo que nenhuma outra ação tem. -->
+			<form method="POST" action="?/cancelar" use:enhance bind:this={cancelForm} class="hidden">
+				<input type="hidden" name="id" value={appt.id} />
+				<input type="hidden" name="expected_version" value={appt.version} />
+				<input type="hidden" name="cancel_reason" value={motivo} />
+			</form>
 
 			{#if terminal}
 				<!-- Reabrir → agendado (D-E4.2): desfaz um clique errado. -->
@@ -274,3 +311,27 @@
 		</div>
 	{/if}
 </aside>
+
+{#if cancelando}
+	<ConfirmDialog
+		title="Cancelar agendamento"
+		confirmLabel="Cancelar agendamento"
+		cancelLabel="Voltar"
+		onConfirm={confirmarCancelamento}
+		onClose={() => (cancelando = false)}
+	>
+		O bloco fica registrado como <strong>cancelado</strong> — nada é apagado. Reabrir depois é
+		possível, mas as duas ações ficam na trilha.
+
+		<label class="mt-3 block">
+			<span class="mb-1 block text-[12px] font-semibold text-muted">Motivo (opcional)</span>
+			<input
+				type="text"
+				bind:value={motivo}
+				maxlength="300"
+				placeholder="Ex.: paciente pediu, imprevisto do profissional…"
+				class="w-full rounded-md border border-edge bg-surface px-2.5 py-2 text-[13px] text-ink placeholder:text-faint focus:border-teal focus:outline-none"
+			/>
+		</label>
+	</ConfirmDialog>
+{/if}

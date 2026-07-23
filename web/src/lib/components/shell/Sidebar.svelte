@@ -27,6 +27,7 @@
 	import {
 		canManageWaitlist,
 		priorityCounts,
+		type WaitlistCounts,
 		PRIORITY_META,
 		type Entry,
 		type PriorityFilter
@@ -111,8 +112,15 @@
 		{ key: 'normal', label: 'Normal' },
 		{ key: 'baixa', label: 'Baixa' }
 	];
+	// As contagens vêm do SERVIDOR desde que a fila foi paginada (F6): contar `page.data.waitlist`
+	// contaria só a página aberta, e o segmento "Urgente (3)" viraria "(1)" ao virar de página. O
+	// `priorityCounts` local fica como fallback para quem chegar antes do load (ou se a API antiga
+	// responder sem `counts`).
 	const waitlist = $derived((page.data.waitlist as Entry[] | undefined) ?? []);
-	const filaCounts = $derived(priorityCounts(waitlist));
+
+	const filaCounts = $derived(
+		(page.data.counts as WaitlistCounts | undefined) ?? priorityCounts(waitlist)
+	);
 	const canManageFila = $derived(canManageWaitlist(page.data.me?.papel as Papel | null | undefined));
 	const filaPrio = $derived(page.url.searchParams.get('prio') ?? 'todas');
 	const filaHref = (key: PriorityFilter) => (key === 'todas' ? '/fila' : `/fila?prio=${key}`);

@@ -12,10 +12,12 @@ defmodule ApiWeb.WaitlistController do
   alias Api.Waitlist
   alias ApiWeb.WaitlistJSON
 
-  # GET /api/waitlist
-  def index(conn, _params) do
+  # GET /api/waitlist?limit=&offset=
+  def index(conn, params) do
     with_member_scope(conn, fn scope ->
-      %{entries: entries, professionals: professionals} = Waitlist.list_entries(scope)
+      %{entries: entries, professionals: professionals, page: page} =
+        Waitlist.list_entries(scope, opcoes(params))
+
       {today, tz} = clock(scope)
 
       json(conn, %{
@@ -23,10 +25,51 @@ defmodule ApiWeb.WaitlistController do
         professionals: Enum.map(professionals, &WaitlistJSON.professional/1),
         # Data local de hoje (ADR-009): a lista marca a regra `:data` no passado como expirada
         # (tracejada) sem refazer o cálculo de fuso no cliente.
-        today: Date.to_iso8601(today)
+        today: Date.to_iso8601(today),
+        # F6: o "X–Y de Z" da tela. Os tetos são do domínio (`Api.Waitlist`), não daqui — a
+        # fronteira só converte a string do query param em inteiro.
+        page: page,
+        # As contagens da sidebar vêm do servidor **porque** a lista é paginada: contar o que
+        # chegou contaria só a página.
+        counts: Waitlist.entry_counts(scope),
+        # F4: as reservas vivas da clínica — a tela marca "alguém está oferecendo esta vaga".
+        # Da clínica inteira, não da página: a vaga reservada pode ser de um item que não está
+        # nesta página, e o chip que ela bloqueia pode estar.
+        holds: Enum.map(Waitlist.live_holds(scope), &WaitlistJSON.hold/1)
       })
     end)
   end
+
+  # `?limit=`, `?offset=` e `?prio=` chegam como string. Valor inválido é IGNORADO (cai no default
+  # do domínio) em vez de virar 422: paginação torta na URL não é erro do usuário a ponto de
+  # esconder a fila dele.
+  #
+  # O `prio` filtra **no servidor** desde o F6, e não mais no cliente: com a lista paginada,
+  # filtrar a página traria "os urgentes que por acaso caíram nesta página", e o total do rodapé
+  # contaria outra coisa que a lista mostra.
+  defp opcoes(params) do
+    [
+      limit: inteiro(params["limit"]),
+      offset: inteiro(params["offset"]),
+      prio: prio(params["prio"])
+    ]
+    |> Enum.reject(fn {_k, v} -> is_nil(v) end)
+  end
+
+  @prioridades ~w(urgente alta normal baixa)
+
+  defp prio(value) when value in @prioridades, do: String.to_existing_atom(value)
+  defp prio(_value), do: nil
+
+  defp inteiro(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {n, ""} -> n
+      _ -> nil
+    end
+  end
+
+  defp inteiro(value) when is_integer(value), do: value
+  defp inteiro(_value), do: nil
 
   # POST /api/waitlist  (upsert por paciente)
   def create(conn, params) do
@@ -70,10 +113,14 @@ defmodule ApiWeb.WaitlistController do
     end)
   end
 
-  # GET /api/waitlist/slots  — o motor para a fila inteira, numa passada (batch, sem N+1)
-  def all_slots(conn, _params) do
+  # GET /api/waitlist/slots?limit=&offset=  — o motor em lote (sem N+1) para a página visível
+  #
+  # Aceita a MESMA paginação de `index/2` de propósito: com a fila paginada (F6), calcular vagas
+  # para a fila inteira seria trabalho jogado fora — a tela só desenha o chip de quem está na
+  # página. O cliente pede a mesma janela nas duas chamadas.
+  def all_slots(conn, params) do
     with_member_scope(conn, fn scope ->
-      %{entries: entries} = Waitlist.list_entries(scope)
+      %{entries: entries} = Waitlist.list_entries(scope, opcoes(params))
       by_entry = Waitlist.slots_by_entry(scope, entries)
 
       json(conn, %{

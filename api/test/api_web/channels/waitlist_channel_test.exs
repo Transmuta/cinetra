@@ -117,4 +117,37 @@ defmodule ApiWeb.WaitlistChannelTest do
       assert payload.actor.id == ctx.owner.id
     end
   end
+
+  # F4: reservar/soltar uma vaga muda o que a fila mostra ("alguém está oferecendo"), mesmo sem
+  # nenhum item da fila ter mudado. Sem este sinal, a outra recepção só descobriria ao tomar 409.
+  describe "reserva de vaga (F4)" do
+    test "oferecer uma vaga empurra o sinal para quem está na fila" do
+      ctx = fixture()
+
+      prof =
+        Api.Directory.create_professional!("Dra. A", %{},
+          tenant: ctx.clinic.id,
+          actor: ctx.owner
+        )
+
+      {:ok, entry} = Waitlist.enqueue_entry(ctx.scope, %{patient_id: ctx.paciente.id})
+
+      {:ok, _, _socket} =
+        ctx.owner
+        |> socket_for(ctx.clinic)
+        |> subscribe_and_join(ApiWeb.WaitlistChannel, topic(ctx.clinic))
+
+      {:ok, hold} =
+        Waitlist.offer_slot(ctx.scope, entry, %{
+          professional_id: prof.id,
+          starts_at: ~U[2026-07-21 12:00:00Z]
+        })
+
+      assert_push "waitlist_changed", %{change: "slot_held"}
+
+      # E soltar avisa também — senão o chip ficaria "reservado" até alguém recarregar.
+      :ok = Api.Scheduling.release_slot_hold!(hold, scope: ctx.scope)
+      assert_push "waitlist_changed", %{change: "slot_released"}
+    end
+  end
 end

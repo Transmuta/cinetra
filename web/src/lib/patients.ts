@@ -3,6 +3,7 @@
 // é a API (recurso `Patient` + policies); aqui é UX — filtrar, buscar, calcular idade, rótulo
 // comercial e a cor do avatar.
 import { canManageMembers, type Papel } from './session';
+import type { PageInfo } from './pagination';
 import { avatarColor } from './avatar';
 
 export type AttendanceType = 'particular' | 'reembolso' | 'convenio';
@@ -48,13 +49,10 @@ export interface Patient {
 	ativo: boolean;
 }
 
-// Recorte de página devolvido pela API (`GET /api/patients`).
-export interface PageInfo {
-	limit: number;
-	offset: number;
-	total: number;
-	more: boolean;
-}
+// O recorte de página e seus dois helpers moram em `$lib/pagination` desde que a fila passou a
+// paginar também (F6) — nada neles é de paciente. Reexportados aqui para quem já os importava.
+export type { PageInfo } from './pagination';
+export { parsePage, pageLabel } from './pagination';
 
 // Contagens por segmento da sidebar. Vêm do servidor: com a lista paginada, contar o que
 // chegou contaria só a página.
@@ -121,17 +119,6 @@ export function parseFilter(value: string | null | undefined): PatientFilter {
 // ---- Paginação ----
 
 // Nº da página (1-based) vindo da URL; qualquer coisa inválida é a página 1.
-export function parsePage(value: string | null | undefined): number {
-	const n = Number(value);
-	return Number.isInteger(n) && n > 0 ? n : 1;
-}
-
-// Rótulo do rodapé da lista ("1–50 de 214"). Vazio quando não há resultado.
-export function pageLabel(page: PageInfo, shown: number): string {
-	if (!page.total || !shown) return '';
-	return `${page.offset + 1}–${page.offset + shown} de ${page.total}`;
-}
-
 // Nomes dos profissionais preferidos, resolvidos contra um mapa id→nome (a ficha recebe o
 // diretório junto). `prefNomes` :318. Some em silêncio quem não estiver no mapa.
 export function prefNomes(p: Patient, nomePorId: Record<string, string>): string[] {

@@ -5,7 +5,9 @@ vi.mock('$lib/server/waitlist', () => m);
 
 import { GET } from './+server';
 
-const ev = {} as never;
+// O handler lê a janela da URL (F6) — o evento mínimo precisa dela.
+const evento = (qs = '') => ({ url: new URL(`http://localhost/fila/slots${qs}`) }) as never;
+const ev = evento();
 const body = async (r: Response) => (await r.json()) as { slots_by_entry: Record<string, unknown[]> };
 
 beforeEach(() => m.fetchAllSlots.mockReset());
@@ -19,6 +21,20 @@ describe('GET /fila/slots — proxy do motor em lote', () => {
 		const out = await body(await GET(ev));
 		expect(Object.keys(out.slots_by_entry)).toEqual(['e1', 'e2']);
 		expect(out.slots_by_entry.e1).toHaveLength(1);
+	});
+
+	// F6: a tela pede vagas para a MESMA janela da fila. Sem isto o motor calcularia a fila
+	// inteira para uma tela que desenha 50 linhas.
+	it('repassa limit/offset da URL para a API', async () => {
+		m.fetchAllSlots.mockResolvedValueOnce({ status: 200, data: { slots_by_entry: {} } });
+		await GET(evento('?limit=10&offset=20'));
+		expect(m.fetchAllSlots.mock.calls[0][1]).toEqual({ limit: 10, offset: 20 });
+	});
+
+	it('sem janela na URL usa o tamanho de página padrão', async () => {
+		m.fetchAllSlots.mockResolvedValueOnce({ status: 200, data: { slots_by_entry: {} } });
+		await GET(ev);
+		expect(m.fetchAllSlots.mock.calls[0][1]).toEqual({ limit: 50, offset: 0 });
 	});
 
 	// A falha degrada para `{}` — a linha só não mostra a vaga, não estoura.

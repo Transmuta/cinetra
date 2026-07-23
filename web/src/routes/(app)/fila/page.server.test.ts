@@ -26,7 +26,13 @@ function ev(search = '', me: Partial<Me> = {}) {
 
 const okWaitlist = {
 	status: 200,
-	data: { waitlist: [{ id: 'e1' }], professionals: [{ id: 'p1' }], today: '2026-07-21' }
+	data: {
+		waitlist: [{ id: 'e1' }],
+		professionals: [{ id: 'p1' }],
+		today: '2026-07-21',
+		page: { limit: 50, offset: 0, total: 1, more: false },
+		counts: { todas: 1, urgente: 0, alta: 0, normal: 1, baixa: 0 }
+	}
 };
 
 beforeEach(() => {
@@ -62,10 +68,36 @@ describe('load', () => {
 		expect(r.today).toBe('2026-07-21');
 	});
 
-	it('lê o segmento `?prio=` para a sidebar (o filtro em si é do cliente)', async () => {
+	it('lê o segmento `?prio=` e o MANDA para a API (filtro no servidor, F6)', async () => {
 		wl.fetchWaitlist.mockResolvedValueOnce(okWaitlist);
 		const r = (await load(ev('?prio=urgente'))) as { prio: string };
+
 		expect(r.prio).toBe('urgente');
+		expect(wl.fetchWaitlist.mock.calls[0][1]).toEqual({ limit: 50, offset: 0, prio: 'urgente' });
+	});
+
+	// F6: `?page=` vira `offset` para a API — a mesma tradução da lista de Pacientes.
+	it('`?page=3` vira offset na chamada e volta como `current`', async () => {
+		wl.fetchWaitlist.mockResolvedValueOnce(okWaitlist);
+		const r = (await load(ev('?page=3'))) as { current: number; pageInfo: unknown };
+
+		expect(wl.fetchWaitlist.mock.calls[0][1]).toEqual({ limit: 50, offset: 100, prio: 'todas' });
+		expect(r.current).toBe(3);
+		expect(r.pageInfo).toEqual({ limit: 50, offset: 0, total: 1, more: false });
+	});
+
+	it('`?page=` inválido não vira offset negativo', async () => {
+		wl.fetchWaitlist.mockResolvedValueOnce(okWaitlist);
+		const r = (await load(ev('?page=-2'))) as { current: number };
+
+		expect(wl.fetchWaitlist.mock.calls[0][1]).toEqual({ limit: 50, offset: 0, prio: 'todas' });
+		expect(r.current).toBe(1);
+	});
+
+	it('as contagens da sidebar vêm do servidor (não da página)', async () => {
+		wl.fetchWaitlist.mockResolvedValueOnce(okWaitlist);
+		const r = (await load(ev())) as { counts: { todas: number } };
+		expect(r.counts.todas).toBe(1);
 	});
 
 	it('`?prio=` desconhecido cai em "todas"', async () => {

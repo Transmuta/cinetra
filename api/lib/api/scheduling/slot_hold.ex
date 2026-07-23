@@ -28,7 +28,11 @@ defmodule Api.Scheduling.SlotHold do
     otp_app: :api,
     domain: Api.Scheduling,
     data_layer: AshPostgres.DataLayer,
-    authorizers: [Ash.Policy.Authorizer]
+    authorizers: [Ash.Policy.Authorizer],
+    # F4: reservar/soltar uma vaga é o que a tela da fila mostra como "alguém está oferecendo
+    # esta vaga". O notifier é o da FILA (não o da agenda): o hold mora aqui por causa da
+    # constraint, mas quem o exibe é a fila.
+    notifiers: [Api.Waitlist.WaitlistNotifier]
 
   postgres do
     table "slot_holds"

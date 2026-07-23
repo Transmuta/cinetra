@@ -11,13 +11,23 @@ import {
 } from '$lib/server/waitlist';
 import { fetchAppointmentTypes } from '$lib/server/appointment-types';
 import type { MutationResult } from '$lib/server/mutate';
-import { parsePriorityFilter, type Priority, type Rule, type TimeWindow } from '$lib/waitlist';
+import {
+	parsePriorityFilter,
+	PAGE_SIZE,
+	type Priority,
+	type Rule,
+	type TimeWindow
+} from '$lib/waitlist';
+import { parsePage } from '$lib/pagination';
 
 // Fila de espera (doc 25, Entrega 5). Molde de Pacientes no load (todo membro lê; o `?prio` é o
 // segmento da sidebar) e de Agenda nas actions (uma por operação, mesmo formato de retorno com
-// `code` propagado). O `?prio` é filtrado no CLIENTE (a fila é bounded — não paginada — e o GET
-// devolve tudo, como o `filaVagas`/`renderFila` do protótipo); aqui ele só viaja para a tela e a
-// sidebar. Como em toda a agenda, NÃO há recorte de papel no load — a API é que recorta.
+// `code` propagado).
+//
+// Desde o F6 a fila é **paginada**, e por isso o `?prio` passou a filtrar no SERVIDOR: filtrar a
+// página no cliente mostraria "os urgentes que por acaso caíram nesta página", e o rodapé
+// contaria outra coisa. As contagens da sidebar vêm junto, pelo mesmo motivo. Como em toda a
+// agenda, NÃO há recorte de papel no load — a API é que recorta.
 export const load: PageServerLoad = async (event) => {
 	// Etiqueta de invalidação do tempo real (D-E5.3): o sinal `waitlist_changed` do canal
 	// reexecuta SÓ este load (`invalidate('fila:dados')`), sem arrastar o do layout.
@@ -25,9 +35,15 @@ export const load: PageServerLoad = async (event) => {
 
 	// O fuso vem do /me do layout (ADR-009): a conversão vaga-local → instante UTC da conversão
 	// acontece no cliente (`toUtcIso`), e sem o fuso ela erraria por horas — invisível em UTC.
+	// F6: a fila deixou de vir inteira. `?page=` na URL vira `offset` para a API — mesma
+	// tradução da lista de Pacientes, pelos mesmos helpers (`$lib/pagination`).
+	const current = parsePage(event.url.searchParams.get('page'));
+	const prio = parsePriorityFilter(event.url.searchParams.get('prio'));
+	const janela = { limit: PAGE_SIZE, offset: (current - 1) * PAGE_SIZE, prio };
+
 	const [{ me }, wl, types] = await Promise.all([
 		event.parent(),
-		fetchWaitlist(event),
+		fetchWaitlist(event, janela),
 		fetchAppointmentTypes(event)
 	]);
 
@@ -43,7 +59,12 @@ export const load: PageServerLoad = async (event) => {
 		timezone: me.timezone ?? 'UTC',
 		// Data local de hoje (ADR-009): a lista marca a regra `:data` no passado como expirada.
 		today: wl.data.today,
-		prio: parsePriorityFilter(event.url.searchParams.get('prio'))
+		prio,
+		pageInfo: wl.data.page,
+		counts: wl.data.counts,
+		// F4: as vagas que alguém já está oferecendo agora.
+		holds: wl.data.holds ?? [],
+		current
 	};
 };
 

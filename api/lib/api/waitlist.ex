@@ -18,9 +18,12 @@ defmodule Api.Waitlist do
 
   require Ash.Query
 
+  import Ash.Expr
+
   resources do
     resource Api.Waitlist.WaitlistEntry do
       define :list_waitlist_entries, action: :read
+      define :page_waitlist_entries, action: :queued
       define :get_waitlist_entry, action: :read, get_by: [:id]
       define :enqueue_waitlist_entry, action: :enqueue
       define :update_waitlist_entry, action: :update
@@ -39,23 +42,96 @@ defmodule Api.Waitlist do
   prioridade, pelo tempo de espera (mais antigo primeiro). Cada item traz suas regras e o
   paciente (projeção enxuta + agregado de faltas, para o cartão do "quem cabe").
 
-  A ordenação é de **domínio**, não `?sort` do cliente (doc 09 §3.6): a fila tem uma ordem certa,
-  e o Postgres ordena o enum pela string armazenada — por isso o rank é aplicado em Elixir.
+  A ordenação é de **domínio**, não `?sort` do cliente (doc 09 §3.6): a fila tem uma ordem certa.
+  Ela é aplicada **no banco** (`prio_rank`, na ação `:queued`), e não em Elixir sobre a lista
+  inteira — sem isso paginar seria ordenar só a página, e a página 2 não seria a continuação da 1.
+
+  Opções: `:prio` (filtro), `:limit`/`:offset` (F6). Devolve `page` com `total`/`more?` para o
+  "X–Y de Z" da tela — no molde de `Api.Records.list_patients_page/2`.
   """
   def list_entries(%Api.Scope{} = scope, opts \\ []) do
     in_clinic(scope, fn ->
-      entries =
-        list_waitlist_entries!(scope: scope, load: entry_load(), query: build_query(opts))
-        |> sort_by_priority()
+      page =
+        page_waitlist_entries!(
+          scope: scope,
+          load: entry_load(),
+          query: build_query(opts),
+          page: page_opts(opts)
+        )
 
       # Os profissionais ativos vão junto pelo mesmo motivo do `GET /api/appointments`: a tela
       # mostra os "preferidos" por nome e o "quem cabe" precisa das colunas — e é dela que sai o
       # mapa id→nome. Uma leitura só, na mesma transação/GUC.
       %{
-        entries: entries,
+        entries: page.results,
         professionals:
-          Api.Directory.list_professionals!(scope: scope, query: [filter: [ativo: true]])
+          Api.Directory.list_professionals!(scope: scope, query: [filter: [ativo: true]]),
+        page: %{limit: page.limit, offset: page.offset, total: page.count, more: page.more?}
       }
+    end)
+  end
+
+  # Mesmos tetos de robustez de `Api.Records`/`list_audit_log`: um `?offset=` gigante chega cru
+  # no Postgrex e derruba a request com 500; ninguém pagina até lá.
+  @limite_padrao 50
+  @limite_maximo 200
+  @offset_maximo 100_000
+
+  defp page_opts(opts) do
+    [
+      limit: clamp(Keyword.get(opts, :limit), @limite_padrao, 1, @limite_maximo),
+      offset: clamp(Keyword.get(opts, :offset), 0, 0, @offset_maximo),
+      count: true
+    ]
+  end
+
+  defp clamp(value, _default, piso, teto) when is_integer(value),
+    do: value |> Kernel.max(piso) |> Kernel.min(teto)
+
+  defp clamp(_value, default, _piso, _teto), do: default
+
+  @doc """
+  As reservas **vivas** da clínica — o "alguém já está oferecendo esta vaga" (F4).
+
+  A fonte é o próprio `SlotHold`, não uma presença de socket: o hold é o que de fato bloqueia a
+  outra pessoa (é ele que a exclusion constraint enxerga), sobrevive a recarregar a página e não
+  depende de um processo vivo do outro lado. Presence diria "fulano está com o modal aberto";
+  isto diz "esta vaga está reservada até tal hora", que é a informação de que a recepção precisa.
+
+  `expires_at > agora` pelo relógio do **escopo** (ADR-009): um hold vencido ainda pode estar na
+  tabela (o cron é backstop, roda de 5 em 5 min) e mostrá-lo travaria uma vaga que já está livre.
+  """
+  def live_holds(%Api.Scope{} = scope) do
+    in_clinic(scope, fn ->
+      Api.Scheduling.list_slot_holds!(
+        scope: scope,
+        query: Ash.Query.filter(Api.Scheduling.SlotHold, expires_at > ^scope.now),
+        load: [:held_by]
+      )
+    end)
+  end
+
+  @doc """
+  Quantos itens a fila tem por prioridade — a sidebar (F6).
+
+  Vem do servidor pelo mesmo motivo de `Api.Records.clinic_patient_counts/1`: com a lista
+  paginada, contar o que chegou contaria só a página, e o segmento "urgente (3)" viraria
+  "urgente (1)" ao virar de página.
+  """
+  def entry_counts(%Api.Scope{} = scope) do
+    in_clinic(scope, fn ->
+      Api.Waitlist.WaitlistEntry
+      |> Ash.Query.for_read(:queued, %{}, scope: scope)
+      |> Ash.aggregate!(
+        [
+          {:todas, :count, []},
+          {:urgente, :count, [query: [filter: expr(prio == :urgente)]]},
+          {:alta, :count, [query: [filter: expr(prio == :alta)]]},
+          {:normal, :count, [query: [filter: expr(prio == :normal)]]},
+          {:baixa, :count, [query: [filter: expr(prio == :baixa)]]}
+        ],
+        scope: scope
+      )
     end)
   end
 

@@ -3,7 +3,8 @@
 > ⚠️ **Parcialmente desatualizado (2026-07-23).** Vários itens abaixo **já foram resolvidos** em
 > fatias posteriores — verificados como feitos: **D-E, D-P, D-D, D-Q, D-N** (boa parte pelo commit
 > `0a07f4c`), além de **D-M, D-F, D-A, D-C, D-S** (Ondas 1–2) e **D-G, D-H, D-J, D-K, S1**
-> (Frente 3). **Confirme no código antes de reabrir qualquer item daqui.** O status corrente de
+> (Frente 3) e **F3, F4, F6, D-L** (Frente 4). **Confirme no código antes de reabrir qualquer
+> item daqui.** O status corrente de
 > execução vive em [`35-plano-execucao-backlog.md`](35-plano-execucao-backlog.md).
 
 Varredura de **todo o contexto de agenda** — o doc de desenho [`25-agenda.md`](25-agenda.md) (as
@@ -49,10 +50,10 @@ o gatilho.
 | --- | --- | --- | --- |
 | F1 | **UI falta → "quem cabe aqui?"** — gatilho no drawer + modal de oferta a partir de uma falta. | Backend `who_fits` + `/candidates` **pronto e testado**; falta só a UI. | [`25 §9 (E5)`](25-agenda.md), [`29 §5`](29-auditoria-bate-volta-fila-de-espera.md) |
 | F2 | ~~**Tela `/configuracoes/auditoria`** — exibir a trilha.~~ **CONSTRUÍDA.** `TrailMixin` (policies owner·admin + `read :audit_log` paginada), `list_audit_log/2` (feed + diff encadeado do `:changes_only` + enriquecimento autor/registro), `GET /api/audit`, tela SvelteKit (`FieldDiff` novo). Bate-volta feito: [`32`](32-auditoria-bate-volta-tela-auditoria.md) — 1 seg MÉDIO corrigido (uuid malformado → 422, era 500), 2 gargalos estruturais viraram decisão (D-Aud1/D-Aud2 abaixo). | [`25 §11`](25-agenda.md), [`32`](32-auditoria-bate-volta-tela-auditoria.md) |
-| F3 | **`cancel_reason` na UI** — a coluna é gravável pela API, mas o drawer cancela em um clique sem capturar motivo. | Backend pronto; falta a tela. | [`25 §8d`](25-agenda.md) |
-| F4 | **Indicador ao vivo "alguém está oferecendo esta vaga"** (`Presence`-like por-vaga na fila). | Deferido; a corrida já é segura pelo 409. | [`25 §8e (D-E5.3)`](25-agenda.md), [`29 §5`](29-auditoria-bate-volta-fila-de-espera.md) |
+| F3 | ~~**`cancel_reason` na UI**~~ **FEITO** (Frente 4): cancelar abre confirmação com motivo **opcional**, que viaja no form. Opcional de propósito — exigir motivo faz digitar "asdf" para conseguir cancelar. | [`25 §8d`](25-agenda.md), [`35`](35-plano-execucao-backlog.md) |
+| F4 | ~~**Indicador ao vivo "alguém está oferecendo esta vaga"**~~ **FEITO** (Frente 4) — e **sem `Presence`**: a fonte é o próprio `SlotHold` (a linha que a constraint enxerga), o `GET /api/waitlist` devolve as reservas vivas com quem segura, e o notifier emite `slot_held`/`slot_released`. Presence diria "fulano está com o modal aberto" (morre com o processo); o hold diz "reservada até tal hora" e sobrevive a um refresh. | [`25 §8e (D-E5.3)`](25-agenda.md), [`35`](35-plano-execucao-backlog.md) |
 | F5 | **`Phoenix.Presence` "quem está vendo este dia"** (09 §7.4). | Fora das Entregas 3 e 4; não está no protótipo. | [`25 §9 (E3/E4)`](25-agenda.md) |
-| F6 | **Paginação da fila de espera.** | Bounded hoje; follow-up quando crescer. | [`29 §5`](29-auditoria-bate-volta-fila-de-espera.md) |
+| F6 | ~~**Paginação da fila de espera.**~~ **FEITO** (Frente 4): 50/página. Junto vieram três consequências obrigatórias — a ordem de prioridade virou ordenação de **banco** (`prio_rank`), o filtro `?prio=` saiu do cliente para o servidor, e as contagens da sidebar passaram a vir do servidor. `/waitlist/slots` aceita a mesma janela. | [`29 §5`](29-auditoria-bate-volta-fila-de-espera.md), [`35`](35-plano-execucao-backlog.md) |
 | F7 | **Confirmar/iniciar atendimento como ações reais** (`confirmar`, `iniciar_atendimento`). | Hoje `confirmado`/`em_atendimento` só nascem de seed; "Enviar confirmação" é só toast. Depende de decisão de produto: *o que "confirmar" significa sem WhatsApp? `em_atendimento` deriva do relógio?* | [`25 §8d (D-E4.1)`](25-agenda.md) |
 | F8 | **Eliminação de dados do titular (LGPD)** — resolução do **P4**. Fatia a construir, ancorada no **Paciente**. Nada existe hoje (sem `destroy`; FK do paper-trail sem `ON DELETE`). | Backend **não** iniciado. **Desenho decidido: hard delete** — `destroy` que apaga de verdade + `ON DELETE` podando a trilha junto (anonimização descartada). Atenção: contraria a política geral "sem hard delete" do projeto ([`25 §3`](25-agenda.md)) — é a exceção deliberada para o direito de eliminação; restringir por policy a owner/admin e provar sob RLS. | [`26 §5.1 (c)`](26-auditoria-bate-volta-agenda.md), P4 acima |
 
@@ -117,7 +118,7 @@ decisão de arquitetura ou toca infra/código já entregue.
 | D-I | **Cascata N+1 por participante** (`cascade_to_attendances.ex`) — transição de turma custa 3N escritas. | 19→25 queries de turma 1→3. **ADIADO.** Bounded pela capacidade da turma. | Caminho de escrita sem o `SetTenantGuc` global + teste de teto. | [`28-ciclo #1`](28-auditoria-bate-volta-ciclo-de-vida.md) |
 | D-J | **Reload em transação separada** (`scheduling.ex`, `load_attendances`) — round-trip após o commit. | **ADIADO.** Bounded (1 tx). | Devolver as attendances do `after_action` e bifurcar status × reschedule. | [`28-ciclo #2`](28-auditoria-bate-volta-ciclo-de-vida.md) |
 | D-K | **`load_clinic` por escrita no notifier** (fuso da clínica, 1 PK-hit/escrita). | Marginal (por escrita, não por assinante). | Cachear o fuso em `persistent_term`, invalidar no `update_clinic_info`. | [`28-tempo-real (d)`](28-auditoria-bate-volta-tempo-real.md) |
-| D-L | **Oban cron O(clínicas)/min** — itera clínicas com a GUC por imposição da RLS. | LOW: `slot_holds` é efêmero (seq scan de tabela quase vazia); O(clínicas) tx/min **independente de carga**. Negligível em 19 clínicas. | Statement único com conexão privilegiada, ou só as clínicas com holds. Revisitável em milhares. | [`29 §5`](29-auditoria-bate-volta-fila-de-espera.md) |
+| D-L | ~~**Oban cron O(clínicas)/min**~~ **FEITO** (Frente 4), mas **não** como sugerido: "statement único com conexão privilegiada" foi **recusado** — `DELETE` global só existe para quem bypassa RLS, e um pool (ou `SECURITY DEFINER`) que enxerga todas as clínicas troca custo desprezível por furo permanente no isolamento (ADR-018). O que entrou: **uma transação por lote** (200 clínicas), só os ids lidos, e cron de **5 em 5 min** (o worker é backstop puro). Teste de contagem de `BEGIN` provado por mutação. | [`29 §5`](29-auditoria-bate-volta-fila-de-espera.md), [`35`](35-plano-execucao-backlog.md) |
 
 ### Correção e concorrência
 

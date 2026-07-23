@@ -55,6 +55,23 @@ defmodule Api.Waitlist.WaitlistEntry do
   actions do
     defaults [:read]
 
+    # A lista da tela (F6). Paginada e **ordenada no banco** — as duas coisas andam juntas: com a
+    # ordenação em memória, paginar significaria ordenar só a página, e a "página 2 da fila" não
+    # seria a continuação da 1. Por isso a ordem de urgência virou a calculation `prio_rank`
+    # (o enum sozinho ordenaria alfabeticamente: alta, baixa, normal, urgente).
+    #
+    # `countable` devolve o total para o "X–Y de Z". `required? false`: quem não pede página
+    # continua recebendo tudo — o motor de vagas e os testes internos não mudam.
+    read :queued do
+      pagination offset?: true,
+                 countable: true,
+                 default_limit: 50,
+                 max_page_size: 200,
+                 required?: false
+
+      prepare build(sort: [prio_rank: :asc, inserted_at: :asc])
+    end
+
     # POST /waitlist — `addFila` (upsert por paciente). Adicionar de novo o mesmo paciente edita
     # o item existente (identity `one_entry_per_patient`).
     create :enqueue do
@@ -153,6 +170,25 @@ defmodule Api.Waitlist.WaitlistEntry do
 
     has_many :rules, Api.Waitlist.AvailabilityRule
     has_many :holds, Api.Scheduling.SlotHold
+  end
+
+  calculations do
+    # A ordem de urgência como valor de banco, para a fila poder ser ordenada e paginada em SQL.
+    #
+    # Espelha `Api.Waitlist.priority_rank/1`, que continua servindo o que é ordenado **em
+    # memória** (o `who_fits`, que já tem a lista carregada). Duas representações da mesma
+    # ordem é dívida consciente — expressão Ash não se deriva de uma função Elixir — e há
+    # teste dedicado provando que as duas concordam, item a item.
+    calculate :prio_rank,
+              :integer,
+              expr(
+                cond do
+                  prio == :urgente -> 0
+                  prio == :alta -> 1
+                  prio == :normal -> 2
+                  true -> 3
+                end
+              )
   end
 
   identities do

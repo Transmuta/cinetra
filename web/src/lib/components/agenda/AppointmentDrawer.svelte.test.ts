@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import '@testing-library/jest-dom/vitest';
-import { render, screen } from '@testing-library/svelte';
+import { render, screen, fireEvent } from '@testing-library/svelte';
 import type { Appointment, AgendaPatient, AgendaAppointmentType, AgendaProfessional } from '$lib/agenda';
 
 vi.mock('$app/forms', () => ({ enhance: () => ({ destroy() {} }) }));
@@ -113,6 +113,46 @@ describe('AppointmentDrawer', () => {
 		});
 		expect(screen.getByText(/paciente pediu/)).toBeInTheDocument();
 		expect(screen.queryByRole('button', { name: /Enviar confirmação/ })).not.toBeInTheDocument();
+	});
+
+	// F3: o motivo do cancelamento existia na coluna e na tela de leitura, mas ninguém o
+	// preenchia — cancelar era um clique só. O que estes testes travam é que cancelar PERGUNTA
+	// (não submete direto) e que o motivo digitado viaja no form.
+	describe('cancelar pergunta o motivo (F3)', () => {
+		it('o botão Cancelar abre a confirmação em vez de submeter', async () => {
+			render(AppointmentDrawer, { props: { appt: appt(), ...base } });
+
+			const botao = screen.getByRole('button', { name: /^Cancelar$/ });
+			expect(botao).toHaveAttribute('type', 'button');
+
+			await fireEvent.click(botao);
+
+			// A confirmação abriu: o campo de motivo só existe dentro dela.
+			expect(screen.getByPlaceholderText(/paciente pediu/i)).toBeInTheDocument();
+			expect(screen.getByRole('button', { name: 'Voltar' })).toBeInTheDocument();
+		});
+
+		it('o motivo digitado entra no form que a confirmação submete', async () => {
+			const { container } = render(AppointmentDrawer, { props: { appt: appt(), ...base } });
+
+			await fireEvent.click(screen.getByRole('button', { name: /^Cancelar$/ }));
+			await fireEvent.input(screen.getByPlaceholderText(/paciente pediu/i), {
+				target: { value: 'imprevisto do profissional' }
+			});
+
+			const campo = container.querySelector('input[name="cancel_reason"]') as HTMLInputElement;
+			expect(campo.value).toBe('imprevisto do profissional');
+			expect(campo.form?.getAttribute('action')).toBe('?/cancelar');
+		});
+
+		it('Voltar fecha sem submeter', async () => {
+			render(AppointmentDrawer, { props: { appt: appt(), ...base } });
+
+			await fireEvent.click(screen.getByRole('button', { name: /^Cancelar$/ }));
+			await fireEvent.click(screen.getByRole('button', { name: 'Voltar' }));
+
+			expect(screen.queryByPlaceholderText(/paciente pediu/i)).not.toBeInTheDocument();
+		});
 	});
 
 	it('turma mostra a lista de participantes com N/cap', () => {

@@ -35,26 +35,42 @@ beforeEach(() => {
 	mut.mutate.mockResolvedValue({ ok: true, status: 201 });
 });
 
+// A janela é obrigatória desde o F6 — a fila é paginada, e as duas chamadas da tela pedem a
+// MESMA (fila e vagas), senão a linha aparece sem chip de vaga.
+const janela = { limit: 50, offset: 0 };
+
 describe('fetchWaitlist', () => {
+	it('o segmento da sidebar viaja como ?prio= (filtro no servidor)', async () => {
+		api.apiFetch.mockResolvedValueOnce(res(200, { waitlist: [], professionals: [] }));
+		await fetchWaitlist(event, { ...janela, prio: 'urgente' });
+		expect(api.apiFetch.mock.calls[0][1]).toBe('/api/waitlist?limit=50&offset=0&prio=urgente');
+	});
+
+	it('"todas" NÃO vira filtro (é a ausência dele)', async () => {
+		api.apiFetch.mockResolvedValueOnce(res(200, { waitlist: [], professionals: [] }));
+		await fetchWaitlist(event, { ...janela, prio: 'todas' });
+		expect(api.apiFetch.mock.calls[0][1]).toBe('/api/waitlist?limit=50&offset=0');
+	});
+
 	it('200 → a fila e os profissionais da barra', async () => {
 		api.apiFetch.mockResolvedValueOnce(
 			res(200, { waitlist: [{ id: 'e1' }], professionals: [{ id: 'p1' }] })
 		);
-		const r = await fetchWaitlist(event);
+		const r = await fetchWaitlist(event, janela);
 		expect(r.status).toBe(200);
 		expect(r.data?.waitlist).toHaveLength(1);
 		expect(r.data?.professionals).toHaveLength(1);
-		expect(api.apiFetch.mock.calls[0][1]).toBe('/api/waitlist');
+		expect(api.apiFetch.mock.calls[0][1]).toBe('/api/waitlist?limit=50&offset=0');
 	});
 
 	it('erro da API → data nula com o status preservado', async () => {
 		api.apiFetch.mockResolvedValueOnce(res(403));
-		expect(await fetchWaitlist(event)).toEqual({ status: 403, data: null });
+		expect(await fetchWaitlist(event, janela)).toEqual({ status: 403, data: null });
 	});
 
 	it('falha de rede → status 0, sem estourar', async () => {
 		api.apiFetch.mockRejectedValueOnce(new Error('boom'));
-		expect(await fetchWaitlist(event)).toEqual({ status: 0, data: null });
+		expect(await fetchWaitlist(event, janela)).toEqual({ status: 0, data: null });
 	});
 });
 
@@ -86,16 +102,16 @@ describe('fetchSlots', () => {
 describe('fetchAllSlots', () => {
 	it('200 → o mapa entry_id → vagas do motor em lote', async () => {
 		api.apiFetch.mockResolvedValueOnce(res(200, { slots_by_entry: { e1: [{ start: 540 }], e2: [] } }));
-		const r = await fetchAllSlots(event);
-		expect(api.apiFetch.mock.calls[0][1]).toBe('/api/waitlist/slots');
+		const r = await fetchAllSlots(event, janela);
+		expect(api.apiFetch.mock.calls[0][1]).toBe('/api/waitlist/slots?limit=50&offset=0');
 		expect(r.data?.slots_by_entry.e1).toHaveLength(1);
 	});
 
 	it('erro/rede degrada para data null (a lista fica sem a vaga, não estoura)', async () => {
 		api.apiFetch.mockResolvedValueOnce(res(502));
-		expect((await fetchAllSlots(event)).data).toBeNull();
+		expect((await fetchAllSlots(event, janela)).data).toBeNull();
 		api.apiFetch.mockRejectedValueOnce(new Error('boom'));
-		expect(await fetchAllSlots(event)).toEqual({ status: 0, data: null });
+		expect(await fetchAllSlots(event, janela)).toEqual({ status: 0, data: null });
 	});
 });
 

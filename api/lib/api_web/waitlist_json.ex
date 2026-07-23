@@ -49,7 +49,13 @@ defmodule ApiWeb.WaitlistJSON do
     }
   end
 
-  @doc "A reserva criada por `offer` (201)."
+  @doc """
+  A reserva criada por `offer` (201) — e, na lista da fila, cada reserva **viva** (F4).
+
+  `held_by` só sai quando a relação vem carregada (a resposta do `offer` não a carrega, e não
+  precisa: quem segura é quem está pedindo). É o nome que a tela usa para dizer *quem* está
+  oferecendo, em vez de um "alguém" anônimo.
+  """
   def hold(hold) do
     %{
       id: hold.id,
@@ -59,7 +65,13 @@ defmodule ApiWeb.WaitlistJSON do
       ends_at: DateTime.to_iso8601(hold.ends_at),
       expires_at: DateTime.to_iso8601(hold.expires_at)
     }
+    |> maybe_held_by(hold)
   end
+
+  defp maybe_held_by(payload, %{held_by: %{id: id, nome: nome}}),
+    do: Map.put(payload, :held_by, %{id: id, nome: nome})
+
+  defp maybe_held_by(payload, _hold), do: payload
 
   def professional(prof), do: ApiWeb.AgendaJSON.professional(prof)
 
