@@ -10,13 +10,17 @@ Natureza do bloqueio: **[P]** decisão de produto · **[T]** técnico/arquitetur
 
 > ## ▶︎ Onde retomar
 >
-> **Onda 1 e Frente 2 estão FEITAS** (ver "Status de execução" abaixo). O próximo passo é a
-> **Frente 3 (tempo real & escrita)**, e a recomendação é **começar por uma varredura de
-> verificação**, não por código: nesta rodada, **5 de 12 itens atacados já estavam prontos**
-> (D-E, D-P, H60, D-D, D-Q) — o doc 30 envelheceu. Confira cada item da Frente 3 no código
-> antes de codar. Depois vem a Frente 4 (fila).
+> **Onda 1 está feita. A Frente 2 está PARCIAL** — o bate-volta reprovou e reverteu o **D-A**
+> (índice que nunca anexava) e removeu o **D-S** (seed sem guarda que ia para a imagem de prod).
+> Ver "Status de execução" abaixo, e "D-A — o diagnóstico correto" antes de tentar de novo.
 >
-> Para rodar a suíte fora do container, ver a receita em "Ambiente" no fim deste doc.
+> Próximo passo: **Frente 3 (tempo real & escrita)**, e a recomendação é **começar por uma
+> varredura de verificação**, não por código: nesta rodada, **5 de 12 itens atacados já estavam
+> prontos** (D-E, D-P, H60, D-D, D-Q) — o doc 30 envelheceu. Confira cada item no código antes
+> de codar. Depois vem a Frente 4 (fila).
+>
+> Duas lições da leva, que valem para a Frente 3: **medir pelo caminho da aplicação**, nunca por
+> SQL escrito à mão; e **provar que o teste morde** (mutação), porque teste verde não é rede.
 
 ## Fora desta rodada (deferidos de novo, conscientes)
 
@@ -52,12 +56,12 @@ Registro para não parecerem esquecidos — **não** entram nas ondas abaixo:
 
 ## As frentes
 
-### Frente 0 — Enablers de medição ✅ FEITA
-- **D-M** — subconjunto `@tag :rls` rodando como `movimento_app` (NOBYPASSRLS) para o gate do CI
-  pegar bug de GUC/RLS. **[T]**
-- **D-S** — seed **idempotente e repetível** numa clínica dedicada, para tornar mensuráveis
-  D-A/D-D/D-R. Entregue com **~10k agendamentos** (o doc 30 falava em ~1.800; o alvo foi
-  elevado na execução). **[T]**
+### Frente 0 — Enablers de medição 🟡 PARCIAL
+- **D-M** ✅ — subconjunto `@tag :rls` rodando como `movimento_app` (NOBYPASSRLS); o gate do CI
+  estava quebrado e passou a morder (provado por mutação). **[T]**
+- **D-S** ❌ **removido** — o seed foi escrito e semeou o dev, mas ia embarcado na imagem de
+  produção sem guarda de ambiente. O dado de volume permanece no `movimento_dev`; o gerador,
+  se voltar, tem de nascer fora de `priv/`. **[T]**
 
 ### Frente 1 — Quick wins / higiene ✅ FEITA
 - **I69** — comentário stale em [`nav.ts`](../web/src/lib/components/shell/nav.ts).
@@ -67,9 +71,10 @@ Registro para não parecerem esquecidos — **não** entram nas ondas abaixo:
 - **D-E** / **D-F** — índices FK (`created_by_id`; btree próprio de `professional_id`).
 - **D-P** — política DST: **empurra no gap / primeira ocorrência no ambíguo** + teste com tz DST.
 
-### Frente 2 — Performance de leitura da agenda ✅ FEITA
+### Frente 2 — Performance de leitura da agenda 🟡 PARCIAL (D-A revertido)
 - **D-C** — paginar o `:in_range`. **Antes da Fatia 3** (Pacotes reusa o read com janelas maiores).
-- **D-A** — índice GiST não-parcial sobre o range (caminho do P5).
+- **D-A** ❌ **revertido pelo bate-volta** — o índice nunca anexava (cast). Volta ao backlog; ler
+  "D-A — o diagnóstico correto" antes de tentar de novo.
 - **D-D** — `/api/availability`: remover sonda duplicada, carregar fontes 1×/janela, aceitar
   `professional_id` múltiplo, devolver `timezone` no `/auth/me`.
 
@@ -119,7 +124,7 @@ Registro para não parecerem esquecidos — **não** entram nas ondas abaixo:
 
 ### Frente 13 — Refactors / limpeza
 - **I67** — extrair `ApiWeb.ScopeGuards`, `sign_in`/`authed` → `ConnCase`, `in_clinic/2`, contrato
-  de paleta. **D-U** — DRY fila↔agenda. **D-R** — pool_size vs fan-out (medir com D-S). **I66** —
+  de paleta. **D-U** — DRY fila↔agenda. **D-R** — pool_size vs fan-out (o dado de volume segue no `movimento_dev`). **I66** —
   e2e do `switch-clinic` + fila/WS não-vazio. **I68** — `goPage` `replaceState` (UX Pacientes).
 
 ---
@@ -128,8 +133,8 @@ Registro para não parecerem esquecidos — **não** entram nas ondas abaixo:
 
 | Onda | Frentes | Estado | Por quê |
 |---|---|---|---|
-| **1 — Fundação** | 0, 1 | ✅ **feita** | Enablers de medição + higiene barata destravam e iluminam o resto |
-| **2 — Perf & tempo real** | 2, 3, 4 | 🟡 Frente 2 feita; **3 e 4 pendentes** | Mensuráveis com a Onda 1; mesma trilha de código |
+| **1 — Fundação** | 0, 1 | 🟡 Frente 1 feita; Frente 0 parcial (D-S removido) | Enablers de medição + higiene barata destravam e iluminam o resto |
+| **2 — Perf & tempo real** | 2, 3, 4 | 🟡 Frente 2 parcial (D-A revertido); **3 e 4 pendentes** | Mensuráveis com a Onda 1; mesma trilha de código |
 | **3 — Valor central** | 5 → 6 → 7 | pendente | Pacotes → Turma → Ficha, sequencial por dependência |
 | **4 — Notificações** | 10 | pendente | Perf antes dos gatilhos; #47 só depois da Onda 3 |
 | **5 — Produção** | 11 | pendente | Antes do primeiro deploy real |
@@ -166,16 +171,38 @@ Registro para não parecerem esquecidos — **não** entram nas ondas abaixo:
 | **D-E**, **D-P**, **H60** | **já estavam feitos** — confirmados, sem ação |
 | **D-F** | Índice btree `appointments.professional_id` |
 
-### Frente 2 (performance de leitura) — COMPLETA
+### Frente 2 (performance de leitura) — PARCIAL (revisada pelo bate-volta)
 
-| Item | Resultado medido |
+> O bate-volta desta mesma leva **reprovou o D-A e o D-S**, que haviam sido dados como entregues.
+> O que está abaixo é o estado real depois dos reverts.
+
+| Item | Estado |
 | --- | --- |
-| **D-S** | Seed de volume ~10k ([`volume_seed.exs`](../api/priv/repo/volume_seed.exs)), idempotente; `movimento_dev` semeado |
-| **D-A** | GiST não-parcial de range + filtro reescrito como `&&`. Janela de 1 dia sobre 10,2k linhas: **10.098 descartadas → 0**, **1,119 ms → 0,117 ms**; e o custo deixa de crescer com o histórico |
-| **D-C** | Paginação offset+keyset no `:in_range`, `required?: false` (nenhum chamador muda); keyset habilita `Ash.stream!` para a Fatia 3 |
-| **D-D** | **já estava feito** (`load_availability_window`, `professional_id` múltiplo, `timezone` no `/auth/me`, sonda removida) — e **coberto por teste** que trava a ordem de grandeza |
+| **D-A** | ❌ **REVERTIDO.** O índice GiST **nunca anexava**: o Ash emite `tsrange(a0."starts_at"::timestamp, …)` e o índice foi criado sem cast — expressão de índice não casa. Provado por `pg_stat_user_indexes` (contador parado enquanto a app rodava) e pelo plano real sob `movimento_app`: **Seq Scan descartando 10.098 linhas**. Saldo: +1.096 kB e **+43% de latência de INSERT** por ganho zero, e o predicado reescrito ficou **mais lento** que o original. **Volta ao backlog** — ver "D-A, o diagnóstico correto" abaixo |
+| **D-S** | ❌ **REMOVIDO.** O seed não tinha guarda de ambiente e `priv/` é embarcado no release (`Dockerfile.prod: COPY priv priv`). Como `clinics`/`users`/`memberships` **não têm RLS**, rodá-lo por engano contra produção deixaria usuário, clínica e membership `owner` reais antes de falhar |
+| **D-C** | ✅ Paginação offset+keyset, `required?: false` (nenhum chamador muda). Testes reforçados no bate-volta: empates reais no keyset e guarda de truncamento (101 > `default_limit`) |
+| **D-D** | ✅ **já estava feito** (`load_availability_window`, `professional_id` múltiplo, `timezone` no `/auth/me`) — e **coberto por teste** que trava a ordem de grandeza |
+| **D-F** | ✅ Índice btree `professional_id` — **auditado e aprovado**: serve o check de FK do `ON DELETE RESTRICT` e virou o índice de leitura dos caminhos recortados por profissional |
 
-Verde ao fim: api **743/0**, gate RLS **7/0**, web **1155/1155**.
+Verde ao fim: api **747/0**, gate RLS **7/0**, web **1160/1160**.
+
+### D-A — o diagnóstico correto (para quando voltar)
+
+O problema medido é real: o plano varre o histórico porque só `starts_at` é indexável e o limite
+inferior (`ends_at`) vira filtro. O que estava errado era a **solução e a medição**:
+
+- **A medição foi feita com SQL escrito à mão**, sem os casts que o AshPostgres injeta. Qualquer
+  benchmark futuro tem de sair do caminho da aplicação (`list_appointments!`), não do `psql`.
+- **Um índice de expressão só anexa se a expressão bater byte a byte** com a da query. Com
+  `:utc_datetime` (que é `timestamp(0)`), o Ash emite `::timestamp` — o índice precisa do mesmo
+  cast, ou o fragment precisa ser escrito sem `?` nas colunas.
+- **O ganho só existe na janela de Dia** (~1% de seletividade). Em mês e relatórios o seq scan é
+  a escolha correta do planner e continuará sendo.
+- **O keyset do D-C também não indexa**: o Ash emite `((a = $1) AND (b > $2)) OR (a > $3)`, que o
+  Postgres não converte em bound de índice — `Ash.stream!` custa ~2,6× o read completo. A
+  paginação segue correta e útil como bound de memória, mas não como ganho de banco.
+- **Nenhum teste fixa plano de query.** Um teste que rode `EXPLAIN` e afirme o índice no plano
+  teria pego isto no commit — é o que falta antes de tentar de novo.
 
 ### Achado ao iniciar a Onda 1 (D-M já existia, mas o gate estava quebrado)
 
@@ -189,11 +216,29 @@ banco correto) + provar verde, e não remontá-lo do zero.
 
 ---
 
-## Ambiente — rodar a suíte fora do container
+## Ambiente
 
-O projeto é feito para rodar em container (`docker compose up`). Quando isso não estiver
-disponível (ex.: distro WSL sem integração Docker), a suíte **roda no host** — foi assim que esta
-rodada foi verificada. Elixir 1.18.4/OTP 27 via asdf + um Postgres em container:
+**O caminho normal é o container, e ele funciona** — inclusive numa distro WSL sem a integração
+Docker ativada, usando o binário do Windows (`/mnt/c/Program Files/Docker/Docker/resources/bin/docker.exe`):
+
+```bash
+docker compose up -d                       # db + api + web
+docker compose exec api mix test
+docker compose exec api mix ash.codegen add_alguma_coisa
+docker compose exec web npm run check
+```
+
+> ⚠️ **Correção registrada.** Durante a execução desta leva eu concluí — e cheguei a escrever
+> aqui — que "a stack não roda em container neste ambiente". **Era falso.** A conclusão veio de um
+> `docker run -v <path-wsl>` avulso que monta vazio; os bind mounts dos **serviços do compose**
+> resolvem normalmente. O container escreve na source montada, inclusive em
+> `priv/resource_snapshots` — que é justamente o que bloqueia o `mix ash.codegen` pelo host.
+> Prefira o container; ele não tem esse problema.
+
+### Alternativa: rodar no host
+
+Serve quando não se quer subir a stack inteira. Elixir 1.18.4/OTP 27 via asdf + um Postgres em
+container:
 
 ```bash
 docker run -d --rm --name pg -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres \
@@ -214,18 +259,16 @@ DATABASE_HOST=localhost DATABASE_USER=movimento_app DATABASE_PASSWORD=movimento_
 
 `SKIP_DB_SETUP=1` é obrigatório no gate: o role restrito não tem CREATE no schema (é o desenho).
 
-**Semear volume** (D-S) — `DATABASE_PORT` foi parametrizado nesta rodada justamente para alcançar
-o Postgres do compose (:5434) a partir do host:
+`DATABASE_PORT` (parametrizado nesta leva, default 5432) é o que permite alcançar o Postgres do
+compose na :5434 a partir do host.
 
-```bash
-MIX_ENV=dev DATABASE_HOST=localhost DATABASE_PORT=5434 mix run priv/repo/volume_seed.exs
-```
+> **Dado de volume.** O `movimento_dev` **tem ~10,2k agendamentos** numa clínica dedicada
+> ("Volume (perf)"), úteis para medir. O script que os gerou **foi removido** do repositório (ver
+> D-S acima): `priv/` embarca no release e ele não tinha guarda de ambiente. Se o volume precisar
+> ser recriado, o gerador deve nascer **fora de `priv/`** — em `test/support/` (que não vai para a
+> imagem) ou como `Ash.Generator`, que é o que as rules do projeto pedem e o repo ainda não usa.
 
-> **Estado atual:** o `movimento_dev` **já está semeado** (clínica "Volume (perf)", ~10,2k
-> agendamentos) e com todas as migrações aplicadas. O seed é idempotente — rodar de novo não
-> duplica nada.
-
-Dois avisos de ambiente, se a suíte falhar de forma estranha no host: diretórios gerados pelo
-container (`.svelte-kit/`, `api/priv/resource_snapshots/`) podem estar **root-owned**, o que
-quebra `svelte-check`/`vitest` e o `mix ash.codegen` com EACCES; e o `node_modules` do host pode
-estar desatualizado em relação ao `package.json` (rode `npm ci`).
+Dois avisos, se a suíte falhar de forma estranha **no host**: diretórios gerados pelo container
+(`.svelte-kit/`, `api/priv/resource_snapshots/`) podem estar **root-owned**, o que quebra
+`svelte-check`/`vitest` e o `mix ash.codegen` com EACCES — no container isso não acontece; e o
+`node_modules` do host pode estar desatualizado (rode `npm ci`).

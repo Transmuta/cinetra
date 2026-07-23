@@ -1099,12 +1099,83 @@ defmodule Api.Scheduling.AppointmentTest do
     end
   end
 
+  # A fronteira do `:in_range` é semi-aberta dos dois lados: `[from, to)` contra
+  # `[starts_at, ends_at)`. A ação promete sobreposição, não contenção ("um bloco que começa 07:50
+  # e termina 08:40 pertence ao dia pedido mesmo que a janela comece 08:00").
+  #
+  # Nada testava isso. Descoberto por mutação no bate-volta: trocar a inclusividade das bordas
+  # atravessava os 743 testes sem uma falha — porque toda chamada de `list_appointments!` do
+  # arquivo usa janela larga (00:00–23:00), onde fronteira nunca morde. Estes três testes existem
+  # para que a próxima reescrita do predicado tenha rede.
+  describe ":in_range — fronteira da janela (semi-aberta)" do
+    test "bloco que TERMINA exatamente no início da janela fica de fora" do
+      ctx = setup_clinic()
+      # 08:00–08:50 (tipo de 50 min)
+      {:ok, _} = schedule(ctx, %{})
+
+      assert [] == Scheduling.list_appointments!(at("08:50"), at("10:00"), scope: ctx.scope)
+    end
+
+    test "bloco que COMEÇA exatamente no fim da janela fica de fora" do
+      ctx = setup_clinic()
+      {:ok, _} = schedule(ctx, %{})
+
+      assert [] == Scheduling.list_appointments!(at("07:00"), at("08:00"), scope: ctx.scope)
+    end
+
+    test "basta SOBREPOR a janela — não precisa estar contido nela" do
+      ctx = setup_clinic()
+      {:ok, appt} = schedule(ctx, %{})
+
+      # janela começa no meio do bloco
+      assert [a] = Scheduling.list_appointments!(at("08:30"), at("10:00"), scope: ctx.scope)
+      assert a.id == appt.id
+
+      # janela termina no meio do bloco
+      assert [b] = Scheduling.list_appointments!(at("07:00"), at("08:30"), scope: ctx.scope)
+      assert b.id == appt.id
+    end
+  end
+
   describe "D-C — paginação do :in_range" do
     test "sem `page:` a lista inteira volta — os chamadores de hoje não mudam" do
       ctx = setup_clinic()
       for hhmm <- ~w(08:00 09:00 10:00), do: {:ok, _} = schedule(ctx, %{starts_at: at(hhmm)})
 
       assert [_, _, _] = Scheduling.list_appointments!(at("00:00"), at("23:00"), scope: ctx.scope)
+    end
+
+    # O teste acima, sozinho, não distingue "lista inteira" de "cortada em `default_limit`": com
+    # 3 registros os dois mundos dão o mesmo resultado. Este fecha o buraco com 101 > 100.
+    # `Ash.Seed` insere direto (rápido) e `encaixe: true` sai do predicado parcial da
+    # `appointments_no_overlap`, então os 101 coexistem no mesmo horário — aqui importa a
+    # CONTAGEM, não a geometria.
+    test "sem `page:` NÃO trunca em default_limit — agenda não pode perder bloco em silêncio" do
+      ctx = setup_clinic()
+
+      for _ <- 1..101 do
+        Ash.Seed.seed!(
+          Api.Scheduling.Appointment,
+          %{
+            starts_at: at("08:00"),
+            ends_at: at("08:50"),
+            professional_id: ctx.prof.id,
+            appointment_type_id: ctx.tipo.id,
+            status: :agendado,
+            encaixe: true,
+            version: 1,
+            pkg_hold: false
+          },
+          tenant: ctx.clinic.id
+        )
+      end
+
+      resultado = Scheduling.list_appointments!(at("00:00"), at("23:00"), scope: ctx.scope)
+
+      assert is_list(resultado), "virou página: `required?: false` deixou de valer"
+
+      assert length(resultado) == 101,
+             "truncou em #{length(resultado)} — o default_limit vazou para quem não pediu página"
     end
 
     # Com offset? e keyset? ligados, o Ash só usa offset quando `offset:` vem junto — sem ele a
@@ -1122,9 +1193,18 @@ defmodule Api.Scheduling.AppointmentTest do
       assert DateTime.compare(a.starts_at, b.starts_at) == :lt
     end
 
+    # EMPATE é o ponto: com `starts_at` distinto o keyset funciona mesmo sem desempate, e o teste
+    # passaria com `sort: [starts_at: :asc]` sozinho — não guardaria nada. Aqui um segundo
+    # profissional duplica cada horário, então as fronteiras de página caem NO MEIO dos empates,
+    # que é onde um cursor não-total pula ou repete linha.
     test "keyset: stream! atravessa as páginas sem pular nem repetir (o uso da Fatia 3)" do
       ctx = setup_clinic()
-      for hhmm <- ~w(08:00 09:00 10:00), do: {:ok, _} = schedule(ctx, %{starts_at: at(hhmm)})
+      colega = Directory.create_professional!("Dr. Y", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+
+      for hhmm <- ~w(08:00 09:00 10:00) do
+        {:ok, _} = schedule(ctx, %{starts_at: at(hhmm)})
+        {:ok, _} = schedule(ctx, %{starts_at: at(hhmm), professional_id: colega.id})
+      end
 
       ids =
         Scheduling.list_appointments!(at("00:00"), at("23:00"),
@@ -1134,8 +1214,12 @@ defmodule Api.Scheduling.AppointmentTest do
         )
         |> Enum.map(& &1.id)
 
-      assert length(ids) == 3, "o stream perdeu ou repetiu linha na fronteira da página"
-      assert Enum.uniq(ids) == ids
+      # 3 horários × 2 profissionais = 6, em 3 pares empatados; batch_size 2 corta dentro deles.
+      assert length(ids) == 6, "o stream perdeu ou repetiu linha na fronteira da página"
+      assert Enum.uniq(ids) == ids, "o stream repetiu linha entre páginas"
+
+      lista = Scheduling.list_appointments!(at("00:00"), at("23:00"), scope: ctx.scope)
+      assert MapSet.new(ids) == MapSet.new(Enum.map(lista, & &1.id))
     end
   end
 

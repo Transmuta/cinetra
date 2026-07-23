@@ -11,13 +11,22 @@ export const load: LayoutServerLoad = async (event) => {
 	// (`invalidate('app:unread')`) quando chega uma notificação, sem recarregar a página.
 	event.depends('app:unread');
 
-	// `me` e a contagem do sino são independentes — dispara os dois em paralelo em vez de
-	// encadear, poupando um round-trip no caminho autenticado (o comum no shell). Seguro:
-	// `fetchUnreadCount` cai em 0 sem lançar, então o Promise.all não estraga os redirects
-	// abaixo, que continuam mandando embora quem não tem sessão/clínica.
-	const [me, unread] = await Promise.all([loadMe(event), fetchUnreadCount(event)]);
+	// `me` e a contagem do sino são independentes, então a contagem parte junto e só é esperada
+	// depois das guardas — poupa um round-trip no caminho autenticado, que é o comum no shell.
+	//
+	// O `.catch` não é decoração. Com `Promise.all`, uma REJEIÇÃO da contagem (API fora do ar)
+	// sequestrava o fluxo: quem não tinha sessão levava 500 em vez de ir para `/entrar`. Isso era
+	// impossível antes do paralelismo, porque o redirect acontecia antes da chamada. Não depender
+	// do `try/catch` que vive lá dentro de `fetchUnreadCount` é o que mantém a garantia aqui,
+	// onde ela é afirmada — e há teste vermelho para os dois casos.
+	//
+	// O custo do paralelismo, que existe: em hit NÃO autenticado ao shell (sessão expirada, bot,
+	// link velho) a chamada da contagem sai assim mesmo e é descartada — 2 requisições à API onde
+	// antes havia 1. São dois 401 baratos, sem banco, e o caminho autenticado é o dominante.
+	const unread = fetchUnreadCount(event).catch(() => 0);
+	const me = await loadMe(event);
 	if (!me) redirect(303, '/entrar');
 	if (!me.active_clinic_id) redirect(303, '/comecar');
 
-	return { me, unread };
+	return { me, unread: await unread };
 };
