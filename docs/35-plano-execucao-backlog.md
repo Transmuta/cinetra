@@ -134,6 +134,35 @@ Registro para não parecerem esquecidos — **não** entram nas ondas abaixo:
 - **D-P:** **empurra no gap / primeira ocorrência no ambíguo** (determinístico, silencioso).
 - **Entrega:** commits pequenos **direto na `develop`** (sem branch/PR nesta onda).
 
+## Status de execução (2026-07-23)
+
+> **Aviso importante: o [`30`](30-decisoes-pendentes-agenda.md) está parcialmente desatualizado.**
+> Vários itens que ele lista como abertos **já haviam sido resolvidos** em fatias posteriores —
+> em boa parte pelo commit `0a07f4c` ("liquida as pendências do doc 26"). Confirme no código
+> antes de reabrir qualquer item daquele doc. Já verificados como **feitos**: D-E, D-P, H60,
+> D-D, D-Q.
+
+### Onda 1 — COMPLETA
+
+| Item | Estado |
+| --- | --- |
+| **D-M** | Gate de RLS do CI **estava quebrado** (apontava para `api_test`); consertado e provado verde (7 testes `:rls` como `movimento_app`) |
+| **D-T** | `mint` 1.9.1→1.9.3 — fecha CVE-2026-58229 (DoS) e CVE-2026-59249 (smuggling) |
+| **H61** / **I69** | BFF paralelo (`Promise.all`) / comentário do rail |
+| **D-E**, **D-P**, **H60** | **já estavam feitos** — confirmados, sem ação |
+| **D-F** | Índice btree `appointments.professional_id` |
+
+### Frente 2 (performance de leitura) — COMPLETA
+
+| Item | Resultado medido |
+| --- | --- |
+| **D-S** | Seed de volume ~10k ([`volume_seed.exs`](../api/priv/repo/volume_seed.exs)), idempotente; `movimento_dev` semeado |
+| **D-A** | GiST não-parcial de range + filtro reescrito como `&&`. Janela de 1 dia sobre 10,2k linhas: **10.098 descartadas → 0**, **1,119 ms → 0,117 ms**; e o custo deixa de crescer com o histórico |
+| **D-C** | Paginação offset+keyset no `:in_range`, `required?: false` (nenhum chamador muda); keyset habilita `Ash.stream!` para a Fatia 3 |
+| **D-D** | **já estava feito** (`load_availability_window`, `professional_id` múltiplo, `timezone` no `/auth/me`, sonda removida) — e **coberto por teste** que trava a ordem de grandeza |
+
+Verde ao fim: api **743/0**, gate RLS **7/0**, web **1155/1155**.
+
 ### Achado ao iniciar a Onda 1 (D-M já existia, mas o gate estava quebrado)
 
 A infra do D-M **já estava semeada**: existe [`test/api/rls_smoke_test.exs`](../api/test/api/rls_smoke_test.exs)
