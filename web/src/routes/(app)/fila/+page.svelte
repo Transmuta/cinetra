@@ -11,7 +11,6 @@
 	import Plus from '@lucide/svelte/icons/plus';
 	import Pencil from '@lucide/svelte/icons/pencil';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
-	import Clock4 from '@lucide/svelte/icons/clock-4';
 	import Stethoscope from '@lucide/svelte/icons/stethoscope';
 	import AddToWaitlistModal from '$lib/components/fila/AddToWaitlistModal.svelte';
 	import OfferSlotModal from '$lib/components/fila/OfferSlotModal.svelte';
@@ -294,155 +293,153 @@
 		</div>
 	{/if}
 
-	{#if list.length}
-		<div class="overflow-hidden rounded-[12px] border border-edge bg-surface">
-			<!-- Cabeçalho (desktop) -->
+	<div class="overflow-hidden rounded-[12px] border border-edge bg-surface">
+		<!-- Cabeçalho (desktop) -->
+		<div
+			class="hidden gap-4 border-b border-edge px-4 pb-2.5 pt-3 text-[12px] font-medium text-faint md:grid {COLS}"
+		>
+			<span>Paciente</span><span>Prioridade</span><span>Disponibilidade</span>
+			<span>Profissional</span><span class="text-right">Espera</span><span></span>
+		</div>
+
+		{#each list as entry (entry.id)}
+			{@const rowSlots = slotsFor(entry)}
+			{@const rowHasVaga = rowSlots.length > 0}
+			<!-- Desktop: linha em grid. Barra teal à esquerda quando há vaga (protótipo :2878). -->
 			<div
-				class="hidden gap-4 border-b border-edge px-4 pb-2.5 pt-3 text-[12px] font-medium text-faint md:grid {COLS}"
+				class="hidden items-center gap-4 border-b border-edge px-4 py-2.5 last:border-b-0 md:grid {COLS} {rowHasVaga
+					? 'shadow-[inset_3px_0_0_var(--mv-teal-solid)]'
+					: ''}"
 			>
-				<span>Paciente</span><span>Prioridade</span><span>Disponibilidade</span>
-				<span>Profissional</span><span class="text-right">Espera</span><span></span>
-			</div>
-
-			{#each list as entry (entry.id)}
-				{@const rowSlots = slotsFor(entry)}
-				{@const rowHasVaga = rowSlots.length > 0}
-				<!-- Desktop: linha em grid. Barra teal à esquerda quando há vaga (protótipo :2878). -->
-				<div
-					class="hidden items-center gap-4 border-b border-edge px-4 py-2.5 last:border-b-0 md:grid {COLS} {rowHasVaga
-						? 'shadow-[inset_3px_0_0_var(--mv-teal-solid)]'
-						: ''}"
-				>
-					<span class="flex min-w-0 items-center gap-2.5">
-						<span
-							class="grid size-7 shrink-0 place-items-center rounded-full text-[10px] font-bold text-white"
-							style="background:{entryColor(entry)}"
-						>
-							{initials(entry.patient.nome)}
-						</span>
-						<span class="min-w-0">
-							<span class="block truncate text-[13px] font-semibold">{entry.patient.nome}</span>
-							{#if entry.obs}<span class="block truncate text-[11px] text-faint">{entry.obs}</span>{/if}
-						</span>
+				<span class="flex min-w-0 items-center gap-2.5">
+					<span
+						class="grid size-7 shrink-0 place-items-center rounded-full text-[10px] font-bold text-white"
+						style="background:{entryColor(entry)}"
+					>
+						{initials(entry.patient.nome)}
 					</span>
-
-					<span><PriorityBadge prio={entry.prio} /></span>
-
-					{@render dispCell(entry)}
-
-					<span class="min-w-0 truncate text-[12px] text-muted">{profNames(entry)}</span>
-
-					<span class="text-right">
-						<span
-							class="font-mono text-[14px] font-semibold tabular-nums {entry.dias_na_fila >= 7
-								? 'text-warning'
-								: 'text-ink'}">{entry.dias_na_fila}</span
-						>
-						<span class="block text-[10px] tracking-[.03em] text-faint">
-							dia{entry.dias_na_fila === 1 ? '' : 's'}
-						</span>
+					<span class="min-w-0">
+						<span class="block truncate text-[13px] font-semibold">{entry.patient.nome}</span>
+						{#if entry.obs}<span class="block truncate text-[11px] text-faint">{entry.obs}</span>{/if}
 					</span>
+				</span>
 
-					<span class="flex items-center justify-end gap-1.5">
-						{#if canManage}
-							<button
-								type="button"
-								onclick={() => openOffer(entry)}
-								title={rowHasVaga
-									? `Próxima vaga: ${slotDateLabel(rowSlots[0])} ${m2t(rowSlots[0].start)}`
-									: 'Sem vaga compatível — oferecer manualmente'}
-								class="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[12px] font-semibold hover:opacity-90 {rowHasVaga
-									? 'border-teal-border bg-teal-subtle text-teal-text'
-									: 'border-edge-strong bg-transparent text-muted'}"
-							>
-								{#if rowHasVaga}<span class="size-1.5 shrink-0 rounded-full bg-teal"></span>{/if}
-								Oferecer
-							</button>
-							<button
-								type="button"
-								title="Editar"
-								aria-label="Editar item de {entry.patient.nome}"
-								onclick={() => (editing = entry)}
-								class={iconBtn}><Pencil size={14} /></button
-							>
-							<button
-								type="button"
-								title="Excluir da fila"
-								aria-label="Remover {entry.patient.nome} da fila"
-								onclick={() => (removing = entry)}
-								class="{iconBtn} text-danger"><Trash2 size={14} /></button
-							>
-						{/if}
+				<span><PriorityBadge prio={entry.prio} /></span>
+
+				{@render dispCell(entry)}
+
+				<span class="min-w-0 truncate text-[12px] text-muted">{profNames(entry)}</span>
+
+				<span class="text-right">
+					<span
+						class="font-mono text-[14px] font-semibold tabular-nums {entry.dias_na_fila >= 7
+							? 'text-warning'
+							: 'text-ink'}">{entry.dias_na_fila}</span
+					>
+					<span class="block text-[10px] tracking-[.03em] text-faint">
+						dia{entry.dias_na_fila === 1 ? '' : 's'}
 					</span>
-				</div>
+				</span>
 
-				<!-- Mobile: cartão. Mesma barra teal do "tem vaga". -->
-				<div
-					class="flex flex-col gap-2 border-b border-edge px-4 py-3 last:border-b-0 md:hidden {rowHasVaga
-						? 'shadow-[inset_3px_0_0_var(--mv-teal-solid)]'
-						: ''}"
-				>
-					<div class="flex items-center gap-2.5">
-						<span
-							class="grid size-8.5 shrink-0 place-items-center rounded-full text-[11px] font-bold text-white"
-							style="background:{entryColor(entry)}"
-						>
-							{initials(entry.patient.nome)}
-						</span>
-						<div class="min-w-0 flex-1">
-							<div class="truncate text-[14px] font-semibold">{entry.patient.nome}</div>
-							<div class="text-[11px] text-faint">
-								<span class="font-mono font-semibold {entry.dias_na_fila >= 7 ? 'text-warning' : 'text-muted'}"
-									>{entry.dias_na_fila}</span
-								>
-								dia{entry.dias_na_fila === 1 ? '' : 's'} na fila
-							</div>
-						</div>
-						<PriorityBadge prio={entry.prio} />
-					</div>
-
-					{#if entry.obs}<div class="text-[12px] text-muted">{entry.obs}</div>{/if}
-
-					{@render dispCell(entry)}
-
-					<div class="flex items-center gap-1.5 text-[12px] text-muted">
-						<Stethoscope size={13} class="shrink-0" />
-						<span class="min-w-0 truncate">{profNames(entry)}</span>
-					</div>
-
+				<span class="flex items-center justify-end gap-1.5">
 					{#if canManage}
-						<div class="mt-1 flex gap-2">
-							{@render oferecerBtn(entry)}
-							<button
-								type="button"
-								aria-label="Editar item de {entry.patient.nome}"
-								onclick={() => (editing = entry)}
-								class="grid size-9 place-items-center rounded-lg border border-edge bg-surface text-muted"
-								><Pencil size={15} /></button
-							>
-							<button
-								type="button"
-								aria-label="Remover {entry.patient.nome} da fila"
-								onclick={() => (removing = entry)}
-								class="grid size-9 place-items-center rounded-lg border border-edge bg-surface text-danger"
-								><Trash2 size={15} /></button
-							>
-						</div>
+						<button
+							type="button"
+							onclick={() => openOffer(entry)}
+							title={rowHasVaga
+								? `Próxima vaga: ${slotDateLabel(rowSlots[0])} ${m2t(rowSlots[0].start)}`
+								: 'Sem vaga compatível — oferecer manualmente'}
+							class="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[12px] font-semibold hover:opacity-90 {rowHasVaga
+								? 'border-teal-border bg-teal-subtle text-teal-text'
+								: 'border-edge-strong bg-transparent text-muted'}"
+						>
+							{#if rowHasVaga}<span class="size-1.5 shrink-0 rounded-full bg-teal"></span>{/if}
+							Oferecer
+						</button>
+						<button
+							type="button"
+							title="Editar"
+							aria-label="Editar item de {entry.patient.nome}"
+							onclick={() => (editing = entry)}
+							class={iconBtn}><Pencil size={14} /></button
+						>
+						<button
+							type="button"
+							title="Excluir da fila"
+							aria-label="Remover {entry.patient.nome} da fila"
+							onclick={() => (removing = entry)}
+							class="{iconBtn} text-danger"><Trash2 size={14} /></button
+						>
 					{/if}
+				</span>
+			</div>
+
+			<!-- Mobile: cartão. Mesma barra teal do "tem vaga". -->
+			<div
+				class="flex flex-col gap-2 border-b border-edge px-4 py-3 last:border-b-0 md:hidden {rowHasVaga
+					? 'shadow-[inset_3px_0_0_var(--mv-teal-solid)]'
+					: ''}"
+			>
+				<div class="flex items-center gap-2.5">
+					<span
+						class="grid size-8.5 shrink-0 place-items-center rounded-full text-[11px] font-bold text-white"
+						style="background:{entryColor(entry)}"
+					>
+						{initials(entry.patient.nome)}
+					</span>
+					<div class="min-w-0 flex-1">
+						<div class="truncate text-[14px] font-semibold">{entry.patient.nome}</div>
+						<div class="text-[11px] text-faint">
+							<span class="font-mono font-semibold {entry.dias_na_fila >= 7 ? 'text-warning' : 'text-muted'}"
+								>{entry.dias_na_fila}</span
+							>
+							dia{entry.dias_na_fila === 1 ? '' : 's'} na fila
+						</div>
+					</div>
+					<PriorityBadge prio={entry.prio} />
 				</div>
-			{/each}
-		</div>
-	{:else}
-		<div class="rounded-[10px] border-t-2 border-edge-strong px-5 py-14 text-center">
-			<Clock4 size={26} class="mx-auto text-faint" />
-			<div class="mt-2.5 text-[13.5px] font-semibold text-muted">
-				Nenhum paciente na fila{data.prio !== 'todas' ? ' com esta prioridade' : ''}
+
+				{#if entry.obs}<div class="text-[12px] text-muted">{entry.obs}</div>{/if}
+
+				{@render dispCell(entry)}
+
+				<div class="flex items-center gap-1.5 text-[12px] text-muted">
+					<Stethoscope size={13} class="shrink-0" />
+					<span class="min-w-0 truncate">{profNames(entry)}</span>
+				</div>
+
+				{#if canManage}
+					<div class="mt-1 flex gap-2">
+						{@render oferecerBtn(entry)}
+						<button
+							type="button"
+							aria-label="Editar item de {entry.patient.nome}"
+							onclick={() => (editing = entry)}
+							class="grid size-9 place-items-center rounded-lg border border-edge bg-surface text-muted"
+							><Pencil size={15} /></button
+						>
+						<button
+							type="button"
+							aria-label="Remover {entry.patient.nome} da fila"
+							onclick={() => (removing = entry)}
+							class="grid size-9 place-items-center rounded-lg border border-edge bg-surface text-danger"
+							><Trash2 size={15} /></button
+						>
+					</div>
+				{/if}
 			</div>
-			<div class="mt-0.5 text-[12.5px] text-faint">
-				Adicione um paciente que aguarda vaga para encaixe.
+		{/each}
+
+		{#if !list.length}
+			<div class="px-7 py-7 text-center text-[13px] text-faint">
+				{#if data.prio !== 'todas'}
+					Nenhum paciente na fila com esta prioridade.
+				{:else}
+					Nenhum paciente na fila ainda.
+				{/if}
 			</div>
-		</div>
-	{/if}
+		{/if}
+	</div>
 </div>
 
 {#if showAdd}
