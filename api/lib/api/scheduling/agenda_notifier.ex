@@ -59,14 +59,20 @@ defmodule Api.Scheduling.AgendaNotifier do
         actor: actor
       })
       when name in @lifecycle do
-    clinic = Api.Scheduling.load_clinic(appointment.clinic_id)
-    new_date = local_date(appointment, clinic)
+    # Só o fuso, e do cache (D-K): o notifier roda em TODA escrita da agenda, e era um PK-hit
+    # na `clinics` por bloco criado/movido/fechado.
+    tz = Api.Scheduling.clinic_timezone(appointment.clinic_id)
+    new_date = local_date(appointment, tz)
 
     payload = %{
       event: event_name(name),
       appointment_id: appointment.id,
       clinic_id: appointment.clinic_id,
       date: new_date,
+      # De quem é a agenda que mudou. Não vai para o cliente: é o que deixa o canal responder
+      # o recorte A7 do modo `signal` sem reler o bloco (D-G/D-H). São **dois** quando uma
+      # remarcação troca de profissional — a coluna de origem também mudou de contagem.
+      professional_ids: affected_professionals(appointment, changeset),
       actor: actor_payload(actor)
     }
 
@@ -74,7 +80,7 @@ defmodule Api.Scheduling.AgendaNotifier do
     # o de destino recebe o bloco; o de **origem** também, senão o bloco fantasma fica lá até
     # um refresh (o cliente o remove ao ver que a data mudou). Os demais eventos afetam só o
     # dia atual do bloco.
-    for date <- affected_dates(name, appointment, changeset, clinic, new_date) |> Enum.uniq() do
+    for date <- affected_dates(name, appointment, changeset, tz, new_date) |> Enum.uniq() do
       day_payload = %{payload | date: date}
       broadcast(day_topic(appointment.clinic_id, date), day_payload)
       broadcast(month_topic(appointment.clinic_id, date), day_payload)
@@ -90,22 +96,30 @@ defmodule Api.Scheduling.AgendaNotifier do
          :reschedule,
          _appointment,
          %Ash.Changeset{data: %{starts_at: old}},
-         clinic,
+         tz,
          new_date
        )
        when not is_nil(old) do
-    [local_date_from(old, clinic), new_date]
+    [local_date_from(old, tz), new_date]
   end
 
-  defp affected_dates(_name, _appointment, _changeset, _clinic, new_date), do: [new_date]
+  defp affected_dates(_name, _appointment, _changeset, _tz, new_date), do: [new_date]
+
+  # Mesma lógica dos dois dias, aplicada à coluna: remarcar entre profissionais tira o bloco de
+  # uma agenda e põe na outra, então as duas mudaram de contagem.
+  defp affected_professionals(appointment, %Ash.Changeset{data: %{professional_id: anterior}})
+       when not is_nil(anterior),
+       do: Enum.uniq([anterior, appointment.professional_id])
+
+  defp affected_professionals(appointment, _changeset), do: [appointment.professional_id]
 
   # O dia é o **local da clínica** (ADR-009): um bloco às 21h de São Paulo é 00:00Z do dia
   # seguinte, e publicá-lo no tópico do dia UTC o faria sumir da tela de quem está no dia certo.
-  defp local_date(appointment, clinic),
-    do: local_date_from(appointment.starts_at, clinic)
+  defp local_date(appointment, tz),
+    do: local_date_from(appointment.starts_at, tz)
 
-  defp local_date_from(starts_at, clinic),
-    do: LocalTime.to_local_date(starts_at, clinic.timezone)
+  defp local_date_from(starts_at, tz),
+    do: LocalTime.to_local_date(starts_at, tz)
 
   defp broadcast(topic, payload),
     do: Phoenix.PubSub.broadcast(Api.PubSub, topic, {:agenda_event, payload})

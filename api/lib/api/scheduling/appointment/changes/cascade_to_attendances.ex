@@ -27,19 +27,24 @@ defmodule Api.Scheduling.Appointment.Changes.CascadeToAttendances do
     Ash.Changeset.after_action(changeset, fn cs, appointment ->
       input = build_input(cs, opts)
 
-      appointment
-      |> Ash.load!([:attendances], authorize?: false, tenant: cs.tenant)
-      |> Map.get(:attendances, [])
-      |> Enum.each(fn attendance ->
-        Ash.update!(attendance, input,
-          action: :transition,
-          authorize?: false,
-          tenant: cs.tenant,
-          actor: context.actor
-        )
-      end)
+      atualizadas =
+        appointment
+        |> Ash.load!([:attendances], authorize?: false, tenant: cs.tenant)
+        |> Map.get(:attendances, [])
+        |> Enum.map(fn attendance ->
+          Ash.update!(attendance, input,
+            action: :transition,
+            authorize?: false,
+            tenant: cs.tenant,
+            actor: context.actor
+          )
+        end)
 
-      {:ok, appointment}
+      # As presenças **já atualizadas** voltam penduradas no bloco (D-J). O `Ash.update!` devolve
+      # cada uma; jogá-las fora obrigava `Api.Scheduling.transition_appointment/5` a reler tudo
+      # numa transação nova, depois do commit — um round-trip inteiro para reconstruir o que
+      # acabara de sair daqui. `Enum.map` no lugar de `Enum.each` é literalmente a diferença.
+      {:ok, %{appointment | attendances: atualizadas}}
     end)
   end
 

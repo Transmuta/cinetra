@@ -1,10 +1,10 @@
 # 30 — Decisões pendentes da Agenda (consolidação)
 
 > ⚠️ **Parcialmente desatualizado (2026-07-23).** Vários itens abaixo **já foram resolvidos** em
-> fatias posteriores — verificados como feitos: **D-E, D-P, D-D, D-Q** (boa parte pelo commit
-> `0a07f4c`), além de **D-M, D-F, D-A, D-C, D-S**, entregues na execução do plano.
-> **Confirme no código antes de reabrir qualquer item daqui.** O status corrente de execução vive
-> em [`35-plano-execucao-backlog.md`](35-plano-execucao-backlog.md).
+> fatias posteriores — verificados como feitos: **D-E, D-P, D-D, D-Q, D-N** (boa parte pelo commit
+> `0a07f4c`), além de **D-M, D-F, D-A, D-C, D-S** (Ondas 1–2) e **D-G, D-H, D-J, D-K, S1**
+> (Frente 3). **Confirme no código antes de reabrir qualquer item daqui.** O status corrente de
+> execução vive em [`35-plano-execucao-backlog.md`](35-plano-execucao-backlog.md).
 
 Varredura de **todo o contexto de agenda** — o doc de desenho [`25-agenda.md`](25-agenda.md) (as
 cinco Entregas e o §9/§10) e os cinco bate-voltas [`26`](26-auditoria-bate-volta-agenda.md),
@@ -131,6 +131,7 @@ decisão de arquitetura ou toca infra/código já entregue.
 | D-R | **`pool_size: 10` vs o fan-out** — 10 profissionais saturam o pool num único render de availability. | Não medido sob carga. | [`26 §5.3 (i)`](26-auditoria-bate-volta-agenda.md) |
 | D-S | **Não medido por falta de volume** — se `attendances_clinic_id_appointment_id_index` é morto ou adormecido, custo do check da exclusion por INSERT, comportamento do pool. | Semear ~1.800 linhas resolveria; **não feito para não escrever no banco de dev sem autorização.** | [`26 §5.4`](26-auditoria-bate-volta-agenda.md) |
 | D-T | **`mint 1.9.1` — CVEs HIGH/MEDIUM** (memory-exhaustion / request-smuggling). | **Não é do diff da agenda** — dep transitiva pré-existente. Handoff para uma decisão de bump separada. | [`29 §5`](29-auditoria-bate-volta-fila-de-espera.md) |
+| D-V | **Bloco fantasma na coluna de origem** — remarcar trocando de **profissional** não remove o bloco da tela de quem via a agenda de origem no modo `block` (Dia/Lista): a releitura por assinante devolve `nil` (o bloco já não é dele) e `nil` vira "não empurra nada". | **Novo, achado na Frente 3.** Irmão do fantasma entre dias, que o notifier já resolve emitindo nos dois tópicos. Aqui não há o que empurrar: o bloco saiu do recorte do assinante. Precisaria de um evento de **remoção** (`appointment_left`) com o id — decisão de contrato de wire. O modo `signal` (Semana/Mês) **não** tem o defeito: desde a Frente 3 o evento carrega `professional_ids` com origem e destino, e as duas agendas recebem o sinal. | Frente 3 |
 | D-U | **DRY fila ↔ agenda** (`finish`/`parseIds`, `/pacientes` gêmeo, boilerplate de socket, projeção de paciente, `same_clinic/2`). | O projeto **clona por fatia de propósito**; consertar toca código já entregue. Candidato a consolidação futura, baixo valor/risco. | [`29 §5`](29-auditoria-bate-volta-fila-de-espera.md) |
 
 ---
@@ -141,7 +142,7 @@ Nenhum quebra o isolamento de tenant; registrados para não sumirem.
 
 | # | Resíduo | Estado | Origem |
 | --- | --- | --- | --- |
-| S1 | **Revogação não alcança socket já aberto** — um socket já aberto segue recebendo eventos da ex-clínica até desconectar. | Barrada no `join` (relê o vínculo). O `disconnect` no sign-out **entrou na E4**; o resíduo é a revogação *sem* sign-out. | [`28-tempo-real (e) R1`](28-auditoria-bate-volta-tempo-real.md) |
+| S1 | ~~**Revogação não alcança socket já aberto**~~ **RESOLVIDO** (Frente 3): `ApiWeb.SocketRevocation` (notifier de `Membership`) derruba os sockets do usuário em `revoke_access` **e** em mudança de papel — o escopo do canal é capturado no `join`, então rebaixar sem derrubar deixaria o recorte antigo valendo pelo resto da conexão. | [`28-tempo-real (e) R1`](28-auditoria-bate-volta-tempo-real.md), [`35`](35-plano-execucao-backlog.md) |
 | S2 | **Token na query string do WS** — bearer visível em log de proxy. | Mitigado pela vida de 900 s; trade-off aceito (09 §8). | [`28-tempo-real (e) R2`](28-auditoria-bate-volta-tempo-real.md) |
 | S3 | **Host de dev (`localhost:4010`) na CSP de prod** — `connect-src` de prod carrega origem de dev. | Inexplorável em prod. Fix opcional: derivar hosts por ambiente no build. | [`28-tempo-real (e) R3`](28-auditoria-bate-volta-tempo-real.md) |
 | S4 | **`professional_in_clinic?/2` aceita profissional arquivado** no hold. | Inofensivo: o hold é efêmero (10 min) e a **conversão** bate no `ReferencesActive` (recusa prof inativo). O portão real é na criação do agendamento. Registrado, não corrigido. | [`29 §5`](29-auditoria-bate-volta-fila-de-espera.md) |

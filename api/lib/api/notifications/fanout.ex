@@ -228,7 +228,7 @@ defmodule Api.Notifications.Fanout do
     starts_at |> LocalTime.to_local_date(tz) |> Date.to_iso8601()
   end
 
-  defp clinic_timezone(clinic_id), do: Api.Scheduling.load_clinic(clinic_id).timezone
+  defp clinic_timezone(clinic_id), do: Api.Scheduling.clinic_timezone(clinic_id)
 
   defp fmt_date(%Date{day: day, month: month}), do: "#{pad(day)}/#{pad(month)}"
   defp pad(n), do: String.pad_leading(Integer.to_string(n), 2, "0")

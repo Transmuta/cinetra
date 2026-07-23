@@ -15,6 +15,9 @@ defmodule Api.Application do
       # no plug (auditoria doc 13, causa A).
       {Api.RateLimiter, [clean_period: :timer.minutes(1)]},
       {Phoenix.PubSub, name: Api.PubSub},
+      # Cache do fuso da clínica (D-K). Depende do PubSub — é por ele que a invalidação de um
+      # nó chega aos outros (`:persistent_term` é por-nó).
+      Api.Accounts.ClinicTimezone,
       # Oban — o cron de limpeza dos `SlotHold` vencidos (doc 09 §6.2). Em teste sobe em modo
       # manual (config/test.exs), sem cron nem filas.
       {Oban, Application.fetch_env!(:api, Oban)},

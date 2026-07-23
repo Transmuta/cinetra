@@ -966,6 +966,28 @@ defmodule Api.Scheduling.AppointmentTest do
                Scheduling.transition_appointment(scope, appt.id, :complete)
     end
 
+    # D-J: a transição não pode reler as presenças DEPOIS do commit. O teto pega a volta do
+    # round-trip (medido: 18 → 14 queries num `complete`, e 4 → 3 toques na tabela de
+    # presenças), sem cravar o número exato, que muda com refactor legítimo.
+    test "a transição não relê as presenças depois do commit (D-J)" do
+      ctx = setup_clinic()
+      appt = agendado(ctx)
+      scope = scope_at(ctx.owner, ctx.clinic, DateTime.add(at("08:00"), 3600, :second))
+
+      {resultado, toques} =
+        Api.QueryCounter.count(
+          fn -> Scheduling.transition_appointment(scope, appt.id, :complete) end,
+          "attendances"
+        )
+
+      assert {:ok, concluido} = resultado
+      # O bloco sai daqui pronto para serializar — é isso que a releitura fazia.
+      assert [%{status: :concluida}] = concluido.attendances
+
+      assert toques <= 3,
+             "#{toques} toques na tabela de presenças: a releitura pós-commit voltou?"
+    end
+
     test "concluir depois de começar seta o bloco e as presenças" do
       ctx = setup_clinic()
       appt = agendado(ctx)

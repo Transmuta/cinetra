@@ -21,11 +21,11 @@ defmodule ApiWeb.AppointmentsController do
   # A leitura da janela (e o teto de 31 dias) mora em `TenantScope.parse_window/4`.
   def index(conn, params) do
     with_member_scope(conn, fn scope ->
-      clinic = Scheduling.load_clinic(scope.clinic_id)
+      tz = Scheduling.clinic_timezone(scope.clinic_id)
 
       case parse_window(params, "from", "to") do
         {:ok, from_date, to_date} ->
-          render_range(conn, scope, clinic, from_date, to_date, params)
+          render_range(conn, scope, tz, from_date, to_date, params)
 
         {:error, message} ->
           invalid(conn, message)
@@ -155,17 +155,17 @@ defmodule ApiWeb.AppointmentsController do
   # attendances é payload de outra ordem de grandeza para desenhar uma barrinha.
   def counts(conn, params) do
     with_member_scope(conn, fn scope ->
-      clinic = Scheduling.load_clinic(scope.clinic_id)
+      tz = Scheduling.clinic_timezone(scope.clinic_id)
 
       case parse_window(params, "from", "to") do
         {:ok, from_date, to_date} ->
-          counts = Scheduling.load_counts(scope, from_date, to_date, clinic.timezone)
+          counts = Scheduling.load_counts(scope, from_date, to_date, tz)
 
           json(conn, %{
             days: Enum.map(counts.days, &render_day_count/1),
             professionals: Enum.map(counts.professionals, &render_professional/1),
             agora: DateTime.to_iso8601(scope.now),
-            timezone: clinic.timezone
+            timezone: tz
           })
 
         {:error, message} ->
@@ -196,9 +196,7 @@ defmodule ApiWeb.AppointmentsController do
 
   # ---- leitura ----
 
-  defp render_range(conn, scope, clinic, from_date, to_date, params) do
-    tz = clinic.timezone
-
+  defp render_range(conn, scope, tz, from_date, to_date, params) do
     # A janela é local: "o dia 20" começa 00:00 em São Paulo, não em UTC. É o que impede o
     # agendamento das 23h de cair no dia seguinte (LocalTime.to_local_date/2). A conversão mora
     # em `LocalTime.window!/3` — ela e a leitura das contagens precisam concordar sobre quais

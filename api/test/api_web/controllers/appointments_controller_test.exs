@@ -356,6 +356,11 @@ defmodule ApiWeb.AppointmentsControllerTest do
       Directory.create_professional!("Dr. Y", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
       Directory.create_professional!("Dr. Z", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
 
+      # Uma requisição antes de medir: o fuso da clínica é cacheado (D-K) e a PRIMEIRA leitura
+      # da clínica-nova paga a falta. Sem esta, a comparação mediria o aquecimento do cache
+      # (a janela medida primeiro sairia uma query mais cara) em vez do custo da janela.
+      conn |> authed(ctx.owner) |> get("/api/appointments/counts?from=#{@segunda}")
+
       um_dia =
         count_queries(fn ->
           conn

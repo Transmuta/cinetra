@@ -13,7 +13,10 @@ defmodule Api.Accounts.Membership do
     authorizers: [Ash.Policy.Authorizer],
     # Convite aceito → notifica owner/admin (doc 31). Só `:accept_invite` interessa; o notifier
     # ignora as demais ações.
-    notifiers: [Api.Notifications.Notifier]
+    #
+    # S1: revogar/rebaixar derruba os WebSockets abertos daquele usuário — a conexão só reavalia
+    # o vínculo no `join`, e sem isto a revogação valia no REST e não valia no tempo real.
+    notifiers: [Api.Notifications.Notifier, ApiWeb.SocketRevocation]
 
   # Global: o vínculo vive no schema público (liga entidades globais User<->Clinic),
   # sem bloco `multitenancy`. FKs para users e clinics (ambos públicos).

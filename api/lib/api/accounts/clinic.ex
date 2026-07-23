@@ -10,7 +10,9 @@ defmodule Api.Accounts.Clinic do
     otp_app: :api,
     domain: Api.Accounts,
     data_layer: AshPostgres.DataLayer,
-    authorizers: [Ash.Policy.Authorizer]
+    authorizers: [Ash.Policy.Authorizer],
+    # D-K: o fuso da clínica é cacheado; quem escreve aqui derruba o cache (em todos os nós).
+    notifiers: [Api.Accounts.Clinic.CacheNotifier]
 
   # A Clinic é o registry de tenants (schema público). Com tenancy por atributo
   # (ADR-017), a clínica não provisiona schema nenhum — os recursos por-tenant

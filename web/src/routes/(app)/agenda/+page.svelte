@@ -24,7 +24,12 @@
 		type AgendaPatient
 	} from '$lib/agenda';
 	import type { ActionResult } from '@sveltejs/kit';
-	import { agendaTopics, connectAgenda, type RealtimeConfig } from '$lib/realtime';
+	import {
+		agendaTopics,
+		connectAgenda,
+		type AgendaMode,
+		type RealtimeConfig
+	} from '$lib/realtime';
 	import { applyToDay, mergePatients } from '$lib/agenda-live';
 	import { viewRendersCounts } from '$lib/agenda-views';
 	import ProfessionalChips from '$lib/components/agenda/ProfessionalChips.svelte';
@@ -106,8 +111,16 @@
 	// e como o sinal do Mês chama `invalidate`, cada evento derrubava e reabria o WebSocket.
 	// Funcionava, e era churn puro. A chave é string: o `$derived` só notifica quando ela MUDA
 	// de fato, então recarregar o mesmo dia não mexe na conexão.
+	//
+	// O MODO entra na chave junto dos tópicos (D-G/D-H): quem renderiza contagem pede `signal`
+	// e o servidor deixa de reler o bloco só para o cliente descartá-lo. É o MESMO predicado
+	// que decide, logo abaixo, remendar × recarregar — as duas decisões não podem divergir.
+	const modo = $derived(viewRendersCounts(data.view as AgendaView) ? 'signal' : 'block');
+
 	const topicsKey = $derived(
-		realtime ? agendaTopics(realtime.clinic_id, data.view as AgendaView, data.date).join('|') : ''
+		realtime
+			? [modo, ...agendaTopics(realtime.clinic_id, data.view as AgendaView, data.date)].join('|')
+			: ''
 	);
 
 	$effect(() => {
@@ -119,33 +132,40 @@
 		const cfg = untrack(() => realtime);
 		if (!cfg) return;
 
-		return connectAgenda(cfg, key.split('|'), {
-			onAppointment: (evento) => {
-				// Semana assina tópicos de DIA (granularidade por dia), mas renderiza contagem:
-				// o bloco não dá para remendar numa barra, então vira refetch — o mesmo caminho
-				// que o sinal do Mês toma. Sem isto a barra da Semana ficava congelada (o bloco
-				// ia para `live.appointments`, que a Semana não mostra). Dia e Lista remendam.
-				if (viewRendersCounts(data.view as AgendaView)) {
-					recarregar();
-					return;
-				}
+		const [mode, ...topics] = key.split('|');
 
-				live = {
-					// `applyToDay` (não `applyAppointment`): Dia e Lista mostram UM dia, e um
-					// `appointment_rescheduled` que moveu o bloco para outro dia precisa REMOVÊ-lo
-					// daqui — senão vira bloco fantasma (Entrega 4, doc 25 §9).
-					appointments: applyToDay(
-						live?.appointments ?? data.appointments,
-						evento.appointment,
-						data.date,
-						data.timezone
-					),
-					patients: mergePatients(live?.patients ?? data.patients, evento.patients ?? [])
-				};
+		return connectAgenda(
+			cfg,
+			topics,
+			{
+				onAppointment: (evento) => {
+					// Semana assina tópicos de DIA (granularidade por dia), mas renderiza contagem:
+					// o bloco não dá para remendar numa barra, então vira refetch — o mesmo caminho
+					// que o sinal do Mês toma. Sem isto a barra da Semana ficava congelada (o bloco
+					// ia para `live.appointments`, que a Semana não mostra). Dia e Lista remendam.
+					if (viewRendersCounts(data.view as AgendaView)) {
+						recarregar();
+						return;
+					}
+
+					live = {
+						// `applyToDay` (não `applyAppointment`): Dia e Lista mostram UM dia, e um
+						// `appointment_rescheduled` que moveu o bloco para outro dia precisa REMOVÊ-lo
+						// daqui — senão vira bloco fantasma (Entrega 4, doc 25 §9).
+						appointments: applyToDay(
+							live?.appointments ?? data.appointments,
+							evento.appointment,
+							data.date,
+							data.timezone
+						),
+						patients: mergePatients(live?.patients ?? data.patients, evento.patients ?? [])
+					};
+				},
+				onSignal: recarregar,
+				onResync: recarregar
 			},
-			onSignal: recarregar,
-			onResync: recarregar
-		});
+			{ mode: mode as AgendaMode }
+		);
 	});
 
 	// Nome do paciente por id, do sidecar `patients` do GET. O mapa é montado por

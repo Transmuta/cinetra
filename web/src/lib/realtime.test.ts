@@ -8,7 +8,10 @@ const fake = vi.hoisted(() => {
 		joinCallbacks: Array<() => void> = [];
 		left = false;
 
-		constructor(public topic: string) {}
+		constructor(
+			public topic: string,
+			public params: Record<string, unknown> = {}
+		) {}
 
 		on(event: string, cb: (p: unknown) => void) {
 			this.handlers[event] = cb;
@@ -64,8 +67,8 @@ const fake = vi.hoisted(() => {
 			this.errorHandler = cb;
 		}
 
-		channel(topic: string) {
-			const ch = new FakeChannel(topic);
+		channel(topic: string, params: Record<string, unknown> = {}) {
+			const ch = new FakeChannel(topic, params);
 			this.channels.push(ch);
 			return ch;
 		}
@@ -163,6 +166,18 @@ describe('connectAgenda', () => {
 	it('manda o token nos params', () => {
 		connectAgenda(config, ['t'], handlers());
 		expect(fake.FakeSocket.last!.opts.params()).toEqual({ token: 'tok-1' });
+	});
+
+	// D-G/D-H: o modo do join é o que evita o servidor reler o bloco para quem só desenha
+	// contagem. O default é `block` — quem não pede nada continua recebendo o bloco.
+	it('entra em modo block por padrão', () => {
+		connectAgenda(config, ['t'], handlers());
+		expect(fake.FakeSocket.last!.channels[0].params).toEqual({ mode: 'block' });
+	});
+
+	it('Semana e Mês entram em modo signal', () => {
+		connectAgenda(config, ['t'], handlers(), { mode: 'signal' });
+		expect(fake.FakeSocket.last!.channels[0].params).toEqual({ mode: 'signal' });
 	});
 
 	it('entrega os eventos de bloco ao handler', () => {

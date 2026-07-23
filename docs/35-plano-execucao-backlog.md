@@ -14,13 +14,17 @@ Natureza do bloqueio: **[P]** decisão de produto · **[T]** técnico/arquitetur
 > (índice que nunca anexava) e removeu o **D-S** (seed sem guarda que ia para a imagem de prod).
 > Ver "Status de execução" abaixo, e "D-A — o diagnóstico correto" antes de tentar de novo.
 >
-> Próximo passo: **Frente 3 (tempo real & escrita)**, e a recomendação é **começar por uma
-> varredura de verificação**, não por código: nesta rodada, **5 de 12 itens atacados já estavam
-> prontos** (D-E, D-P, H60, D-D, D-Q) — o doc 30 envelheceu. Confira cada item no código antes
-> de codar. Depois vem a Frente 4 (fila).
+> **A Frente 3 (tempo real & escrita) está FEITA** — ver o status abaixo. Próximo passo:
+> **Frente 4 (fila de espera & holds)**: F3, F4, F6, D-L.
 >
-> Duas lições da leva, que valem para a Frente 3: **medir pelo caminho da aplicação**, nunca por
-> SQL escrito à mão; e **provar que o teste morde** (mutação), porque teste verde não é rede.
+> A recomendação de **verificar antes de codar** se confirmou de novo: na Frente 3, **2 dos 6
+> itens já estavam prontos** (D-Q e D-N) — 7 no acumulado das três frentes. O doc 30 envelheceu;
+> confira cada item no código antes de abrir editor.
+>
+> Duas lições da leva anterior, que continuam valendo: **medir pelo caminho da aplicação**, nunca
+> por SQL escrito à mão; e **provar que o teste morde** (mutação), porque teste verde não é rede.
+> A Frente 3 seguiu a primeira (as medições saíram do `Api.QueryCounter`, no caminho real) e
+> deixou a segunda **pendente** — os tetos novos não foram testados por mutação.
 
 ## Fora desta rodada (deferidos de novo, conscientes)
 
@@ -78,7 +82,7 @@ Registro para não parecerem esquecidos — **não** entram nas ondas abaixo:
 - **D-D** — `/api/availability`: remover sonda duplicada, carregar fontes 1×/janela, aceitar
   `professional_id` múltiplo, devolver `timezone` no `/auth/me`.
 
-### Frente 3 — Tempo real & escrita ← **PRÓXIMA**
+### Frente 3 — Tempo real & escrita ✅ FEITA
 - **D-G + D-H** — contrato do canal (`block` vs `signal` no join): Semana/Mês só recarregam contagem.
 - **S1** — revogação desconectar sockets já abertos da ex-clínica.
 - **D-K** — cachear fuso da clínica em `persistent_term`, invalidar no `update_clinic_info`.
@@ -86,9 +90,10 @@ Registro para não parecerem esquecidos — **não** entram nas ondas abaixo:
 - ~~**D-Q** — memoizar `memberships`/papel por request.~~ **JÁ ESTAVA FEITO** (resolvido pelo
   `LoadScope` + `Api.Accounts.ActiveMembership`), com teste de contagem de queries próprio em
   `appointments_controller_test.exs` ("a membership é resolvida uma vez por request").
-- **D-N** — unificar a autoridade do recorte (escrita vs leitura) numa fonte só.
+- ~~**D-N** — unificar a autoridade do recorte (escrita vs leitura) numa fonte só.~~ **JÁ ESTAVA
+  FEITO** — leitura e escrita já entravam pelo mesmo `Api.Accounts.ActiveMembership`.
 
-### Frente 4 — Fila de espera & holds
+### Frente 4 — Fila de espera & holds ← **PRÓXIMA**
 - **F3** — `cancel_reason` na UI. **F4** — indicador ao vivo "alguém oferecendo esta vaga".
 - **F6** — paginação da fila. **D-L** — Oban cron O(clínicas)/min → statement único.
 
@@ -134,7 +139,7 @@ Registro para não parecerem esquecidos — **não** entram nas ondas abaixo:
 | Onda | Frentes | Estado | Por quê |
 |---|---|---|---|
 | **1 — Fundação** | 0, 1 | 🟡 Frente 1 feita; Frente 0 parcial (D-S removido) | Enablers de medição + higiene barata destravam e iluminam o resto |
-| **2 — Perf & tempo real** | 2, 3, 4 | 🟡 Frente 2 parcial (D-A revertido); **3 e 4 pendentes** | Mensuráveis com a Onda 1; mesma trilha de código |
+| **2 — Perf & tempo real** | 2, 3, 4 | 🟡 Frente 2 parcial (D-A revertido); Frente 3 feita; **4 pendente** | Mensuráveis com a Onda 1; mesma trilha de código |
 | **3 — Valor central** | 5 → 6 → 7 | pendente | Pacotes → Turma → Ficha, sequencial por dependência |
 | **4 — Notificações** | 10 | pendente | Perf antes dos gatilhos; #47 só depois da Onda 3 |
 | **5 — Produção** | 11 | pendente | Antes do primeiro deploy real |
@@ -159,7 +164,7 @@ Registro para não parecerem esquecidos — **não** entram nas ondas abaixo:
 > Vários itens que ele lista como abertos **já haviam sido resolvidos** em fatias posteriores —
 > em boa parte pelo commit `0a07f4c` ("liquida as pendências do doc 26"). Confirme no código
 > antes de reabrir qualquer item daquele doc. Já verificados como **feitos**: D-E, D-P, H60,
-> D-D, D-Q.
+> D-D, D-Q, **D-N**.
 
 ### Onda 1 — COMPLETA
 
@@ -185,6 +190,37 @@ Registro para não parecerem esquecidos — **não** entram nas ondas abaixo:
 | **D-F** | ✅ Índice btree `professional_id` — **auditado e aprovado**: serve o check de FK do `ON DELETE RESTRICT` e virou o índice de leitura dos caminhos recortados por profissional |
 
 Verde ao fim: api **747/0**, gate RLS **7/0**, web **1160/1160**.
+
+### Frente 3 (tempo real & escrita) — COMPLETA
+
+| Item | Estado |
+| --- | --- |
+| **D-G + D-H** | ✅ O `join` passa a declarar o **modo** (`params["mode"]`). `block` (Dia/Lista) relê o bloco como antes; `signal` (Semana/Mês) **não lê o agendamento** — pergunta o recorte A7 à membership que o `join` já carregou e empurra `agenda_changed`. Medido no caminho real (`Api.QueryCounter` sobre a tabela `appointments`, evento injetado no processo do canal): **modo signal = 0 queries**, modo block > 0. O tópico do **mês ignora `mode: block`**: aquela resolução não tem bloco para empurrar |
+| **D-J** | ✅ A cascata (`CascadeToAttendances`) devolve as presenças que ela mesma atualizou (`Enum.map` no lugar de `Enum.each`), e a remarcação reusa as do fetch que checou a versão. Sumiu a **transação nova depois do commit**. Medido: `complete` de **18 → 14 queries**; toques na tabela `attendances` **4 → 3** |
+| **D-K** | ✅ `Api.Accounts.ClinicTimezone` — `:persistent_term` com invalidação **local** (síncrona) + **broadcast** para os outros nós (o app roda com `DNSCluster`, e `persistent_term` é por-nó). A invalidação é um **notifier** do recurso, não um `change`: hook de transação e update atômico não coexistem (`MustBeAtomic`), e o notifier vale para qualquer ação de escrita da clínica — inclusive as que ainda não existem. Só o **fuso** entra no cache; `cap_turma_padrao`/`slot_minutos` alimentam validação, e valor de validação não se serve de cache |
+| **S1** | ✅ `ApiWeb.SocketRevocation` (notifier de `Membership`) derruba os WebSockets do usuário em `revoke_access` **e** em mudança de papel. O `join` já relia o vínculo; o que faltava era a conexão **já aberta**, cujo escopo é resolvido uma vez e vale enquanto a aba viver. `accept_invite` não derruba (é entrada, não perda de acesso) |
+| **D-Q**, **D-N** | ✅ **já estavam feitos** — confirmados no código, sem ação. O D-N virou, de quebra, a função `OwnAgendaOnly.recorte/3`: a mesma regra que filtra linhas passou a responder também sim/não, para o canal não reimplementar a comparação de `professional_id` |
+
+Verde ao fim: api **764/0**, gate RLS **7/0**, web **1159/1159**, `svelte-check` **0 erros**.
+
+**Efeito colateral bom do D-G/D-H:** o evento interno passou a carregar `professional_ids` (origem
+**e** destino). Com isso, remarcar trocando de profissional agora avisa **as duas** agendas — antes
+o profissional de origem não recebia nada e a contagem dele ficava com um bloco que já não estava lá.
+
+**O que NÃO foi verificado ao vivo (dívida honesta):** o browser não entrou nesta rodada. O MCP do
+Playwright está com `evaluate`/`snapshot` quebrados na sessão, e o `playwright test` não sobe porque
+`web/build/` é **root-owned** (criado pelo container) — o mesmo atrito de ambiente já registrado. A
+prova do canal veio de teste de canal real (`ApiWeb.ChannelCase`, processo de canal de verdade,
+evento injetado), não de um clique. **Falta**: abrir a Semana/Mês no browser e ver a contagem mexer.
+
+**Também não feito:** provar por **mutação** que os tetos novos mordem (o teto de queries do D-J e o
+`queries == 0` do D-G). É a lição da leva anterior, aplicada só pela metade.
+
+**Achado novo, registrado e não consertado — D-V** ([`30 §4`](30-decisoes-pendentes-agenda.md)): no
+modo `block`, remarcar trocando de profissional deixa **bloco fantasma** na tela de quem via a
+agenda de origem. A releitura por assinante devolve `nil` (o bloco não é mais dele) e `nil` vira
+"não empurra nada" — faltaria um evento de **remoção**, que é decisão de contrato de wire. O modo
+`signal` não tem o defeito.
 
 ### D-A — o diagnóstico correto (para quando voltar)
 

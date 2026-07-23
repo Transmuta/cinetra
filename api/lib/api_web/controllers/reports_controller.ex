@@ -19,16 +19,16 @@ defmodule ApiWeb.ReportsController do
   # GET /api/reports/summary?date_from=YYYY-MM-DD&date_to=YYYY-MM-DD&professional_id=
   def summary(conn, params) do
     with_member_scope(conn, fn scope ->
-      clinic = Scheduling.load_clinic(scope.clinic_id)
+      tz = Scheduling.clinic_timezone(scope.clinic_id)
 
       case parse_window(params, "date_from", "date_to") do
         {:ok, from_date, to_date} ->
           professional_id = professional_id(params)
 
           report =
-            Scheduling.load_summary(scope, from_date, to_date, professional_id, clinic.timezone)
+            Scheduling.load_summary(scope, from_date, to_date, professional_id, tz)
 
-          json(conn, render_summary(report, scope, clinic))
+          json(conn, render_summary(report, scope, tz))
 
         {:error, message} ->
           invalid(conn, message)
@@ -43,7 +43,7 @@ defmodule ApiWeb.ReportsController do
 
   # A fronteira nomeia o wire (como `render_day_count` em `AppointmentsController`): o domínio
   # devolve mapas de negócio, aqui viram o contrato HTTP.
-  defp render_summary(report, scope, clinic) do
+  defp render_summary(report, scope, tz) do
     %{
       range: %{from: Date.to_iso8601(report.from), to: Date.to_iso8601(report.to)},
       totals: render_totals(report.totais),
@@ -54,7 +54,7 @@ defmodule ApiWeb.ReportsController do
       appointment_types:
         Enum.map(report.appointment_types, &ApiWeb.AgendaJSON.appointment_type/1),
       agora: DateTime.to_iso8601(scope.now),
-      timezone: clinic.timezone
+      timezone: tz
     }
   end
 

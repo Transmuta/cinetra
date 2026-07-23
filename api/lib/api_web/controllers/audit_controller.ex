@@ -81,7 +81,7 @@ defmodule ApiWeb.AuditController do
       {:ok, nil, nil}
     else
       with {:ok, from_date, to_date} <- parse_window(params, "from", "to") do
-        tz = Scheduling.load_clinic(scope.clinic_id).timezone
+        tz = Scheduling.clinic_timezone(scope.clinic_id)
         {from_dt, to_dt} = LocalTime.window!(from_date, to_date, tz)
         {:ok, from_dt, to_dt}
       end

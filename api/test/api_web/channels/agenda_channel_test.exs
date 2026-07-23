@@ -260,6 +260,176 @@ defmodule ApiWeb.AgendaChannelTest do
     end
   end
 
+  # D-G/D-H: quem renderiza CONTAGEM (Semana e Mês) não precisa do bloco. Antes o canal relia o
+  # agendamento inteiro por assinante — e o assinante do Mês jogava o resultado fora. O modo do
+  # `join` é o que separa as duas coisas; o recorte A7 continua valendo nos dois.
+  # S1: o `join` relê o vínculo, mas a conexão já aberta não é reavaliada nunca mais. Sem
+  # derrubar o socket, quem perde o acesso (ou muda de papel) continua recebendo eventos da
+  # clínica até fechar a aba — a revogação valia no REST e não valia no WebSocket.
+  describe "revogação derruba a conexão" do
+    test "revogar o vínculo manda o socket daquele usuário desconectar" do
+      ctx = fixture()
+      {user, membership} = member(ctx.owner, ctx.clinic, :recepcao)
+
+      ApiWeb.Endpoint.subscribe("user_socket:#{user.id}")
+
+      :ok = Accounts.revoke_access(membership, actor: ctx.owner)
+
+      assert_receive %Phoenix.Socket.Broadcast{event: "disconnect"}
+    end
+
+    test "mudar o papel também derruba — o escopo do canal foi capturado no join" do
+      ctx = fixture()
+      {user, membership} = member(ctx.owner, ctx.clinic, :admin)
+
+      ApiWeb.Endpoint.subscribe("user_socket:#{user.id}")
+
+      {:ok, _} = Accounts.update_membership(membership, %{papel: :recepcao}, actor: ctx.owner)
+
+      assert_receive %Phoenix.Socket.Broadcast{event: "disconnect"}
+    end
+
+    test "aceitar convite NÃO derruba (é entrada, não perda de acesso)" do
+      ctx = fixture()
+      addr = email()
+      attrs = %{papel: :recepcao, clinic_id: ctx.clinic.id}
+      {:ok, pending} = Accounts.invite_member_by_email(addr, attrs, actor: ctx.owner)
+      user = Accounts.get_user_by_email!(addr, authorize?: false)
+
+      ApiWeb.Endpoint.subscribe("user_socket:#{user.id}")
+
+      {:ok, _} = Accounts.accept_invite(pending, actor: user)
+
+      refute_receive %Phoenix.Socket.Broadcast{event: "disconnect"}, 300
+    end
+  end
+
+  describe "modo signal" do
+    test "o dia em modo signal manda sinal e NÃO relê o bloco" do
+      ctx = fixture()
+      scope = scope_for(ctx.owner, ctx.clinic)
+      {:ok, appt} = Scheduling.schedule_appointment(agenda(ctx), scope: scope)
+
+      {:ok, _, socket} =
+        ctx.owner
+        |> socket_for(ctx.clinic)
+        |> subscribe_and_join(ApiWeb.AgendaChannel, dia_topic(ctx.clinic), %{"mode" => "signal"})
+
+      # O evento é injetado (em vez de escrito) para a contagem medir só o que o CANAL faz:
+      # a escrita real emitiria as queries dela junto e o teto não significaria nada.
+      {_, queries} =
+        Api.QueryCounter.count(
+          fn ->
+            send(socket.channel_pid, {:agenda_event, evento(ctx, appt)})
+            assert_push "agenda_changed", payload
+            assert payload == %{day: "2026-07-20", change: "count"}
+          end,
+          "appointments"
+        )
+
+      assert queries == 0
+    end
+
+    test "o mesmo evento em modo block relê o bloco (é o contraste do teste acima)" do
+      ctx = fixture()
+      scope = scope_for(ctx.owner, ctx.clinic)
+      {:ok, appt} = Scheduling.schedule_appointment(agenda(ctx), scope: scope)
+
+      {:ok, _, socket} =
+        ctx.owner
+        |> socket_for(ctx.clinic)
+        |> subscribe_and_join(ApiWeb.AgendaChannel, dia_topic(ctx.clinic), %{"mode" => "block"})
+
+      {_, queries} =
+        Api.QueryCounter.count(
+          fn ->
+            send(socket.channel_pid, {:agenda_event, evento(ctx, appt)})
+            assert_push "appointment_scheduled", payload
+            assert payload.appointment.id == appt.id
+          end,
+          "appointments"
+        )
+
+      assert queries > 0
+    end
+
+    test "A7 no modo signal: o profissional não é avisado do bloco do colega" do
+      ctx = fixture()
+      {prof_user, _} = member(ctx.owner, ctx.clinic, :profissional, ctx.outra.id)
+      scope = scope_for(ctx.owner, ctx.clinic)
+      {:ok, appt} = Scheduling.schedule_appointment(agenda(ctx), scope: scope)
+
+      {:ok, _, socket} =
+        prof_user
+        |> socket_for(ctx.clinic)
+        |> subscribe_and_join(ApiWeb.AgendaChannel, dia_topic(ctx.clinic), %{"mode" => "signal"})
+
+      send(socket.channel_pid, {:agenda_event, evento(ctx, appt)})
+
+      refute_push "agenda_changed", _payload, 300
+    end
+
+    test "A7 no modo signal: o profissional é avisado do PRÓPRIO bloco" do
+      ctx = fixture()
+      {prof_user, _} = member(ctx.owner, ctx.clinic, :profissional, ctx.prof.id)
+      scope = scope_for(ctx.owner, ctx.clinic)
+      {:ok, appt} = Scheduling.schedule_appointment(agenda(ctx), scope: scope)
+
+      {:ok, _, socket} =
+        prof_user
+        |> socket_for(ctx.clinic)
+        |> subscribe_and_join(ApiWeb.AgendaChannel, dia_topic(ctx.clinic), %{"mode" => "signal"})
+
+      send(socket.channel_pid, {:agenda_event, evento(ctx, appt)})
+
+      assert_push "agenda_changed", %{day: "2026-07-20", change: "count"}
+    end
+
+    test "remarcar entre profissionais avisa as DUAS agendas" do
+      ctx = fixture()
+      {prof_user, _} = member(ctx.owner, ctx.clinic, :profissional, ctx.prof.id)
+      scope = scope_for(ctx.owner, ctx.clinic)
+      {:ok, appt} = Scheduling.schedule_appointment(agenda(ctx), scope: scope)
+
+      # Quem escuta é o profissional de ORIGEM: o bloco sai da agenda dele, e sem o aviso a
+      # contagem da Semana/Mês dele ficaria com um bloco que já não está lá.
+      {:ok, _, _socket} =
+        prof_user
+        |> socket_for(ctx.clinic)
+        |> subscribe_and_join(ApiWeb.AgendaChannel, mes_topic(ctx.clinic))
+
+      {:ok, _} =
+        Scheduling.transition_appointment(scope, appt.id, :reschedule, %{
+          starts_at: "2026-07-20T13:00:00Z",
+          professional_id: ctx.outra.id
+        })
+
+      assert_push "agenda_changed", %{day: "2026-07-20", change: "count"}
+    end
+
+    test "mês ignora `mode: block` — o tópico do mês é sinal por definição" do
+      ctx = fixture()
+      scope = scope_for(ctx.owner, ctx.clinic)
+      {:ok, appt} = Scheduling.schedule_appointment(agenda(ctx), scope: scope)
+
+      {:ok, _, socket} =
+        ctx.owner
+        |> socket_for(ctx.clinic)
+        |> subscribe_and_join(ApiWeb.AgendaChannel, mes_topic(ctx.clinic), %{"mode" => "block"})
+
+      {_, queries} =
+        Api.QueryCounter.count(
+          fn ->
+            send(socket.channel_pid, {:agenda_event, evento(ctx, appt)})
+            assert_push "agenda_changed", %{day: "2026-07-20", change: "count"}
+          end,
+          "appointments"
+        )
+
+      assert queries == 0
+    end
+  end
+
   describe "turma" do
     test "entrar numa turma existente empurra participant_added com a lista nova" do
       ctx = fixture()
@@ -302,6 +472,18 @@ defmodule ApiWeb.AgendaChannelTest do
       assert Enum.sort(payload.appointment.patient_ids) == Enum.sort([ctx.paciente.id, outro.id])
       assert length(payload.patients) == 2
     end
+  end
+
+  # A mensagem interna que o `AgendaNotifier` publica — o que trafega é o id, não o bloco.
+  defp evento(ctx, appt) do
+    %{
+      event: "appointment_scheduled",
+      appointment_id: appt.id,
+      clinic_id: ctx.clinic.id,
+      date: ~D[2026-07-20],
+      professional_ids: [appt.professional_id],
+      actor: nil
+    }
   end
 
   defp scope_for(user, clinic) do

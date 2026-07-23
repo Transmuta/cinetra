@@ -21,6 +21,18 @@ export interface AgendaEventPayload {
 	actor: { id: string; nome: string } | null;
 }
 
+/**
+ * O que esta conexão quer receber (D-G/D-H, doc 30 §4).
+ *
+ * `block` — o bloco serializado, para remendar o store (Dia e Lista).
+ * `signal` — só "recarregue a contagem daquele dia" (Semana e Mês).
+ *
+ * Não é preferência de payload: é o que o **servidor** faz. No modo `signal` ele nem lê o
+ * agendamento — antes, todo assinante pagava a releitura completa e a Semana/Mês a jogavam
+ * fora, que é o desperdício que este parâmetro fecha.
+ */
+export type AgendaMode = 'block' | 'signal';
+
 export interface AgendaHandlers {
 	/** Dia e Lista: bloco cheio, aplicado como patch. */
 	onAppointment(payload: AgendaEventPayload): void;
@@ -91,9 +103,10 @@ export function connectAgenda(
 	config: RealtimeConfig,
 	topics: string[],
 	handlers: AgendaHandlers,
-	deps: { refreshToken?: () => Promise<string | null> } = {}
+	opts: { refreshToken?: () => Promise<string | null>; mode?: AgendaMode } = {}
 ): () => void {
-	const refreshToken = deps.refreshToken ?? buscarToken;
+	const refreshToken = opts.refreshToken ?? buscarToken;
+	const mode = opts.mode ?? 'block';
 	let token = config.token;
 
 	const socket = new Socket(socketUrl(config.origin), { params: () => ({ token }) });
@@ -107,7 +120,7 @@ export function connectAgenda(
 	socket.connect();
 
 	const channels = topics.map((topic) => {
-		const channel = socket.channel(topic, {});
+		const channel = socket.channel(topic, { mode });
 
 		for (const evento of EVENTOS_DE_BLOCO) {
 			channel.on(evento, (payload) => handlers.onAppointment(payload as AgendaEventPayload));

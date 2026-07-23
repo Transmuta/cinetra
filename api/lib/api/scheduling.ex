@@ -274,7 +274,7 @@ defmodule Api.Scheduling do
     # `Api.Tenancy.in_clinic/2` avisa; a escrita seta a própria GUC via `SetTenantGuc`.
     with {:ok, appt} <- fetch_for_transition(scope, id, expected_version),
          {:ok, updated} <- dispatch_transition(kind, appt, input, scope) do
-      {:ok, load_attendances(updated, scope)}
+      {:ok, com_attendances(updated, appt, scope)}
     end
   end
 
@@ -292,12 +292,26 @@ defmodule Api.Scheduling do
     end
   end
 
-  # A serialização do bloco lê `patient_ids` das `attendances` (`AgendaJSON`). O resultado de um
-  # `update` não traz o relacionamento carregado (as ações de status até trazem, via cascata,
-  # mas a remarcação não), então recarregamos uma vez aqui — uma forma só de bloco sai por todas
-  # as portas. Leitura, então sob `in_clinic`.
-  defp load_attendances(appointment, scope),
-    do: in_clinic(scope, fn -> Ash.load!(appointment, [:attendances], scope: scope) end)
+  # A serialização do bloco lê `patient_ids` das `attendances` (`AgendaJSON`) — uma forma só de
+  # bloco sai por todas as portas. A questão é de onde elas vêm, e este era o D-J: relê-las
+  # aqui custa uma **transação nova depois do commit**, só para reconstruir o que a ação já
+  # tinha em mãos. As duas fontes que já existem:
+  #
+  #   * ações de status — a cascata (`CascadeToAttendances`) devolve as presenças que ela mesma
+  #     acabou de atualizar, dentro da transação;
+  #   * remarcação — não toca em presença nenhuma, então valem as do fetch que abriu a operação
+  #     (o mesmo `get_appointment(load: [:attendances])` que checou a versão).
+  #
+  # O terceiro caso não deve acontecer (o fetch sempre carrega), mas se acontecer é melhor uma
+  # leitura a mais do que um bloco sem `patient_ids` na tela.
+  defp com_attendances(%{attendances: att} = updated, _appt, _scope) when is_list(att),
+    do: updated
+
+  defp com_attendances(updated, %{attendances: att}, _scope) when is_list(att),
+    do: %{updated | attendances: att}
+
+  defp com_attendances(updated, _appt, scope),
+    do: in_clinic(scope, fn -> Ash.load!(updated, [:attendances], scope: scope) end)
 
   defp version_ok?(_appt, nil), do: true
   defp version_ok?(%{version: version}, expected), do: version == expected
@@ -1026,13 +1040,24 @@ defmodule Api.Scheduling do
   end
 
   @doc """
+  Só o fuso da clínica (ADR-009) — **cacheado** (`Api.Accounts.ClinicTimezone`, D-K).
+
+  A imensa maioria dos chamadores de `load_clinic/1` queria uma coluna só, e pagava um PK-hit
+  por escrita e por leitura de janela para consegui-la. Quem precisa das outras colunas
+  (`cap_turma_padrao`, `slot_minutos` — valores de **validação**, que não se serve de cache)
+  continua em `load_clinic/1`.
+  """
+  def clinic_timezone(clinic_id) when is_binary(clinic_id),
+    do: Api.Accounts.ClinicTimezone.fetch(clinic_id)
+
+  @doc """
   O relógio da clínica ativa (ADR-009) já resolvido: `%{timezone, today, now_minutes}` a partir
   do `scope.now`. Fonte única — `Api.Waitlist.find_slots`/`who_fits` e a fronteira derivavam este
   trio (`load_clinic` → `timezone` → `to_local_date`/`to_local_minutes`) cada um por si, e o
   `candidates` chegava a ler a clínica duas vezes por request (bate-volta E5, achado D1).
   """
   def clinic_now(%Api.Scope{clinic_id: clinic_id, now: now}) do
-    tz = load_clinic(clinic_id).timezone
+    tz = clinic_timezone(clinic_id)
 
     %{
       timezone: tz,
