@@ -17,6 +17,9 @@ defmodule Api.Accounts do
       # Auth sem senha (ADR-015): usados pelo ApiWeb.AuthController.
       define :request_magic_link, action: :request_magic_link, args: [:email]
       define :sign_in_with_magic_link, action: :sign_in_with_magic_link, args: [:token]
+      # Tela "Meu perfil": editar o próprio nome e sair de todos os dispositivos.
+      define :update_profile, action: :update_profile
+      define :log_out_everywhere, action: :log_out_everywhere, args: [:user]
     end
 
     resource Api.Accounts.Clinic do

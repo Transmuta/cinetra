@@ -7,6 +7,10 @@ defmodule ApiWeb.AuthController do
   """
   use ApiWeb, :controller
 
+  # Tradução do erro do Ash em resposta HTTP (403/404/422). Fonte única compartilhada com os
+  # controllers de tenant, mesmo que estes endpoints de identidade sejam globais (sem clínica).
+  import ApiWeb.TenantScope, only: [error_response: 2]
+
   alias Api.Accounts
   alias Api.Accounts.Membership
   alias Api.Scope
@@ -128,6 +132,48 @@ defmodule ApiWeb.AuthController do
     |> Helpers.revoke_session_tokens(:api)
     |> clear_session()
     |> send_resp(:no_content, "")
+  end
+
+  # PATCH /api/auth/me {nome} — a pessoa edita o próprio nome de exibição (tela "Meu perfil").
+  # Ator e alvo são o usuário da sessão; o e-mail (identidade de login passwordless) não é
+  # editável aqui. Nome em branco reprova na ação (`allow_nil? false`) e vira 422.
+  def update_profile(conn, params) do
+    case conn.assigns[:scope] do
+      %Scope{user: user} ->
+        case Accounts.update_profile(user, %{nome: params["nome"]}, actor: user) do
+          {:ok, updated} ->
+            json(conn, %{
+              user: %{id: updated.id, nome: updated.nome, email: to_string(updated.email)}
+            })
+
+          {:error, error} ->
+            error_response(conn, error)
+        end
+
+      _ ->
+        unauthenticated(conn)
+    end
+  end
+
+  # POST /api/auth/sign-out-everywhere — revoga TODOS os tokens do usuário (add-on
+  # log_out_everywhere), encerrando a sessão em todos os dispositivos, INCLUSIVE este. Como o
+  # sign-out comum, derruba os WebSockets vivos e limpa a sessão local (o cookie já não vale,
+  # pois o próprio token desta requisição foi revogado).
+  def sign_out_everywhere(conn, _params) do
+    case conn.assigns[:scope] do
+      %Scope{user: user} ->
+        case Accounts.log_out_everywhere(user, actor: user) do
+          {:error, error} ->
+            error_response(conn, error)
+
+          _ok ->
+            ApiWeb.Endpoint.broadcast("user_socket:#{user.id}", "disconnect", %{})
+            conn |> clear_session() |> send_resp(:no_content, "")
+        end
+
+      _ ->
+        unauthenticated(conn)
+    end
   end
 
   # GET /api/realtime/token — token efêmero (Phoenix.Token) para o WebSocket dos Channels

@@ -60,7 +60,11 @@ defmodule ApiWeb.Router do
 
     get "/auth/magic-link/callback", AuthController, :magic_link_callback
     get "/auth/me", AuthController, :me
+    # Tela "Meu perfil" (identidade global, sem tenant): editar o próprio nome e sair de todos
+    # os dispositivos. `PATCH /auth/me` espelha o `GET /auth/me`; o alvo é sempre o próprio ator.
+    patch "/auth/me", AuthController, :update_profile
     delete "/auth/sign-out", AuthController, :sign_out
+    post "/auth/sign-out-everywhere", AuthController, :sign_out_everywhere
 
     # Token efêmero de WebSocket (ADR-014, 09 §8).
     get "/realtime/token", AuthController, :realtime_token

@@ -72,6 +72,12 @@ defmodule Api.Accounts.User do
       upsert_identity :unique_email
     end
 
+    # Tela "Meu perfil": a pessoa edita o próprio nome de exibição. O e-mail NÃO entra — ele é a
+    # identidade de login passwordless (trocá-lo exigiria reverificar posse do novo e-mail).
+    update :update_profile do
+      accept [:nome]
+    end
+
     read :get_by_subject do
       description "Get a user by the subject claim in a JWT"
       argument :subject, :string, allow_nil?: false
@@ -167,6 +173,17 @@ defmodule Api.Accounts.User do
     # (controller), eles não recebem a flag de "interaction", então liberamos aqui.
     policy action([:request_magic_link, :sign_in_with_magic_link, :register_with_google]) do
       authorize_if always()
+    end
+
+    # "Meu perfil": a pessoa só edita a si mesma (filter check sobre o registro).
+    policy action(:update_profile) do
+      authorize_if expr(id == ^actor(:id))
+    end
+
+    # "Sair de todos os dispositivos": revoga todos os tokens do usuário. Ação genérica, então
+    # a checagem é sobre o argumento `:user` do input (ver ActorIsTargetUser), não um filtro.
+    policy action(:log_out_everywhere) do
+      authorize_if Api.Accounts.User.Checks.ActorIsTargetUser
     end
 
     # Um usuário enxerga a si mesmo; além disso, qualquer membro ATIVO de uma clínica

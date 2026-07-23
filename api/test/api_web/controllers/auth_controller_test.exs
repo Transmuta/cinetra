@@ -9,8 +9,12 @@ defmodule ApiWeb.AuthControllerTest do
 
   alias Api.Accounts
 
-  defp create_user do
-    email = "user-#{System.unique_integer([:positive])}@example.com"
+  defp create_user, do: sign_in("user-#{System.unique_integer([:positive])}@example.com")
+
+  # Um login por magic link para `email`. Chamado duas vezes com o mesmo e-mail, cada retorno
+  # traz um token DISTINTO (dois "dispositivos" do mesmo usuário) — o que o "sair de todos"
+  # precisa para provar que revoga além da própria sessão.
+  defp sign_in(email) do
     :ok = Accounts.request_magic_link(email, %{register?: true})
     assert_receive {:email, mail}, 1_000
     [_, token] = Regex.run(~r/token=([\w.\-]+)/, mail.text_body)
@@ -273,6 +277,73 @@ defmodule ApiWeb.AuthControllerTest do
       # Sessão limpa: uma nova requisição na mesma conn (cookies reciclados) não autentica.
       conn = get(conn, ~p"/api/auth/me")
       assert json_response(conn, 401) == %{"error" => "not_authenticated"}
+    end
+  end
+
+  describe "PATCH /api/auth/me (Meu perfil)" do
+    test "sem sessão: 401 not_authenticated", %{conn: conn} do
+      conn = patch(conn, ~p"/api/auth/me", %{nome: "Novo Nome"})
+      assert json_response(conn, 401) == %{"error" => "not_authenticated"}
+    end
+
+    test "autenticado: 200, atualiza o nome e o /me seguinte reflete", %{conn: conn} do
+      user = create_user()
+      _c = onboard(user)
+
+      conn = conn |> authed(user) |> patch(~p"/api/auth/me", %{nome: "Bianca Ferreira"})
+      body = json_response(conn, 200)
+
+      assert body["user"]["nome"] == "Bianca Ferreira"
+      # O e-mail (identidade de login) NÃO muda por aqui.
+      assert body["user"]["email"] == to_string(user.email)
+
+      me = conn |> get(~p"/api/auth/me") |> json_response(200)
+      assert me["user"]["nome"] == "Bianca Ferreira"
+    end
+
+    test "nome em branco: 422 (allow_nil? false)", %{conn: conn} do
+      user = create_user()
+      _c = onboard(user)
+
+      conn = conn |> authed(user) |> patch(~p"/api/auth/me", %{nome: ""})
+      assert json_response(conn, 422)["error"] == "invalid"
+
+      # E não corrompeu o nome anterior.
+      me = build_conn() |> authed(user) |> get(~p"/api/auth/me") |> json_response(200)
+      assert me["user"]["nome"] == user.nome
+    end
+  end
+
+  describe "POST /api/auth/sign-out-everywhere" do
+    test "sem sessão: 401 not_authenticated", %{conn: conn} do
+      conn = post(conn, ~p"/api/auth/sign-out-everywhere")
+      assert json_response(conn, 401) == %{"error" => "not_authenticated"}
+    end
+
+    test "204 e limpa a própria sessão", %{conn: conn} do
+      user = create_user()
+
+      conn = conn |> authed(user) |> post(~p"/api/auth/sign-out-everywhere")
+      assert conn.status == 204
+
+      conn = get(conn, ~p"/api/auth/me")
+      assert json_response(conn, 401) == %{"error" => "not_authenticated"}
+    end
+
+    test "revoga TODOS os tokens: outra sessão do mesmo usuário também para de valer",
+         %{conn: conn} do
+      email = "user-#{System.unique_integer([:positive])}@example.com"
+      device_a = sign_in(email)
+      device_b = sign_in(email)
+      assert device_a.id == device_b.id
+
+      # O dispositivo B pede "sair de todos".
+      conn_b = conn |> authed(device_b) |> post(~p"/api/auth/sign-out-everywhere")
+      assert conn_b.status == 204
+
+      # O dispositivo A, com um TOKEN diferente, também deixa de autenticar.
+      conn_a = build_conn() |> authed(device_a) |> get(~p"/api/auth/me")
+      assert json_response(conn_a, 401) == %{"error" => "not_authenticated"}
     end
   end
 end
