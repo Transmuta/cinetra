@@ -29,8 +29,8 @@ export interface RailItem {
 	href: string;
 }
 
-// Destinos do rail. Nesta fatia só Configurações → Equipe está construído; os demais
-// levam a 404 de propósito (andaime de navegação).
+// Destinos do rail. Todas as seções abaixo já têm tela construída (Agenda, Pacientes,
+// Profissionais, Fila, Relatórios e Configurações); nenhuma é mais andaime/404.
 export const RAIL_ITEMS: RailItem[] = [
 	{ section: 'agenda', label: 'Agenda', href: '/agenda' },
 	{ section: 'pacientes', label: 'Pacientes', href: '/pacientes' },
