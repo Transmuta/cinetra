@@ -7,14 +7,17 @@ import { fetchUnreadCount } from '$lib/server/notifications';
 // sem clínica ativa, vai para o onboarding (/comecar) — o shell exige um tenant. ADR-005: o
 // BFF resolve `me` server-to-server.
 export const load: LayoutServerLoad = async (event) => {
-	const me = await loadMe(event);
-	if (!me) redirect(303, '/entrar');
-	if (!me.active_clinic_id) redirect(303, '/comecar');
-
 	// O badge do sino (doc 31). `depends` deixa o tempo real revalidar SÓ esta contagem
 	// (`invalidate('app:unread')`) quando chega uma notificação, sem recarregar a página.
 	event.depends('app:unread');
-	const unread = await fetchUnreadCount(event);
+
+	// `me` e a contagem do sino são independentes — dispara os dois em paralelo em vez de
+	// encadear, poupando um round-trip no caminho autenticado (o comum no shell). Seguro:
+	// `fetchUnreadCount` cai em 0 sem lançar, então o Promise.all não estraga os redirects
+	// abaixo, que continuam mandando embora quem não tem sessão/clínica.
+	const [me, unread] = await Promise.all([loadMe(event), fetchUnreadCount(event)]);
+	if (!me) redirect(303, '/entrar');
+	if (!me.active_clinic_id) redirect(303, '/comecar');
 
 	return { me, unread };
 };
