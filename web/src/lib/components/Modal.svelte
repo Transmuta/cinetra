@@ -25,6 +25,7 @@
 <svelte:window onkeydown={(e) => e.key === 'Escape' && onClose()} />
 
 <div
+	data-modal
 	class="fixed inset-0 z-50 grid place-items-center bg-[rgba(8,10,12,0.42)] p-5"
 	role="presentation"
 	onclick={(e) => e.target === e.currentTarget && onClose()}

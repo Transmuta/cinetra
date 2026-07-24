@@ -19,6 +19,7 @@
 	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 	import SwitchToggle from '$lib/components/scheduling/SwitchToggle.svelte';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
+	import Drawer from '$lib/components/Drawer.svelte';
 	import {
 		STATUS_META,
 		statusActions,
@@ -108,12 +109,26 @@
 	}
 </script>
 
-<aside
-	class="fixed inset-y-0 right-0 z-40 flex w-[404px] max-w-full flex-col border-l border-edge bg-surface shadow-modal"
-	aria-label="Detalhes do agendamento"
+<!-- Rodapé: enviar confirmação (fiel — só toast, não há mensageria na v1). Fica fora do
+     `Drawer` e entra por prop porque quem não pode mexer não tem rodapé NENHUM — passar o
+     snippet sempre renderia a faixa (borda + padding) vazia. -->
+{#snippet rodape()}
+	<button
+		type="button"
+		onclick={() => onToast('Confirmação enviada por WhatsApp')}
+		class="flex w-full items-center justify-center gap-2 rounded-lg border border-edge bg-surface px-3 py-2.5 text-[13px] font-semibold hover:bg-surface-2"
+	>
+		<Send size={15} /> Enviar confirmação
+	</button>
+{/snippet}
+
+<Drawer
+	label="Detalhes do agendamento"
+	{onClose}
+	footer={podeMexer && !terminal ? rodape : undefined}
 >
-	<!-- Cabeçalho: status + encaixe + fechar -->
-	<div class="flex items-center gap-2 border-b border-edge px-4 py-3.5">
+	<!-- Cabeçalho: status + encaixe (o X é do shell). -->
+	{#snippet header()}
 		<span
 			class="rounded-full px-2.5 py-1 text-[12px] font-semibold"
 			style="background:{meta.tone
@@ -125,17 +140,9 @@
 		{#if appt.encaixe}
 			<span class="rounded bg-warning px-1.5 py-0.5 text-[10px] font-bold text-white">ENCAIXE</span>
 		{/if}
-		<button
-			type="button"
-			onclick={onClose}
-			aria-label="Fechar"
-			class="ml-auto grid size-7.5 place-items-center rounded-md text-muted hover:bg-surface-2"
-		>
-			<X size={17} />
-		</button>
-	</div>
+	{/snippet}
 
-	<div class="min-h-0 flex-1 space-y-3.5 overflow-auto px-4 py-4 text-[13px]">
+	<div class="space-y-3.5 text-[13px]">
 		<!-- Horário e tipo -->
 		<div class="space-y-1.5">
 			<div class="flex items-baseline gap-2">
@@ -297,20 +304,7 @@
 			{/if}
 		{/if}
 	</div>
-
-	{#if podeMexer && !terminal}
-		<!-- Rodapé: enviar confirmação (fiel — só toast, não há mensageria na v1). -->
-		<div class="border-t border-edge px-4 py-3">
-			<button
-				type="button"
-				onclick={() => onToast('Confirmação enviada por WhatsApp')}
-				class="flex w-full items-center justify-center gap-2 rounded-lg border border-edge bg-surface px-3 py-2.5 text-[13px] font-semibold hover:bg-surface-2"
-			>
-				<Send size={15} /> Enviar confirmação
-			</button>
-		</div>
-	{/if}
-</aside>
+</Drawer>
 
 {#if cancelando}
 	<ConfirmDialog

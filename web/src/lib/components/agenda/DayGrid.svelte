@@ -154,6 +154,7 @@
 		origProfId: string;
 		downX: number;
 		downY: number;
+		pointerId: number;
 		active: boolean;
 		/** Destino (o fantasma): coluna, minuto do topo e rótulo. `null` até passar o limiar. */
 		profId: string | null;
@@ -206,17 +207,25 @@
 			origProfId: info.profId,
 			downX: event.clientX,
 			downY: event.clientY,
+			pointerId: event.pointerId,
 			active: false,
 			profId: null,
 			startMin: null,
 			hora: null
 		};
-		(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+		// A captura do ponteiro NÃO acontece aqui: enquanto o gesto ainda pode virar clique, ela
+		// desviaria o `mouseup` (e com ele o `click`, que sai no ancestral comum de down e up)
+		// para o grid — o `onclick` do <button> do bloco nunca dispararia e o drawer não abriria.
+		// Só capturamos quando o gesto vira arraste de fato, em `onPointerMove`.
 	}
 
 	function onPointerMove(event: PointerEvent) {
 		if (!drag) return;
 		const active = drag.active || passouLimiar(event.clientX - drag.downX, event.clientY - drag.downY);
+		// Virou arraste agora: captura o ponteiro para não perder o gesto se ele sair do grid.
+		if (active && !drag.active) {
+			(event.currentTarget as HTMLElement).setPointerCapture(drag.pointerId);
+		}
 		const preview = active ? alvo(event.clientX, event.clientY, drag) : null;
 		drag = {
 			...drag,
