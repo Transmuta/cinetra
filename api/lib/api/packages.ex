@@ -33,6 +33,46 @@ defmodule Api.Packages do
   defdelegate preview_series(scope, params), to: Api.Packages.Preview, as: :run
 
   @doc """
+  Cria o pacote **e enfileira a materialização** da série (doc 04 §6). O ponto de entrada da
+  criação: o controller chama isto, não `create_package` cru.
+
+  Roda a prévia server-side (nunca confia no cliente) e **decide antes de escrever**:
+
+    * ocorrência **fora do expediente** → `{:error, {:fora_expediente, previa}}`. É bloqueio
+      absoluto (D14): encaixe não isenta, então nem `forcar` materializa esses — recusar de saída
+      evita um pacote que jamais se agenda por inteiro.
+    * conflito/turma cheia **sem `forcar`** → `{:error, {:precisa_confirmar, previa}}`. A tela
+      reapresenta com o "agendar mesmo assim".
+    * caso contrário → cria o pacote, enfileira `Api.Packages.Materializer` (que grava as sessões
+      como `encaixe` quando `forcar`), e devolve `{:ok, package}`.
+
+  A criação do pacote e o enfileiramento do job compartilham a transação da ação
+  (`Oban.insert` dentro do `after_action`), então não há pacote sem job nem job sem pacote.
+  """
+  def create_series(%Api.Scope{} = scope, params, opts \\ []) do
+    forcar = Keyword.get(opts, :forcar, false)
+
+    with {:ok, previa} <- preview_series(scope, params),
+         :ok <- gate(previa, forcar) do
+      attrs = Map.merge(params, %{materialize?: true, forcar: forcar})
+      create_package(attrs, scope: scope)
+    end
+  end
+
+  defp gate(%{ocorrencias: ocorrencias} = previa, forcar) do
+    cond do
+      Enum.any?(ocorrencias, &(&1.issue == :fora_expediente)) ->
+        {:error, {:fora_expediente, previa}}
+
+      previa.bloqueios > 0 and not forcar ->
+        {:error, {:precisa_confirmar, previa}}
+
+      true ->
+        :ok
+    end
+  end
+
+  @doc """
   Os pacotes de um paciente na clínica ativa, com os derivados carregados. Wrapper de leitura sob
   RLS (ADR-018) — o controller chama isto, não a code interface crua.
   """

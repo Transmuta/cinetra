@@ -85,6 +85,13 @@ defmodule Api.Packages.Package do
       # mesma transação — não existe pacote sem grade.
       argument :grade, :map, allow_nil?: false
       change manage_relationship(:grade, :schedule, type: :create)
+
+      # Enfileira a materialização da série (doc 04 §6). `forcar` vira `encaixe` no job. O
+      # `Oban.insert` roda no `after_action`, dentro da transação da criação: não há pacote sem job.
+      # `false` (o default) cria o pacote sem materializar — útil para teste do recurso isolado.
+      argument :materialize?, :boolean, default: false
+      argument :forcar, :boolean, default: false
+      change Api.Packages.Package.Changes.EnqueueMaterialization
     end
   end
 

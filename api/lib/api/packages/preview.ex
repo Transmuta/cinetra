@@ -67,7 +67,7 @@ defmodule Api.Packages.Preview do
     in_clinic(scope, fn ->
       %{timezone: tz} = Api.Scheduling.load_clinic(clinic_id)
       tipo = load_type(scope, clinic_id, type_id)
-      feriados = clinic_holidays(scope)
+      feriados = Api.Scheduling.clinic_holidays(clinic_id)
 
       with {:ok, ocorrencias} <- Api.Packages.Series.project(data_inicio, grade, total, feriados) do
         stamped = Enum.map(ocorrencias, &stamp_times(&1, tipo.duracao, tz))
@@ -141,19 +141,11 @@ defmodule Api.Packages.Preview do
       appointment_type_id: Map.fetch!(params, :appointment_type_id),
       grade: %{
         dows: Map.fetch!(grade, :dows),
-        # As chaves do `horarios` chegam do JSON como string (`"1"`); o motor de série trabalha com
-        # `dow` inteiro. Normaliza aqui, na fronteira, e não dentro do motor puro.
-        horarios: int_keys(Map.fetch!(grade, :horarios)),
+        # `Series.project` normaliza as chaves string do `horarios` — não repetir aqui.
+        horarios: Map.fetch!(grade, :horarios),
         professional_id: Map.fetch!(grade, :professional_id)
       }
     }
-  end
-
-  defp int_keys(map) when is_map(map) do
-    Map.new(map, fn
-      {k, v} when is_integer(k) -> {k, v}
-      {k, v} when is_binary(k) -> {String.to_integer(k), v}
-    end)
   end
 
   defp load_type(scope, clinic_id, type_id) do
@@ -168,15 +160,6 @@ defmodule Api.Packages.Preview do
       end
 
     %{id: tipo.id, grupo: tipo.grupo, capacidade: capacidade, duracao: tipo.duracao_minutos}
-  end
-
-  # Feriado para o `Series` = exceção da clínica cujo tipo NÃO é `:horario` (RN-20): só `:fechado`
-  # pula. Dia de expediente especial é dia normal.
-  defp clinic_holidays(scope) do
-    scope
-    |> Api.Scheduling.list_clinic_exceptions()
-    |> Enum.filter(&(&1.tipo != :horario))
-    |> MapSet.new(& &1.data)
   end
 
   defp stamp_times(occ, duracao, tz) do

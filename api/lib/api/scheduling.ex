@@ -53,6 +53,10 @@ defmodule Api.Scheduling do
 
     resource Api.Scheduling.Attendance do
       define :list_attendances, action: :read
+
+      # A materialização do pacote (Fatia 3) carimba o `package_id` na presença logo após criar a
+      # sessão. Recebe o registro e o novo pacote como argumento extra (mapa antes das opções).
+      define :set_attendance_package, action: :set_package
     end
 
     # Os recursos `*.Version` acima nasciam registrados (`include_versions?`) mas **sem code
@@ -1261,6 +1265,29 @@ defmodule Api.Scheduling do
   end
 
   # ---- ScheduleException (feriados/exceções da clínica) ----
+
+  @doc """
+  As datas de **feriado** da clínica como `MapSet` — exceções da clínica cujo tipo **não** é
+  `:horario` (RN-20: só `:fechado` pula a série; expediente especial é dia normal). Recebe o
+  `clinic_id` cru, sem `Api.Scope`, porque quem chama pode ser um job de fundo (a materialização do
+  pacote) que não tem usuário. Roda sob a GUC de tenant (`in_clinic`), `authorize?: false`.
+  """
+  def clinic_holidays(clinic_id) when is_binary(clinic_id) do
+    query =
+      Api.Scheduling.ScheduleException
+      |> Ash.Query.filter(is_nil(professional_id))
+      |> Ash.Query.filter(tipo != :horario)
+
+    in_clinic(clinic_id, fn ->
+      query
+      |> list_schedule_exceptions_query(tenant: clinic_id, authorize?: false)
+      |> MapSet.new(& &1.data)
+    end)
+  end
+
+  defp list_schedule_exceptions_query(query, opts) do
+    list_schedule_exceptions!(Keyword.put(opts, :query, query))
+  end
 
   @doc "Exceções **da clínica** (professional_id nulo) ativas do escopo, ordenadas por data."
   def list_clinic_exceptions(%Api.Scope{} = scope) do

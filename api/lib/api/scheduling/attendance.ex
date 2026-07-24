@@ -82,6 +82,16 @@ defmodule Api.Scheduling.Attendance do
       require_atomic? false
       accept [:status, :falta_justificada]
     end
+
+    # Vincula a presença ao pacote (Fatia 3). Chamada pela materialização da série
+    # (`Api.Packages.Materializer`) logo após criar a sessão: `package_id` é o vínculo por
+    # participante (D11) que o contador `usadas` do pacote conta. Separada da `:create` porque a
+    # criação da presença vem da cascata do `Appointment` (que não conhece pacote); o pacote a
+    # carimba depois. `require_atomic?` false pelo `SetTenantGuc` (before_action), como as demais.
+    update :set_package do
+      require_atomic? false
+      accept [:package_id]
+    end
   end
 
   policies do

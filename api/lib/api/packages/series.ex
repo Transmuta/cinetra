@@ -83,12 +83,24 @@ defmodule Api.Packages.Series do
 
   def project(%Date{} = anchor, %{dows: dows, horarios: horarios}, total, feriados, opts)
       when is_list(dows) and is_map(horarios) and is_integer(total) do
+    # As chaves do `horarios` chegam do JSON/JSONB como string (`"1"`); o motor trabalha com `dow`
+    # inteiro. Normaliza aqui, na entrada, para os dois chamadores (prévia e materialização) não
+    # repetirem a coerção.
+    horarios = normalize_keys(horarios)
+
     with :ok <- validar(dows, horarios, total) do
       inicio = if Keyword.get(opts, :inclusive?, true), do: anchor, else: Date.add(anchor, 1)
       limite = Date.add(inicio, total * 7 + @horizonte_extra_dias)
 
       varrer(inicio, limite, MapSet.new(dows), horarios, total, feriados, [])
     end
+  end
+
+  defp normalize_keys(horarios) do
+    Map.new(horarios, fn
+      {k, v} when is_integer(k) -> {k, v}
+      {k, v} when is_binary(k) -> {String.to_integer(k), v}
+    end)
   end
 
   defp validar([], _horarios, _total), do: {:error, :dows_vazio}
