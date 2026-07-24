@@ -168,6 +168,16 @@ defmodule ApiWeb.PackagesControllerTest do
       assert json_response(conn, 200)["package"]["status"] == "pausado"
     end
 
+    test "POST /api/packages/:id/resume reprojeta e reativa" do
+      ctx = fixture()
+      pkg = criar(ctx)
+      Oban.drain_queue(queue: :housekeeping)
+      as(ctx.owner) |> post("/api/packages/#{pkg["id"]}/pause", %{})
+
+      conn = as(ctx.owner) |> post("/api/packages/#{pkg["id"]}/resume", %{})
+      assert json_response(conn, 200)["package"]["status"] == "ativo"
+    end
+
     test "POST /api/packages/:id/cancel vira o status" do
       ctx = fixture()
       pkg = criar(ctx)

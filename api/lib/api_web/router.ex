@@ -133,6 +133,7 @@ defmodule ApiWeb.Router do
     post "/packages/preview", PackagesController, :preview
     post "/packages", PackagesController, :create
     post "/packages/:id/pause", PackagesController, :pause
+    post "/packages/:id/resume", PackagesController, :resume
     post "/packages/:id/cancel", PackagesController, :cancel
 
     # Agenda (doc 25). Papéis owner·admin·recepcao·profissional (A8) — recepção é quem agenda,

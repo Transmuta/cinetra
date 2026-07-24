@@ -11,8 +11,8 @@ defmodule ApiWeb.PackagesController do
   `forcar`, devolve **422 com a prévia** (código `series_blocked`) para a tela reapresentar; senão
   cria o pacote e enfileira a materialização.
 
-  Retomada (GAP-06) ainda não tem rota — depende de um ajuste no filtro de leitura de sessões
-  seguradas que não cabe nesta fatia.
+  Pausar/retomar/cancelar operam sobre a série inteira; a retomada reprojeta as sessões seguradas
+  para o futuro (GAP-06), re-materializando via job.
   """
   use ApiWeb, :controller
 
@@ -70,6 +70,13 @@ defmodule ApiWeb.PackagesController do
   def pause(conn, %{"id" => id}) do
     with_member_scope(conn, fn scope ->
       transition(conn, scope, Packages.pause_package(scope, id))
+    end)
+  end
+
+  # POST /api/packages/:id/resume
+  def resume(conn, %{"id" => id}) do
+    with_member_scope(conn, fn scope ->
+      transition(conn, scope, Packages.resume_package(scope, id))
     end)
   end
 
