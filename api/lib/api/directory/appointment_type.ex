@@ -135,7 +135,7 @@ defmodule Api.Directory.AppointmentType do
     attribute :duracao_minutos, :integer,
       allow_nil?: false,
       public?: true,
-      constraints: [min: 5, max: 480]
+      constraints: [min: 5, max: Api.Scheduling.Duration.max_minutos()]
 
     attribute :cor, :string, allow_nil?: false, public?: true
     attribute :icon, :string, allow_nil?: false, public?: true

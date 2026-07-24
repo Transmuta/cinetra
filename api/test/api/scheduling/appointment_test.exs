@@ -1189,6 +1189,79 @@ defmodule Api.Scheduling.AppointmentTest do
     end
   end
 
+  # O outro lado da mesma moeda (A2, doc 36 §6.2). O teto de 8h existe nas duas fontes de duração
+  # (`AppointmentType.duracao_minutos` e o override `duration_minutos`, ambos `max: 480`), mas
+  # também só na APLICAÇÃO. O `:in_range` passou a **depender** desse teto para poder cortar por
+  # baixo (`starts_at > from − 8h`): sem a garantia no banco, uma linha de 10h escrita por fora da
+  # ação ficaria invisível na leitura — sem erro, sem log, sem nada. O CHECK é o que torna o corte
+  # legítimo; por isso os dois andam juntos e não em commits separados.
+  describe "teto de duração — invariante de banco" do
+    test "bloco de 8h01 é recusado pelo BANCO" do
+      ctx = setup_clinic()
+
+      erro =
+        assert_raise Ash.Error.Invalid, fn ->
+          Ash.Seed.seed!(
+            Api.Scheduling.Appointment,
+            %{
+              starts_at: at("08:00"),
+              ends_at: DateTime.add(at("08:00"), 8 * 3600 + 60, :second),
+              professional_id: ctx.prof.id,
+              appointment_type_id: ctx.tipo.id,
+              status: :agendado,
+              encaixe: true,
+              version: 1,
+              pkg_hold: false
+            },
+            tenant: ctx.clinic.id
+          )
+        end
+
+      assert Exception.message(erro) =~ "não pode passar de 8 horas"
+      assert [%Ash.Error.Changes.InvalidAttribute{field: :ends_at}] = erro.errors
+    end
+
+    # O CHECK vive no banco (via migration) e a constante vive no Elixir. Mudar `Duration` sem
+    # gerar migration não quebra compilação nem nenhum outro teste — quebra a premissa do corte do
+    # `:in_range`, em silêncio. Este teste é a única coisa que amarra os dois lados.
+    test "a constante do Elixir e o CHECK do banco falam o mesmo número" do
+      %{rows: [[definicao]]} =
+        Api.Repo.query!(
+          "select pg_get_constraintdef(oid) from pg_constraint where conname = $1",
+          ["appointments_duration_within_cap"]
+        )
+
+      horas = div(Api.Scheduling.Duration.max_minutos(), 60)
+      minutos = rem(Api.Scheduling.Duration.max_minutos(), 60)
+
+      esperado =
+        "'#{String.pad_leading("#{horas}", 2, "0")}:#{String.pad_leading("#{minutos}", 2, "0")}:00'::interval"
+
+      assert definicao =~ esperado,
+             "o CHECK no banco é #{definicao}, mas Api.Scheduling.Duration diz #{Api.Scheduling.Duration.max_minutos()} min — falta migration?"
+    end
+
+    test "bloco de exatamente 8h passa — 480 min é duração legal" do
+      ctx = setup_clinic()
+
+      assert %{} =
+               Ash.Seed.seed!(
+                 Api.Scheduling.Appointment,
+                 %{
+                   starts_at: at("08:00"),
+                   ends_at: at("16:00"),
+                   professional_id: ctx.prof.id,
+                   appointment_type_id: ctx.tipo.id,
+                   status: :agendado,
+                   encaixe: true,
+                   version: 1,
+                   pkg_hold: false
+                 },
+                 tenant: ctx.clinic.id
+               )
+    end
+  end
+
   describe ":in_range — fronteira da janela (semi-aberta)" do
     test "bloco que TERMINA exatamente no início da janela fica de fora" do
       ctx = setup_clinic()
@@ -1216,6 +1289,45 @@ defmodule Api.Scheduling.AppointmentTest do
       # janela termina no meio do bloco
       assert [b] = Scheduling.list_appointments!(at("07:00"), at("08:30"), scope: ctx.scope)
       assert b.id == appt.id
+    end
+
+    # A rede do corte por baixo (A2). O bloco mais longo que o banco aceita (8h) tem de continuar
+    # aparecendo quando a janela pega só o finalzinho dele — é o caso extremo que um bound errado
+    # (`from − 4h`, ou o sinal trocado) apaga em silêncio. Seed e não `schedule/2` porque 08:00–16:00
+    # atravessa o almoço do expediente padrão (12:00–13:00) e a ação recusaria por RN-14.
+    test "bloco de 8h que só encosta o fim na janela continua aparecendo" do
+      ctx = setup_clinic()
+
+      appt =
+        Ash.Seed.seed!(
+          Api.Scheduling.Appointment,
+          %{
+            starts_at: at("08:00"),
+            ends_at: at("16:00"),
+            professional_id: ctx.prof.id,
+            appointment_type_id: ctx.tipo.id,
+            status: :agendado,
+            encaixe: true,
+            version: 1,
+            pkg_hold: false
+          },
+          tenant: ctx.clinic.id
+        )
+
+      assert [a] = Scheduling.list_appointments!(at("15:59"), at("17:00"), scope: ctx.scope)
+      assert a.id == appt.id
+    end
+
+    # A preparation do corte roda mesmo com a query já inválida (é o default do Ash — é para isso
+    # que existe `only_when_valid?`). Sem a cláusula de guarda ela quebraria por match failure e o
+    # erro que o cliente veria seria esse, não o "argumento obrigatório" de verdade.
+    test "sem o argumento `from`, o erro que volta é o do argumento — não um crash da preparation" do
+      ctx = setup_clinic()
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               Api.Scheduling.Appointment
+               |> Ash.Query.for_read(:in_range, %{}, tenant: ctx.clinic.id, authorize?: false)
+               |> Ash.read()
     end
   end
 

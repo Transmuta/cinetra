@@ -10,12 +10,12 @@ Natureza do bloqueio: **[P]** decisão de produto · **[T]** técnico/arquitetur
 
 > ## ▶︎ Onde retomar
 >
-> **Onda 1 está feita. A Frente 2 está PARCIAL** — o bate-volta reprovou e reverteu o **D-A**
-> (índice que nunca anexava) e removeu o **D-S** (seed sem guarda que ia para a imagem de prod).
-> Ver "Status de execução" abaixo, e "D-A — o diagnóstico correto" antes de tentar de novo.
+> **A Onda 2 fechou (2026-07-24).** Frentes 1, 2, 3 e 4 feitas; da Onda 1 sobra só o **D-S**
+> (seed removido — se voltar, nasce fora de `priv/`). O **D-A** foi fechado **pelo A2 do doc 36**,
+> não pelo índice: um CHECK de 8h no banco tornou legítimo cortar a varredura por baixo, e o
+> `:in_range` passou de **Seq Scan descartando 10.099 linhas** para **Index Scan** (1,41 ms → 0,11 ms,
+> 231 → 103 buffers, mesma resposta). O GiST continua descartado. Ver "D-A: fechado pelo teto".
 >
-> **As Frentes 3 (tempo real & escrita) e 4 (fila & holds) estão FEITAS** — ver o status abaixo.
-> Com isso a **Onda 2 fecha**, exceto o D-A da Frente 2, que o bate-volta devolveu ao backlog.
 > Próximo passo: **Onda 3 — Frente 5 (Pacotes/A1)**, que é o caminho crítico.
 >
 > A recomendação de **verificar antes de codar** se confirmou de novo: na Frente 3, **2 dos 6
@@ -76,10 +76,10 @@ Registro para não parecerem esquecidos — **não** entram nas ondas abaixo:
 - **D-E** / **D-F** — índices FK (`created_by_id`; btree próprio de `professional_id`).
 - **D-P** — política DST: **empurra no gap / primeira ocorrência no ambíguo** + teste com tz DST.
 
-### Frente 2 — Performance de leitura da agenda 🟡 PARCIAL (D-A revertido)
+### Frente 2 — Performance de leitura da agenda ✅ FEITA
 - **D-C** — paginar o `:in_range`. **Antes da Fatia 3** (Pacotes reusa o read com janelas maiores).
-- **D-A** ❌ **revertido pelo bate-volta** — o índice nunca anexava (cast). Volta ao backlog; ler
-  "D-A — o diagnóstico correto" antes de tentar de novo.
+- **D-A** ✅ **fechado pelo A2** (doc 36 §6.2), não pelo índice — ver "D-A: fechado pelo teto, não
+  pelo índice" abaixo. O GiST continua **descartado**.
 - **D-D** — `/api/availability`: remover sonda duplicada, carregar fontes 1×/janela, aceitar
   `professional_id` múltiplo, devolver `timezone` no `/auth/me`.
 
@@ -177,20 +177,54 @@ Registro para não parecerem esquecidos — **não** entram nas ondas abaixo:
 | **D-E**, **D-P**, **H60** | **já estavam feitos** — confirmados, sem ação |
 | **D-F** | Índice btree `appointments.professional_id` |
 
-### Frente 2 (performance de leitura) — PARCIAL (revisada pelo bate-volta)
+### Frente 2 (performance de leitura) — COMPLETA (2026-07-24)
 
 > O bate-volta desta mesma leva **reprovou o D-A e o D-S**, que haviam sido dados como entregues.
-> O que está abaixo é o estado real depois dos reverts.
+> O D-A voltou depois, por outro caminho (A2); o D-S segue removido.
 
 | Item | Estado |
 | --- | --- |
-| **D-A** | ❌ **REVERTIDO.** O índice GiST **nunca anexava**: o Ash emite `tsrange(a0."starts_at"::timestamp, …)` e o índice foi criado sem cast — expressão de índice não casa. Provado por `pg_stat_user_indexes` (contador parado enquanto a app rodava) e pelo plano real sob `movimento_app`: **Seq Scan descartando 10.098 linhas**. Saldo: +1.096 kB e **+43% de latência de INSERT** por ganho zero, e o predicado reescrito ficou **mais lento** que o original. **Volta ao backlog** — ver "D-A, o diagnóstico correto" abaixo |
+| **D-A** | ✅ **fechado em 2026-07-24 — sem índice novo.** O conserto foi o par do A2: `CHECK (ends_at <= starts_at + interval '480 minutes')` no banco **e** o corte `starts_at > from − 8h` no `:in_range` (`Preparations.WindowLowerBound`). Medido no SQL que a app emite, sobre as 10.204 linhas do `movimento_dev`: **Seq Scan / 10.099 linhas descartadas / 231 buffers / 1,41 ms** → **Index Scan em `appointments_clinic_id_starts_at_index` / 103 buffers / 0,11 ms**, com a **mesma resposta** (105 = 105 linhas). Detalhe abaixo |
+| ~~**D-A**~~ | ❌ (histórico) O índice GiST **nunca anexava**: o Ash emite `tsrange(a0."starts_at"::timestamp, …)` e o índice foi criado sem cast — expressão de índice não casa. Provado por `pg_stat_user_indexes` (contador parado enquanto a app rodava) e pelo plano real sob `movimento_app`: **Seq Scan descartando 10.098 linhas**. Saldo: +1.096 kB e **+43% de latência de INSERT** por ganho zero, e o predicado reescrito ficou **mais lento** que o original. **Volta ao backlog** — ver "D-A, o diagnóstico correto" abaixo |
 | **D-S** | ❌ **REMOVIDO.** O seed não tinha guarda de ambiente e `priv/` é embarcado no release (`Dockerfile.prod: COPY priv priv`). Como `clinics`/`users`/`memberships` **não têm RLS**, rodá-lo por engano contra produção deixaria usuário, clínica e membership `owner` reais antes de falhar |
 | **D-C** | ✅ Paginação offset+keyset, `required?: false` (nenhum chamador muda). Testes reforçados no bate-volta: empates reais no keyset e guarda de truncamento (101 > `default_limit`) |
 | **D-D** | ✅ **já estava feito** (`load_availability_window`, `professional_id` múltiplo, `timezone` no `/auth/me`) — e **coberto por teste** que trava a ordem de grandeza |
 | **D-F** | ✅ Índice btree `professional_id` — **auditado e aprovado**: serve o check de FK do `ON DELETE RESTRICT` e virou o índice de leitura dos caminhos recortados por profissional |
 
-Verde ao fim: api **747/0**, gate RLS **7/0**, web **1160/1160**.
+Verde ao fim: api **780/0** (4 doctests), gate RLS **7/0**, cobertura **91,5%**.
+
+#### D-A: fechado pelo teto, não pelo índice
+
+O diagnóstico do bate-volta continua valendo — o problema é que só `starts_at` é indexável e o
+limite inferior (`ends_at`) vira residual, então `starts_at < to` varre o histórico inteiro. O que
+mudou foi a **solução**: em vez de ensinar o banco a indexar o intervalo (GiST), ensinou-se a query
+a não pedir o passado.
+
+Isso só é correto porque nenhum bloco dura mais que 8h — e **é aí que mora o trabalho de verdade**.
+O teto já existia como `max: 480`, mas em três cópias e só na aplicação; `Ash.Seed`, script de
+manutenção ou `INSERT` à mão passavam direto, e uma linha de 10h escrita por fora **sumiria da
+agenda** sem erro nenhum. Então:
+
+- a constante virou fonte única em [`Api.Scheduling.Duration`](../api/lib/api/scheduling/duration.ex),
+  consumida pelas duas `constraints:`, pelo CHECK e pelo corte da query;
+- o CHECK `appointments_duration_within_cap` desceu para o banco (tabela limpa: 0 linhas violando,
+  máximo real 50 min) — mesma jogada do CHECK de duração positiva do commit `3a2f27c`;
+- o corte é **preparation, não `filter expr()`**: a subtração acontece em Elixir para o bound chegar
+  ao SQL como **literal**. É a lição do D-A aplicada — índice só vira bound com constante em tempo
+  de plano.
+
+**Por que o `::timestamp` não atrapalhou desta vez** (a causa da morte do D-A): o cast aparece no
+`Index Cond` e o índice é usado assim mesmo, porque a coluna **já é** `timestamp(0)` e o cast é
+no-op sobre coluna nua. O que não funciona é índice de **expressão**, que precisa casar byte a byte.
+
+**Prova de que o teste morde** (as duas, feitas): derrubar o CHECK no banco de teste faz o teste do
+teto falhar; trocar o corte para `−4h` faz o teste do bloco de 8h falhar. Há ainda um terceiro
+teste que lê `pg_get_constraintdef` e compara com a constante do Elixir — é o que impede editar
+`Duration` sem gerar migration, que não quebraria nada mais.
+
+**O que continua sem rede:** nenhum teste fixa **plano**. Um `EXPLAIN` na suíte seria teatro — com
+tabela de dezenas de linhas o planner escolhe Seq Scan e está certo. A medição de plano vive fora
+da suíte, no `movimento_dev`, e o roteiro está acima.
 
 ### Frente 3 (tempo real & escrita) — COMPLETA
 

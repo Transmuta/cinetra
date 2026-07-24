@@ -66,6 +66,19 @@ defmodule Api.Scheduling.Appointment do
         name: "appointments_ends_after_starts",
         check: "ends_at > starts_at",
         message: "A duração precisa ser positiva."
+
+      # O teto (A2, doc 36 §6.2) é o irmão do CHECK acima, e existe pelo motivo oposto: não é a
+      # leitura que some por dado degenerado, é a leitura que passou a **depender** do teto. O
+      # `:in_range` corta a varredura em `starts_at > from − 8h` (ver
+      # `Preparations.WindowLowerBound`), corte só válido enquanto nenhum bloco durar mais que
+      # isso. Como `max: 480` nas duas fontes de duração é invariante de aplicação, sem este CHECK
+      # bastaria um `INSERT` de manutenção com 10h para produzir um agendamento que existe no
+      # banco e não aparece na agenda.
+      check_constraint :ends_at,
+        name: "appointments_duration_within_cap",
+        check:
+          "ends_at <= starts_at + interval '#{Api.Scheduling.Duration.max_minutos()} minutes'",
+        message: "A duração não pode passar de 8 horas."
     end
 
     custom_indexes do
@@ -176,6 +189,9 @@ defmodule Api.Scheduling.Appointment do
                is_nil(^arg(:professional_ids)) or
                  professional_id in ^arg(:professional_ids)
              )
+
+      # Fecha a varredura por baixo (A2). Não muda o resultado — só o plano. Ver o moduledoc.
+      prepare Api.Scheduling.Preparations.WindowLowerBound
 
       # `id` desempata: `starts_at` repete muito (turma, mesmo horário em profissionais
       # diferentes), e sem desempate a ordem entre empatados é indefinida — o que além de
@@ -456,7 +472,10 @@ defmodule Api.Scheduling.Appointment do
 
     # A-D8: sobrepõe o snapshot de `AppointmentType.duracao_minutos` quando presente. Sem
     # isto, "esta sessão vai demorar mais" obrigaria a criar um tipo novo e poluir o catálogo.
-    attribute :duration_minutos, :integer, public?: true, constraints: [min: 5, max: 480]
+    # O teto vem de `Api.Scheduling.Duration` — a leitura depende dele (A2), não é limite de tela.
+    attribute :duration_minutos, :integer,
+      public?: true,
+      constraints: [min: 5, max: Api.Scheduling.Duration.max_minutos()]
 
     attribute :cancel_reason, :string, public?: true, constraints: [max_length: 300]
 
