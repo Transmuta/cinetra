@@ -30,40 +30,23 @@ defmodule Api.Records do
     end
   end
 
-  @default_limit 50
-  @max_limit 200
-  # Teto do offset (página ~2000 com 50/página). Existe por robustez, não por performance: sem
-  # ele um `?page=` gigante chega cru no Postgrex, que recusa qualquer coisa fora do int64 e
-  # derruba a request com 500. Além disso, ninguém pagina até lá — usa a busca.
-  @max_offset 100_000
-
   @doc """
   Uma **página** da lista de pacientes da clínica ativa, já filtrada e buscada no servidor
   (ver `Api.Records.Preparations.FilterPatients`). Devolve `%Ash.Page.Offset{}` — `results`,
   `count` (total do recorte), `limit`, `offset`, `more?`.
 
   Opções: `:q` (busca), `:status` (`:todos`/`:ativos`/`:inativos`/`:resp`), `:limit`, `:offset`.
-  O `limit` é limitado a #{@max_limit} para o cliente não pedir a tabela inteira.
+  Os limites (padrão, teto e teto de offset) são de `Api.Pagination` — o teto do offset existe
+  por robustez, não por performance: sem ele um `?page=` gigante chega cru no Postgrex, que
+  recusa qualquer coisa fora do int64 e derruba a request com 500.
   """
   def list_clinic_patients(%Api.Scope{} = scope, opts \\ []) do
     args = %{q: Keyword.get(opts, :q), status: Keyword.get(opts, :status, :todos)}
-    limit = opts |> Keyword.get(:limit, @default_limit) |> clamp_limit()
-    offset = opts |> Keyword.get(:offset, 0) |> clamp_offset()
 
     in_clinic(scope, fn ->
-      list_patients_page!(args, scope: scope, page: [limit: limit, offset: offset, count: true])
+      list_patients_page!(args, scope: scope, page: Api.Pagination.page_opts(opts))
     end)
   end
-
-  # Em cláusulas (e não com `min/2`/`max/2`): o `Ash.Domain` já define locais com esses nomes,
-  # e importar as do `Kernel` aqui dá conflito de compilação.
-  defp clamp_limit(limit) when is_integer(limit) and limit > @max_limit, do: @max_limit
-  defp clamp_limit(limit) when is_integer(limit) and limit > 0, do: limit
-  defp clamp_limit(_limit), do: @default_limit
-
-  defp clamp_offset(offset) when is_integer(offset) and offset > @max_offset, do: @max_offset
-  defp clamp_offset(offset) when is_integer(offset) and offset > 0, do: offset
-  defp clamp_offset(_offset), do: 0
 
   @doc """
   Contagens por segmento para a sidebar (Todos / Ativos / Inativos / Com responsável).

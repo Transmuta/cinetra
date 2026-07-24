@@ -49,8 +49,8 @@ defmodule ApiWeb.WaitlistController do
   # contaria outra coisa que a lista mostra.
   defp opcoes(params) do
     [
-      limit: inteiro(params["limit"]),
-      offset: inteiro(params["offset"]),
+      limit: parse_int(params["limit"]),
+      offset: parse_int(params["offset"]),
       prio: prio(params["prio"])
     ]
     |> Enum.reject(fn {_k, v} -> is_nil(v) end)
@@ -60,16 +60,6 @@ defmodule ApiWeb.WaitlistController do
 
   defp prio(value) when value in @prioridades, do: String.to_existing_atom(value)
   defp prio(_value), do: nil
-
-  defp inteiro(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {n, ""} -> n
-      _ -> nil
-    end
-  end
-
-  defp inteiro(value) when is_integer(value), do: value
-  defp inteiro(_value), do: nil
 
   # POST /api/waitlist  (upsert por paciente)
   def create(conn, params) do

@@ -160,4 +160,15 @@ describe('Fila — camada de vagas na lista', () => {
 		const chips = await findAllByTitle(/Ana está oferecendo esta vaga/);
 		expect(chips.length).toBeGreaterThan(0);
 	});
+
+	// O outro lado do mesmo achado: a tela tem de PEDIR a janela filtrada.
+	it('pede as vagas com o mesmo filtro da lista', async () => {
+		mockSlots({ e1: [] });
+		render(Page, { props: { data: data({ prio: 'baixa' }), form: null } });
+
+		await vi.waitFor(() => {
+			const chamadas = (globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+			expect(chamadas.some((c) => String(c[0]).includes('prio=baixa'))).toBe(true);
+		});
+	});
 });

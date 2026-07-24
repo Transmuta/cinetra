@@ -98,15 +98,6 @@ defmodule ApiWeb.PatientsController do
 
   defp parse_status(_), do: :todos
 
-  defp parse_int(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {n, ""} when n >= 0 -> n
-      _ -> nil
-    end
-  end
-
-  defp parse_int(_value), do: nil
-
   # Busca-e-escreve: as mutações por id compartilham a mesma escada (404 se não existe ou é de
   # outra clínica; 422 se a ação recusa).
   defp write(conn, scope, id, fun) do

@@ -1,6 +1,6 @@
 <script lang="ts">
-	// Fila de espera (doc 25, Entrega 5). Lista de pacientes aguardando encaixe, ordenada por
-	// prioridade; o `?prio=` da sidebar filtra no cliente (a fila é bounded, não paginada). Três
+	// Fila de espera (doc 25, Entrega 5). Lista de pacientes aguardando encaixe — ordenada,
+	// filtrada (`?prio=`) e paginada NO SERVIDOR desde o F6; aqui não se reordena nada. Três
 	// modais: adicionar/editar (AddToWaitlistModal), oferecer vaga (OfferSlotModal) e a confirmação
 	// de remover (ConfirmDialog). O "Adicionar à fila" mora na sidebar e viaja por `?novo=1` —
 	// o único gatilho que precisa cruzar de um componente (a sidebar) para a página.
@@ -122,9 +122,12 @@
 	$effect(() => {
 		void data.waitlist; // redispara ao recarregar a fila
 		let vivo = true;
-		// A MESMA janela da fila (F6): pedir vagas para a fila inteira calcularia o motor para
-		// quem a tela nem desenha.
-		fetch(`/fila/slots?limit=${data.pageInfo.limit}&offset=${data.pageInfo.offset}`)
+		// A MESMA janela da fila (F6) — inclusive o FILTRO: pedir vagas sem ele faz o motor
+		// calcular para outro recorte, e a linha filtrada aparece sem chip de vaga.
+		fetch(
+			`/fila/slots?limit=${data.pageInfo.limit}&offset=${data.pageInfo.offset}` +
+				(data.prio === 'todas' ? '' : `&prio=${data.prio}`)
+		)
 			.then((r) => (r.ok ? r.json() : { slots_by_entry: {} }))
 			.then((d: { slots_by_entry?: Record<string, Slot[]> }) => {
 				if (vivo) slotsByEntry = d.slots_by_entry ?? {};

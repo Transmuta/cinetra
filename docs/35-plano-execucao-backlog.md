@@ -250,6 +250,12 @@ leva o 409 com quem segura e até quando.
 Playwright quebrado, `web/build` root-owned). E a prova por **mutação** foi feita só no D-L — os
 tetos e chips novos de F3/F4/F6 têm teste, mas não a prova de que mordem.
 
+> **Fechada pelo bate-volta** ([`38`](38-bate-volta-frentes-3-e-4.md)): o browser entrou (render +
+> `curl` com sessão real, porque o `click` do MCP está quebrado) e provou D-G/D-H, F4 e F6 ao vivo.
+> A rodada adversarial achou **um bug de correção do F6** — a lista e o motor de vagas pediam
+> janelas diferentes quando havia filtro — corrigido e provado por mutação. Restam F3 e S1 sem
+> verificação de browser, por dependerem de clique.
+
 ### D-A — o diagnóstico correto (para quando voltar)
 
 O problema medido é real: o plano varre o histórico porque só `starts_at` é indexável e o limite

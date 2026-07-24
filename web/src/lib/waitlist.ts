@@ -269,24 +269,13 @@ export function holdLabel(hold: Hold, timezone: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Ordenação e filtro por prioridade (a fila é bounded — filtra-se no cliente, como o protótipo)
+// Ordem de prioridade (a ordenação e o filtro são do SERVIDOR desde a paginação — F6)
 // ---------------------------------------------------------------------------
 
 /** Posto de uma prioridade (urgente = 0). Espelho de `Api.Waitlist.priority_rank/1`. */
 export function priorityRank(prio: Priority): number {
 	const i = PRIORITY_ORDER.indexOf(prio);
 	return i === -1 ? PRIORITY_ORDER.length : i;
-}
-
-/**
- * Ordena a fila por prioridade e, dentro dela, pelo tempo de espera (mais antigo primeiro) —
- * espelho de `sort_by_priority/1`. A API já entrega ordenado; reordenar aqui é o que segura a
- * ordem certa depois de uma edição otimista, antes do load reexecutar.
- */
-export function sortByPriority(entries: Entry[]): Entry[] {
-	return [...entries].sort(
-		(a, b) => priorityRank(a.prio) - priorityRank(b.prio) || a.inserted_at.localeCompare(b.inserted_at)
-	);
 }
 
 /** O filtro da sidebar: uma prioridade, ou `todas`. */

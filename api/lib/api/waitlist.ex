@@ -56,7 +56,7 @@ defmodule Api.Waitlist do
           scope: scope,
           load: entry_load(),
           query: build_query(opts),
-          page: page_opts(opts)
+          page: Api.Pagination.page_opts(opts)
         )
 
       # Os profissionais ativos vão junto pelo mesmo motivo do `GET /api/appointments`: a tela
@@ -71,24 +71,7 @@ defmodule Api.Waitlist do
     end)
   end
 
-  # Mesmos tetos de robustez de `Api.Records`/`list_audit_log`: um `?offset=` gigante chega cru
-  # no Postgrex e derruba a request com 500; ninguém pagina até lá.
-  @limite_padrao 50
-  @limite_maximo 200
-  @offset_maximo 100_000
-
-  defp page_opts(opts) do
-    [
-      limit: clamp(Keyword.get(opts, :limit), @limite_padrao, 1, @limite_maximo),
-      offset: clamp(Keyword.get(opts, :offset), 0, 0, @offset_maximo),
-      count: true
-    ]
-  end
-
-  defp clamp(value, _default, piso, teto) when is_integer(value),
-    do: value |> Kernel.max(piso) |> Kernel.min(teto)
-
-  defp clamp(_value, default, _piso, _teto), do: default
+  # Os tetos são de `Api.Pagination` — a mesma regra das outras listas do projeto.
 
   @doc """
   As reservas **vivas** da clínica — o "alguém já está oferecendo esta vaga" (F4).

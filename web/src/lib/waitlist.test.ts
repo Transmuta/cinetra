@@ -7,7 +7,6 @@ import {
 	rulePrefix,
 	ruleExpired,
 	slotDateLabel,
-	sortByPriority,
 	priorityRank,
 	parsePriorityFilter,
 	priorityCounts,
@@ -52,29 +51,6 @@ describe('PRIORITY_ORDER / priorityRank', () => {
 	it('todo nível tem cor e rótulo (protótipo prioMeta)', () => {
 		expect(PRIORITY_META.urgente).toEqual({ label: 'Urgente', color: '#E5484D' });
 		expect(PRIORITY_META.baixa.color).toBe('#AEB6BE');
-	});
-});
-
-describe('sortByPriority', () => {
-	it('ordena por urgência, não pela string do enum (que o Postgres ordenaria alfabética)', () => {
-		const list = [entry('normal'), entry('urgente'), entry('baixa'), entry('alta')];
-		expect(sortByPriority(list).map((e) => e.prio)).toEqual(['urgente', 'alta', 'normal', 'baixa']);
-	});
-
-	it('empate de prioridade desempata pelo mais antigo na fila', () => {
-		const nova = entry('alta', '2026-07-20T12:00:00Z');
-		const antiga = entry('alta', '2026-07-19T08:00:00Z');
-		expect(sortByPriority([nova, antiga]).map((e) => e.inserted_at)).toEqual([
-			'2026-07-19T08:00:00Z',
-			'2026-07-20T12:00:00Z'
-		]);
-	});
-
-	it('não muta a lista recebida', () => {
-		const list = [entry('baixa'), entry('urgente')];
-		const antes = list.map((e) => e.prio);
-		sortByPriority(list);
-		expect(list.map((e) => e.prio)).toEqual(antes);
 	});
 });
 

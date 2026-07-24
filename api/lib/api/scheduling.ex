@@ -759,12 +759,6 @@ defmodule Api.Scheduling do
 
   # ---- Agenda: trilha de auditoria (doc 25 §11.4) ----
 
-  @audit_default_limit 50
-  @audit_max_limit 200
-  # Mesmo teto de robustez de `Api.Records`: um `?offset=` gigante chega cru no Postgrex e
-  # derruba a request com 500. Ninguém pagina até lá — usa os filtros.
-  @audit_max_offset 100_000
-
   # Colunas de `changes` que NÃO viram linha de diff na tela. Chaves são **strings** (`changes`
   # é `:map` sobre jsonb). Três grupos:
   #
@@ -807,8 +801,8 @@ defmodule Api.Scheduling do
   """
   def list_audit_log(%Api.Scope{} = scope, opts \\ []) do
     resource = Keyword.get(opts, :resource, :appointment)
-    limit = opts |> Keyword.get(:limit) |> clamp_audit_limit()
-    offset = opts |> Keyword.get(:offset) |> clamp_audit_offset()
+    limit = opts |> Keyword.get(:limit) |> Api.Pagination.limit()
+    offset = opts |> Keyword.get(:offset) |> Api.Pagination.offset()
 
     in_clinic(scope, fn ->
       page = page_versions(resource, scope, opts, limit, offset)
@@ -1016,18 +1010,6 @@ defmodule Api.Scheduling do
     )
     |> Map.new(&{&1.id, %{id: &1.id, nome: &1.nome}})
   end
-
-  defp clamp_audit_limit(limit) when is_integer(limit) and limit > @audit_max_limit,
-    do: @audit_max_limit
-
-  defp clamp_audit_limit(limit) when is_integer(limit) and limit > 0, do: limit
-  defp clamp_audit_limit(_limit), do: @audit_default_limit
-
-  defp clamp_audit_offset(offset) when is_integer(offset) and offset > @audit_max_offset,
-    do: @audit_max_offset
-
-  defp clamp_audit_offset(offset) when is_integer(offset) and offset > 0, do: offset
-  defp clamp_audit_offset(_offset), do: 0
 
   # ---- Agenda: fontes de disponibilidade ----
 

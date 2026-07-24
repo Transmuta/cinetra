@@ -94,17 +94,6 @@ defmodule ApiWeb.AuditController do
   defp parse_action(action) when action in @audit_actions, do: String.to_existing_atom(action)
   defp parse_action(_), do: nil
 
-  # Valor inválido (ou negativo) vira `nil` e o DOMÍNIO aplica o default/teto (a lista nunca
-  # quebra por um `?limit=abc` nem por `?offset=-5`) — mesmo contrato de `PatientsController`.
-  defp parse_int(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {n, ""} when n >= 0 -> n
-      _ -> nil
-    end
-  end
-
-  defp parse_int(_value), do: nil
-
   # ---- serialização ----
 
   # Átomos (`action`, `status`) o Jason emite como string; DateTime vai em ISO-8601 explícito

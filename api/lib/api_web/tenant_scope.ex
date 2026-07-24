@@ -105,6 +105,33 @@ defmodule ApiWeb.TenantScope do
   def invalid(conn, message), do: unprocessable(conn, [%{field: nil, message: message}])
 
   @doc """
+  Lê um inteiro **não-negativo** de um query param, ou `nil`.
+
+  `nil` de propósito, e não 422: valor inválido em `?limit=`/`?offset=`/`?page=` deixa o
+  **domínio** aplicar o default e o teto (`Api.Pagination`) — a lista nunca quebra por um
+  `?limit=abc`. Estava copiada em três controllers, e a cópia mais nova já divergia (aceitava
+  negativo), que é o jeito silencioso de a regra deixar de ser uma só.
+
+      iex> ApiWeb.TenantScope.parse_int("50")
+      50
+      iex> ApiWeb.TenantScope.parse_int("-3")
+      nil
+      iex> ApiWeb.TenantScope.parse_int("abc")
+      nil
+      iex> ApiWeb.TenantScope.parse_int(nil)
+      nil
+  """
+  def parse_int(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {n, ""} when n >= 0 -> n
+      _ -> nil
+    end
+  end
+
+  def parse_int(value) when is_integer(value) and value >= 0, do: value
+  def parse_int(_value), do: nil
+
+  @doc """
   Lê e valida uma janela de datas de `params` (`from_key`/`to_key`, ambas `YYYY-MM-DD`).
 
   Era 27 linhas duplicadas byte a byte entre os controllers de agenda e disponibilidade —
