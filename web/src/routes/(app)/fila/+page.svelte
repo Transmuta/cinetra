@@ -227,12 +227,14 @@
 
 	const COLS =
 		'md:grid-cols-[minmax(160px,1.7fr)_100px_minmax(200px,2fr)_minmax(90px,0.9fr)_64px_148px]';
+	// `max-w-full` + `truncate`: o chip nunca é maior que a coluna — o texto vira reticências e o
+	// inteiro fica no `title`. Sem isso ele empurra e cobre a coluna vizinha (doc 38 §5C).
 	const chip =
-		'rounded-[5px] border border-edge-strong px-[7px] py-0.5 text-[10.5px] leading-[1.5] text-ink';
+		'max-w-full truncate rounded-[5px] border border-edge-strong px-[7px] py-0.5 text-[10.5px] leading-[1.5] text-ink';
 	// Chip de vaga casada (protótipo :2605): mesmo formato do chip, mas clicável e teal — sólido
 	// quando a vaga ABRIU (cancelamento/falta), suave quando é uma brecha geral.
 	const matchChip =
-		'inline-flex items-center gap-x-[5px] gap-y-1 rounded-[5px] border px-[7px] py-0.5 text-[10.5px] font-semibold leading-[1.5]';
+		'inline-flex max-w-full min-w-0 items-center gap-x-[5px] gap-y-1 rounded-[5px] border px-[7px] py-0.5 text-[10.5px] font-semibold leading-[1.5]';
 	const iconBtn =
 		'grid size-8 place-items-center rounded-md border border-edge bg-surface text-muted hover:bg-surface-2';
 </script>
@@ -240,10 +242,14 @@
 <svelte:head><title>Fila de espera · Cinetra</title></svelte:head>
 
 {#snippet dispCell(entry: Entry)}
-	<div class="flex flex-wrap items-center gap-1">
+	<!-- `min-w-0`: item de grid tem `min-width: auto`, ou seja, NÃO encolhe abaixo do conteúdo —
+	     e o chip tem texto `nowrap` dentro. Sem isto a célula estoura a coluna e pinta por cima
+	     de "Profissional" (achado do bate-volta, doc 38 §5C). Com isto o chip trunca. -->
+	<div class="flex min-w-0 flex-wrap items-center gap-1">
 		{#each dispItems(entry, slotsFor(entry), data.today) as item, i (i)}
 			{#if item.kind === 'neutral'}
 				<span
+					title={item.label}
 					class="{chip} {item.mono ? 'font-mono' : ''} {item.expired
 						? 'border-dashed text-faint line-through'
 						: ''}">{item.label}</span
@@ -273,8 +279,10 @@
 							class="size-1.5 shrink-0 rounded-full {item.slot.freed ? 'bg-white' : 'bg-teal'}"
 						></span>
 					{/if}
-					<span class="whitespace-nowrap">{item.label}</span>
-					<span class="font-mono font-bold whitespace-nowrap">
+					<!-- O que encolhe é o RÓTULO da regra ("Seg/Ter/Qua…"); a data e a hora ficam
+					     inteiras, porque são a informação que faz a pessoa clicar. -->
+					<span class="min-w-0 truncate">{item.label}</span>
+					<span class="shrink-0 font-mono font-bold whitespace-nowrap">
 						{slotDateLabel(item.slot)} {m2t(item.slot.start)}
 					</span>
 					{#if item.slot.freed}

@@ -197,19 +197,29 @@ agregado das contagens.
 fila é bounded — e o D-Aud1 está **bloqueado por decisão de produto** (a semântica do rótulo). Se a
 decisão for tomada, ela vale para as duas telas de uma vez.
 
-### C. O chip de disponibilidade transborda a coluna — **pré-existente, não do diff**
+### C. O chip de disponibilidade transbordava a coluna — ~~pré-existente~~ **CORRIGIDO**
 
-**O que é.** Na `/fila`, o chip de disponibilidade ultrapassa a coluna e cobre o texto da coluna
+**O que era.** Na `/fila`, o chip de disponibilidade ultrapassava a coluna e cobria o texto de
 "Profissional".
 
-**A sonda.** Screenshot com a reserva (chip + cadeado) e **sem** ela (chip normal): transborda nos
-dois casos. O cadeado do F4 agrava ~11 px, não causa.
+**A sonda.** Screenshot com a reserva (chip + cadeado) e **sem** ela: transbordava nos dois casos —
+o cadeado do F4 agravava ~11 px, não causava. Defeito anterior ao diff auditado.
 
-**Por que não foi corrigido.** É defeito de layout anterior ao diff auditado, e mexer no grid da
-lista sai do alvo desta auditoria.
+**A causa.** Item de grid tem `min-width: auto`: ele **não encolhe abaixo do conteúdo**. Com
+`whitespace-nowrap` dentro do chip, o conteúdo mínimo é o chip inteiro — então ele estourava a
+faixa `minmax(200px, 2fr)` e pintava por cima da vizinha.
 
-**Qual seria a correção.** `min-w-0` + `truncate` no chip (ou `flex-wrap` na célula com
-`overflow-hidden`), para o chip encolher em vez de empurrar.
+**O conserto** (a pedido, depois do relatório): `min-w-0` na célula, `max-w-full` + `truncate` no
+chip, e no chip de vaga o que encolhe é o **rótulo da regra** — a data e a hora ficam inteiras,
+porque são a informação que faz a pessoa clicar. O texto completo continua no `title`.
+
+**Scroll horizontal foi descartado** como alternativa: a coluna de ações (Oferecer/editar/excluir)
+é a última, e seria a primeira a sumir atrás do scroll; a lista já troca para **cartão** abaixo de
+`md`, que é a resposta certa para tela estreita; e nenhuma outra lista do projeto (Pacientes,
+Membros) rola na horizontal — o padrão é truncar com `title`.
+
+**Provado ao vivo:** com a mesma reserva do §1, o chip virou `🔒 Seg/Ter/Qua/… sex 24/07 08:00` e a
+coluna "Profissional" voltou a mostrar "Qualquer" legível.
 
 ### D. `release_slot_hold` não tem rota HTTP — **lacuna de produto**
 
