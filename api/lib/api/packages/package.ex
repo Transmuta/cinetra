@@ -1,0 +1,175 @@
+defmodule Api.Packages.Package do
+  @moduledoc """
+  O **pacote** — a unidade central de uma clínica de fisioterapia (doc 25/02 §1.5, RN-18…RN-31).
+  Um bloco de N sessões vendido a um paciente, materializado como N agendamentos reais na agenda.
+
+  Recurso por-tenant por atributo (`clinic_id`, ADR-017), como `Api.Scheduling`.
+
+  ## O pacote é individual; a sessão pode ser em grupo (revisão 2026-07-24)
+
+  Um pacote pertence a **um** paciente (`patient_id`). A sessão que ele gera pode ser em grupo —
+  um pacote de Pilates de 10 sessões, atendidas em turma, onde nem todos os participantes estão
+  em pacote. Por isso o vínculo sessão↔pacote **não** mora no `Appointment`, e sim na `Attendance`
+  de cada participante (`Attendance.package_id`). A contagem é sempre por participante.
+
+  ## `usadas` é DERIVADO, nunca coluna (RN-28)
+
+  O protótipo mantinha `p.usadas` na mão ([`:326`](../../../../interface/Movimento.dc.html#L326)) e
+  dessincronizava. Aqui é um `count` sobre as `Attendance` do pacote que **consomem** sessão:
+
+    * concluída **sempre** consome (RN-29);
+    * falta consome **só** se o pacote é punitivo **e** a falta não foi justificada (RN-30/31);
+    * prevista/cancelada nunca consomem.
+
+  ## Falta punitiva é do pacote, sem fallback (revisão 2026-07-24)
+
+  `falta_punitiva` é `allow_nil? false` — definida na criação, imutável depois. O antigo padrão
+  global de clínica (`clinic.falta_consome_padrao` / `noShowConsome`) foi **removido**: não há para
+  onde cair, e o filtro de `usadas` não subconta. A regra foi combinada com o paciente quando o
+  pacote foi vendido, e vale por aquele pacote.
+
+  ## O que esta fatia ainda NÃO faz
+
+  Nasce com `create`/`read` e os derivados. A materialização da série (via `Api.Packages.Series` +
+  job), o débito ligado às transições, e o pausar/retomar reprojetando vêm nos passos seguintes da
+  Frente 5. As ações de ciclo de vida (`:pause`/`:resume`/`:cancel`/`:adjust_grade`/…) entram com
+  elas.
+  """
+  use Ash.Resource,
+    otp_app: :api,
+    domain: Api.Packages,
+    data_layer: AshPostgres.DataLayer,
+    authorizers: [Ash.Policy.Authorizer]
+
+  postgres do
+    table "packages"
+    repo Api.Repo
+
+    references do
+      reference :clinic, on_delete: :delete
+      # Paciente com pacote não é apagável — Patient arquiva (como em Attendance).
+      reference :patient, on_delete: :restrict
+      reference :appointment_type, on_delete: :restrict
+    end
+
+    check_constraints do
+      check_constraint :total,
+        name: "packages_total_positive",
+        check: "total > 0",
+        message: "O total de sessões precisa ser positivo."
+    end
+
+    custom_indexes do
+      index [:clinic_id, :patient_id]
+      index [:appointment_type_id], all_tenants?: true
+    end
+  end
+
+  actions do
+    defaults [:read]
+
+    create :create do
+      primary? true
+
+      accept [
+        :nome,
+        :total,
+        :falta_punitiva,
+        :cor,
+        :data_inicio,
+        :patient_id,
+        :appointment_type_id
+      ]
+
+      # A grade nasce junto (has_one). `type: :create` porque o pacote e a grade são criados na
+      # mesma transação — não existe pacote sem grade.
+      argument :grade, :map, allow_nil?: false
+      change manage_relationship(:grade, :schedule, type: :create)
+    end
+  end
+
+  policies do
+    policy action_type(:read) do
+      authorize_if {Api.Accounts.Checks.HasClinicRole, roles: :any, clinic_from: :tenant}
+    end
+
+    policy action_type(:create) do
+      authorize_if {Api.Accounts.Checks.HasClinicRole,
+                    roles: [:owner, :admin, :recepcao, :profissional], clinic_from: :tenant}
+    end
+  end
+
+  changes do
+    change Api.Tenancy.SetTenantGuc
+  end
+
+  multitenancy do
+    strategy :attribute
+    attribute :clinic_id
+  end
+
+  attributes do
+    uuid_v7_primary_key :id
+
+    # Nome do pacote na ficha (ex.: "Pilates 10"). Do `nome` do protótipo.
+    attribute :nome, :string,
+      allow_nil?: false,
+      public?: true,
+      constraints: [max_length: 120, trim?: true]
+
+    # Total de sessões ÚTEIS (não conta feriado pulado). Editável (+/−) depois, no mesmo registro.
+    attribute :total, :integer, allow_nil?: false, public?: true, constraints: [min: 1]
+
+    # A punição é do pacote e obrigatória — ver o moduledoc.
+    attribute :falta_punitiva, :boolean, allow_nil?: false, public?: true
+
+    # Cor do pacote na agenda/ficha (do `cor` do protótipo).
+    attribute :cor, :string, allow_nil?: false, public?: true
+
+    # A data-âncora da série (RN-21). A materialização projeta a partir daqui.
+    attribute :data_inicio, :date, allow_nil?: false, public?: true
+
+    attribute :status, Api.Packages.PackageStatus,
+      allow_nil?: false,
+      default: :ativo,
+      public?: true
+
+    timestamps()
+  end
+
+  relationships do
+    belongs_to :clinic, Api.Accounts.Clinic, allow_nil?: false
+    belongs_to :patient, Api.Records.Patient, allow_nil?: false
+    belongs_to :appointment_type, Api.Directory.AppointmentType, allow_nil?: false
+
+    has_one :schedule, Api.Packages.PackageSchedule
+
+    # A série, por participante (revisão 2026-07-24). Cross-domínio: `Attendance` mora em
+    # `Api.Scheduling` e carrega `package_id` sem FK (precedente de `Patient.prefs`), então o
+    # vínculo é por `destination_attribute` explícito.
+    has_many :attendances, Api.Scheduling.Attendance do
+      destination_attribute :package_id
+    end
+  end
+
+  calculations do
+    # `Math.max(0, total - usadas)` de `pkgRemaining` ([`:327`](../../../../interface/Movimento.dc.html#L327)).
+    calculate :restantes, :integer, expr(if total - usadas > 0, do: total - usadas, else: 0)
+
+    # "Acabando" = ativo e faltam 1 ou 2 (o aviso da ficha).
+    calculate :acabando, :boolean, expr(status == :ativo and restantes > 0 and restantes <= 2)
+  end
+
+  aggregates do
+    # RN-28: consumo derivado. Conta as attendances que consomem — concluída sempre; falta só se
+    # punitiva e não justificada (RN-29/30/31). Sem fallback de clínica (revisão 2026-07-24):
+    # `falta_punitiva` é obrigatória, então `parent(falta_punitiva)` é sempre true/false.
+    count :usadas, :attendances do
+      filter expr(
+               status == :concluida or
+                 (status == :faltou and falta_justificada == false and
+                    parent(falta_punitiva) == true)
+             )
+    end
+  end
+end

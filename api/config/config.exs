@@ -79,6 +79,7 @@ config :api,
     Api.Scheduling,
     Api.Records,
     Api.Waitlist,
+    Api.Packages,
     Api.Notifications
   ],
   ash_authentication: [return_error_on_invalid_magic_link_token?: true]
