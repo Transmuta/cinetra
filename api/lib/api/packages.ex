@@ -266,4 +266,19 @@ defmodule Api.Packages do
       )
     end)
   end
+
+  @doc """
+  Lê um pacote com os derivados **sob RLS** (`in_clinic`). O controller chama isto para reapresentar
+  o pacote depois de criar/transicionar: o `get_package!` cru rodaria fora da GUC de tenant e a RLS
+  (ADR-018) o barraria com `""::uuid` no servidor real — invisível ao `mix test`, que roda como
+  superusuário (a mesma armadilha de `list_patient_packages` e das escritas com `SetTenantGuc`).
+  """
+  def get_patient_package!(%Api.Scope{} = scope, id, opts \\ []) do
+    in_clinic(scope, fn ->
+      get_package!(id,
+        scope: scope,
+        load: Keyword.get(opts, :load, [:usadas, :restantes, :acabando, :schedule])
+      )
+    end)
+  end
 end

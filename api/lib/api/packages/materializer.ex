@@ -31,6 +31,8 @@ defmodule Api.Packages.Materializer do
   """
   use Oban.Worker, queue: :housekeeping, max_attempts: 3
 
+  import Api.Tenancy, only: [in_clinic: 2]
+
   require Logger
 
   alias Api.Scheduling.LocalTime
@@ -40,14 +42,24 @@ defmodule Api.Packages.Materializer do
     %{"package_id" => package_id, "clinic_id" => clinic_id} = args
     forcar = Map.get(args, "forcar", false)
 
-    pkg =
-      Api.Packages.get_package!(package_id,
-        tenant: clinic_id,
-        authorize?: false,
-        load: [:schedule]
-      )
+    # As leituras rodam sob a GUC de tenant (`in_clinic`): sem ela a RLS (ADR-018) lê o
+    # `movimento.clinic_id` vazio e estoura `""::uuid` no job — o mesmo furo que o `mix test`
+    # (superusuário) não vê. O plano (quais instantes criar) sai daqui já resolvido.
+    plan =
+      in_clinic(clinic_id, fn ->
+        pkg =
+          Api.Packages.get_package!(package_id,
+            tenant: clinic_id,
+            authorize?: false,
+            load: [:schedule]
+          )
 
-    materialize(pkg, clinic_id, forcar, anchor(args, pkg), count(args, pkg))
+        build_plan(pkg, clinic_id, anchor(args, pkg), count(args, pkg))
+      end)
+
+    # As escritas ficam **fora** do `in_clinic`: cada sessão seta a própria GUC (`SetTenantGuc`).
+    # Envolver a escrita na transação de leitura quebraria o caminho de erro (ver `Api.Tenancy`).
+    create_sessions(plan, clinic_id, forcar)
   end
 
   # Criação: âncora = `data_inicio`, total = `pkg.total`. Retomada (GAP-06): a retomada passa
@@ -58,14 +70,11 @@ defmodule Api.Packages.Materializer do
   defp count(%{"count" => n}, _pkg) when is_integer(n), do: n
   defp count(_args, pkg), do: pkg.total
 
-  defp materialize(%{schedule: nil} = pkg, _clinic_id, _forcar, _anchor, _count) do
-    # Sem grade não há o que materializar — não deveria acontecer (a grade nasce com o pacote), mas
-    # falhar aqui só geraria retry infinito. Registra e encerra.
-    Logger.error("Pacote #{pkg.id} sem grade na materialização; nada a fazer")
-    :ok
-  end
+  # Resolve, sob a GUC, TUDO que precisa de leitura: tipo, feriados, série projetada e os horários
+  # já materializados. Devolve só os instantes a criar — as escritas acontecem fora daqui.
+  defp build_plan(%{schedule: nil} = pkg, _clinic_id, _anchor, _count), do: {:no_grade, pkg.id}
 
-  defp materialize(pkg, clinic_id, forcar, anchor, total) do
+  defp build_plan(pkg, clinic_id, anchor, total) do
     %{timezone: tz} = Api.Scheduling.load_clinic(clinic_id)
 
     tipo =
@@ -75,24 +84,39 @@ defmodule Api.Packages.Materializer do
       )
 
     feriados = Api.Scheduling.clinic_holidays(clinic_id)
-
     grade = %{dows: pkg.schedule.dows, horarios: pkg.schedule.horarios}
 
     with {:ok, ocorrencias} <- Api.Packages.Series.project(anchor, grade, total, feriados) do
       ja_feitas = materialized_starts(pkg.id, clinic_id)
 
-      ocorrencias
-      |> Enum.reject(& &1.feriado?)
-      |> Enum.each(fn occ ->
-        {:ok, starts_at} = LocalTime.to_utc(occ.data, occ.hhmm, tz)
+      starts =
+        ocorrencias
+        |> Enum.reject(& &1.feriado?)
+        |> Enum.map(fn occ ->
+          {:ok, starts_at} = LocalTime.to_utc(occ.data, occ.hhmm, tz)
+          starts_at
+        end)
+        |> Enum.reject(&MapSet.member?(ja_feitas, DateTime.to_iso8601(&1)))
 
-        unless MapSet.member?(ja_feitas, DateTime.to_iso8601(starts_at)) do
-          Api.Packages.Sessions.create_and_stamp(pkg, tipo, starts_at, clinic_id, forcar)
-        end
-      end)
-
-      :ok
+      {:ok, pkg, tipo, starts}
     end
+  end
+
+  defp create_sessions({:no_grade, pkg_id}, _clinic_id, _forcar) do
+    # Sem grade não há o que materializar — não deveria acontecer (a grade nasce com o pacote), mas
+    # falhar aqui só geraria retry infinito. Registra e encerra.
+    Logger.error("Pacote #{pkg_id} sem grade na materialização; nada a fazer")
+    :ok
+  end
+
+  defp create_sessions({:error, _reason} = erro, _clinic_id, _forcar), do: erro
+
+  defp create_sessions({:ok, pkg, tipo, starts}, clinic_id, forcar) do
+    Enum.each(starts, fn starts_at ->
+      Api.Packages.Sessions.create_and_stamp(pkg, tipo, starts_at, clinic_id, forcar)
+    end)
+
+    :ok
   end
 
   # As presenças **ativas** carimbadas com este pacote → horários (ISO) já materializados. Ignora

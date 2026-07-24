@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { invalidateAll } from '$app/navigation';
 	import ChevronLeft from '@lucide/svelte/icons/chevron-left';
 	import Pencil from '@lucide/svelte/icons/pencil';
 	import CreditCard from '@lucide/svelte/icons/credit-card';
@@ -15,9 +16,14 @@
 	import { initials } from '$lib/format';
 	import { patientColor, convLabel, idade, prefNomes, canManagePatients } from '$lib/patients';
 	import PackageList from '$lib/components/patients/PackageList.svelte';
+	import PackageCreateModal from '$lib/components/patients/PackageCreateModal.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
+
+	// O modal de criação de pacote é dono do pai (a ficha): abre pelo "Novo pacote" da lista e, ao
+	// criar, recarrega a ficha (`invalidateAll`) para o novo pacote aparecer com os contadores.
+	let criandoPacote = $state(false);
 
 	const p = $derived(data.patient);
 	const canManage = $derived(canManagePatients(data.me.papel));
@@ -227,6 +233,19 @@
 		{@render card(ShieldCheck, 'Consentimentos', consentBody)}
 	</div>
 
-	<!-- Pacotes (Fatia 3): lista + ciclo de vida. A criação (modal com prévia) é o próximo passo. -->
-	<PackageList packages={data.packages} {canManage} />
+	<!-- Pacotes (Fatia 3): lista + ciclo de vida + criação (modal com prévia ao vivo). -->
+	<PackageList packages={data.packages} {canManage} onNew={() => (criandoPacote = true)} />
 </div>
+
+{#if criandoPacote}
+	<PackageCreateModal
+		patientId={p.id}
+		professionals={data.professionals}
+		appointmentTypes={data.appointmentTypes}
+		onClose={() => (criandoPacote = false)}
+		onCreated={() => {
+			criandoPacote = false;
+			invalidateAll();
+		}}
+	/>
+{/if}

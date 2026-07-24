@@ -3,6 +3,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const pf = vi.hoisted(() => ({ fetchProfessionals: vi.fn() }));
 vi.mock('$lib/server/professionals', () => pf);
 
+const at = vi.hoisted(() => ({ fetchAppointmentTypes: vi.fn() }));
+vi.mock('$lib/server/appointment-types', () => at);
+
 const m = vi.hoisted(() => ({
 	fetchPatient: vi.fn(),
 	deactivatePatient: vi.fn(),
@@ -21,26 +24,48 @@ vi.mock('$lib/server/packages', () => k);
 import { load, actions } from './+page.server';
 
 beforeEach(() => {
-	[...Object.values(pf), ...Object.values(m), ...Object.values(k)].forEach((fn) => fn.mockReset());
+	[...Object.values(pf), ...Object.values(at), ...Object.values(m), ...Object.values(k)].forEach(
+		(fn) => fn.mockReset()
+	);
 	k.fetchPatientPackages.mockResolvedValue({ status: 200, packages: [] });
+	at.fetchAppointmentTypes.mockResolvedValue({
+		status: 200,
+		data: { appointment_types: [] }
+	});
 });
 
 describe('load', () => {
-	it('200 → paciente + diretório + pacotes', async () => {
-		m.fetchPatient.mockResolvedValueOnce({ status: 200, patient: { id: 'pac1', nome: 'Mari' } });
-		pf.fetchProfessionals.mockResolvedValueOnce({ data: { professionals: [{ id: 'p1' }] } });
-		k.fetchPatientPackages.mockResolvedValueOnce({ status: 200, packages: [{ id: 'k1' }] });
+	it('200 → paciente + diretório + tipos + pacotes', async () => {
+		m.fetchPatient.mockResolvedValueOnce({
+			status: 200,
+			patient: { id: 'pac1', nome: 'Mari' }
+		});
+		pf.fetchProfessionals.mockResolvedValueOnce({
+			data: { professionals: [{ id: 'p1' }] }
+		});
+		at.fetchAppointmentTypes.mockResolvedValueOnce({
+			status: 200,
+			data: { appointment_types: [{ id: 't1' }] }
+		});
+		k.fetchPatientPackages.mockResolvedValueOnce({
+			status: 200,
+			packages: [{ id: 'k1' }]
+		});
 		const r = (await load({ params: { id: 'pac1' } } as never)) as {
 			patient: { nome: string };
+			appointmentTypes: unknown[];
 			packages: unknown[];
 		};
 		expect(r.patient.nome).toBe('Mari');
+		expect(r.appointmentTypes).toEqual([{ id: 't1' }]);
 		expect(r.packages).toEqual([{ id: 'k1' }]);
 	});
 	it('não encontrado → 404', async () => {
 		m.fetchPatient.mockResolvedValueOnce({ status: 404, patient: null });
 		pf.fetchProfessionals.mockResolvedValueOnce({ data: null });
-		await expect(load({ params: { id: 'x' } } as never)).rejects.toMatchObject({ status: 404 });
+		await expect(load({ params: { id: 'x' } } as never)).rejects.toMatchObject({
+			status: 404
+		});
 	});
 });
 
@@ -66,7 +91,9 @@ describe('actions do ciclo de vida do pacote', () => {
 	const evWith = (id: unknown) =>
 		({
 			params: { id: 'pac1' },
-			request: { formData: async () => new Map(id === undefined ? [] : [['package_id', id]]) }
+			request: {
+				formData: async () => new Map(id === undefined ? [] : [['package_id', id]])
+			}
 		}) as never;
 
 	it('pausePackage ok → { ok: true }', async () => {
@@ -81,12 +108,20 @@ describe('actions do ciclo de vida do pacote', () => {
 	});
 
 	it('cancelPackage recusado (403) → fail', async () => {
-		k.cancelPackage.mockResolvedValueOnce({ ok: false, status: 403, error: 'não pode' });
-		expect(await actions.cancelPackage(evWith('k1'))).toMatchObject({ status: 403 });
+		k.cancelPackage.mockResolvedValueOnce({
+			ok: false,
+			status: 403,
+			error: 'não pode'
+		});
+		expect(await actions.cancelPackage(evWith('k1'))).toMatchObject({
+			status: 403
+		});
 	});
 
 	it('sem package_id → 400', async () => {
-		expect(await actions.pausePackage(evWith(undefined))).toMatchObject({ status: 400 });
+		expect(await actions.pausePackage(evWith(undefined))).toMatchObject({
+			status: 400
+		});
 		expect(k.pausePackage).not.toHaveBeenCalled();
 	});
 });

@@ -2,6 +2,7 @@ import { error, fail } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import { fetchPatient, deactivatePatient, reactivatePatient } from '$lib/server/patients';
 import { fetchProfessionals } from '$lib/server/professionals';
+import { fetchAppointmentTypes } from '$lib/server/appointment-types';
 import {
 	fetchPatientPackages,
 	pausePackage,
@@ -12,9 +13,10 @@ import {
 // A ficha (só leitura). Vai junto o diretório (nomes dos profissionais preferidos) e os pacotes
 // do paciente (Fatia 3). Histórico e anexos ainda não entram (dependem de v2).
 export const load: PageServerLoad = async (event) => {
-	const [pat, prof, pkgs] = await Promise.all([
+	const [pat, prof, types, pkgs] = await Promise.all([
 		fetchPatient(event, event.params.id),
 		fetchProfessionals(event),
+		fetchAppointmentTypes(event),
 		fetchPatientPackages(event, event.params.id)
 	]);
 
@@ -23,6 +25,7 @@ export const load: PageServerLoad = async (event) => {
 	return {
 		patient: pat.patient,
 		professionals: prof.data?.professionals ?? [],
+		appointmentTypes: types.data?.appointment_types ?? [],
 		packages: pkgs.packages
 	};
 };

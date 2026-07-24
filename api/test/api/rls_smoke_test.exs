@@ -36,6 +36,7 @@ defmodule Api.RlsSmokeTest do
 
   alias Api.Accounts
   alias Api.Directory
+  alias Api.Packages
   alias Api.Records
   alias Api.Scheduling
 
@@ -249,6 +250,64 @@ defmodule Api.RlsSmokeTest do
       # Se o INSERT na tabela de versões rodasse sem GUC, o WITH CHECK da RLS o barraria e a
       # ação inteira voltaria — então "o agendamento existe" já prova que a trilha passou.
       assert appt.id
+    end
+  end
+
+  describe "pacote sob RLS (Fatia 3)" do
+    # A grade mínima: uma segunda às 08:00 (dentro do expediente semeado pelo onboard), 3 sessões.
+    defp package_params(ctx, opts \\ []) do
+      %{
+        nome: "Pacote RLS #{System.unique_integer([:positive])}",
+        total: Keyword.get(opts, :total, 3),
+        falta_punitiva: true,
+        cor: "#0FB5A6",
+        data_inicio: @segunda,
+        patient_id: ctx.paciente.id,
+        appointment_type_id: ctx.tipo.id,
+        grade: %{dows: [1], horarios: %{"1" => "08:00"}, professional_id: ctx.prof.id}
+      }
+    end
+
+    test "reler o pacote depois de criar (o re-read do controller) não estoura ''::uuid" do
+      ctx = fixture()
+
+      {:ok, pkg} = Packages.create_series(ctx.scope, package_params(ctx), forcar: false)
+
+      # A GUC pendurada pelo setup é zerada: reproduz o request novo que o controller atende. O
+      # `get_package!` cru rodaria fora do `in_clinic` e a RLS o barraria com `""::uuid` (500) no
+      # servidor real — invisível ao `mix test`, que roda como `postgres` (BYPASSRLS).
+      :ok = sem_guc()
+
+      relido = Packages.get_patient_package!(ctx.scope, pkg.id, load: [:schedule, :usadas])
+      assert relido.id == pkg.id
+      assert relido.schedule, "grade vazia: a GUC não chegou na releitura"
+    end
+
+    test "o job de materialização cria as N sessões sob RLS — falha/0 aqui = GUC faltando" do
+      ctx = fixture()
+
+      {:ok, pkg} = Packages.create_series(ctx.scope, package_params(ctx, total: 3), forcar: false)
+
+      # O job Oban começa SEM GUC ambiente em produção (transação nova, sem herança). Zerar antes
+      # de drenar reproduz isso: as leituras do job (pacote, tipo, presenças) e a releitura do
+      # `stamp` têm de setar a própria GUC via `in_clinic`. Sem o fix, o job falha (`""::uuid`).
+      :ok = sem_guc()
+      assert %{success: 1, failure: 0} = Oban.drain_queue(queue: :housekeeping)
+
+      # E as sessões existem de fato: 3 presenças carimbadas com o pacote. A contagem roda sob
+      # `in_clinic` (a própria leitura precisa da GUC — senão a RLS a filtra para zero/erro).
+      :ok = sem_guc()
+
+      carimbadas =
+        Api.Tenancy.in_clinic(ctx.clinic.id, fn ->
+          Scheduling.list_attendances!(
+            tenant: ctx.clinic.id,
+            authorize?: false,
+            query: [filter: [package_id: pkg.id]]
+          )
+        end)
+
+      assert length(carimbadas) == 3, "materialização não gravou as 3 sessões sob RLS"
     end
   end
 end

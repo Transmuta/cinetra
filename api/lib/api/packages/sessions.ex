@@ -9,6 +9,8 @@ defmodule Api.Packages.Sessions do
   é escrita de cascata, como `CascadeToAttendances`.
   """
 
+  import Api.Tenancy, only: [in_clinic: 2]
+
   @doc """
   Cria a sessão em `starts_at` para o paciente do pacote e carimba o `package_id`. `forcar` vira
   `encaixe: true` (fura conflito/turma cheia; **não** fura expediente — D14). Devolve `{:ok,
@@ -30,12 +32,17 @@ defmodule Api.Packages.Sessions do
   end
 
   defp stamp(appointment_id, pkg, clinic_id) do
+    # Releitura sob a GUC de tenant (`in_clinic`): o `get_appointment!` cru rodaria fora da RLS e
+    # estouraria `""::uuid` (o mesmo furo do job). A escrita seguinte (`set_attendance_package!`)
+    # seta a própria GUC via `SetTenantGuc`, então fica fora do `in_clinic`.
     appt =
-      Api.Scheduling.get_appointment!(appointment_id,
-        tenant: clinic_id,
-        authorize?: false,
-        load: [:attendances]
-      )
+      in_clinic(clinic_id, fn ->
+        Api.Scheduling.get_appointment!(appointment_id,
+          tenant: clinic_id,
+          authorize?: false,
+          load: [:attendances]
+        )
+      end)
 
     att = Enum.find(appt.attendances, &(&1.patient_id == pkg.patient_id))
 

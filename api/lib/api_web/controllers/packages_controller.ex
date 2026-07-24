@@ -49,7 +49,7 @@ defmodule ApiWeb.PackagesController do
 
       with {:ok, attrs} <- series_params(params),
            {:ok, pkg} <- Packages.create_series(scope, attrs, forcar: forcar) do
-        pkg = Packages.get_package!(pkg.id, scope: scope, load: derivados())
+        pkg = Packages.get_patient_package!(scope, pkg.id, load: derivados())
         conn |> put_status(:created) |> json(%{package: PackagesJSON.package(pkg)})
       else
         :invalid ->
@@ -90,7 +90,7 @@ defmodule ApiWeb.PackagesController do
   defp transition(conn, scope, result) do
     case result do
       {:ok, pkg} ->
-        pkg = Packages.get_package!(pkg.id, scope: scope, load: derivados())
+        pkg = Packages.get_patient_package!(scope, pkg.id, load: derivados())
         json(conn, %{package: PackagesJSON.package(pkg)})
 
       {:error, error} ->

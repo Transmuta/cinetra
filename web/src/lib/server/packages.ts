@@ -59,7 +59,10 @@ export async function previewSeries(
 	try {
 		const res = await apiFetch(event, '/api/packages/preview', {
 			method: 'POST',
-			headers: { 'content-type': 'application/json', accept: 'application/json' },
+			headers: {
+				'content-type': 'application/json',
+				accept: 'application/json'
+			},
 			body: JSON.stringify(input)
 		});
 		if (!res.ok) return { status: res.status, preview: null };
@@ -77,18 +80,21 @@ export interface CreateResult {
 	status: number;
 	package?: Package;
 	// quando 422 series_blocked:
-	blocked?: { reason: 'fora_expediente' | 'precisa_confirmar'; preview: PreviewResult };
+	blocked?: {
+		reason: 'fora_expediente' | 'precisa_confirmar';
+		preview: PreviewResult;
+	};
 	error?: string;
 }
 
-export async function createSeries(
-	event: RequestEvent,
-	input: SeriesInput
-): Promise<CreateResult> {
+export async function createSeries(event: RequestEvent, input: SeriesInput): Promise<CreateResult> {
 	try {
 		const res = await apiFetch(event, '/api/packages', {
 			method: 'POST',
-			headers: { 'content-type': 'application/json', accept: 'application/json' },
+			headers: {
+				'content-type': 'application/json',
+				accept: 'application/json'
+			},
 			body: JSON.stringify(input)
 		});
 
@@ -104,11 +110,19 @@ export async function createSeries(
 				preview?: PreviewResult;
 			};
 			if (body?.error === 'series_blocked' && body.reason && body.preview) {
-				return { ok: false, status: 422, blocked: { reason: body.reason, preview: body.preview } };
+				return {
+					ok: false,
+					status: 422,
+					blocked: { reason: body.reason, preview: body.preview }
+				};
 			}
 		}
 
-		return { ok: false, status: res.status, error: 'Não foi possível criar o pacote.' };
+		return {
+			ok: false,
+			status: res.status,
+			error: 'Não foi possível criar o pacote.'
+		};
 	} catch {
 		return { ok: false, status: 0, error: 'Falha de conexão com o servidor.' };
 	}
