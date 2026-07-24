@@ -99,11 +99,13 @@ const config = { origin: 'http://localhost:4010', token: 'tok-1', clinic_id: 'c1
 
 function handlers(): AgendaHandlers & {
 	appointments: unknown[];
+	removed: string[];
 	sinais: number;
 	resyncs: number;
 } {
 	const h = {
 		appointments: [] as unknown[],
+		removed: [] as string[],
 		sinais: 0,
 		resyncs: 0,
 		onAppointment(p: unknown) {
@@ -111,6 +113,9 @@ function handlers(): AgendaHandlers & {
 		},
 		onSignal() {
 			h.sinais += 1;
+		},
+		onRemove(id: string) {
+			h.removed.push(id);
 		},
 		onResync() {
 			h.resyncs += 1;
@@ -205,6 +210,17 @@ describe('connectAgenda', () => {
 		fake.FakeSocket.last!.channels[0].emit('agenda_changed', { day: '2026-07-20' });
 
 		expect(h.sinais).toBe(1);
+		expect(h.appointments).toHaveLength(0);
+	});
+
+	it('appointment_excluded vai para onRemove (só o id), não para onAppointment', () => {
+		const h = handlers();
+		connectAgenda(config, ['t'], h);
+
+		fake.FakeSocket.last!.channels[0].emit('appointment_excluded', { appointment_id: 'a9' });
+
+		expect(h.removed).toEqual(['a9']);
+		// Não é bloco: não passa pelo caminho de patch.
 		expect(h.appointments).toHaveLength(0);
 	});
 

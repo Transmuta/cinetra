@@ -90,6 +90,21 @@ defmodule ApiWeb.AgendaChannel do
     {:noreply, socket}
   end
 
+  # Soft-delete (doc 40) no modo `block`: relê o bloco NÃO resolve — o `prepare` de
+  # `excluded_at IS NULL` já o esconde, então `load_visible_appointment` devolveria `nil` e o
+  # bloco ficaria fantasma na tela até um refresh (é o buraco que o `case nil` abaixo tem para
+  # todo evento). Em vez de reler, empurra a REMOÇÃO do id — gated pelo mesmo recorte A7 do
+  # sinal: quem não podia ver o bloco não recebe (e para quem nunca o teve seria no-op de
+  # qualquer forma). Semana/Mês caem no clause de cima (`mode: :signal`) e recarregam a contagem.
+  @impl true
+  def handle_info({:agenda_event, %{event: "appointment_excluded"} = evento}, socket) do
+    if visivel?(socket.assigns.scope, evento) do
+      push(socket, "appointment_excluded", %{appointment_id: evento.appointment_id})
+    end
+
+    {:noreply, socket}
+  end
+
   @impl true
   def handle_info({:agenda_event, evento}, socket) do
     case Scheduling.load_visible_appointment(socket.assigns.scope, evento.appointment_id) do

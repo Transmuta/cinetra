@@ -165,4 +165,27 @@ defmodule Api.Scheduling.AgendaNotifierTest do
     {:ok, _} = Scheduling.transition_appointment(ctx.scope, appt.id, :cancel)
     assert_receive {:agenda_event, %{event: "appointment_canceled"}}
   end
+
+  test "excluir publica appointment_excluded (soft-delete, doc 40)" do
+    ctx = fixture()
+    dia = ~D[2026-07-20]
+
+    {:ok, appt} =
+      Scheduling.schedule_appointment(
+        %{
+          starts_at: "2026-07-20T12:00:00Z",
+          professional_id: ctx.prof.id,
+          appointment_type_id: ctx.tipo.id,
+          patient_ids: [ctx.paciente.id]
+        },
+        scope: ctx.scope
+      )
+
+    :ok = AgendaNotifier.subscribe(AgendaNotifier.day_topic(ctx.clinic.id, dia))
+
+    {:ok, _} = Scheduling.transition_appointment(ctx.scope, appt.id, :exclude)
+
+    assert_receive {:agenda_event, %{event: "appointment_excluded", appointment_id: id}}
+    assert id == appt.id
+  end
 end

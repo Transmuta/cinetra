@@ -162,6 +162,19 @@
 					};
 				},
 				onSignal: recarregar,
+				// Soft-delete (doc 40): remove o bloco excluído por id. Só chega no modo `block`
+				// (Dia/Lista); Semana/Mês recebem a exclusão como `onSignal`. O `selecionado`
+				// derivado some junto → o drawer aberto naquele bloco fecha sozinho.
+				onRemove: (id) => {
+					if (viewRendersCounts(data.view as AgendaView)) {
+						recarregar();
+						return;
+					}
+					live = {
+						appointments: (live?.appointments ?? data.appointments).filter((a) => a.id !== id),
+						patients: live?.patients ?? data.patients
+					};
+				},
 				onResync: recarregar
 			},
 			{ mode: mode as AgendaMode }

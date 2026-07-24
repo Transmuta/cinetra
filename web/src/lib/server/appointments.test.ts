@@ -13,6 +13,7 @@ import {
 	missAppointment,
 	cancelAppointment,
 	reopenAppointment,
+	excludeAppointment,
 	justifyAbsence,
 	agendaQuery,
 	availabilityQuery
@@ -311,7 +312,8 @@ describe('ciclo de vida (Entrega 4)', () => {
 		for (const [fn, path] of [
 			[completeAppointment, 'complete'],
 			[missAppointment, 'miss'],
-			[reopenAppointment, 'reopen']
+			[reopenAppointment, 'reopen'],
+			[excludeAppointment, 'exclude']
 		] as const) {
 			m.apiFetch.mockResolvedValueOnce(res(200, { appointment: { id: 'a1' } }));
 			await fn(event, 'a1', 7);

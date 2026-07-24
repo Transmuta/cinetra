@@ -464,6 +464,25 @@ defmodule Api.Scheduling.AppointmentTest do
     end
   end
 
+  # Irmão de RN-13: um bloco EXCLUÍDO (soft-delete, doc 40) também tem de liberar o horário —
+  # senão um lançamento feito por engano seguiria bloqueando o slot para sempre. Só o banco
+  # prova (o predicado parcial da `appointments_no_overlap` precisa de `AND excluded_at IS NULL`);
+  # a leitura filtrar não basta, a constraint é DB-level.
+  describe "excluído não conflita (predicado da constraint)" do
+    test "excluir libera o slot para um novo agendamento" do
+      ctx = setup_clinic()
+      {:ok, appt} = schedule(ctx, %{})
+
+      # `:agendado` toma o slot.
+      assert {:error, %Ash.Error.Invalid{}} = schedule(ctx, %{})
+
+      assert {:ok, _} = Scheduling.transition_appointment(ctx.scope, appt.id, :exclude)
+
+      # Excluído, o mesmo horário volta a ser agendável.
+      assert {:ok, _} = schedule(ctx, %{})
+    end
+  end
+
   describe "pkg_hold — RN-05" do
     test "sessão segurada some de toda leitura" do
       ctx = setup_clinic()
@@ -1067,6 +1086,98 @@ defmodule Api.Scheduling.AppointmentTest do
 
       assert {:error, %Ash.Error.Invalid{}} =
                Scheduling.transition_appointment(scope, appt.id, :complete)
+    end
+  end
+
+  # Excluir é soft-delete (doc 40): o registro SOME das leituras (agenda, relatório, fila) mas
+  # a linha e a trilha continuam — é para lançamento feito por engano, distinto de cancelar (que
+  # aconteceu e conta). O que só o banco prova (o slot liberar) tem teste próprio abaixo, no
+  # bloco da constraint.
+  describe "excluir (soft-delete)" do
+    test "excluir some com o bloco das leituras mas preserva a linha e a trilha" do
+      ctx = setup_clinic()
+      appt = agendado(ctx)
+
+      assert {:ok, excluido} = Scheduling.transition_appointment(ctx.scope, appt.id, :exclude)
+      assert excluido.excluded_at != nil
+
+      # Sumiu da leitura da janela...
+      assert Scheduling.list_appointments!(at("00:00"), at("23:00"), scope: ctx.scope) == []
+
+      # ...e da leitura por id (o fetch da própria transição volta not_found).
+      assert {:error, :not_found} =
+               Scheduling.transition_appointment(ctx.scope, appt.id, :reopen)
+
+      # ...mas a LINHA continua no banco (soft-delete, não DELETE)...
+      assert %{rows: [[stamp]]} =
+               Api.Repo.query!("SELECT excluded_at FROM appointments WHERE id = $1", [
+                 Ecto.UUID.dump!(appt.id)
+               ])
+
+      refute is_nil(stamp)
+
+      # ...e a trilha registrou o "excluir" (a versão sobrevive; a tela de auditoria a lê).
+      assert %{rows: [[n]]} =
+               Api.Repo.query!(
+                 "SELECT count(*) FROM appointments_versions WHERE version_source_id = $1 AND version_action_name = 'exclude'",
+                 [Ecto.UUID.dump!(appt.id)]
+               )
+
+      assert n == 1
+    end
+
+    test "excluir um bloco cancelado é permitido (o caso mais comum: 'foi engano, some')" do
+      ctx = setup_clinic()
+      appt = agendado(ctx)
+      {:ok, _} = Scheduling.transition_appointment(ctx.scope, appt.id, :cancel)
+
+      assert {:ok, excluido} = Scheduling.transition_appointment(ctx.scope, appt.id, :exclude)
+      assert excluido.excluded_at != nil
+    end
+
+    test "excluir um bloco JÁ concluído é recusado (aconteceu — reabra antes, F4)" do
+      ctx = setup_clinic()
+      appt = agendado(ctx)
+      scope = scope_at(ctx.owner, ctx.clinic, DateTime.add(at("08:00"), 3600, :second))
+      {:ok, _} = Scheduling.transition_appointment(scope, appt.id, :complete)
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               Scheduling.transition_appointment(scope, appt.id, :exclude)
+    end
+
+    test "excluir um bloco que faltou é recusado (a falta conta; não some da história)" do
+      ctx = setup_clinic()
+      appt = agendado(ctx)
+      scope = scope_at(ctx.owner, ctx.clinic, DateTime.add(at("08:00"), 3600, :second))
+      {:ok, _} = Scheduling.transition_appointment(scope, appt.id, :miss)
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               Scheduling.transition_appointment(scope, appt.id, :exclude)
+    end
+
+    test "expected_version obsoleto → {:error, :version_conflict}" do
+      ctx = setup_clinic()
+      appt = agendado(ctx)
+
+      assert {:error, :version_conflict} =
+               Scheduling.transition_appointment(
+                 ctx.scope,
+                 appt.id,
+                 :exclude,
+                 %{},
+                 appt.version + 99
+               )
+    end
+
+    test "recepção pode excluir (não é privilégio de owner/admin — decisão do doc 40)" do
+      ctx = setup_clinic()
+      appt = agendado(ctx)
+
+      user = member_with_role(ctx.clinic, :recepcao)
+      scope = scope_for(user, ctx.clinic)
+
+      assert {:ok, excluido} = Scheduling.transition_appointment(scope, appt.id, :exclude)
+      assert excluido.excluded_at != nil
     end
   end
 

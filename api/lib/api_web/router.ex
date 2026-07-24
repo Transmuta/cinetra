@@ -141,6 +141,7 @@ defmodule ApiWeb.Router do
     post "/appointments/:id/miss", AppointmentsController, :miss
     post "/appointments/:id/cancel", AppointmentsController, :cancel
     post "/appointments/:id/reopen", AppointmentsController, :reopen
+    post "/appointments/:id/exclude", AppointmentsController, :exclude
     post "/appointments/:id/justify-absence", AppointmentsController, :justify_absence
 
     # Cálculo, não coleção (09:253): a composição das 4 camadas de expediente.

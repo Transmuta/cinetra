@@ -430,6 +430,76 @@ defmodule ApiWeb.AgendaChannelTest do
     end
   end
 
+  # Soft-delete (doc 40): o excluído some da leitura, então reler o bloco no canal não resolve —
+  # tem de empurrar a REMOÇÃO do id, senão o bloco fica fantasma na tela até um refresh.
+  describe "exclusão (appointment_excluded)" do
+    test "modo block empurra a remoção do id SEM reler o bloco" do
+      ctx = fixture()
+      scope = scope_for(ctx.owner, ctx.clinic)
+      {:ok, appt} = Scheduling.schedule_appointment(agenda(ctx), scope: scope)
+
+      {:ok, _, socket} =
+        ctx.owner
+        |> socket_for(ctx.clinic)
+        |> subscribe_and_join(ApiWeb.AgendaChannel, dia_topic(ctx.clinic), %{"mode" => "block"})
+
+      evento = %{evento(ctx, appt) | event: "appointment_excluded"}
+
+      # Contraste com o "modo block relê o bloco" acima: aqui NÃO relê (o bloco já sumiu da
+      # leitura). Zero query prova que o caminho é remoção, não releitura.
+      {_, queries} =
+        Api.QueryCounter.count(
+          fn ->
+            send(socket.channel_pid, {:agenda_event, evento})
+            assert_push "appointment_excluded", payload
+            assert payload == %{appointment_id: appt.id}
+          end,
+          "appointments"
+        )
+
+      assert queries == 0
+    end
+
+    test "modo signal (Semana/Mês) recarrega a contagem, não remove bloco" do
+      ctx = fixture()
+      scope = scope_for(ctx.owner, ctx.clinic)
+      {:ok, appt} = Scheduling.schedule_appointment(agenda(ctx), scope: scope)
+
+      {:ok, _, socket} =
+        ctx.owner
+        |> socket_for(ctx.clinic)
+        |> subscribe_and_join(ApiWeb.AgendaChannel, dia_topic(ctx.clinic), %{"mode" => "signal"})
+
+      send(
+        socket.channel_pid,
+        {:agenda_event, %{evento(ctx, appt) | event: "appointment_excluded"}}
+      )
+
+      assert_push "agenda_changed", %{day: "2026-07-20", change: "count"}
+    end
+
+    test "A7: o profissional NÃO recebe a remoção do bloco de um colega" do
+      ctx = fixture()
+      {prof_user, _} = member(ctx.owner, ctx.clinic, :profissional, ctx.outra.id)
+      scope = scope_for(ctx.owner, ctx.clinic)
+      {:ok, appt} = Scheduling.schedule_appointment(agenda(ctx), scope: scope)
+
+      {:ok, _, socket} =
+        prof_user
+        |> socket_for(ctx.clinic)
+        |> subscribe_and_join(ApiWeb.AgendaChannel, dia_topic(ctx.clinic), %{"mode" => "block"})
+
+      # O bloco é da `ctx.prof`; quem escuta é da `ctx.outra`. Remover um id que ele nunca teve
+      # seria no-op, mas o recorte A7 vale igual: nada é empurrado.
+      send(
+        socket.channel_pid,
+        {:agenda_event, %{evento(ctx, appt) | event: "appointment_excluded"}}
+      )
+
+      refute_push "appointment_excluded", _payload, 300
+    end
+  end
+
   describe "turma" do
     test "entrar numa turma existente empurra participant_added com a lista nova" do
       ctx = fixture()

@@ -10,6 +10,7 @@ import {
 	missAppointment,
 	cancelAppointment,
 	reopenAppointment,
+	excludeAppointment,
 	justifyAbsence
 } from '$lib/server/appointments';
 import type { MutationResult } from '$lib/server/mutate';
@@ -256,6 +257,8 @@ export const actions: Actions = {
 	concluir: (event) => transition(event, 'concluir', (e, id, v) => completeAppointment(e, id, v)),
 	faltar: (event) => transition(event, 'faltar', (e, id, v) => missAppointment(e, id, v)),
 	reabrir: (event) => transition(event, 'reabrir', (e, id, v) => reopenAppointment(e, id, v)),
+	// Soft-delete (doc 40): mesma forma de reabrir (id + versão), sem corpo próprio.
+	excluir: (event) => transition(event, 'excluir', (e, id, v) => excludeAppointment(e, id, v)),
 
 	cancelar: async (event) => {
 		const s = await submission(event, 'cancelar');

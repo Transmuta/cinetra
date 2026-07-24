@@ -155,6 +155,60 @@ describe('AppointmentDrawer', () => {
 		});
 	});
 
+	// Soft-delete (doc 40): o botão do rodapé (protótipo :1846) abre uma confirmação, distinta da
+	// de cancelar — aqui o registro SOME. Só o que não aconteceu; concluído/faltou não oferecem.
+	describe('excluir (soft-delete, doc 40)', () => {
+		it('o botão do rodapé é ícone-só (aria-label) e abre a confirmação, não submete', async () => {
+			render(AppointmentDrawer, { props: { appt: appt(), ...base } });
+
+			const botao = screen.getByRole('button', { name: 'Excluir agendamento' });
+			expect(botao).toHaveAttribute('type', 'button');
+			// Fantasma até o hover: não é o vermelho sólido do "Enviar confirmação" ao lado.
+			expect(botao.className).toContain('hover:text-danger');
+
+			await fireEvent.click(botao);
+
+			// A confirmação abriu e marca a diferença para o cancelar.
+			expect(screen.getByText(/some/)).toBeInTheDocument();
+			expect(screen.getByText(/use/)).toBeInTheDocument();
+		});
+
+		it('o form de exclusão aponta para ?/excluir com id + versão (guard 409)', () => {
+			const { container } = render(AppointmentDrawer, { props: { appt: appt(), ...base } });
+			const form = container.querySelector('form[action="?/excluir"]') as HTMLFormElement;
+			expect(form).toBeInTheDocument();
+			expect(form.querySelector<HTMLInputElement>('input[name="expected_version"]')?.value).toBe('3');
+			expect(form.querySelector<HTMLInputElement>('input[name="id"]')?.value).toBe('a1');
+		});
+
+		it('Voltar fecha a confirmação sem excluir', async () => {
+			render(AppointmentDrawer, { props: { appt: appt(), ...base } });
+			await fireEvent.click(screen.getByRole('button', { name: 'Excluir agendamento' }));
+			await fireEvent.click(screen.getByRole('button', { name: 'Voltar' }));
+			expect(screen.queryByText(/some/)).not.toBeInTheDocument();
+		});
+
+		it('um CANCELADO ainda pode ser excluído (é o caso comum "foi engano")', () => {
+			render(AppointmentDrawer, { props: { appt: appt({ status: 'cancelado' }), ...base } });
+			// Terminal: sem "Enviar confirmação", mas com o excluir (agora com rótulo).
+			expect(screen.queryByRole('button', { name: /Enviar confirmação/ })).not.toBeInTheDocument();
+			expect(screen.getByRole('button', { name: /Excluir/ })).toBeInTheDocument();
+		});
+
+		it('concluído/faltou NÃO oferecem excluir (aconteceu — reabrir antes)', () => {
+			const { unmount } = render(AppointmentDrawer, { props: { appt: appt({ status: 'concluido' }), ...base } });
+			expect(screen.queryByRole('button', { name: /Excluir/ })).not.toBeInTheDocument();
+			unmount();
+			render(AppointmentDrawer, { props: { appt: appt({ status: 'faltou' }), ...base } });
+			expect(screen.queryByRole('button', { name: /Excluir/ })).not.toBeInTheDocument();
+		});
+
+		it('quem não pode mexer não vê o excluir', () => {
+			render(AppointmentDrawer, { props: { appt: appt({ status: 'cancelado' }), ...base, papel: null } });
+			expect(screen.queryByRole('button', { name: /Excluir/ })).not.toBeInTheDocument();
+		});
+	});
+
 	it('turma mostra a lista de participantes com N/cap', () => {
 		const grupo: AgendaAppointmentType = { ...tipo, grupo: true, capacidade: 4 };
 		render(AppointmentDrawer, {

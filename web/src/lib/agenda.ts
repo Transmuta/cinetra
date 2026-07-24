@@ -371,11 +371,27 @@ export function isTerminal(status: AppointmentStatus): boolean {
 	return status === 'concluido' || status === 'faltou' || status === 'cancelado';
 }
 
+// Excluir (soft-delete, doc 40) só o que NÃO aconteceu: agendado/confirmado/cancelado. Espelho de
+// UX do guard `StatusIn` do servidor — concluído/faltou/em_atendimento debitam pacote e
+// cascatearam presença, então some do drawer (para desfazer um "faltou" errado: reabrir → excluir).
+// Fonte única do que a UI mostra e do que a API aceita; divergir aqui pintaria um botão que o 422
+// recusa.
+export function canExcludeAppointment(status: AppointmentStatus): boolean {
+	return status === 'agendado' || status === 'confirmado' || status === 'cancelado';
+}
+
 // As actions de ciclo de vida disparadas de DENTRO do drawer (não pelos modais criar/remarcar).
 // Fonte única: o drawer usa esta lista para saber quais `form.error` são dele. Renomear uma
 // action sem tocar aqui deixaria o erro do 409/422 sem aparecer no drawer — por isso não é uma
 // lista solta no componente.
-export const DRAWER_ACTIONS = ['concluir', 'faltar', 'cancelar', 'reabrir', 'justificar'] as const;
+export const DRAWER_ACTIONS = [
+	'concluir',
+	'faltar',
+	'cancelar',
+	'reabrir',
+	'excluir',
+	'justificar'
+] as const;
 
 /**
  * As ações do grid "Mudar status" do drawer e seu estado (protótipo :1807). Fiel à decisão

@@ -14,6 +14,7 @@
 	import Check from '@lucide/svelte/icons/check';
 	import UserX from '@lucide/svelte/icons/user-x';
 	import X from '@lucide/svelte/icons/x';
+	import Trash2 from '@lucide/svelte/icons/trash-2';
 	import RotateCcw from '@lucide/svelte/icons/rotate-ccw';
 	import CalendarClock from '@lucide/svelte/icons/calendar-clock';
 	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
@@ -24,6 +25,7 @@
 		STATUS_META,
 		statusActions,
 		isTerminal,
+		canExcludeAppointment,
 		DRAWER_ACTIONS,
 		canMutateAppointment,
 		zonedParts,
@@ -80,6 +82,13 @@
 	const terminal = $derived(isTerminal(appt.status));
 	const faltou = $derived(appt.status === 'faltou');
 
+	// Excluir (soft-delete, doc 40) só o que não aconteceu — regra única em `$lib/agenda`. Um
+	// cancelado (terminal, sem "Enviar confirmação") ainda pode ser excluído: é o caso mais comum
+	// de "isso foi engano, some". Por isso o rodapé passa a existir por QUALQUER um dos dois botões,
+	// não só por `!terminal`.
+	const podeExcluir = $derived(canExcludeAppointment(appt.status));
+	const mostraRodape = $derived(podeMexer && (!terminal || podeExcluir));
+
 	// Ícone por ação — o `statusActions` devolve o NOME (evita importar Lucide na regra pura).
 	const ICON = { Check, UserX, X } as const;
 
@@ -107,26 +116,57 @@
 		cancelando = false;
 		cancelForm?.requestSubmit();
 	}
+
+	// Excluir também **pergunta** antes: é destrutivo e o desfazer só existe pela auditoria (não há
+	// tela de "excluídos" na v1). O diálogo marca a diferença que o de cancelar faz ao contrário —
+	// aqui o registro SOME da agenda e dos relatórios; se o atendimento existiu, o caminho é cancelar.
+	let excluindo = $state(false);
+	let excluirForm = $state<HTMLFormElement>();
+
+	function confirmarExclusao() {
+		excluindo = false;
+		excluirForm?.requestSubmit();
+	}
 </script>
 
-<!-- Rodapé: enviar confirmação (fiel — só toast, não há mensageria na v1). Fica fora do
+<!-- Rodapé (protótipo :1846): "Enviar confirmação" + o botão de excluir ao lado. Fica fora do
      `Drawer` e entra por prop porque quem não pode mexer não tem rodapé NENHUM — passar o
-     snippet sempre renderia a faixa (borda + padding) vazia. -->
+     snippet sempre renderia a faixa (borda + padding) vazia. Cada botão é condicional: enviar
+     confirmação só faz sentido antes de terminar; excluir só o que não aconteceu (`podeExcluir`).
+     Um cancelado tem só o excluir; um em atendimento, só o enviar. -->
 {#snippet rodape()}
-	<button
-		type="button"
-		onclick={() => onToast('Confirmação enviada por WhatsApp')}
-		class="flex w-full items-center justify-center gap-2 rounded-lg border border-edge bg-surface px-3 py-2.5 text-[13px] font-semibold hover:bg-surface-2"
-	>
-		<Send size={15} /> Enviar confirmação
-	</button>
+	<div class="flex items-center gap-2">
+		{#if !terminal}
+			<button
+				type="button"
+				onclick={() => onToast('Confirmação enviada por WhatsApp')}
+				class="flex flex-1 items-center justify-center gap-2 rounded-lg border border-edge bg-surface px-3 py-2.5 text-[13px] font-semibold hover:bg-surface-2"
+			>
+				<Send size={15} /> Enviar confirmação
+			</button>
+		{/if}
+
+		{#if podeExcluir}
+			<!-- Ícone só, e "fantasma" (só assume `danger` no hover/focus): destrutiva não senta ao
+			     lado de uma benigna com o mesmo peso, senão vira erro de clique. Quando é o único
+			     botão (cancelado), ocupa a linha. -->
+			<button
+				type="button"
+				onclick={() => (excluindo = true)}
+				aria-label="Excluir agendamento"
+				title="Excluir — para lançamento feito por engano"
+				class="flex h-10.5 items-center justify-center gap-2 rounded-lg border border-edge text-faint transition-colors hover:border-danger hover:text-danger focus-visible:border-danger focus-visible:text-danger {terminal
+					? 'flex-1 text-[13px] font-semibold'
+					: 'w-11 shrink-0'}"
+			>
+				<Trash2 size={15} />
+				{#if terminal}Excluir{/if}
+			</button>
+		{/if}
+	</div>
 {/snippet}
 
-<Drawer
-	label="Detalhes do agendamento"
-	{onClose}
-	footer={podeMexer && !terminal ? rodape : undefined}
->
+<Drawer label="Detalhes do agendamento" {onClose} footer={mostraRodape ? rodape : undefined}>
 	<!-- Cabeçalho: status + encaixe (o X é do shell). -->
 	{#snippet header()}
 		<span
@@ -289,6 +329,14 @@
 				<input type="hidden" name="cancel_reason" value={motivo} />
 			</form>
 
+			<!-- Excluir (doc 40): submetido pela confirmação do rodapé. Fica aqui, sob `podeMexer`,
+			     como o de cancelar — o botão que o dispara mora no rodapé, mas o form é o mesmo id +
+			     versão de sempre. -->
+			<form method="POST" action="?/excluir" use:enhance bind:this={excluirForm} class="hidden">
+				<input type="hidden" name="id" value={appt.id} />
+				<input type="hidden" name="expected_version" value={appt.version} />
+			</form>
+
 			{#if terminal}
 				<!-- Reabrir → agendado (D-E4.2): desfaz um clique errado. -->
 				<form method="POST" action="?/reabrir" use:enhance>
@@ -327,5 +375,20 @@
 				class="w-full rounded-md border border-edge bg-surface px-2.5 py-2 text-[13px] text-ink placeholder:text-faint focus:border-teal focus:outline-none"
 			/>
 		</label>
+	</ConfirmDialog>
+{/if}
+
+{#if excluindo}
+	<!-- O contraponto do diálogo de cancelar: aqui o registro SOME, e a diferença tem de estar
+	     escrita para a recepção não usar um no lugar do outro. -->
+	<ConfirmDialog
+		title="Excluir agendamento"
+		confirmLabel="Excluir agendamento"
+		cancelLabel="Voltar"
+		onConfirm={confirmarExclusao}
+		onClose={() => (excluindo = false)}
+	>
+		O bloco <strong>some</strong> da agenda e dos relatórios. Isto é para lançamento feito por
+		engano — se o atendimento existiu e não vai acontecer, use <strong>Cancelar</strong>.
 	</ConfirmDialog>
 {/if}

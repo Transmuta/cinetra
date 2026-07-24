@@ -361,6 +361,22 @@ defmodule Api.Scheduling.Appointment do
       change Api.Scheduling.Appointment.Changes.BumpVersion
     end
 
+    # Excluir (soft-delete, doc 40): tira da vista um lançamento feito por engano. Só o que
+    # **não aconteceu** — `agendado`/`confirmado`/`cancelado`; `concluido`/`faltou`/`em_atendimento`
+    # não, porque debitam pacote e cascatearam presença (para desfazer um "faltou" errado o
+    # caminho é reabrir → excluir). NÃO cascateia para as presenças: elas são `:prevista` ou
+    # `:cancelada` nesses três status, nunca `:faltou`, então nunca alimentaram o agregado
+    # `Patient.faltas` — e o bloco sai das leituras levando-as junto (só acessíveis por ele).
+    update :exclude do
+      require_atomic? false
+
+      validate {Api.Scheduling.Appointment.Validations.StatusIn,
+                from: [:agendado, :confirmado, :cancelado]}
+
+      change Api.Scheduling.Appointment.Changes.StampExcludedAt
+      change Api.Scheduling.Appointment.Changes.BumpVersion
+    end
+
     # Justificar/desjustificar a falta (o bloco "Falta justificada" do drawer). Não mexe no
     # status; só na `falta_justificada` das presenças — que é o que faz a falta parar de contar.
     update :set_falta_justificada do
@@ -387,6 +403,7 @@ defmodule Api.Scheduling.Appointment do
     :mark_missed,
     :cancel,
     :reopen,
+    :exclude,
     :set_falta_justificada
   ]
   # Onde `encaixe` pode ser marcado — os únicos caminhos que a A9 precisa guardar.
@@ -441,6 +458,14 @@ defmodule Api.Scheduling.Appointment do
     # cada leitor, é o que garante o "some de tudo".
     prepare build(filter: [pkg_hold: false])
 
+    # Soft-delete (doc 40): o excluído some de TODA leitura num lugar só — agenda, relatório,
+    # `SlotFinder`, releitura do canal. Um `prepare` global (não um filtro por leitor) é o que
+    # impede uma query nova de vazar o excluído. `SlotFinder` lê com `authorize?: false`, mas
+    # preparations não são policies — rodam sempre, então o corte vale lá também. Módulo (não
+    # `build(filter: [excluded_at: nil])`) porque o keyword vira `= NULL` e zera a leitura — ver
+    # o moduledoc de `HideExcluded`.
+    prepare Api.Scheduling.Preparations.HideExcluded
+
     # A7 na prática: recorta as linhas quando o actor é `profissional`.
     prepare Api.Scheduling.Preparations.OwnAgendaOnly
   end
@@ -494,6 +519,13 @@ defmodule Api.Scheduling.Appointment do
     # Ganchos da Fatia 3 (pacotes). `package_id` sem FK, precedente de `Patient.prefs`.
     attribute :package_id, :uuid, public?: true
     attribute :pkg_hold, :boolean, allow_nil?: false, default: false, public?: true
+
+    # Soft-delete (doc 40): exclusão de lançamento feito por engano. Marca a hora e o registro
+    # SOME de toda leitura (o `prepare` de `excluded_at IS NULL` abaixo), mas a linha e a trilha
+    # ficam — distinto de cancelar (que aconteceu e conta no relatório). Uma coluna, não um 7º
+    # status: o predicado da `appointments_no_overlap` também ganha `AND excluded_at IS NULL`
+    # (migration), então o horário de um bloco excluído volta a ser agendável.
+    attribute :excluded_at, :utc_datetime, public?: true
 
     timestamps()
   end

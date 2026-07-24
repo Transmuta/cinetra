@@ -47,6 +47,7 @@ defmodule Api.Scheduling.AgendaNotifier do
     :mark_missed,
     :cancel,
     :reopen,
+    :exclude,
     :set_falta_justificada
   ]
 
@@ -129,6 +130,10 @@ defmodule Api.Scheduling.AgendaNotifier do
   defp event_name(:add_participant), do: "participant_added"
   defp event_name(:reschedule), do: "appointment_rescheduled"
   defp event_name(:cancel), do: "appointment_canceled"
+
+  # Soft-delete (doc 40): o canal NÃO relê o bloco (o `prepare` o esconde) — empurra a REMOÇÃO
+  # do id. Ver `ApiWeb.AgendaChannel`.
+  defp event_name(:exclude), do: "appointment_excluded"
 
   defp event_name(name)
        when name in [:mark_completed, :mark_missed, :reopen, :set_falta_justificada],

@@ -207,6 +207,12 @@ export function reopenAppointment(event: RequestEvent, id: string, expected_vers
 	return mutate(event, `/api/appointments/${id}/reopen`, 'POST', { expected_version });
 }
 
+// Soft-delete de lançamento feito por engano (doc 40). Sem corpo próprio — só o guard de versão,
+// como reopen; o backend recusa (422) se o bloco já aconteceu.
+export function excludeAppointment(event: RequestEvent, id: string, expected_version: number) {
+	return mutate(event, `/api/appointments/${id}/exclude`, 'POST', { expected_version });
+}
+
 export function justifyAbsence(
 	event: RequestEvent,
 	id: string,

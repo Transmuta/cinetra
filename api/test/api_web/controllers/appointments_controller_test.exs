@@ -790,11 +790,45 @@ defmodule ApiWeb.AppointmentsControllerTest do
       assert json_response(resp, 200)["appointment"]["falta_justificada"] == true
     end
 
+    test "POST exclude some com o bloco da leitura (soft-delete, doc 40)", %{conn: conn} do
+      ctx = fixture()
+      {id, version} = create_appt(conn, ctx)
+
+      resp =
+        conn
+        |> authed(ctx.owner)
+        |> post("/api/appointments/#{id}/exclude", %{"expected_version" => version})
+
+      # O 200 confirma a exclusão; o `excluded_at` NÃO viaja no bloco (o cliente remove por id, via
+      # o evento `appointment_excluded` do canal — não inspecionando o campo).
+      assert json_response(resp, 200)["appointment"]["id"] == id
+
+      # O contrato de verdade: o GET da janela não lista mais o bloco.
+      body =
+        conn
+        |> authed(ctx.owner)
+        |> get("/api/appointments?from=#{@segunda}")
+        |> json_response(200)
+
+      assert body["appointments"] == []
+    end
+
+    test "POST exclude num bloco que aconteceu (concluído) → 422", %{conn: conn} do
+      ctx = fixture()
+      {id, _version} = create_appt(conn, ctx)
+
+      # O bloco de referência é 20/07 (passado): o gate `SessionStarted` já liberou concluir.
+      conn |> authed(ctx.owner) |> post("/api/appointments/#{id}/complete", %{})
+
+      resp = conn |> authed(ctx.owner) |> post("/api/appointments/#{id}/exclude", %{})
+      assert json_response(resp, 422)
+    end
+
     test "transição em bloco inexistente → 404", %{conn: conn} do
       ctx = fixture()
       fake = Ash.UUID.generate()
 
-      for path <- ["complete", "miss", "reopen"] do
+      for path <- ["complete", "miss", "reopen", "exclude"] do
         resp = conn |> authed(ctx.owner) |> post("/api/appointments/#{fake}/#{path}", %{})
         assert json_response(resp, 404)
       end

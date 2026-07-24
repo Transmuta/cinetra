@@ -16,6 +16,7 @@ import {
 	canCreateEncaixe,
 	canMutateAppointment,
 	isTerminal,
+	canExcludeAppointment,
 	statusActions,
 	gridRange,
 	closedIntervals,
@@ -511,6 +512,17 @@ describe('ciclo de vida (Entrega 4)', () => {
 		expect(canMutateAppointment('recepcao')).toBe(true);
 		expect(canMutateAppointment('profissional')).toBe(true);
 		expect(canMutateAppointment(null)).toBe(false);
+	});
+
+	it('canExcludeAppointment: só o que não aconteceu (espelho do StatusIn do servidor)', () => {
+		// Some para excluir: agendado, confirmado e cancelado.
+		expect(canExcludeAppointment('agendado')).toBe(true);
+		expect(canExcludeAppointment('confirmado')).toBe(true);
+		expect(canExcludeAppointment('cancelado')).toBe(true);
+		// Aconteceu (ou está acontecendo) → não some do drawer: reabrir antes.
+		expect(canExcludeAppointment('em_atendimento')).toBe(false);
+		expect(canExcludeAppointment('concluido')).toBe(false);
+		expect(canExcludeAppointment('faltou')).toBe(false);
 	});
 
 	it('statusActions: antes de começar, concluir/faltar desabilitados com o title', () => {

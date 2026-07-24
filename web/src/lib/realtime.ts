@@ -38,6 +38,12 @@ export interface AgendaHandlers {
 	onAppointment(payload: AgendaEventPayload): void;
 	/** Semana e Mês: sinal leve — recarrega as contagens da janela. */
 	onSignal(): void;
+	/**
+	 * Dia e Lista: um bloco foi EXCLUÍDO (soft-delete, doc 40) — remove-o do store por id. Não é um
+	 * `onAppointment` porque o bloco não vem mais (o servidor o esconde): o canal empurra só o id.
+	 * Semana/Mês não usam — para elas a exclusão chega como `onSignal` (recarrega a contagem).
+	 */
+	onRemove(appointmentId: string): void;
 	/** Rejoin depois de reconexão: o cliente pode ter perdido eventos (09 §7.5). */
 	onResync(): void;
 }
@@ -125,6 +131,13 @@ export function connectAgenda(
 		for (const evento of EVENTOS_DE_BLOCO) {
 			channel.on(evento, (payload) => handlers.onAppointment(payload as AgendaEventPayload));
 		}
+
+		// Soft-delete (doc 40): não carrega bloco, só o id a remover (o servidor esconde o excluído,
+		// então não há o que reler). Fora de `EVENTOS_DE_BLOCO` de propósito — aqueles esperam um
+		// bloco cheio em `onAppointment`.
+		channel.on('appointment_excluded', (payload) =>
+			handlers.onRemove((payload as { appointment_id: string }).appointment_id)
+		);
 
 		channel.on('agenda_changed', () => handlers.onSignal());
 

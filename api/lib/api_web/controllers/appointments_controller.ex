@@ -103,6 +103,11 @@ defmodule ApiWeb.AppointmentsController do
     with_member_scope(conn, fn scope -> transition(conn, scope, id, :reopen, %{}, params) end)
   end
 
+  # POST /api/appointments/:id/exclude — soft-delete de lançamento feito por engano (doc 40).
+  def exclude(conn, %{"id" => id} = params) do
+    with_member_scope(conn, fn scope -> transition(conn, scope, id, :exclude, %{}, params) end)
+  end
+
   # POST /api/appointments/:id/justify-absence — o toggle "Falta justificada" do drawer.
   def justify_absence(conn, %{"id" => id} = params) do
     with_member_scope(conn, fn scope ->
