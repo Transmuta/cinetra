@@ -93,6 +93,25 @@ defmodule Api.Packages.Package do
       argument :forcar, :boolean, default: false
       change Api.Packages.Package.Changes.EnqueueMaterialization
     end
+
+    # As transições de estado do pacote. Só viram o `status` — o trabalho sobre as sessões
+    # (segurar/liberar na agenda) mora nos wrappers do domínio (`Api.Packages`), que orquestram as
+    # duas escritas na mesma transação, no molde de `update_clinic_hours`. `require_atomic? false`
+    # pelo `SetTenantGuc` (before_action), como as demais escritas do projeto.
+    update :mark_paused do
+      require_atomic? false
+      change set_attribute(:status, :pausado)
+    end
+
+    update :mark_active do
+      require_atomic? false
+      change set_attribute(:status, :ativo)
+    end
+
+    update :mark_cancelled do
+      require_atomic? false
+      change set_attribute(:status, :cancelado)
+    end
   end
 
   policies do
@@ -100,7 +119,7 @@ defmodule Api.Packages.Package do
       authorize_if {Api.Accounts.Checks.HasClinicRole, roles: :any, clinic_from: :tenant}
     end
 
-    policy action_type(:create) do
+    policy action_type([:create, :update]) do
       authorize_if {Api.Accounts.Checks.HasClinicRole,
                     roles: [:owner, :admin, :recepcao, :profissional], clinic_from: :tenant}
     end

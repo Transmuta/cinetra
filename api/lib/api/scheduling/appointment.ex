@@ -321,6 +321,15 @@ defmodule Api.Scheduling.Appointment do
     end
 
     # Cancelar preserva o registro (doc 25 §3, "sem hard delete"). Motivo opcional (D4).
+    # Segura/solta uma sessão de pacote (RN-05/RN-23). `pkg_hold: true` a tira da agenda (o
+    # `prepare build(filter: [pkg_hold: false])` do `:in_range`); `false` a devolve. Não mexe em
+    # status nem em `version`: pausar não é cancelar, e a presença segue `:prevista`. Chamada pela
+    # pausa/retomada do pacote (`Api.Packages`), com `authorize?: false` (o domínio já autorizou).
+    update :set_pkg_hold do
+      require_atomic? false
+      accept [:pkg_hold]
+    end
+
     update :cancel do
       require_atomic? false
 

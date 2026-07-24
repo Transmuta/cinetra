@@ -14,11 +14,16 @@ defmodule Api.Packages do
 
   import Api.Tenancy, only: [in_clinic: 2]
 
+  require Ash.Query
+
   resources do
     resource Api.Packages.Package do
       define :create_package, action: :create
       define :list_packages, action: :read
       define :get_package, action: :read, get_by: [:id]
+      define :mark_package_paused, action: :mark_paused
+      define :mark_package_active, action: :mark_active
+      define :mark_package_cancelled, action: :mark_cancelled
     end
 
     resource Api.Packages.PackageSchedule do
@@ -70,6 +75,101 @@ defmodule Api.Packages do
       true ->
         :ok
     end
+  end
+
+  @doc """
+  **Pausa** o pacote (RN-23): segura (`pkg_hold`) as sessões futuras ainda não resolvidas — elas
+  somem da agenda (RN-05) — e marca o pacote como `:pausado`. As duas escritas na mesma transação
+  (molde de `update_clinic_hours`): não fica pacote pausado com sessão solta, nem vice-versa.
+
+  "Futura ainda não resolvida" = a sessão cujo dia (no fuso da clínica) é **hoje ou depois** e cujo
+  status é `:agendado`/`:confirmado`. Passado, concluído, faltou e cancelado não se tocam.
+  """
+  def pause_package(%Api.Scope{} = scope, package_id) do
+    # `authorize?: false`: quem autoriza é a ação do pacote (`mark_paused`); a escrita na sessão é
+    # cascata interna, como `CascadeToAttendances`. `tenant` mantém a GUC.
+    lifecycle(scope, package_id, [:agendado, :confirmado], :mark_paused, fn appt ->
+      Api.Scheduling.set_appointment_pkg_hold(appt, %{pkg_hold: true},
+        tenant: scope.clinic_id,
+        authorize?: false,
+        return_notifications?: true
+      )
+    end)
+  end
+
+  @doc """
+  **Cancela** o pacote (RN-25): cancela as sessões futuras (inclusive as seguradas por uma pausa
+  anterior) e marca o pacote como `:cancelado`. Sessões passadas/concluídas/faltadas ficam como
+  registro. Reusa a transição `:cancel` do agendamento (que cascateia as presenças).
+  """
+  def cancel_package(%Api.Scope{} = scope, package_id) do
+    lifecycle(scope, package_id, [:agendado, :confirmado], :mark_cancelled, fn appt ->
+      Api.Scheduling.cancel_appointment_slot(appt, %{},
+        tenant: scope.clinic_id,
+        authorize?: false,
+        return_notifications?: true
+      )
+    end)
+  end
+
+  # Roda `fun` sobre cada sessão futura não-resolvida do pacote e vira o status do pacote, **tudo
+  # numa transação** com a GUC de tenant (`in_clinic`, molde de `update_clinic_hours`). As
+  # notificações das escritas são coletadas e emitidas **fora** da transação: o Ash não as despacha
+  # de dentro de uma transação que ele não abriu (senão avisa "missed notifications").
+  defp lifecycle(scope, package_id, statuses, mark, fun) do
+    result =
+      in_clinic(scope, fn ->
+        Api.Repo.transaction(fn ->
+          notes =
+            scope
+            |> future_sessions(package_id, statuses)
+            |> Enum.flat_map(fn appt ->
+              {:ok, _updated, notifications} = fun.(appt)
+              notifications
+            end)
+
+          {:ok, pkg, pkg_notes} =
+            get_package!(package_id, scope: scope)
+            |> apply_mark(mark, scope)
+
+          {pkg, notes ++ pkg_notes}
+        end)
+      end)
+
+    case result do
+      {:ok, {pkg, notifications}} ->
+        Ash.Notifier.notify(notifications)
+        {:ok, pkg}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp apply_mark(pkg, :mark_paused, scope),
+    do: mark_package_paused(pkg, scope: scope, return_notifications?: true)
+
+  defp apply_mark(pkg, :mark_cancelled, scope),
+    do: mark_package_cancelled(pkg, scope: scope, return_notifications?: true)
+
+  # As sessões do pacote cujo dia local é hoje-ou-depois e cujo status está na lista.
+  defp future_sessions(scope, package_id, statuses) do
+    %{today: today, timezone: tz} = Api.Scheduling.clinic_now(scope)
+
+    list_attendances_for_package(scope, package_id)
+    |> Enum.map(& &1.appointment)
+    |> Enum.filter(fn appt ->
+      appt.status in statuses and
+        not Date.before?(Api.Scheduling.LocalTime.to_local_date(appt.starts_at, tz), today)
+    end)
+  end
+
+  defp list_attendances_for_package(scope, package_id) do
+    Api.Scheduling.list_attendances!(
+      scope: scope,
+      query: [filter: [package_id: package_id]],
+      load: [:appointment]
+    )
   end
 
   @doc """

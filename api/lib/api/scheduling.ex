@@ -47,6 +47,8 @@ defmodule Api.Scheduling do
       define :complete_appointment_slot, action: :mark_completed
       define :miss_appointment_slot, action: :mark_missed
       define :cancel_appointment_slot, action: :cancel
+      # Pausa/retoma uma sessão de pacote (RN-05/23). Recebe `%{pkg_hold: bool}` antes das opções.
+      define :set_appointment_pkg_hold, action: :set_pkg_hold
       define :reopen_appointment_slot, action: :reopen
       define :justify_appointment_absence, action: :set_falta_justificada
     end
