@@ -112,6 +112,87 @@ defmodule Api.Packages do
     end)
   end
 
+  @doc """
+  **Retoma** o pacote pausado (RN-24 corrigida / GAP-06): reprojeta as sessões seguradas **para o
+  futuro**, nunca para as datas originais (o bug do protótipo, que devolvia sessões no passado).
+
+  A reprojeção é **cancelar as seguradas e re-materializar o mesmo número a partir de hoje**, pela
+  grade. Escolha deliberada sobre "mover no lugar": a exclusion constraint **não** isenta
+  `pkg_hold`, então uma sessão segurada ainda ocupa o slot — mover em lote geraria conflito
+  transitório quando um destino coincide com a origem ainda-não-movida de outra. Cancelar primeiro
+  libera todos os slots; as canceladas ficam como registro do que a pausa interrompeu. Como sessão
+  segurada é `:prevista` (não consome), `usadas` não muda — o que já fora concluído/faltado no
+  passado permanece contado.
+
+  O **cancelamento** e a reativação são atômicos (transação); a **re-materialização** é enfileirada
+  no `Api.Packages.Materializer` (com `from`/`count`), como na criação — assim as sessões novas
+  emitem os eventos de tempo real normalmente (não presas numa transação). O job é idempotente.
+  """
+  def resume_package(%Api.Scope{} = scope, package_id) do
+    clinic_id = scope.clinic_id
+    %{today: today} = Api.Scheduling.clinic_now(scope)
+
+    result =
+      in_clinic(scope, fn ->
+        Api.Repo.transaction(fn ->
+          pkg = get_package!(package_id, scope: scope)
+          held = held_sessions(scope, clinic_id, package_id)
+
+          cancel_notes =
+            Enum.flat_map(held, fn appt ->
+              {:ok, _c, notes} =
+                Api.Scheduling.cancel_appointment_slot(appt, %{},
+                  tenant: clinic_id,
+                  authorize?: false,
+                  return_notifications?: true
+                )
+
+              notes
+            end)
+
+          enqueue_reproject(pkg, clinic_id, today, length(held))
+
+          {:ok, ativo, mark_notes} =
+            mark_package_active(pkg, scope: scope, return_notifications?: true)
+
+          {ativo, cancel_notes ++ mark_notes}
+        end)
+      end)
+
+    case result do
+      {:ok, {pkg, notifications}} ->
+        Ash.Notifier.notify(notifications)
+        {:ok, pkg}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp enqueue_reproject(_pkg, _clinic_id, _today, 0), do: :ok
+
+  defp enqueue_reproject(pkg, clinic_id, today, n) do
+    %{
+      package_id: pkg.id,
+      clinic_id: clinic_id,
+      forcar: false,
+      from: Date.to_iso8601(today),
+      count: n
+    }
+    |> Api.Packages.Materializer.new()
+    |> Oban.insert!()
+  end
+
+  # As sessões seguradas do pacote — via `list_held_sessions`, que abre a porta `include_held` do
+  # `HideHeld` (a preparation global as esconderia de qualquer leitura normal).
+  defp held_sessions(scope, clinic_id, package_id) do
+    ids =
+      list_attendances_for_package(scope, package_id)
+      |> Enum.map(& &1.appointment_id)
+
+    Api.Scheduling.list_held_sessions(clinic_id, ids)
+  end
+
   # Roda `fun` sobre cada sessão futura não-resolvida do pacote e vira o status do pacote, **tudo
   # numa transação** com a GUC de tenant (`in_clinic`, molde de `update_clinic_hours`). As
   # notificações das escritas são coletadas e emitidas **fora** da transação: o Ash não as despacha

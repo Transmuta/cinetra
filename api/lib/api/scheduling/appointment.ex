@@ -454,9 +454,10 @@ defmodule Api.Scheduling.Appointment do
   end
 
   preparations do
-    # RN-05: sessão "segurada" por pacote não é agendamento visível. Filtrar aqui, e não em
-    # cada leitor, é o que garante o "some de tudo".
-    prepare build(filter: [pkg_hold: false])
+    # RN-05: sessão "segurada" por pacote não é agendamento visível. Filtrar aqui, e não em cada
+    # leitor, é o que garante o "some de tudo". Condicional (módulo, não `build(filter:)`) porque a
+    # retomada do pacote precisa reler as próprias seguradas — ver `HideHeld`.
+    prepare Api.Scheduling.Preparations.HideHeld
 
     # Soft-delete (doc 40): o excluído some de TODA leitura num lugar só — agenda, relatório,
     # `SlotFinder`, releitura do canal. Um `prepare` global (não um filtro por leitor) é o que

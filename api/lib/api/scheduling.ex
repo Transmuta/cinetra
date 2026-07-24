@@ -1274,6 +1274,24 @@ defmodule Api.Scheduling do
   # ---- ScheduleException (feriados/exceções da clínica) ----
 
   @doc """
+  Os agendamentos **segurados** (`pkg_hold`) de um pacote — a leitura que a retomada precisa e que
+  a preparation global esconde de todo mundo (RN-05). Abre a porta `include_held` do `HideHeld` via
+  contexto da query; roda sob a GUC de tenant (`in_clinic`), `authorize?: false` (é operação
+  interna do pacote, como a materialização). `appointment_ids` vem das presenças do pacote.
+  """
+  def list_held_sessions(clinic_id, appointment_ids)
+      when is_binary(clinic_id) and is_list(appointment_ids) do
+    query =
+      Api.Scheduling.Appointment
+      |> Ash.Query.set_context(%{include_held: true})
+      |> Ash.Query.filter(id in ^appointment_ids and pkg_hold == true)
+
+    in_clinic(clinic_id, fn ->
+      find_appointments!(query: query, tenant: clinic_id, authorize?: false)
+    end)
+  end
+
+  @doc """
   As datas de **feriado** da clínica como `MapSet` — exceções da clínica cujo tipo **não** é
   `:horario` (RN-20: só `:fechado` pula a série; expediente especial é dia normal). Recebe o
   `clinic_id` cru, sem `Api.Scope`, porque quem chama pode ser um job de fundo (a materialização do

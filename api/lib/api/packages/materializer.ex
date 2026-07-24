@@ -47,17 +47,25 @@ defmodule Api.Packages.Materializer do
         load: [:schedule]
       )
 
-    materialize(pkg, clinic_id, forcar)
+    materialize(pkg, clinic_id, forcar, anchor(args, pkg), count(args, pkg))
   end
 
-  defp materialize(%{schedule: nil} = pkg, _clinic_id, _forcar) do
+  # Criação: âncora = `data_inicio`, total = `pkg.total`. Retomada (GAP-06): a retomada passa
+  # `from` (hoje) e `count` (quantas seguradas foram canceladas) para reprojetar só o que falta.
+  defp anchor(%{"from" => iso}, _pkg) when is_binary(iso), do: Date.from_iso8601!(iso)
+  defp anchor(_args, pkg), do: pkg.data_inicio
+
+  defp count(%{"count" => n}, _pkg) when is_integer(n), do: n
+  defp count(_args, pkg), do: pkg.total
+
+  defp materialize(%{schedule: nil} = pkg, _clinic_id, _forcar, _anchor, _count) do
     # Sem grade não há o que materializar — não deveria acontecer (a grade nasce com o pacote), mas
     # falhar aqui só geraria retry infinito. Registra e encerra.
     Logger.error("Pacote #{pkg.id} sem grade na materialização; nada a fazer")
     :ok
   end
 
-  defp materialize(pkg, clinic_id, forcar) do
+  defp materialize(pkg, clinic_id, forcar, anchor, total) do
     %{timezone: tz} = Api.Scheduling.load_clinic(clinic_id)
 
     tipo =
@@ -70,8 +78,7 @@ defmodule Api.Packages.Materializer do
 
     grade = %{dows: pkg.schedule.dows, horarios: pkg.schedule.horarios}
 
-    with {:ok, ocorrencias} <-
-           Api.Packages.Series.project(pkg.data_inicio, grade, pkg.total, feriados) do
+    with {:ok, ocorrencias} <- Api.Packages.Series.project(anchor, grade, total, feriados) do
       ja_feitas = materialized_starts(pkg.id, clinic_id)
 
       ocorrencias
@@ -80,7 +87,7 @@ defmodule Api.Packages.Materializer do
         {:ok, starts_at} = LocalTime.to_utc(occ.data, occ.hhmm, tz)
 
         unless MapSet.member?(ja_feitas, DateTime.to_iso8601(starts_at)) do
-          create_session(pkg, tipo, starts_at, clinic_id, forcar)
+          Api.Packages.Sessions.create_and_stamp(pkg, tipo, starts_at, clinic_id, forcar)
         end
       end)
 
@@ -88,37 +95,9 @@ defmodule Api.Packages.Materializer do
     end
   end
 
-  defp create_session(pkg, tipo, starts_at, clinic_id, forcar) do
-    attrs = %{
-      starts_at: starts_at,
-      professional_id: pkg.schedule.professional_id,
-      appointment_type_id: tipo.id,
-      patient_ids: [pkg.patient_id],
-      encaixe: forcar
-    }
-
-    {:ok, appt} = Api.Scheduling.schedule_appointment(attrs, tenant: clinic_id, authorize?: false)
-    stamp_package(appt.id, pkg, clinic_id)
-  end
-
-  # Carimba o `package_id` na presença deste paciente na sessão recém-criada (ou recém-fundida).
-  defp stamp_package(appointment_id, pkg, clinic_id) do
-    appt =
-      Api.Scheduling.get_appointment!(appointment_id,
-        tenant: clinic_id,
-        authorize?: false,
-        load: [:attendances]
-      )
-
-    att = Enum.find(appt.attendances, &(&1.patient_id == pkg.patient_id))
-
-    Api.Scheduling.set_attendance_package!(att, %{package_id: pkg.id},
-      tenant: clinic_id,
-      authorize?: false
-    )
-  end
-
-  # As presenças já carimbadas com este pacote → conjunto dos horários (ISO) já materializados.
+  # As presenças **ativas** carimbadas com este pacote → horários (ISO) já materializados. Ignora
+  # canceladas: na retomada (GAP-06) as seguradas foram canceladas e não devem bloquear a
+  # reprojeção de uma data que por acaso coincida com a original de uma delas.
   defp materialized_starts(package_id, clinic_id) do
     Api.Scheduling.list_attendances!(
       tenant: clinic_id,
@@ -126,6 +105,10 @@ defmodule Api.Packages.Materializer do
       query: [filter: [package_id: package_id]],
       load: [:appointment]
     )
-    |> MapSet.new(&DateTime.to_iso8601(&1.appointment.starts_at))
+    |> Enum.map(& &1.appointment)
+    # `nil`: a sessão está segurada (pkg_hold) e o load global a esconde — não conta como
+    # materializada ativa. Cancelada: idem (a retomada não deve tropeçar na data da que cancelou).
+    |> Enum.reject(&(is_nil(&1) or &1.status == :cancelado))
+    |> MapSet.new(&DateTime.to_iso8601(&1.starts_at))
   end
 end

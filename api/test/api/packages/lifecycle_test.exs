@@ -154,6 +154,53 @@ defmodule Api.Packages.LifecycleTest do
     end
   end
 
+  describe "retomar reprojetando (GAP-06)" do
+    test "retomar traz N sessões novas a partir de hoje — nunca no passado" do
+      ctx = setup_clinic()
+      pkg = criar_e_materializar(ctx)
+      {:ok, _} = Packages.pause_package(scope_before(ctx), pkg.id)
+
+      {:ok, hoje} = Scheduling.LocalTime.to_utc(~D[2026-08-05], "07:00", "America/Sao_Paulo")
+      assert {:ok, ativo} = Packages.resume_package(scope_at(ctx, hoje), pkg.id)
+      assert ativo.status == :ativo
+      # a re-materialização é assíncrona (job), como na criação
+      Oban.drain_queue(queue: :housekeeping)
+
+      # as 4 seguradas viraram canceladas (história); 4 novas nasceram
+      cruas = sessoes_cruas(pkg)
+      assert Enum.count(cruas, &(&1.status == "cancelado")) == 4
+      assert Enum.count(cruas, &(&1.status != "cancelado")) == 4
+
+      # nenhuma das novas cai antes de hoje
+      novas_datas =
+        sessoes(ctx, pkg)
+        |> Enum.map(&Scheduling.LocalTime.to_local_date(&1.starts_at, "America/Sao_Paulo"))
+
+      assert length(novas_datas) == 4
+      assert Enum.all?(novas_datas, &(not Date.before?(&1, ~D[2026-08-05])))
+    end
+
+    test "usadas sobrevive à retomada — o que foi consumido não volta" do
+      ctx = setup_clinic()
+      pkg = criar_e_materializar(ctx)
+
+      # conclui a primeira sessão (consome 1)
+      primeira = hd(sessoes(ctx, pkg))
+      {:ok, depois} = Scheduling.LocalTime.to_utc(@segunda, "09:00", "America/Sao_Paulo")
+      {:ok, _} = Scheduling.transition_appointment(scope_at(ctx, depois), primeira.id, :complete)
+
+      {:ok, _} = Packages.pause_package(scope_at(ctx, depois), pkg.id)
+      {:ok, hoje} = Scheduling.LocalTime.to_utc(~D[2026-08-05], "07:00", "America/Sao_Paulo")
+      {:ok, _} = Packages.resume_package(scope_at(ctx, hoje), pkg.id)
+      Oban.drain_queue(queue: :housekeeping)
+
+      # 1 consumida + 3 reprojetadas = ainda 1 usada, 3 restantes
+      recarregado = Packages.get_package!(pkg.id, scope: ctx.scope, load: [:usadas, :restantes])
+      assert recarregado.usadas == 1
+      assert recarregado.restantes == 3
+    end
+  end
+
   describe "cancelar (RN-25)" do
     test "cancela as sessões futuras e o pacote" do
       ctx = setup_clinic()
