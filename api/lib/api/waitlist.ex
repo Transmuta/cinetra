@@ -319,7 +319,7 @@ defmodule Api.Waitlist do
     date = LocalTime.to_local_date(starts_at, tz)
     start = LocalTime.to_local_minutes(starts_at, tz)
     finish = start + div(DateTime.diff(ends_at, starts_at, :second), 60)
-    dow = rem(Date.day_of_week(date), 7)
+    dow = LocalTime.dow(date)
 
     in_clinic(scope, fn ->
       list_waitlist_entries!(scope: scope, load: entry_load())

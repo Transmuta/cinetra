@@ -110,6 +110,17 @@ defmodule Api.Scheduling.LocalTime do
   end
 
   @doc """
+  O dia da semana na convenção do projeto: **0=domingo … 6=sábado**.
+
+  `Date.day_of_week/1` devolve 1=segunda…7=domingo; o projeto herdou o `getDay()` do protótipo,
+  que é o mesmo número gravado em `ClinicHours.dow`, `ProfessionalHours.dow` e nas grades de
+  pacote. A conversão é uma linha — e por isso mesmo estava copiada em quatro lugares antes de
+  virar esta função. Quatro cópias de uma linha é onde uma delas erra o `rem` sem ninguém notar.
+  """
+  @spec dow(Date.t()) :: 0..6
+  def dow(%Date{} = date), do: rem(Date.day_of_week(date), 7)
+
+  @doc """
   O intervalo `{início, fim}` em minutos locais que um agendamento ocupa. Açúcar para as
   validações, que precisam do par para perguntar `Availability.fits?/2`.
   """

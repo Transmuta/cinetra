@@ -297,8 +297,7 @@ defmodule Api.Waitlist.SlotFinder do
     end)
   end
 
-  # `Date.day_of_week/1` é 1=segunda..7=domingo; o projeto usa 0=domingo..6=sábado (`getDay()`).
-  defp dow(date), do: rem(Date.day_of_week(date), 7)
+  defp dow(date), do: Api.Scheduling.LocalTime.dow(date)
 
   defp empty_sources do
     %{

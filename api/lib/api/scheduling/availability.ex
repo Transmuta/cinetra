@@ -123,9 +123,7 @@ defmodule Api.Scheduling.Availability do
   defp on_date(nil, _date), do: nil
   defp on_date(exceptions, date), do: Enum.find(exceptions, &(&1.data == date))
 
-  # `Date.day_of_week/1` devolve 1=segunda..7=domingo; o projeto usa 0=domingo..6=sábado
-  # (`ClinicHours.dow`, constraint 0..6), que é o `getDay()` do JS do protótipo.
-  defp dow(date), do: rem(Date.day_of_week(date), 7)
+  defp dow(date), do: Api.Scheduling.LocalTime.dow(date)
 
   @doc """
   O intervalo `{início, fim}` (minutos desde a meia-noite) cabe **inteiro em UM** dos períodos?
