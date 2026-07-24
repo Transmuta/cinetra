@@ -8,8 +8,7 @@ import type {
 	Slot,
 	Priority,
 	TimeWindow,
-	WaitlistCounts,
-	Hold
+	WaitlistCounts
 } from '$lib/waitlist';
 import type { PageInfo } from '$lib/pagination';
 
@@ -28,8 +27,6 @@ export interface WaitlistData {
 	page: PageInfo;
 	/** Contagens por prioridade da fila INTEIRA (a sidebar), do servidor. */
 	counts: WaitlistCounts;
-	/** Reservas vivas da clínica (F4) — a tela marca a vaga que alguém já está oferecendo. */
-	holds: Hold[];
 }
 
 /** Janela pedida à API. As duas chamadas da tela (fila e vagas) usam a MESMA. */
@@ -139,19 +136,6 @@ export function updateEntry(event: RequestEvent, id: string, input: UpdateInput)
 
 export function dequeueEntry(event: RequestEvent, id: string): Promise<MutationResult> {
 	return mutate(event, path(id), 'DELETE');
-}
-
-// POST /:id/offer — segura a vaga por 10 min. O 409 `slot_held` (outra reserva viva cobre o
-// horário) volta pelo `mutate` com `code`/`error` — a mensagem já diz quem está segurando.
-export interface OfferInput {
-	professional_id: string;
-	/** UTC ISO. */
-	starts_at: string;
-	duration_minutos?: number;
-}
-
-export function offerSlot(event: RequestEvent, id: string, input: OfferInput): Promise<MutationResult> {
-	return mutate(event, `${path(id)}/offer`, 'POST', input);
 }
 
 // POST /:id/convert — vira agendamento e sai da fila. `starts_at` já em UTC (o cliente converte

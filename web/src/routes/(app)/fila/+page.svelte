@@ -7,7 +7,11 @@
 	import { goto, invalidate, invalidateAll } from '$app/navigation';
 	import { deserialize } from '$app/forms';
 	import { page as pageState } from '$app/state';
-	import { connectWaitlist, type RealtimeConfig } from '$lib/realtime';
+	import {
+		connectWaitlist,
+		type RealtimeConfig,
+		type WaitlistConnection
+	} from '$lib/realtime';
 	import Plus from '@lucide/svelte/icons/plus';
 	import Pencil from '@lucide/svelte/icons/pencil';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
@@ -26,11 +30,9 @@
 		slotDateLabel,
 		type Entry,
 		type Slot,
-		holdForSlot,
-		holdLabel
 	} from '$lib/waitlist';
 	import { m2t, type SearchResult } from '$lib/agenda';
-	import Lock from '@lucide/svelte/icons/lock';
+	import Radio from '@lucide/svelte/icons/radio';
 	import { pageLabel } from '$lib/pagination';
 	import ChevronLeft from '@lucide/svelte/icons/chevron-left';
 	import ChevronRight from '@lucide/svelte/icons/chevron-right';
@@ -172,12 +174,43 @@
 		}, 400);
 	}
 
+	// Quem está oferecendo o quê, agora (doc 39): `entry_id → nomes`, já sem o próprio usuário.
+	// É presença, não reserva — não trava nada e some quando a aba morre.
+	let oferecendo = $state<Record<string, string[]>>({});
+	let conexao = $state<WaitlistConnection | null>(null);
+
 	// A fila tem UM tópico só, que nunca muda — então o efeito depende só de `realtime` (setado
 	// uma vez) e conecta ao chegar o token. Sem a dança de chave-de-tópicos da agenda.
 	$effect(() => {
 		const cfg = realtime;
 		if (!cfg) return;
-		return connectWaitlist(cfg, { onChange: recarregar });
+
+		const c = connectWaitlist(
+			cfg,
+			{
+				onChange: recarregar,
+				onOfferingChange: (porEntrada) => (oferecendo = porEntrada)
+			},
+			{ userId: data.me?.user?.id ?? null }
+		);
+
+		conexao = c;
+
+		return () => {
+			conexao = null;
+			c.close();
+		};
+	});
+
+	// Anuncia enquanto o modal estiver aberto. O `return` do efeito cobre o fechar, o trocar de
+	// item e o sair da tela — e se a aba morrer, o servidor limpa sozinho (é o ponto da presença).
+	$effect(() => {
+		const c = conexao;
+		const alvo = offering;
+		if (!c || !alvo) return;
+
+		c.offering(alvo.id);
+		return () => c.stoppedOffering(alvo.id);
 	});
 
 	// Remover é destrutivo e sem modal-com-mensagem próprio, então submete a `?/remover`
@@ -241,6 +274,23 @@
 
 <svelte:head><title>Fila de espera · Cinetra</title></svelte:head>
 
+<!-- doc 39: "a Fulana já está ligando para este paciente". É aviso, não trava — a linha segue
+     inteira clicável, e o portão continua sendo a constraint do agendamento no Confirmar. -->
+{#snippet oferecendoAviso(entry: Entry)}
+	{@const nomes = oferecendo[entry.id] ?? []}
+	{#if nomes.length}
+		<span
+			title="{nomes.join(', ')} — está com o modal de oferecer aberto agora"
+			class="inline-flex max-w-full min-w-0 items-center gap-1 rounded-full bg-surface-2 px-2 py-px text-[10.5px] font-semibold text-muted"
+		>
+			<Radio size={10} class="shrink-0 text-teal" />
+			<span class="truncate">
+				{stripTitle(nomes[0])}{nomes.length > 1 ? ` +${nomes.length - 1}` : ''} oferecendo
+			</span>
+		</span>
+	{/if}
+{/snippet}
+
 {#snippet dispCell(entry: Entry)}
 	<!-- `min-w-0`: item de grid tem `min-width: auto`, ou seja, NÃO encolhe abaixo do conteúdo —
 	     e o chip tem texto `nowrap` dentro. Sem isto a célula estoura a coluna e pinta por cima
@@ -255,30 +305,19 @@
 						: ''}">{item.label}</span
 				>
 			{:else if item.kind === 'match'}
-				{@const reserva = holdForSlot(item.slot, data.holds, data.timezone)}
 				<button
 					type="button"
 					onclick={() => openOffer(entry, item.slot)}
-					title={reserva
-						? holdLabel(reserva, data.timezone)
-						: `Oferecer ${slotDateLabel(item.slot)} às ${m2t(item.slot.start)}${item.slot.freed ? ' · vaga que abriu' : ''}`}
-					class="{matchChip} {reserva
-						? 'border-dashed border-edge-strong bg-surface-2 text-muted'
-						: item.slot.freed
-							? 'border-teal bg-teal text-white'
-							: 'border-teal-border bg-teal-subtle text-teal-text'}"
+					title="Oferecer {slotDateLabel(item.slot)} às {m2t(item.slot.start)}{item.slot.freed
+						? ' · vaga que abriu'
+						: ''}"
+					class="{matchChip} {item.slot.freed
+						? 'border-teal bg-teal text-white'
+						: 'border-teal-border bg-teal-subtle text-teal-text'}"
 				>
-					<!-- F4: a vaga que outra pessoa já está oferecendo perde o destaque e ganha o
-					     cadeado. Continua clicável de propósito: quem clicar leva o 409 com "quem
-					     segura e até quando", que é a informação completa — o chip é o aviso, não
-					     o portão (o portão é a constraint). -->
-					{#if reserva}
-						<Lock size={11} class="shrink-0" />
-					{:else}
-						<span
-							class="size-1.5 shrink-0 rounded-full {item.slot.freed ? 'bg-white' : 'bg-teal'}"
-						></span>
-					{/if}
+					<span
+						class="size-1.5 shrink-0 rounded-full {item.slot.freed ? 'bg-white' : 'bg-teal'}"
+					></span>
 					<!-- O que encolhe é o RÓTULO da regra ("Seg/Ter/Qua…"); a data e a hora ficam
 					     inteiras, porque são a informação que faz a pessoa clicar. -->
 					<span class="min-w-0 truncate">{item.label}</span>
@@ -359,7 +398,11 @@
 					</span>
 					<span class="min-w-0">
 						<span class="block truncate text-[13px] font-semibold">{entry.patient.nome}</span>
-						{#if entry.obs}<span class="block truncate text-[11px] text-faint">{entry.obs}</span>{/if}
+						{#if oferecendo[entry.id]?.length}
+							{@render oferecendoAviso(entry)}
+						{:else if entry.obs}
+							<span class="block truncate text-[11px] text-faint">{entry.obs}</span>
+						{/if}
 					</span>
 				</span>
 

@@ -18,16 +18,10 @@ defmodule Api.Waitlist.WaitlistNotifier do
   `ApiWeb.WaitlistChannel` — prefixo próprio (não `clinic:<id>:waitlist` do doc 09) porque o
   socket roteia `clinic:*` inteiro para o `AgendaChannel`; um prefixo separado evita o conflito.
 
-  ## O indicador "alguém está oferecendo esta vaga" (F4)
+  ## O que este notifier NÃO faz
 
-  Entrou nesta frente, e **sem Presence**: a reserva já existe como linha (`SlotHold`, 10 min) e
-  é ela que de fato bloqueia a outra pessoa. Então o notifier só passou a avisar que a tabela
-  mudou — `slot_held` ao reservar, `slot_released` ao soltar — e a tela recarrega, como faz para
-  qualquer outra mudança da fila.
-
-  Presence responderia outra pergunta ("fulano está com o modal aberto") e traria um estado que
-  morre com o processo; o hold sobrevive a recarregar a página, vale entre nós e é o mesmo dado
-  que o 409 usa para dizer quem segura.
+  O aviso "alguém está oferecendo esta vaga" **não** passa por aqui: ele é presença efêmera
+  (`Phoenix.Presence` no `ApiWeb.WaitlistChannel`), não mutação de tabela. Ver o doc 39.
   """
   use Ash.Notifier
 
@@ -50,25 +44,6 @@ defmodule Api.Waitlist.WaitlistNotifier do
       })
       when name in @events do
     broadcast(internal_topic(clinic_id), %{change: change_name(name), actor: actor_payload(actor)})
-
-    :ok
-  end
-
-  # F4: reservar/soltar uma vaga muda o que a fila mostra (o chip "sendo oferecida"), mesmo sem
-  # nenhum item ter mudado. O sinal é o mesmo — quem escuta recarrega —, só o nome muda, para o
-  # cliente poder distinguir se algum dia quiser.
-  @impl true
-  def notify(%Ash.Notifier.Notification{
-        resource: Api.Scheduling.SlotHold,
-        action: %{type: type},
-        data: %{clinic_id: clinic_id},
-        actor: actor
-      })
-      when type in [:create, :destroy] do
-    broadcast(internal_topic(clinic_id), %{
-      change: if(type == :create, do: "slot_held", else: "slot_released"),
-      actor: actor_payload(actor)
-    })
 
     :ok
   end

@@ -90,11 +90,6 @@ defmodule Api.Scheduling do
     # A reserva de vaga da fila (Entrega 5). Mora aqui — não em `Api.Waitlist` — porque a garantia
     # é a mesma exclusion constraint do agendamento (doc 09 §6.2). A orquestração oferta→conversão
     # vive em `Api.Waitlist`, que consome estas interfaces.
-    resource Api.Scheduling.SlotHold do
-      define :list_slot_holds, action: :read
-      define :create_slot_hold, action: :offer
-      define :release_slot_hold, action: :release
-    end
   end
 
   # ---- Agenda: escrita ----
@@ -120,7 +115,7 @@ defmodule Api.Scheduling do
 
   Só tipo de **grupo** funde. Tipo individual no mesmo slot continua sendo conflito, e é o
   banco quem diz. Uma turma `pkg_hold` (Fatia 3) é invisível à leitura por RN-05 e portanto não
-  funde — cairia em conflito; o `slot_held` (409) que trataria isso é da Entrega 4.
+  funde — cairia em conflito.
 
   ## Sobre a corrida
 

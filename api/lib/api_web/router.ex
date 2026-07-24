@@ -150,15 +150,14 @@ defmodule ApiWeb.Router do
     # do papel `profissional` vindo de `OwnAgendaOnly` (dados, não 403). `clinic_id` do escopo.
     get "/reports/summary", ReportsController, :summary
 
-    # Fila de espera (Entrega 5, doc 09 §3.6). As rotas com sufixo (`/slots`, `/offer`,
-    # `/convert`) vêm antes da paramétrica pura pela mesma razão de `/appointments/counts`.
+    # Fila de espera (Entrega 5, doc 09 §3.6). As rotas com sufixo (`/slots`, `/convert`) vêm
+    # antes da paramétrica pura pela mesma razão de `/appointments/counts`.
     get "/waitlist", WaitlistController, :index
     # Literais antes da paramétrica: "candidates"/"slots" não podem virar um `:id`.
     get "/waitlist/candidates", WaitlistController, :candidates
     get "/waitlist/slots", WaitlistController, :all_slots
     post "/waitlist", WaitlistController, :create
     get "/waitlist/:id/slots", WaitlistController, :slots
-    post "/waitlist/:id/offer", WaitlistController, :offer
     post "/waitlist/:id/convert", WaitlistController, :convert
     patch "/waitlist/:id", WaitlistController, :update
     delete "/waitlist/:id", WaitlistController, :delete

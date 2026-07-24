@@ -1,10 +1,11 @@
-defmodule Api.Waitlist.OfferConvertTest do
+defmodule Api.Waitlist.ConvertTest do
   @moduledoc """
-  A oferta de vaga (`SlotHold`) e a conversão em agendamento (doc 25, Entrega 5 / doc 09 §6.2).
+  A conversão de um item da fila em agendamento (doc 25, Entrega 5 / doc 09 §6.2).
 
-  A corrida aqui é **síncrona** (duas ofertas na mesma conexão): a segunda bate na exclusion
-  constraint e vira `{:slot_held, meta}`. A garantia sob **concorrência real** (duas conexões) é
-  propriedade da constraint e é verificada por `psql`/bate-volta, não pelo sandbox.
+  **Não há reserva de vaga** (doc 39): a corrida entre dois atendentes é resolvida pela exclusion
+  constraint do **agendamento** — o segundo a confirmar leva `schedule_conflict` e escolhe outro
+  horário. A garantia sob concorrência real (duas conexões) é propriedade da constraint, e é
+  verificada por `psql`/bate-volta, não pelo sandbox.
   """
   use Api.DataCase, async: false
 
@@ -73,84 +74,6 @@ defmodule Api.Waitlist.OfferConvertTest do
   defp at(hhmm) do
     {:ok, dt} = Scheduling.LocalTime.to_utc(@segunda, hhmm, "America/Sao_Paulo")
     dt
-  end
-
-  describe "offer_slot" do
-    test "segura a vaga e devolve o hold" do
-      ctx = setup_clinic()
-
-      assert {:ok, hold} =
-               Waitlist.offer_slot(ctx.scope, ctx.entry, %{
-                 professional_id: ctx.prof.id,
-                 starts_at: at("09:00"),
-                 duration_minutos: 50
-               })
-
-      assert hold.professional_id == ctx.prof.id
-      assert hold.held_by_id == ctx.owner.id
-    end
-
-    test "vaga já segurada por outro → {:slot_held, meta} com quem segura e até quando" do
-      ctx = setup_clinic()
-      # O dono segura 09:00–09:50.
-      {:ok, _} =
-        Waitlist.offer_slot(ctx.scope, ctx.entry, %{
-          professional_id: ctx.prof.id,
-          starts_at: at("09:00")
-        })
-
-      # A recepção tenta um horário sobreposto do mesmo profissional.
-      recepcao = member_scope(ctx.clinic, :recepcao)
-
-      assert {:error, {:slot_held, meta}} =
-               Waitlist.offer_slot(recepcao, ctx.entry, %{
-                 professional_id: ctx.prof.id,
-                 starts_at: at("09:30")
-               })
-
-      assert meta.held_by.nome == "Dono"
-      assert %DateTime{} = meta.expires_at
-    end
-
-    test "liberada a vaga, a oferta seguinte passa" do
-      ctx = setup_clinic()
-
-      {:ok, hold} =
-        Waitlist.offer_slot(ctx.scope, ctx.entry, %{
-          professional_id: ctx.prof.id,
-          starts_at: at("09:00")
-        })
-
-      :ok = Scheduling.release_slot_hold(hold, scope: ctx.scope)
-
-      assert {:ok, _} =
-               Waitlist.offer_slot(ctx.scope, ctx.entry, %{
-                 professional_id: ctx.prof.id,
-                 starts_at: at("09:30")
-               })
-    end
-
-    # Bate-volta E5 (segurança): a constraint `slot_holds_no_overlap` é GLOBAL (ADR-017), então
-    # segurar vaga de um profissional de OUTRA clínica seria um vetor cross-tenant (negar por
-    # 10 min a reserva alheia). O `professional_id` tem de ser da clínica ativa.
-    test "offer com profissional de outra clínica é recusado (não cruza o tenant)" do
-      ctx = setup_clinic()
-      other_owner = Accounts.register_user!("Dono2", email(), authorize?: false)
-
-      other =
-        Accounts.onboard_clinic!("Outra #{System.unique_integer([:positive])}", %{},
-          actor: other_owner
-        )
-
-      alheio =
-        Directory.create_professional!("Dra. Alheia", %{}, tenant: other.id, actor: other_owner)
-
-      assert {:error, %Ash.Error.Invalid{}} =
-               Waitlist.offer_slot(ctx.scope, ctx.entry, %{
-                 professional_id: alheio.id,
-                 starts_at: at("09:00")
-               })
-    end
   end
 
   describe "convert" do

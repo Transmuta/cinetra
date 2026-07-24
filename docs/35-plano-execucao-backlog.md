@@ -229,8 +229,8 @@ agenda de origem. A releitura por assinante devolve `nil` (o bloco não é mais 
 | --- | --- |
 | **F3** | ✅ Cancelar deixou de ser um clique só: abre confirmação com **motivo opcional**, que viaja no form (a coluna `cancel_reason` e a action do BFF já existiam — faltava quem preenchesse). Opcional de propósito: exigir motivo faz a recepção digitar "asdf" para conseguir cancelar |
 | **F6** | ✅ Fila paginada (50/página, `?page=`), com **três** consequências que andam juntas: a ordem de prioridade virou ordenação de **banco** (calculation `prio_rank` — paginar sobre ordem aplicada em memória daria "página 2" que não continua a 1); o filtro `?prio=` saiu do cliente para o **servidor**; e as contagens da sidebar passaram a vir do servidor (contar a página contaria errado). `/waitlist/slots` aceita a mesma janela — o motor de vagas só calcula para quem a tela desenha |
-| **D-L** | ✅ **Uma transação por lote** (200 clínicas), não por clínica; só os ids são lidos; cron de **5 em 5 min** (era 1). Teste de contagem de `BEGIN` **provado por mutação**: com o código antigo dá "3 transações para 3 clínicas" e falha |
-| **F4** | ✅ Indicador "alguém está oferecendo esta vaga" — **sem `Presence`**. A fonte é o próprio `SlotHold` (a linha que a exclusion constraint enxerga): `GET /api/waitlist` devolve as reservas **vivas** com quem segura, o chip da vaga vira cadeado com "Fulana está oferecendo (até 09:10)", e o notifier da fila passou a emitir `slot_held`/`slot_released` para a outra aba recarregar |
+| **D-L** | ✅ e depois **SEM OBJETO**: o worker foi otimizado (lote de 200 + 5 min, teste de `BEGIN` provado por mutação) e removido dias depois junto com a tabela que ele varria ([`39`](39-fila-sem-reserva-de-vaga.md)). A lição fica: a otimização estava certa, o **item** é que era — ninguém tinha perguntado se a tabela precisava existir |
+| **F4** | ✅ **entregue, e depois REFEITO** ([`39`](39-fila-sem-reserva-de-vaga.md)). A primeira versão saiu sobre o `SlotHold`; a verificação ao vivo mostrou que a UI **nunca** criava reserva (`git log -S'?/oferecer'` → vazio), e a reserva inteira foi removida. Hoje o aviso é `Phoenix.Presence`: aparece enquanto o modal está aberto, some quando a aba morre, e **não trava nada** — o portão sempre foi a exclusion constraint do agendamento |
 
 Verde ao fim: api **775/0**, gate RLS **7/0**, web **1179/1179**, `svelte-check` **0 erros**.
 
@@ -240,11 +240,11 @@ app um pool (ou uma função `SECURITY DEFINER`) que enxerga todas as clínicas 
 desprezível por um furo permanente no isolamento de tenant. O ADR-018 existe para não ter esse
 caminho. O que sobrou (lote + menos frequência) resolve o custo real sem tocar no modelo.
 
-**Por que F4 não virou `Presence`:** Presence responderia "fulano está com o modal aberto" — um
-estado que morre com o processo e não sobrevive a um refresh. O hold responde "esta vaga está
-reservada até tal hora", que é o que a recepção precisa saber, já existe no banco, vale entre nós
-e é o **mesmo dado** que o 409 usa. O chip é aviso, não portão: continua clicável, e quem clicar
-leva o 409 com quem segura e até quando.
+**Por que F4 acabou virando `Presence` (revisão de 2026-07-24):** o argumento original era que o
+hold "sobrevive a um refresh e é o mesmo dado do 409". Ele caiu quando a sonda ao vivo mostrou que
+**a UI nunca criava hold nenhum** — o dado não existia para sobreviver a coisa alguma. Ver
+[`39`](39-fila-sem-reserva-de-vaga.md): o que morre com o processo é justamente a propriedade
+desejada, porque a vaga deixa de ficar presa.
 
 **Dívida honesta desta frente:** de novo, **nada foi clicado no browser** (mesmo atrito: MCP do
 Playwright quebrado, `web/build` root-owned). E a prova por **mutação** foi feita só no D-L — os

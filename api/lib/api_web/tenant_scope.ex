@@ -85,12 +85,12 @@ defmodule ApiWeb.TenantScope do
   @doc """
   409 — **novo nesta fatia**. A regra semântica é a de `09:659`: **422 = "seu pedido está
   errado"; 409 = "seu pedido estava certo, o mundo mudou"**. Reservado a concorrência
-  (`version_conflict` na Entrega 4, `slot_held` na 5) — conflito de horário é 422, porque o
+  (`version_conflict` na Entrega 4) — conflito de horário é 422, porque o
   pedido *está* errado no momento em que chega.
 
-  A 4-aridade carrega um `meta` (mapa) no corpo — a Entrega 5 o usa para dizer **quem** segura a
-  vaga e **até quando** (`slot_held`, doc 09 §6.2), o que transforma a corrida num aviso útil
-  ("João está oferecendo, expira em 4 min") em vez de um erro seco. `meta` vazio não vai no corpo.
+  A 4-aridade carrega um `meta` (mapa) no corpo, para o 409 poder explicar a corrida em vez de
+  ser um erro seco. `meta` vazio não vai no corpo. (A fila **usou** isso para o `slot_held` da
+  reserva de vaga; a reserva foi removida no doc 39 — a 4-aridade fica, o caso de uso saiu.)
   """
   def conflict(conn, code, message, meta \\ %{}) do
     body = %{error: "conflict", code: code, details: [%{field: nil, message: message}]}

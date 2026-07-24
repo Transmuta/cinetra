@@ -69,15 +69,6 @@ export interface Slot {
 	freed: boolean;
 }
 
-/** A reserva de 10 min criada por `offer` (o canal do 409 `slot_held` na corrida da oferta). */
-export interface Hold {
-	id: string;
-	professional_id: string;
-	waitlist_entry_id: string;
-	starts_at: string;
-	ends_at: string;
-	expires_at: string;
-}
 
 // O profissional como a fila o consome é o MESMO da agenda (o JSON reusa `AgendaJSON.professional`)
 // — reexportado para os call-sites da fila não importarem de `agenda`.
@@ -222,50 +213,6 @@ export function dispItems(entry: Entry, slots: Slot[], today: string): DispItem[
 
 	if (!slots.length) items.push({ kind: 'none' });
 	return items;
-}
-
-// ---------------------------------------------------------------------------
-// Reservas vivas — "alguém está oferecendo esta vaga" (F4)
-// ---------------------------------------------------------------------------
-
-/** Uma reserva viva (`SlotHold`, 10 min) devolvida junto da fila. */
-export interface Hold {
-	id: string;
-	professional_id: string;
-	waitlist_entry_id: string;
-	/** Instante UTC do início da vaga reservada. */
-	starts_at: string;
-	ends_at: string;
-	expires_at: string;
-	held_by?: { id: string; nome: string | null } | null;
-}
-
-/**
- * A reserva que cobre esta vaga, se houver — o que faz o chip virar "reservada".
- *
- * A comparação é por **instante**, não por string: a vaga é local (data + minutos no fuso da
- * clínica) e o hold é UTC; comparar os dois textos daria "nunca casa" de um jeito silencioso.
- * O `Date.parse` de ambos os lados também absorve `Z` × `+00:00` e milissegundos.
- */
-export function holdForSlot(slot: Slot, holds: Hold[], timezone: string): Hold | undefined {
-	const at = Date.parse(toUtcIso(slot.date, m2t(slot.start), timezone));
-	if (!Number.isFinite(at)) return undefined;
-
-	return holds.find(
-		(h) => h.professional_id === slot.professional_id && Date.parse(h.starts_at) === at
-	);
-}
-
-/** "Reservada por Ana até 14:32" — o título do chip. Sem nome, fica no impessoal. */
-export function holdLabel(hold: Hold, timezone: string): string {
-	const ate = new Date(hold.expires_at).toLocaleTimeString('pt-BR', {
-		hour: '2-digit',
-		minute: '2-digit',
-		timeZone: timezone
-	});
-
-	const quem = hold.held_by?.nome;
-	return quem ? `${quem} está oferecendo esta vaga (até ${ate})` : `Vaga reservada até ${ate}`;
 }
 
 // ---------------------------------------------------------------------------

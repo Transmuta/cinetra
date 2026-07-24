@@ -221,18 +221,19 @@ Membros) rola na horizontal — o padrão é truncar com `title`.
 **Provado ao vivo:** com a mesma reserva do §1, o chip virou `🔒 Seg/Ter/Qua/… sex 24/07 08:00` e a
 coluna "Profissional" voltou a mostrar "Qualquer" legível.
 
-### D. `release_slot_hold` não tem rota HTTP — **lacuna de produto**
+### D. ~~`release_slot_hold` não tem rota HTTP~~ — **resolvido por remoção**
 
-**O que é.** O domínio tem a ação de soltar a reserva, mas o router não a expõe: fechar o modal de
-"Oferecer" **não** libera a vaga. Ela só sai pelos 10 minutos de TTL ou pela conversão.
+**O que era.** O domínio tinha a ação de soltar a reserva e o router não a expunha: fechar o modal
+de "Oferecer" não liberava a vaga, que ficava presa por 10 minutos.
 
-**A sonda.** `grep` no router: existem `POST /waitlist/:id/offer` e `/convert`; nenhuma rota de
-release.
+**O que aconteceu depois.** Ao levar isto ao humano, a pergunta certa apareceu — *"por que essa
+trava existe?"* — e a sonda seguinte mostrou que a UI **nunca criava reserva nenhuma**
+(`git log -S'?/oferecer' -- web/src` → vazio). A reserva inteira foi removida e o aviso virou
+presença efêmera. Ver [`39`](39-fila-sem-reserva-de-vaga.md).
 
-**Por que não foi corrigido.** É decisão de produto (o que "desistir de oferecer" significa), e
-interage com o F4 que acabou de entrar: com o indicador ao vivo, uma vaga presa por 10 minutos
-depois de um clique cancelado agora **fica visível** para os colegas — o que torna a lacuna mais
-incômoda do que era antes.
+**A lição.** O handoff estava certo em apontar o sintoma e errado em enquadrá-lo: eu tratei como
+"falta uma rota" o que era "sobra um mecanismo". Perguntar *se a peça precisa existir* vem antes
+de perguntar *como consertá-la*.
 
 ### E. Playwright MCP com `click`/`snapshot`/`evaluate` quebrados — **ferramental**
 

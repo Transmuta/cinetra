@@ -13,8 +13,15 @@ const fake = vi.hoisted(() => {
 			public params: Record<string, unknown> = {}
 		) {}
 
+		pushes: Array<[string, unknown]> = [];
+
 		on(event: string, cb: (p: unknown) => void) {
 			this.handlers[event] = cb;
+		}
+
+		push(event: string, payload: unknown) {
+			this.pushes.push([event, payload]);
+			return { receive: () => ({ receive: () => ({}) }) };
 		}
 
 		join() {
@@ -294,14 +301,68 @@ describe('connectWaitlist', () => {
 		await vi.waitFor(() => expect(socket.opts.params()).toEqual({ token: 'tok-2' }));
 	});
 
-	it('a função de desligar sai do canal e fecha o socket', () => {
-		const desligar = connectWaitlist(config, { onChange() {} });
+	it('close() sai do canal e fecha o socket', () => {
+		const conexao = connectWaitlist(config, { onChange() {} });
 		const socket = fake.FakeSocket.last!;
 
-		desligar();
+		conexao.close();
 
 		expect(socket.channels[0].left).toBe(true);
 		expect(socket.disconnected).toBe(true);
+	});
+
+	// doc 39: o aviso "alguém está oferecendo" é presença. O cliente manda só o ID do item — o
+	// nome vem do servidor —, e o que ele recebe de volta já chega sem ele mesmo.
+	describe('presença de oferta', () => {
+		it('offering/stoppedOffering empurram só o entry_id', () => {
+			const conexao = connectWaitlist(config, { onChange() {} });
+			const canal = fake.FakeSocket.last!.channels[0];
+
+			conexao.offering('e1');
+			conexao.stoppedOffering('e1');
+
+			expect(canal.pushes).toEqual([
+				['offering', { entry_id: 'e1' }],
+				['stopped_offering', { entry_id: 'e1' }]
+			]);
+		});
+
+		it('o presence_state vira entry_id → nomes, sem o próprio usuário', () => {
+			let visto: Record<string, string[]> = {};
+			connectWaitlist(
+				config,
+				{ onChange() {}, onOfferingChange: (m) => (visto = m) },
+				{ userId: 'u-eu' }
+			);
+
+			fake.FakeSocket.last!.channels[0].emit('presence_state', {
+				e1: { metas: [{ user_id: 'u-outra', nome: 'Ana Lima', phx_ref: 'r1' }] },
+				e2: { metas: [{ user_id: 'u-eu', nome: 'Eu Mesmo', phx_ref: 'r2' }] }
+			});
+
+			expect(visto).toEqual({ e1: ['Ana Lima'] });
+		});
+
+		it('o diff aplica entradas e saídas', () => {
+			let visto: Record<string, string[]> = {};
+			connectWaitlist(
+				config,
+				{ onChange() {}, onOfferingChange: (m) => (visto = m) },
+				{ userId: 'u-eu' }
+			);
+
+			const canal = fake.FakeSocket.last!.channels[0];
+
+			canal.emit('presence_diff', {
+				joins: { e1: { metas: [{ user_id: 'u-outra', nome: 'Ana Lima', phx_ref: 'r1' }] } }
+			});
+			expect(visto).toEqual({ e1: ['Ana Lima'] });
+
+			canal.emit('presence_diff', {
+				leaves: { e1: { metas: [{ user_id: 'u-outra', nome: 'Ana Lima', phx_ref: 'r1' }] } }
+			});
+			expect(visto).toEqual({});
+		});
 	});
 });
 

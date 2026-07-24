@@ -2,8 +2,11 @@ defmodule ApiWeb.WaitlistController do
   @moduledoc """
   A fila de espera (doc 25, Entrega 5 / doc 09 §3.6). Molde do `AppointmentsController`:
   `with_member_scope` na fronteira (o RBAC fino é da policy do recurso), `whitelist/2` no corpo,
-  `error_response/2` na escada 401/403/404/422, e o **409 `slot_held`** com meta para a corrida da
-  oferta (doc 09 §6.2). `clinic_id` nunca vem do corpo — é do `Ash.Scope`.
+  `error_response/2` na escada 401/403/404/422. `clinic_id` nunca vem do corpo — é do `Ash.Scope`.
+
+  Não há reserva de vaga: dois atendentes podem oferecer o mesmo horário, e quem **confirmar**
+  por último leva o 422 da exclusion constraint do agendamento e escolhe outro (doc 39). O aviso
+  de "alguém já está oferecendo" é presença efêmera, no canal — não passa por aqui.
   """
   use ApiWeb, :controller
 
@@ -31,11 +34,7 @@ defmodule ApiWeb.WaitlistController do
         page: page,
         # As contagens da sidebar vêm do servidor **porque** a lista é paginada: contar o que
         # chegou contaria só a página.
-        counts: Waitlist.entry_counts(scope),
-        # F4: as reservas vivas da clínica — a tela marca "alguém está oferecendo esta vaga".
-        # Da clínica inteira, não da página: a vaga reservada pode ser de um item que não está
-        # nesta página, e o chip que ela bloqueia pode estar.
-        holds: Enum.map(Waitlist.live_holds(scope), &WaitlistJSON.hold/1)
+        counts: Waitlist.entry_counts(scope)
       })
     end)
   end
@@ -153,26 +152,6 @@ defmodule ApiWeb.WaitlistController do
     end)
   end
 
-  # POST /api/waitlist/:id/offer  — segura a vaga (409 slot_held sob corrida)
-  def offer(conn, %{"id" => id} = params) do
-    with_member_scope(conn, fn scope ->
-      with {:ok, entry} <- fetch(scope, id),
-           attrs = offer_attrs(params),
-           {:ok, hold} <- Waitlist.offer_slot(scope, entry, attrs) do
-        conn |> put_status(:created) |> json(%{hold: WaitlistJSON.hold(hold)})
-      else
-        {:error, :not_found} ->
-          not_found(conn)
-
-        {:error, {:slot_held, meta}} ->
-          conflict(conn, "slot_held", held_message(meta), hold_meta_json(meta))
-
-        {:error, error} ->
-          error_response(conn, error)
-      end
-    end)
-  end
-
   # POST /api/waitlist/:id/convert  — vira agendamento e sai da fila
   def convert(conn, %{"id" => id} = params) do
     with_member_scope(conn, fn scope ->
@@ -224,14 +203,6 @@ defmodule ApiWeb.WaitlistController do
     end
   end
 
-  defp offer_attrs(params) do
-    %{
-      professional_id: params["professional_id"],
-      starts_at: parse_datetime(params["starts_at"]),
-      duration_minutos: params["duration_minutos"] || params["duration"] || 50
-    }
-  end
-
   defp parse_datetime(value) when is_binary(value) do
     case DateTime.from_iso8601(value) do
       {:ok, dt, _offset} -> dt
@@ -250,18 +221,4 @@ defmodule ApiWeb.WaitlistController do
       _ -> :error
     end
   end
-
-  defp held_message(%{held_by: %{nome: nome}}) when is_binary(nome),
-    do: "#{first_name(nome)} está oferecendo este horário."
-
-  defp held_message(_meta), do: "Este horário já está reservado."
-
-  defp first_name(nome), do: nome |> String.split(" ", parts: 2) |> hd()
-
-  # Serializa o meta do 409: quem segura e até quando (doc 09 §6.2).
-  defp hold_meta_json(%{held_by: held_by, expires_at: %DateTime{} = expires_at}) do
-    %{held_by: held_by, expires_at: DateTime.to_iso8601(expires_at)}
-  end
-
-  defp hold_meta_json(_meta), do: %{}
 end

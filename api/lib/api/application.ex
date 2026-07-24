@@ -18,8 +18,10 @@ defmodule Api.Application do
       # Cache do fuso da clínica (D-K). Depende do PubSub — é por ele que a invalidação de um
       # nó chega aos outros (`:persistent_term` é por-nó).
       Api.Accounts.ClinicTimezone,
-      # Oban — o cron de limpeza dos `SlotHold` vencidos (doc 09 §6.2). Em teste sobe em modo
-      # manual (config/test.exs), sem cron nem filas.
+      # Presença de sockets (doc 39): quem está oferecendo qual vaga, agora. Depende do PubSub.
+      ApiWeb.Presence,
+      # Oban — sem cron desde a remoção da reserva de vaga (doc 39); a fila `housekeeping` fica
+      # de pé para o trabalho assíncrono da Fatia 3 (Pacotes). Em teste sobe em modo manual.
       {Oban, Application.fetch_env!(:api, Oban)},
       # Start to serve requests, typically the last entry
       ApiWeb.Endpoint,

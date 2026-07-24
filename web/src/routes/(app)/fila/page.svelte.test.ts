@@ -49,8 +49,6 @@ function data(over: Record<string, unknown> = {}) {
 		timezone: 'America/Sao_Paulo',
 		today: '2026-07-21',
 		prio: 'todas',
-		// F4: reservas vivas (vazio por padrão — o caminho normal é ninguém oferecendo).
-		holds: [],
 		// F6: a fila é paginada — o load sempre entrega o recorte e a página corrente.
 		pageInfo: { limit: 50, offset: 0, total: 1, more: false },
 		counts: { todas: 1, urgente: 0, alta: 0, normal: 1, baixa: 0 },
@@ -133,33 +131,6 @@ describe('Fila — camada de vagas na lista', () => {
 		expect(getByText('Próxima')).toBeInTheDocument();
 	});
 
-	// F4: a vaga que outra pessoa já está oferecendo é marcada — é o aviso que evita duas
-	// recepções correndo para a mesma vaga (e tomando 409 no fim).
-	it('vaga já reservada por outra pessoa vira chip com o aviso de quem segura', async () => {
-		mockSlots({ e1: [slot()] });
-
-		const { findAllByTitle } = render(Page, {
-			props: {
-				data: data({
-					holds: [
-						{
-							id: 'h1',
-							professional_id: 'p1',
-							waitlist_entry_id: 'e1',
-							starts_at: '2026-07-21T12:00:00Z',
-							ends_at: '2026-07-21T12:50:00Z',
-							expires_at: '2026-07-21T12:10:00Z',
-							held_by: { id: 'u9', nome: 'Ana' }
-						}
-					]
-				}),
-				form: null
-			}
-		});
-
-		const chips = await findAllByTitle(/Ana está oferecendo esta vaga/);
-		expect(chips.length).toBeGreaterThan(0);
-	});
 
 	// O outro lado do mesmo achado: a tela tem de PEDIR a janela filtrada.
 	it('pede as vagas com o mesmo filtro da lista', async () => {

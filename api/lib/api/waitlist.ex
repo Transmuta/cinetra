@@ -3,7 +3,7 @@ defmodule Api.Waitlist do
   Domínio da **fila de espera** (doc 25, Entrega 5) — recursos por-tenant por atributo
   (`clinic_id`, ADR-017), no molde de `Api.Scheduling`. Concentra o item da fila
   (`WaitlistEntry` + suas `AvailabilityRule`), o motor de vagas (`SlotFinder`, port do
-  `filaVagas`) e a orquestração de oferta→conversão (com o `Api.Scheduling.SlotHold`).
+  `filaVagas`) e a conversão de um item em agendamento.
 
   Como em `Api.Scheduling`, os **wrappers deste módulo** centralizam o `Api.Repo.with_clinic/2`
   (GUC de tenant para a RLS, ADR-018) na leitura — por isso os controllers chamam estas funções,
@@ -72,27 +72,6 @@ defmodule Api.Waitlist do
   end
 
   # Os tetos são de `Api.Pagination` — a mesma regra das outras listas do projeto.
-
-  @doc """
-  As reservas **vivas** da clínica — o "alguém já está oferecendo esta vaga" (F4).
-
-  A fonte é o próprio `SlotHold`, não uma presença de socket: o hold é o que de fato bloqueia a
-  outra pessoa (é ele que a exclusion constraint enxerga), sobrevive a recarregar a página e não
-  depende de um processo vivo do outro lado. Presence diria "fulano está com o modal aberto";
-  isto diz "esta vaga está reservada até tal hora", que é a informação de que a recepção precisa.
-
-  `expires_at > agora` pelo relógio do **escopo** (ADR-009): um hold vencido ainda pode estar na
-  tabela (o cron é backstop, roda de 5 em 5 min) e mostrá-lo travaria uma vaga que já está livre.
-  """
-  def live_holds(%Api.Scope{} = scope) do
-    in_clinic(scope, fn ->
-      Api.Scheduling.list_slot_holds!(
-        scope: scope,
-        query: Ash.Query.filter(Api.Scheduling.SlotHold, expires_at > ^scope.now),
-        load: [:held_by]
-      )
-    end)
-  end
 
   @doc """
   Quantos itens a fila tem por prioridade — a sidebar (F6).
@@ -189,87 +168,23 @@ defmodule Api.Waitlist do
     in_clinic(scope, fn -> Ash.load!(entry, entry_load(), scope: scope) end)
   end
 
-  # ---- Oferta e conversão (SlotHold) ----
-
-  @doc """
-  Segura a vaga por 10 min (POST /waitlist/:id/offer). `attrs`: `professional_id`, `starts_at`,
-  `duration_minutos` (default 50). Devolve `{:ok, hold}`, ou `{:error, {:slot_held, meta}}` quando
-  outra reserva **viva** já cobre o horário daquele profissional — o 409 com quem segura e até
-  quando (doc 09 §6.2). Outros erros (validação) sobem como `{:error, changeset}`.
-  """
-  def offer_slot(%Api.Scope{} = scope, entry, attrs) when is_map(attrs) do
-    hold_attrs = %{
-      professional_id: Map.get(attrs, :professional_id),
-      starts_at: Map.get(attrs, :starts_at),
-      waitlist_entry_id: entry.id,
-      duration_minutos: Map.get(attrs, :duration_minutos) || 50
-    }
-
-    case Api.Scheduling.create_slot_hold(hold_attrs, scope: scope) do
-      {:ok, hold} -> {:ok, hold}
-      {:error, error} -> classify_hold_error(scope, error, hold_attrs)
-    end
-  end
-
-  # A violação da exclusion constraint vira `{:slot_held, meta}` (→ 409). Qualquer outro erro
-  # (ex.: validação de campo) sobe como está (→ 422/400 na fronteira).
-  defp classify_hold_error(scope, error, hold_attrs) do
-    if slot_held_error?(error),
-      do: {:error, {:slot_held, hold_meta(scope, hold_attrs)}},
-      else: {:error, error}
-  end
-
-  defp slot_held_error?(%Ash.Error.Invalid{errors: errors}) do
-    Enum.any?(errors, &(Map.get(&1, :message) == Api.Scheduling.SlotHold.slot_held_message()))
-  end
-
-  defp slot_held_error?(_error), do: false
-
-  # Quem segura a vaga conflitante (a reserva viva que sobrepõe o horário pedido). Depois da purga
-  # in-transaction ter sido desfeita pelo rollback, os vencidos voltam — por isso o filtro por
-  # `expires_at > agora` (relógio do banco, como a purga), para não apontar um hold morto.
-  defp hold_meta(scope, %{professional_id: prof_id, starts_at: starts_at, duration_minutos: dur}) do
-    ends_at = DateTime.add(starts_at, dur * 60, :second)
-
-    in_clinic(scope, fn ->
-      query =
-        Ash.Query.filter(
-          Api.Scheduling.SlotHold,
-          professional_id == ^prof_id and starts_at < ^ends_at and ends_at > ^starts_at
-        )
-
-      now = DateTime.utc_now()
-
-      Api.Scheduling.list_slot_holds!(scope: scope, query: query, load: [:held_by])
-      |> Enum.find(&(DateTime.compare(&1.expires_at, now) == :gt))
-      |> hold_to_meta()
-    end)
-  end
-
-  defp hold_to_meta(nil), do: %{}
-
-  defp hold_to_meta(hold) do
-    %{
-      held_by: %{id: hold.held_by_id, nome: hold.held_by && hold.held_by.nome},
-      expires_at: hold.expires_at
-    }
-  end
+  # ---- Conversão em agendamento ----
 
   @doc """
   Converte um item da fila em agendamento (POST /waitlist/:id/convert): cria o bloco para o
-  paciente do item pelo `Api.Scheduling.schedule_appointment/2` e **remove o item da fila** (o
-  hold, se houver, sai junto pelo cascade da FK). `appt_attrs`: `starts_at`, `professional_id`,
-  `appointment_type_id`, `encaixe`, `obs`, `duration_minutos` — o `patient_ids` é o paciente do item.
+  paciente do item pelo `Api.Scheduling.schedule_appointment/2` e **remove o item da fila**.
+  `appt_attrs`: `starts_at`, `professional_id`, `appointment_type_id`, `encaixe`, `obs`,
+  `duration_minutos` — o `patient_ids` é o paciente do item.
 
-  Funciona **com ou sem** oferta prévia (o "agendar manualmente" da fila não passa por offer).
-  Propaga o 422/`schedule_conflict` de `schedule_appointment` quando o horário foi tomado nesse
-  meio-tempo.
+  Quem garante que dois atendentes não marquem a mesma vaga é a **exclusion constraint do
+  agendamento** (`appointments_no_overlap`), aqui dentro: o segundo leva 422/`schedule_conflict`
+  e escolhe outro horário. Não há reserva prévia — ver o ADR do doc 39.
   """
   def convert(%Api.Scope{} = scope, entry, appt_attrs) when is_map(appt_attrs) do
     attrs = Map.put(appt_attrs, :patient_ids, [entry.patient_id])
 
     with {:ok, appointment} <- Api.Scheduling.schedule_appointment(attrs, scope: scope) do
-      # O paciente saiu da fila (o hold vai junto pelo cascade). Best-effort: o agendamento é o
+      # O paciente saiu da fila. Best-effort: o agendamento é o
       # que importa — um item órfão a recepção remove à mão, um agendamento perdido não volta.
       _ = dequeue_entry(scope, entry.id)
       {:ok, appointment}

@@ -18,9 +18,6 @@ import {
 	type Slot,
 	type Priority,
 	type TimeWindow,
-	holdForSlot,
-	holdLabel,
-	type Hold
 } from './waitlist';
 
 // Fábrica enxuta: só o que os helpers puros olham (prioridade e o carimbo de entrada).
@@ -237,72 +234,3 @@ describe('canManageWaitlist', () => {
 	});
 });
 
-// F4: "alguém está oferecendo esta vaga". A vaga é local (data + minutos no fuso da clínica) e o
-// hold é UTC — o casamento por INSTANTE é o ponto, e é onde um bug seria silencioso (o chip
-// simplesmente nunca marcaria).
-describe('holdForSlot', () => {
-	const slot = (over: Partial<Slot> = {}): Slot => ({
-		date: '2026-07-21',
-		start: 540,
-		dur: 50,
-		professional_id: 'p1',
-		dow: 2,
-		rule_index: 0,
-		freed: false,
-		...over
-	});
-
-	const hold = (over: Partial<Hold> = {}): Hold => ({
-		id: 'h1',
-		professional_id: 'p1',
-		waitlist_entry_id: 'e1',
-		// 09:00 em São Paulo (UTC-3) = 12:00Z.
-		starts_at: '2026-07-21T12:00:00Z',
-		ends_at: '2026-07-21T12:50:00Z',
-		expires_at: '2026-07-21T12:10:00Z',
-		held_by: { id: 'u1', nome: 'Ana' },
-		...over
-	});
-
-	it('casa a vaga local com o hold em UTC', () => {
-		expect(holdForSlot(slot(), [hold()], 'America/Sao_Paulo')?.id).toBe('h1');
-	});
-
-	it('não casa vaga de OUTRO profissional no mesmo horário', () => {
-		expect(holdForSlot(slot(), [hold({ professional_id: 'p2' })], 'America/Sao_Paulo')).toBeUndefined();
-	});
-
-	it('não casa outro horário do mesmo profissional', () => {
-		expect(holdForSlot(slot({ start: 600 }), [hold()], 'America/Sao_Paulo')).toBeUndefined();
-	});
-
-	it('fuso errado não casa — é o bug que o teste existe para pegar', () => {
-		expect(holdForSlot(slot(), [hold()], 'UTC')).toBeUndefined();
-	});
-
-	it('sem reserva nenhuma, nada casa', () => {
-		expect(holdForSlot(slot(), [], 'America/Sao_Paulo')).toBeUndefined();
-	});
-});
-
-describe('holdLabel', () => {
-	const base: Hold = {
-		id: 'h1',
-		professional_id: 'p1',
-		waitlist_entry_id: 'e1',
-		starts_at: '2026-07-21T12:00:00Z',
-		ends_at: '2026-07-21T12:50:00Z',
-		expires_at: '2026-07-21T12:10:00Z',
-		held_by: { id: 'u1', nome: 'Ana' }
-	};
-
-	it('diz quem está oferecendo e até quando (no fuso da clínica)', () => {
-		expect(holdLabel(base, 'America/Sao_Paulo')).toBe('Ana está oferecendo esta vaga (até 09:10)');
-	});
-
-	it('sem nome, fica impessoal em vez de "null está oferecendo"', () => {
-		expect(holdLabel({ ...base, held_by: null }, 'America/Sao_Paulo')).toBe(
-			'Vaga reservada até 09:10'
-		);
-	});
-});

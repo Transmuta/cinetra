@@ -175,29 +175,6 @@ defmodule ApiWeb.WaitlistControllerTest do
     end
   end
 
-  describe "POST /api/waitlist/:id/offer" do
-    test "segura a vaga → 201; a segunda oferta sobreposta → 409 slot_held com meta" do
-      ctx = fixture()
-      entry = enqueue(ctx)
-      body = %{"professional_id" => ctx.prof.id, "starts_at" => "2026-07-20T12:00:00Z"}
-
-      conn = as(ctx.owner) |> post("/api/waitlist/#{entry["id"]}/offer", body)
-      assert json_response(conn, 201)["hold"]["expires_at"]
-
-      conn2 =
-        as(ctx.owner)
-        |> post("/api/waitlist/#{entry["id"]}/offer", %{
-          "professional_id" => ctx.prof.id,
-          "starts_at" => "2026-07-20T12:30:00Z"
-        })
-
-      body2 = json_response(conn2, 409)
-      assert body2["code"] == "slot_held"
-      assert body2["meta"]["held_by"]["id"] == ctx.owner.id
-      assert body2["meta"]["expires_at"]
-    end
-  end
-
   describe "GET /api/waitlist/candidates" do
     test "devolve os itens compatíveis com a vaga; sem params → 422" do
       ctx = fixture()
@@ -278,50 +255,7 @@ defmodule ApiWeb.WaitlistControllerTest do
     end
   end
 
-  # F4: a lista precisa saber quais vagas já estão reservadas por OUTRA pessoa. A fonte é o
   # próprio hold (o mesmo que a constraint enxerga), não uma presença de socket.
-  describe "GET /api/waitlist — reservas vivas (F4)" do
-    test "devolve as reservas vivas com quem segura" do
-      ctx = fixture()
-      entry = enfileira(ctx)
-
-      {:ok, _hold} =
-        Api.Waitlist.offer_slot(scope_for(ctx), %{id: entry["id"]}, %{
-          professional_id: ctx.prof.id,
-          starts_at: ~U[2026-07-21 12:00:00Z]
-        })
-
-      body = as(ctx.owner) |> get("/api/waitlist") |> json_response(200)
-
-      assert [hold] = body["holds"]
-      assert hold["professional_id"] == ctx.prof.id
-      assert hold["held_by"]["id"] == ctx.owner.id
-    end
-
-    test "reserva VENCIDA não aparece (a vaga já está livre)" do
-      ctx = fixture()
-      entry = enfileira(ctx)
-
-      # Relógio cravado no passado → `expires_at` nasce vencido.
-      velho = %{scope_for(ctx) | now: ~U[2020-01-01 00:00:00Z]}
-
-      {:ok, _hold} =
-        Api.Waitlist.offer_slot(velho, %{id: entry["id"]}, %{
-          professional_id: ctx.prof.id,
-          starts_at: ~U[2026-07-21 12:00:00Z]
-        })
-
-      body = as(ctx.owner) |> get("/api/waitlist") |> json_response(200)
-      assert body["holds"] == []
-    end
-  end
-
-  defp scope_for(ctx) do
-    {:ok, membership} =
-      Accounts.get_active_membership(ctx.owner.id, ctx.clinic.id, authorize?: false)
-
-    Api.Scope.with_membership(ctx.owner, membership)
-  end
 
   # Um item por paciente (a fila faz upsert por paciente), então cada chamada cria o seu.
   defp enfileira(ctx, prio \\ "normal") do

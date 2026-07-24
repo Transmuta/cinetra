@@ -488,7 +488,7 @@ exceção de data do profissional, que também aciona `futureConflicts`.
 | PATCH | `/waitlist/:id` | `:update` | — | idem | — |
 | DELETE | `/waitlist/:id` | `:dequeue` | [`:1186`](../interface/Movimento.dc.html#L1186) | idem | — |
 | GET | `/waitlist/:id/slots` | ação genérica `:find_slots` | `filaVagas` [`:2531`](../interface/Movimento.dc.html#L2531) | idem | — |
-| POST | `/waitlist/:id/offer` | `:offer` (cria `SlotHold`) | `offerVaga` [`:2596`](../interface/Movimento.dc.html#L2596) | idem | **`409` vaga já segurada** (ver §6) |
+| ~~POST~~ | ~~`/waitlist/:id/offer`~~ | **REMOVIDA** ([`39`](39-fila-sem-reserva-de-vaga.md)) — não há reserva de vaga; o aviso "alguém está oferecendo" é presença no canal, e o portão da corrida é a exclusion constraint do agendamento (422) | — | — | — |
 | POST | `/waitlist/:id/convert` | `:convert_to_appointment` | `createAppt` c/ `_fromFila` [`:1062`](../interface/Movimento.dc.html#L1062) | idem | `409` conflito; `422` |
 
 O item da fila tem `prio` — a fonte real do enum é `prioMeta`
@@ -735,6 +735,10 @@ mapeado para esse status.
 
 ### 6.2 Reserva de vaga (hold)
 
+> ⚠️ **Seção revogada em 2026-07-24** — não existe reserva de vaga. Ver
+> [`39 — A fila não reserva vaga`](39-fila-sem-reserva-de-vaga.md); o texto abaixo fica como
+> registro do desenho anterior.
+
 `POST /waitlist/:id/offer` cria um `SlotHold` com um TTL curto — **parâmetro de design a
 validar**, provisoriamente 5 min. Não é fato do protótipo (o protótipo não tem reserva alguma:
 `offerVaga`, [`:2596`](../interface/Movimento.dc.html#L2596), só pré-preenche um modal); é uma
@@ -853,7 +857,7 @@ sem refazer o cálculo `wouldConsume` no cliente. Forma do payload
 |---|---|---|
 | `waitlist_entry_added` | `:enqueue` | `{entry, actor}` |
 | `waitlist_entry_removed` | `:dequeue`/`:convert` | `{entry_id, reason: "converted"\|"removed", actor}` |
-| `slot_held` | `:offer` | `{hold: {id, professional_id, starts_at, expires_at, held_by}, waitlist_id}` |
+| ~~`slot_held`~~ | — | **removido** ([`39`](39-fila-sem-reserva-de-vaga.md)) |
 | `slot_released` | hold expira/converte | `{hold_id, reason: "expired"\|"converted"}` |
 
 `slot_held` é o que torna a corrida da [seção 6.2](#62-reserva-de-vaga-hold) **visível**:

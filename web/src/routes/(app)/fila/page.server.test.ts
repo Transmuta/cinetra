@@ -221,32 +221,6 @@ describe('action remover', () => {
 	});
 });
 
-describe('action oferecer', () => {
-	it('horário/profissional obrigatórios antes da API', async () => {
-		const r = (await actions.oferecer(formEvent({ id: 'e1', starts_at: 'ontem' }))) as {
-			data: { error: string };
-		};
-		expect(r.data.error).toBe('Escolha um horário e um profissional.');
-		expect(wl.offerSlot).not.toHaveBeenCalled();
-	});
-
-	// A corrida da oferta: o 409 slot_held tem que chegar à tela com o `code` (mostra quem segura).
-	it('propaga o 409 slot_held com code e mensagem', async () => {
-		wl.offerSlot.mockResolvedValueOnce({
-			ok: false,
-			status: 409,
-			code: 'slot_held',
-			error: 'Ana está oferecendo este horário.'
-		});
-		const r = (await actions.oferecer(
-			formEvent({ id: 'e1', professional_id: 'p1', starts_at: '2026-07-21T12:00:00.000Z' })
-		)) as { status: number; data: { code: string; error: string } };
-		expect(r.status).toBe(409);
-		expect(r.data.code).toBe('slot_held');
-		expect(r.data.error).toBe('Ana está oferecendo este horário.');
-	});
-});
-
 describe('action converter', () => {
 	const validos = {
 		id: 'e1',

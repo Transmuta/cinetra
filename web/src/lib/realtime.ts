@@ -194,6 +194,72 @@ export function connectNotifications(
 export interface WaitlistHandlers {
 	/** Qualquer mutação na fila (entrada/edição/saída) OU um rejoin de reconexão. */
 	onChange(): void;
+	/**
+	 * Quem está oferecendo o quê, agora (doc 39): `entry_id → [nomes]`, já **sem** o próprio
+	 * usuário. Chega no join e a cada entrada/saída de alguém.
+	 */
+	onOfferingChange?(porEntrada: Record<string, string[]>): void;
+}
+
+/** O que a tela usa para anunciar (e parar de anunciar) que está oferecendo um item. */
+export interface WaitlistConnection {
+	/** Desliga o socket. */
+	close(): void;
+	/** "Estou oferecendo este item" — o modal abriu. */
+	offering(entryId: string): void;
+	/** "Parei" — o modal fechou. (Cair a aba também para, sozinho.) */
+	stoppedOffering(entryId: string): void;
+}
+
+/** A forma que o Phoenix.Presence manda no `presence_state`/`presence_diff`. */
+interface PresenceEntry {
+	metas: Array<{ user_id?: string; nome?: string; phx_ref?: string }>;
+}
+
+type PresenceMap = Record<string, PresenceEntry>;
+
+/**
+ * Aplica um `presence_diff` sobre o estado local. É o mínimo do protocolo (o pacote `phoenix`
+ * traz um `Presence` completo, com histórico de refs, que aqui seria peso sem uso: a fila só
+ * quer saber **quem** está em cada item).
+ */
+export function applyPresenceDiff(
+	atual: PresenceMap,
+	diff: { joins?: PresenceMap; leaves?: PresenceMap }
+): PresenceMap {
+	const next: PresenceMap = { ...atual };
+
+	for (const [key, entry] of Object.entries(diff.leaves ?? {})) {
+		const saindo = new Set(entry.metas.map((m) => m.phx_ref));
+		const restantes = (next[key]?.metas ?? []).filter((m) => !saindo.has(m.phx_ref));
+		if (restantes.length) next[key] = { metas: restantes };
+		else delete next[key];
+	}
+
+	for (const [key, entry] of Object.entries(diff.joins ?? {})) {
+		next[key] = { metas: [...(next[key]?.metas ?? []), ...entry.metas] };
+	}
+
+	return next;
+}
+
+/**
+ * `entry_id → nomes`, **tirando o próprio usuário**: a tela quer avisar sobre os OUTROS. Sem
+ * isso, quem abre o modal veria "você está oferecendo" na própria linha.
+ */
+export function offeringNames(presencas: PresenceMap, meuId: string | null): Record<string, string[]> {
+	const out: Record<string, string[]> = {};
+
+	for (const [entryId, entry] of Object.entries(presencas)) {
+		const nomes = entry.metas
+			.filter((m) => m.user_id !== meuId)
+			.map((m) => m.nome)
+			.filter((n): n is string => !!n);
+
+		if (nomes.length) out[entryId] = [...new Set(nomes)];
+	}
+
+	return out;
 }
 
 /**
@@ -207,9 +273,10 @@ export interface WaitlistHandlers {
 export function connectWaitlist(
 	config: RealtimeConfig,
 	handlers: WaitlistHandlers,
-	deps: { refreshToken?: () => Promise<string | null> } = {}
-): () => void {
+	deps: { refreshToken?: () => Promise<string | null>; userId?: string | null } = {}
+): WaitlistConnection {
 	const refreshToken = deps.refreshToken ?? buscarToken;
+	const meuId = deps.userId ?? null;
 	let token = config.token;
 
 	const socket = new Socket(socketUrl(config.origin), { params: () => ({ token }) });
@@ -225,14 +292,37 @@ export function connectWaitlist(
 	const channel = socket.channel(`waitlist:${config.clinic_id}`, {});
 	channel.on('waitlist_changed', () => handlers.onChange());
 
+	// Presença (doc 39): quem está oferecendo qual item. Estado no join, diffs depois.
+	let presencas: PresenceMap = {};
+
+	const avisar = () => handlers.onOfferingChange?.(offeringNames(presencas, meuId));
+
+	channel.on('presence_state', (estado) => {
+		presencas = (estado ?? {}) as PresenceMap;
+		avisar();
+	});
+
+	channel.on('presence_diff', (diff) => {
+		presencas = applyPresenceDiff(presencas, (diff ?? {}) as { joins?: PresenceMap });
+		avisar();
+	});
+
 	let entrou = false;
 	channel.join().receive('ok', () => {
 		if (entrou) handlers.onChange();
 		entrou = true;
 	});
 
-	return () => {
-		channel.leave();
-		socket.disconnect();
+	return {
+		close() {
+			channel.leave();
+			socket.disconnect();
+		},
+		offering(entryId: string) {
+			channel.push('offering', { entry_id: entryId });
+		},
+		stoppedOffering(entryId: string) {
+			channel.push('stopped_offering', { entry_id: entryId });
+		}
 	};
 }

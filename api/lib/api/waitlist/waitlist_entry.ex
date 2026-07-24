@@ -108,7 +108,7 @@ defmodule Api.Waitlist.WaitlistEntry do
     end
 
     # DELETE /waitlist/:id — sair da fila (`:1186`). Destroy de verdade: o item some quando o
-    # paciente é agendado (convert) ou removido à mão. As regras e holds vão junto pelo cascade.
+    # paciente é agendado (convert) ou removido à mão. As regras vão junto pelo cascade.
     destroy :dequeue do
       primary? true
       require_atomic? false
@@ -169,7 +169,6 @@ defmodule Api.Waitlist.WaitlistEntry do
     belongs_to :patient, Api.Records.Patient, allow_nil?: false
 
     has_many :rules, Api.Waitlist.AvailabilityRule
-    has_many :holds, Api.Scheduling.SlotHold
   end
 
   calculations do

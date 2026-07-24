@@ -83,19 +83,11 @@ config :api,
   ],
   ash_authentication: [return_error_on_invalid_magic_link_token?: true]
 
-# Oban — só a fila `housekeeping` e o cron de limpeza de `SlotHold` vencidos (doc 09 §6.2). O
-# worker itera as clínicas com a GUC (a tabela está sob RLS e o Oban não tem tenant). Backstop:
-# a correção da corrida é da constraint + do `DELETE` in-transaction da `offer`, nunca daqui.
-#
-# **De 5 em 5 minutos**, não de 1 em 1 (D-L): como nada de correto depende deste worker, a única
-# coisa que a frequência compra é o tempo que uma linha morta passa numa tabela quase vazia — e o
-# custo (uma varredura por clínica) é pago mesmo quando não há hold nenhum no sistema.
-config :api, Oban,
-  repo: Api.Repo,
-  queues: [housekeeping: 2],
-  plugins: [
-    {Oban.Plugins.Cron, crontab: [{"*/5 * * * *", Api.Scheduling.SlotHold.CleanupWorker}]}
-  ]
+# Oban — a fila `housekeeping` fica de pé, **sem cron**. O único cron que existia limpava os
+# `SlotHold` vencidos, e a reserva de vaga foi removida (doc 39): sem tabela para varrer, o cron
+# era custo por-clínica a cada 5 min sem nada a fazer. A fila permanece porque a Fatia 3
+# (Pacotes) já tem trabalho assíncrono previsto para ela.
+config :api, Oban, repo: Api.Repo, queues: [housekeeping: 2], plugins: []
 
 # Magic link sem página de interação: o callback GET assina a sessão direto (09 §8).
 config :ash_authentication, bypass_require_interaction_for_magic_link?: true

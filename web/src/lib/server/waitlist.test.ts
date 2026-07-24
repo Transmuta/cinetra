@@ -12,7 +12,6 @@ import {
 	enqueueEntry,
 	updateEntry,
 	dequeueEntry,
-	offerSlot,
 	convertEntry
 } from './waitlist';
 
@@ -145,31 +144,6 @@ describe('escrita — delega ao mutate no verbo/rota certos', () => {
 		expect(path).toBe('/api/waitlist/e1');
 		expect(method).toBe('DELETE');
 		expect(body).toBeUndefined();
-	});
-
-	it('offerSlot: POST /api/waitlist/:id/offer', async () => {
-		await offerSlot(event, 'e1', { professional_id: 'p1', starts_at: '2026-07-21T12:00:00.000Z' });
-		const [, path, method] = mut.mutate.mock.calls[0];
-		expect(path).toBe('/api/waitlist/e1/offer');
-		expect(method).toBe('POST');
-	});
-
-	// A corrida da oferta: outra recepção já segurou o horário → 409 slot_held com quem segura.
-	it('offerSlot propaga o 409 slot_held (code + mensagem intactos)', async () => {
-		mut.mutate.mockResolvedValueOnce({
-			ok: false,
-			status: 409,
-			code: 'slot_held',
-			error: 'Ana está oferecendo este horário.'
-		});
-		const r = await offerSlot(event, 'e1', {
-			professional_id: 'p1',
-			starts_at: '2026-07-21T12:00:00.000Z'
-		});
-		expect(r.ok).toBe(false);
-		expect(r.status).toBe(409);
-		expect(r.code).toBe('slot_held');
-		expect(r.error).toBe('Ana está oferecendo este horário.');
 	});
 
 	it('convertEntry: POST /api/waitlist/:id/convert com o corpo do agendamento', async () => {

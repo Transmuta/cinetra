@@ -118,36 +118,103 @@ defmodule ApiWeb.WaitlistChannelTest do
     end
   end
 
-  # F4: reservar/soltar uma vaga muda o que a fila mostra ("alguém está oferecendo"), mesmo sem
-  # nenhum item da fila ter mudado. Sem este sinal, a outra recepção só descobriria ao tomar 409.
-  describe "reserva de vaga (F4)" do
-    test "oferecer uma vaga empurra o sinal para quem está na fila" do
+  # Doc 39: o aviso "alguém já está oferecendo esta vaga" é presença, não reserva. O que estes
+  # testes travam é o que a reserva no banco fazia de errado — e que a presença não pode repetir:
+  # não travar nada, e sumir sozinha quando a aba morre.
+  describe "presença de oferta (doc 39)" do
+    test "quem abre o modal aparece para os outros, com o nome do SERVIDOR" do
       ctx = fixture()
-
-      prof =
-        Api.Directory.create_professional!("Dra. A", %{},
-          tenant: ctx.clinic.id,
-          actor: ctx.owner
-        )
-
       {:ok, entry} = Waitlist.enqueue_entry(ctx.scope, %{patient_id: ctx.paciente.id})
 
-      {:ok, _, _socket} =
+      {:ok, _, socket} =
         ctx.owner
         |> socket_for(ctx.clinic)
         |> subscribe_and_join(ApiWeb.WaitlistChannel, topic(ctx.clinic))
 
-      {:ok, hold} =
-        Waitlist.offer_slot(ctx.scope, entry, %{
-          professional_id: prof.id,
-          starts_at: ~U[2026-07-21 12:00:00Z]
-        })
+      # O cliente manda só o id do item; o nome NÃO viaja no corpo.
+      ref = push(socket, "offering", %{"entry_id" => entry.id, "nome" => "Impostor"})
+      assert_reply ref, :ok
 
-      assert_push "waitlist_changed", %{change: "slot_held"}
+      presencas = ApiWeb.Presence.list(socket)
+      assert %{metas: [meta]} = presencas[entry.id]
+      assert meta.nome == ctx.owner.nome
+      refute meta.nome == "Impostor"
+    end
 
-      # E soltar avisa também — senão o chip ficaria "reservado" até alguém recarregar.
-      :ok = Api.Scheduling.release_slot_hold!(hold, scope: ctx.scope)
-      assert_push "waitlist_changed", %{change: "slot_released"}
+    test "fechar o modal tira o aviso" do
+      ctx = fixture()
+      {:ok, entry} = Waitlist.enqueue_entry(ctx.scope, %{patient_id: ctx.paciente.id})
+
+      {:ok, _, socket} =
+        ctx.owner
+        |> socket_for(ctx.clinic)
+        |> subscribe_and_join(ApiWeb.WaitlistChannel, topic(ctx.clinic))
+
+      ref = push(socket, "offering", %{"entry_id" => entry.id})
+      assert_reply ref, :ok
+      assert map_size(ApiWeb.Presence.list(socket)) == 1
+
+      ref = push(socket, "stopped_offering", %{"entry_id" => entry.id})
+      assert_reply ref, :ok
+      assert ApiWeb.Presence.list(socket) == %{}
+    end
+
+    # O que a reserva no banco NÃO fazia: sumir quando a pessoa some. Aqui a vaga não fica presa.
+    test "a aba morre e o aviso morre junto" do
+      ctx = fixture()
+      {:ok, entry} = Waitlist.enqueue_entry(ctx.scope, %{patient_id: ctx.paciente.id})
+
+      {:ok, _, socket} =
+        ctx.owner
+        |> socket_for(ctx.clinic)
+        |> subscribe_and_join(ApiWeb.WaitlistChannel, topic(ctx.clinic))
+
+      ref = push(socket, "offering", %{"entry_id" => entry.id})
+      assert_reply ref, :ok
+
+      # Um segundo assinante, para observar a presença depois que o primeiro cair.
+      {:ok, _, observador} =
+        ctx.owner
+        |> socket_for(ctx.clinic)
+        |> subscribe_and_join(ApiWeb.WaitlistChannel, topic(ctx.clinic))
+
+      assert map_size(ApiWeb.Presence.list(observador)) == 1
+
+      # `leave/1` derruba o processo do canal, que é linkado ao do teste — sem o unlink, o EXIT
+      # mata o teste antes da asserção (é a saída normal do canal, não uma falha).
+      Process.unlink(socket.channel_pid)
+      leave(socket)
+
+      # A limpeza é assíncrona (o Presence propaga a saída pelo PubSub), então espera-se pela
+      # CONDIÇÃO, não por um tempo fixo — teste que dorme é teste que fica intermitente.
+      assert eventualmente(fn -> ApiWeb.Presence.list(observador) == %{} end),
+             "o aviso não sumiu quando o socket caiu — é a vaga presa que o doc 39 removeu"
+    end
+
+    test "mensagem desconhecida não derruba o canal" do
+      ctx = fixture()
+
+      {:ok, _, socket} =
+        ctx.owner
+        |> socket_for(ctx.clinic)
+        |> subscribe_and_join(ApiWeb.WaitlistChannel, topic(ctx.clinic))
+
+      push(socket, "lixo", %{"foo" => "bar"})
+      push(socket, "offering", %{})
+
+      # Continua vivo e servindo: o sinal normal da fila ainda chega.
+      {:ok, _} = Waitlist.enqueue_entry(ctx.scope, %{patient_id: ctx.paciente.id})
+      assert_push "waitlist_changed", %{change: "entry_upserted"}
+    end
+  end
+
+  # Espera uma condição virar verdadeira (até ~1s). Existe porque a saída de um socket propaga
+  # pelo PubSub e não é síncrona com o `leave/1`.
+  defp eventualmente(fun, tentativas \\ 50) do
+    cond do
+      fun.() -> true
+      tentativas == 0 -> false
+      true -> Process.sleep(20) && eventualmente(fun, tentativas - 1)
     end
   end
 end

@@ -5,7 +5,6 @@ import {
 	enqueueEntry,
 	updateEntry,
 	dequeueEntry,
-	offerSlot,
 	convertEntry,
 	type UpdateInput
 } from '$lib/server/waitlist';
@@ -62,8 +61,6 @@ export const load: PageServerLoad = async (event) => {
 		prio,
 		pageInfo: wl.data.page,
 		counts: wl.data.counts,
-		// F4: as vagas que alguém já está oferecendo agora.
-		holds: wl.data.holds ?? [],
 		current
 	};
 };
@@ -110,36 +107,11 @@ export const actions: Actions = {
 		return finish('atualizar', await updateEntry(event, id, input));
 	},
 
-	// Sair da fila (a lixeira). Destroy de verdade — regras e holds vão junto pelo cascade.
+	// Sair da fila (a lixeira). Destroy de verdade — as regras vão junto pelo cascade.
 	remover: async (event) => {
 		const s = await submission(event, 'remover');
 		if (!('id' in s)) return s;
 		return finish('remover', await dequeueEntry(event, s.id));
-	},
-
-	// Segurar a vaga (offer). O 409 `slot_held` sobe com `code` — a tela mostra quem está
-	// oferecendo, sem saída de encaixe (é reserva de outra pessoa, não conflito de grade).
-	oferecer: async (event) => {
-		const s = await submission(event, 'oferecer');
-		if (!('id' in s)) return s;
-		const { form, id } = s;
-
-		const starts_at = String(form.get('starts_at') ?? '');
-		const professional_id = String(form.get('professional_id') ?? '');
-		if (!Number.isFinite(Date.parse(starts_at)) || !professional_id) {
-			return fail(400, { action: 'oferecer', error: 'Escolha um horário e um profissional.' });
-		}
-
-		const duracao = Number(form.get('duration_minutos'));
-
-		return finish(
-			'oferecer',
-			await offerSlot(event, id, {
-				professional_id,
-				starts_at,
-				...(Number.isFinite(duracao) && duracao > 0 ? { duration_minutos: duracao } : {})
-			})
-		);
 	},
 
 	// Converter a vaga em agendamento (e sair da fila). `starts_at` já em UTC (o cliente converte
@@ -189,7 +161,7 @@ async function submission(event: Parameters<Actions[string]>[0], action: string)
 }
 
 // Traduz o resultado do BFF no retorno da action. O `code` é o que deixa a tela distinguir o
-// `slot_held`/`schedule_conflict` (mostra quem segura / oferece encaixe) do erro genérico.
+// `schedule_conflict` (que oferece o Encaixe) do erro genérico.
 function finish(action: string, result: MutationResult) {
 	if (result.ok) return { ok: true, action };
 	return fail(result.status || 400, {
