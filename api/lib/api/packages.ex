@@ -27,6 +27,12 @@ defmodule Api.Packages do
   end
 
   @doc """
+  A **prévia** da série de um pacote antes de criá-lo (o save-gate, doc 02 §1.5). Projeta e
+  classifica cada ocorrência sem escrever. Delega a `Api.Packages.Preview` — ver lá o contrato.
+  """
+  defdelegate preview_series(scope, params), to: Api.Packages.Preview, as: :run
+
+  @doc """
   Os pacotes de um paciente na clínica ativa, com os derivados carregados. Wrapper de leitura sob
   RLS (ADR-018) — o controller chama isto, não a code interface crua.
   """
