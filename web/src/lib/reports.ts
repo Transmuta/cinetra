@@ -1,17 +1,23 @@
 import { weekDays, monthWindow } from './agenda-views';
+import { shiftDate } from './agenda';
 
 // Domínio da tela de Relatórios (doc 33, Fatia 9). Só lógica pura — parsing dos filtros da URL,
 // a janela de cada preset de período e os cálculos de proporção das barras. O componente e o
 // `+page.server.ts` importam daqui; nada de fetch nem de DOM.
 
-export const PERIODS = ['hoje', 'semana', 'mes'] as const;
+export const PERIODS = ['hoje', 'semana', 'mes', 'trimestre'] as const;
 export type Period = (typeof PERIODS)[number];
 
 export const PERIOD_LABELS: Record<Period, string> = {
 	hoje: 'Hoje',
 	semana: 'Esta semana',
-	mes: 'Este mês'
+	mes: 'Este mês',
+	trimestre: 'Últimos 90 dias'
 };
+
+// O trimestre é uma janela MÓVEL — 90 dias corridos terminando hoje, não o trimestre civil.
+// `-89` porque `hoje` já é um dos 90 dias.
+const TRIMESTRE_DIAS = 90;
 
 // `?period=` fora do conjunto cai em 'mes' — o mesmo default do protótipo (`repPeriodo:'mes'`).
 export function parsePeriod(raw: string | null | undefined): Period {
@@ -30,6 +36,9 @@ export function periodWindow(period: Period, today: string): ReportRange {
 	if (period === 'semana') {
 		const dias = weekDays(today);
 		return { from: dias[0], to: dias[5] };
+	}
+	if (period === 'trimestre') {
+		return { from: shiftDate(today, -(TRIMESTRE_DIAS - 1)), to: today };
 	}
 	return monthWindow(today);
 }

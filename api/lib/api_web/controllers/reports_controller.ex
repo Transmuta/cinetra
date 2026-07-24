@@ -16,12 +16,18 @@ defmodule ApiWeb.ReportsController do
 
   alias Api.Scheduling
 
+  # Teto de janela próprio do relatório: o preset "trimestre" pede 90 dias corridos, acima dos
+  # 31 do default de `parse_window` (doc 25 §5). Aqui é seguro afrouxar — a leitura seleciona só
+  # 4 campos e agrega em memória, não devolve blocos com paciente como a agenda, que é o custo
+  # que o teto de 31 protege. Mantém uma fronteira (não `?from=2000&to=2100`).
+  @max_dias 92
+
   # GET /api/reports/summary?date_from=YYYY-MM-DD&date_to=YYYY-MM-DD&professional_id=
   def summary(conn, params) do
     with_member_scope(conn, fn scope ->
       tz = Scheduling.clinic_timezone(scope.clinic_id)
 
-      case parse_window(params, "date_from", "date_to") do
+      case parse_window(params, "date_from", "date_to", @max_dias) do
         {:ok, from_date, to_date} ->
           professional_id = professional_id(params)
 

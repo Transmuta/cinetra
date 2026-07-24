@@ -117,6 +117,27 @@ defmodule ApiWeb.ReportsControllerTest do
       assert json_response(conn, 422)
     end
 
+    # O preset "trimestre" pede 90 dias, acima dos 31 do default de `parse_window` — o relatório
+    # tem teto próprio (`@max_dias`), então a janela passa em vez de estourar 422.
+    test "aceita a janela de 90 dias do trimestre", %{conn: conn} do
+      ctx = fixture()
+
+      body =
+        get_summary(conn, ctx.owner, %{"date_from" => "2026-04-22", "date_to" => "2026-07-20"})
+        |> json_response(200)
+
+      assert body["range"] == %{"from" => "2026-04-22", "to" => "2026-07-20"}
+    end
+
+    test "acima do teto próprio do relatório ainda é 422", %{conn: conn} do
+      ctx = fixture()
+
+      conn =
+        get_summary(conn, ctx.owner, %{"date_from" => "2026-04-19", "date_to" => "2026-07-20"})
+
+      assert json_response(conn, 422)
+    end
+
     test "recepção enxerga a clínica inteira", %{conn: conn} do
       ctx = fixture()
       create_appt(conn, ctx, ctx.owner, "2026-07-20T11:00:00Z")

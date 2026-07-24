@@ -20,10 +20,11 @@ import {
 const QUARTA = '2026-06-17';
 
 describe('parsePeriod', () => {
-	it('aceita os três presets e cai em "mes" para lixo/ausente', () => {
+	it('aceita os presets e cai em "mes" para lixo/ausente', () => {
 		expect(parsePeriod('hoje')).toBe('hoje');
 		expect(parsePeriod('semana')).toBe('semana');
 		expect(parsePeriod('mes')).toBe('mes');
+		expect(parsePeriod('trimestre')).toBe('trimestre');
 		expect(parsePeriod('ontem')).toBe('mes');
 		expect(parsePeriod(null)).toBe('mes');
 	});
@@ -40,6 +41,11 @@ describe('periodWindow', () => {
 
 	it('mes é o mês corrente inteiro', () => {
 		expect(periodWindow('mes', QUARTA)).toEqual({ from: '2026-06-01', to: '2026-06-30' });
+	});
+
+	it('trimestre é a janela móvel de 90 dias corridos terminando hoje', () => {
+		// 2026-06-17 recuado 89 dias = 2026-03-20; `to` é o próprio hoje.
+		expect(periodWindow('trimestre', QUARTA)).toEqual({ from: '2026-03-20', to: QUARTA });
 	});
 });
 

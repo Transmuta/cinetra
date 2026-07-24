@@ -3,8 +3,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const m = vi.hoisted(() => ({ fetchReports: vi.fn() }));
 vi.mock('$lib/server/reports', () => m);
 
-// `todayInZone` fixado num dia conhecido para a janela ser determinística no teste.
-vi.mock('$lib/agenda', () => ({ todayInZone: () => '2026-06-17' }));
+// `todayInZone` fixado num dia conhecido para a janela ser determinística no teste; o resto de
+// `$lib/agenda` (ex.: `shiftDate`, usado pela janela do trimestre) fica o real.
+vi.mock('$lib/agenda', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/agenda')>()),
+	todayInZone: () => '2026-06-17'
+}));
 
 import { load } from './+page.server';
 
@@ -62,6 +66,16 @@ describe('load', () => {
 
 		const [, params] = m.fetchReports.mock.calls[0];
 		expect(params).toMatchObject({ date_from: '2026-06-17', date_to: '2026-06-17' });
+	});
+
+	it('?period=trimestre traduz para a janela móvel de 90 dias', async () => {
+		m.fetchReports.mockResolvedValueOnce(okData);
+
+		const r = (await load(ev('?period=trimestre'))) as LoadOk;
+
+		expect(r.period).toBe('trimestre');
+		const [, params] = m.fetchReports.mock.calls[0];
+		expect(params).toMatchObject({ date_from: '2026-03-20', date_to: '2026-06-17' });
 	});
 
 	it('?prof=<uuid> é repassado como professional_id; "todos" não filtra', async () => {

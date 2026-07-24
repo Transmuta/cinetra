@@ -165,7 +165,8 @@
 	const REL_PERIODS = [
 		{ key: 'hoje', icon: CalendarDays },
 		{ key: 'semana', icon: CalendarRange },
-		{ key: 'mes', icon: CalendarRange }
+		{ key: 'mes', icon: CalendarRange },
+		{ key: 'trimestre', icon: CalendarRange }
 	] as const;
 
 	// O link preserva o OUTRO filtro e omite os defaults ('mes' / 'todos') para a URL ficar limpa.
