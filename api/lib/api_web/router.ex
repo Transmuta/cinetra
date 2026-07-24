@@ -126,6 +126,15 @@ defmodule ApiWeb.Router do
     post "/patients/:id/deactivate", PatientsController, :deactivate
     post "/patients/:id/reactivate", PatientsController, :reactivate
 
+    # Pacotes (Fatia 3, doc 09). `preview` classifica a série sem escrever (save-gate); `create`
+    # decide server-side e enfileira a materialização. Pausar/cancelar operam sobre a série. A
+    # lista mora sob o paciente (a ficha). `clinic_id` sempre do escopo.
+    get "/patients/:patient_id/packages", PackagesController, :index
+    post "/packages/preview", PackagesController, :preview
+    post "/packages", PackagesController, :create
+    post "/packages/:id/pause", PackagesController, :pause
+    post "/packages/:id/cancel", PackagesController, :cancel
+
     # Agenda (doc 25). Papéis owner·admin·recepcao·profissional (A8) — recepção é quem agenda,
     # e o profissional só enxerga a própria agenda (A7, recorte por linha na preparation).
     # `clinic_id` sempre do escopo; `ends_at` é derivado e não entra no corpo.
