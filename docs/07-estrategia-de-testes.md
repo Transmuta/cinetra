@@ -375,25 +375,24 @@ wouldConsume(a, statusVal, pk):
   senão                                → false                      # agendado/confirmado/cancelado não debitam
 
 pkgPunitivo(pk):
-  se pk.faltaPunitiva != null          → !!pk.faltaPunitiva         # override do pacote vence
-  senão                                → !!settings.noShowConsome   # fallback pro ajuste global
+  → pk.falta_punitiva                  # do pacote, obrigatório na criação; SEM fallback global (revisado 2026-07-24)
 ```
 
 O ponto que a redação "falta só debita se o pacote for punitivo E a falta não for justificada" resume,
 mas que só a tabela fixa sem ambiguidade — atenção à precedência entre `faltaJustificada` e
-`faltaPunitiva`, e ao **fallback** de `pkgPunitivo` quando o pacote não declara `faltaPunitiva`:
+`falta_punitiva`. O antigo fallback global (`settings.noShowConsome`) **não existe mais**:
+`falta_punitiva` é `allow_nil? false` no pacote, então as linhas 6/7 (campo `null`) não podem
+ocorrer:
 
-| # | status | `faltaJustificada` | `pk.faltaPunitiva` | `settings.noShowConsome` | → debita? | por quê |
-|---|---|---|---|---|---|---|
-| 1 | concluido | — | — | — | **sim** | concluído sempre debita, independe do resto |
-| 2 | faltou | false | `true` | — | **sim** | punitivo e não justificada |
-| 3 | faltou | false | `false` | — | **não** | pacote explicitamente não-punitivo |
-| 4 | faltou | **true** | `true` | — | **não** | justificada vence o punitivo |
-| 5 | faltou | true | `false` | — | não | justificada e não-punitivo |
-| 6 | faltou | false | `null` (não declarado) | `true` | **sim** | fallback global punitivo |
-| 7 | faltou | false | `null` (não declarado) | `false` | **não** | fallback global não-punitivo |
-| 8 | agendado | — | — | — | não | status não resolvido |
-| 9 | confirmado | — | — | — | não | idem |
+| # | status | `faltaJustificada` | `pk.falta_punitiva` | → debita? | por quê |
+|---|---|---|---|---|---|
+| 1 | concluido | — | — | **sim** | concluído sempre debita, independe do resto |
+| 2 | faltou | false | `true` | **sim** | punitivo e não justificada |
+| 3 | faltou | false | `false` | **não** | pacote explicitamente não-punitivo |
+| 4 | faltou | **true** | `true` | **não** | justificada vence o punitivo |
+| 5 | faltou | true | `false` | não | justificada e não-punitivo |
+| 8 | agendado | — | — | não | status não resolvido |
+| 9 | confirmado | — | — | não | idem |
 | 10 | cancelado | — | — | — | não | cancelado nunca debita |
 
 As linhas 6 e 7 são as que pegam o erro clássico: tratar `pk.faltaPunitiva == null` como `false` em vez

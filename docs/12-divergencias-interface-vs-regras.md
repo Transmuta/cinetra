@@ -57,7 +57,7 @@ Legenda de severidade: **alta** = enganaria quem for implementar; **média** = i
 | A1 | `01:186` | `Priority` sem `:baixa` (proto `[:2230]` `<select>` + `[:1457]` filtro) | `values: [:urgente, :alta, :normal, :baixa]` |
 | A2 | `01:175` | `SessionState` sem `:agendada` (proto `pkgSessions [:391]`, legenda `[:642]`) | Adicionar `:agendada`; anotar que é **derivado**, não semente |
 | A3 | `01 §4.2` | `Professional` ignora identidade/contato/PJ/`ci` do form `[:3007‑3140]` | Acrescentar os atributos (ver detalhe abaixo) |
-| A4 | `01:788` | Agregado `count :usadas` sem fallback `nil ⇒ default da clínica` (`pkgPunitivo [:1103]`) | Incluir o ramo `is_nil(falta_punitiva) and clinica.falta_consome_padrao` |
+| ~~A4~~ | `01:788` | ~~Agregado `count :usadas` sem fallback `nil ⇒ default da clínica`~~ **RESOLVIDA POR DECISÃO (2026-07-24):** não há fallback. `falta_punitiva` é obrigatória na criação do pacote e `clinic.falta_consome_padrao` foi removido — o ramo `nil` não existe. Ver RN-31 revisada em [`02 §1.6`](02-regras-e-lacunas.md). |
 
 **Detalhe de A3 — o que o `Professional` deixa de modelar** (todos presentes no formulário e/ou no seed `[:52‑57]`):
 - Identidade pessoal: `nomeExib`, `nasc`, `cpf`, `rg`, `estadoCivil` (seção "Identificação pessoal" `[:3007]`, inputs `[:3076‑3084]`).

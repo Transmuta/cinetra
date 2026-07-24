@@ -298,9 +298,9 @@ defmodule Movimento.Accounts.Clinic do
     attribute :nome, :string, allow_nil?: false
     # ADR-009: timezone canônico da clínica. "Hoje"/"já começou" resolvem aqui.
     attribute :timezone, :string, allow_nil?: false, default: "America/Sao_Paulo"
-    # settings do protótipo [:270]: {capPilates:4, noShowConsome:false, slot:15}
+    # settings do protótipo [:270]: {capPilates:4, slot:15}. O `noShowConsome` global foi
+    # removido (revisão 2026-07-24): falta punitiva é do PACOTE, obrigatória na criação.
     attribute :cap_turma_padrao, :integer, allow_nil?: false, default: 4
-    attribute :falta_consome_padrao, :boolean, allow_nil?: false, default: false
     attribute :slot_minutos, :integer, allow_nil?: false, default: 15
   end
 
@@ -853,22 +853,23 @@ defmodule Movimento.Packages.Package do
     belongs_to :patient, Movimento.Records.Patient, allow_nil?: false
     belongs_to :appointment_type, Movimento.Directory.AppointmentType, allow_nil?: false
     has_one :schedule, Movimento.Packages.PackageSchedule                  # a "grade"
-    has_many :appointments, Movimento.Scheduling.Appointment               # a série
+    # A série é vinculada pela ATTENDANCE, não pelo Appointment (revisão 2026-07-24): o pacote é
+    # individual, mas a sessão pode ser em grupo com só alguns participantes em pacote. Cada
+    # participante carrega o seu `package_id` na sua `Attendance`. `Appointment.package_id` foi
+    # abandonado.
+    has_many :attendances, Movimento.Scheduling.Attendance                 # a série (por participante)
   end
 
   aggregates do
-    # correção c: usadas derivado. Conta sessões que consomem (concluída sempre;
-    # falta só se punitiva e não justificada) — a regra de wouldConsume [:1104] em SQL.
-    # SIMPLIFICAÇÃO: quando falta_punitiva é nil, wouldConsume/pkgPunitivo [:1103] cai no default
-    # da clínica (settings.noShowConsome ⇒ falta_consome_padrao). Esse ramo de fallback NÃO está
-    # expresso abaixo — referenciar um setting de nível-clínica dentro do filtro de um aggregate é
-    # não-trivial; a reconciliar ao scaffoldar (senão usadas é
-    # subcontado quando falta_punitiva=nil e a clínica é punitiva).
-    count :usadas, :appointments do
+    # `usadas` derivado (RN-28): conta as ATTENDANCES deste pacote que consomem sessão —
+    # concluída sempre; falta só se punitiva e não justificada. Como `falta_punitiva` é
+    # obrigatória na criação (SEM fallback global — revisão 2026-07-24), o filtro é direto e não
+    # subconta: o antigo ramo `nil ⇒ default da clínica` deixou de existir junto com
+    # `clinic.falta_consome_padrao`.
+    count :usadas, :attendances do
       filter expr(
-        status == :concluido or
-          (status == :faltou and exists(attendances, falta_justificada == false) and
-             (parent(falta_punitiva) == true))
+        status == :concluida or
+          (status == :faltou and falta_justificada == false and parent(falta_punitiva) == true)
       )
     end
   end

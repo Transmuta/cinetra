@@ -29,7 +29,7 @@ defmodule Api.Accounts.Clinic do
     # mesma transação (ver o change). Garante a invariante "≥1 owner por tenant".
     # Doc 20 (T3): e o catálogo de tipos de atendimento, sem o qual não se agenda.
     create :onboard do
-      accept [:nome, :timezone, :cap_turma_padrao, :falta_consome_padrao, :slot_minutos]
+      accept [:nome, :timezone, :cap_turma_padrao, :slot_minutos]
       change Api.Accounts.Clinic.Changes.CreateOwnerMembership
       change Api.Accounts.Clinic.Changes.SeedAppointmentTypes
       # Doc 22 §2: e o expediente semanal, sem o qual a agenda não sabe quando se atende.
@@ -37,7 +37,7 @@ defmodule Api.Accounts.Clinic do
     end
 
     update :update_settings do
-      accept [:nome, :timezone, :cap_turma_padrao, :falta_consome_padrao, :slot_minutos]
+      accept [:nome, :timezone, :cap_turma_padrao, :slot_minutos]
     end
 
     # Dados de identidade da clínica (tela /configuracoes/clinica): nome, CNPJ e endereço.
@@ -94,9 +94,10 @@ defmodule Api.Accounts.Clinic do
     # ADR-009: timezone canônico da clínica. "Hoje"/"já começou" resolvem aqui.
     attribute :timezone, :string, allow_nil?: false, default: "America/Sao_Paulo", public?: true
 
-    # settings do protótipo: {capPilates:4, noShowConsome:false, slot:15}
+    # settings do protótipo: {capPilates:4, slot:15}. O `noShowConsome` global foi removido: a
+    # falta punitiva passou a ser propriedade **do pacote**, definida na criação (RN-31 revisada,
+    # Fatia 3) — não há mais padrão de clínica para o qual cair.
     attribute :cap_turma_padrao, :integer, allow_nil?: false, default: 4, public?: true
-    attribute :falta_consome_padrao, :boolean, allow_nil?: false, default: false, public?: true
     attribute :slot_minutos, :integer, allow_nil?: false, default: 15, public?: true
 
     timestamps()

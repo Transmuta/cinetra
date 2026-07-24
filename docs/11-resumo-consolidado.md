@@ -163,7 +163,8 @@ O texto normativo completo das 60 regras é [02 §1 e §3](02-regras-e-lacunas.m
   gera N sessões e **pula + estende por feriado**. `usadas` é **derivado**, não coluna. Bugs:
   pausa +21 fixo e retomada em datas passadas (GAP-08).
 - **Consumo & falta punitiva (RN-29…32).** **Concluído sempre debita.** **Falta debita só se
-  punitiva e não justificada.** "Punitiva" é do pacote, com fallback global `noShowConsome`.
+  punitiva e não justificada.** "Punitiva" é do pacote, obrigatória na criação — **sem** fallback
+  global (o antigo `noShowConsome`/`clinic.falta_consome_padrao` foi removido, revisão 2026-07-24).
 - **Turma (RN-33…36).** Agendamento com array `patientIds`. Hoje presença é do bloco (GAP-06),
   mas cada participante pode ter pacote próprio (`pkgOf`) e `apptPkg` só devolve o primeiro
   (GAP-07). Capacidade = `type.cap`; encaixe excede.

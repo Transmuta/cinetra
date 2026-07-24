@@ -315,12 +315,14 @@ Referência: `wouldConsume` ([`:1104`](../interface/Movimento.dc.html#L1104)), `
   **apenas** quando o pacote é punitivo **e** a falta não está justificada
   ([`:1106`](../interface/Movimento.dc.html#L1106) — `if(a.faltaJustificada) return false;
   return this.pkgPunitivo(pk)`).
-- **RN-31. Punição por pacote, com fallback global.** "Punitiva" é uma propriedade **do
-  pacote** (`faltaPunitiva`); quando ela não está definida, cai no padrão global
-  `settings.noShowConsome` ([`:1103`](../interface/Movimento.dc.html#L1103)). Esse padrão global
-  **é lido** (contraste com `settings.slot`, que não é — GAP-02): alimenta o valor inicial de
-  `faltaPunitiva` ao criar um pacote ([`:335`](../interface/Movimento.dc.html#L335)) e é
-  editável em Configurações ([`:3223`](../interface/Movimento.dc.html#L3223)).
+- **RN-31. Punição é do pacote, definida na criação — sem fallback global (revisada 2026-07-24).**
+  "Punitiva" é uma propriedade **do pacote** (`falta_punitiva`), decidida **no momento da criação**
+  e imutável depois. O protótipo tinha um padrão global `settings.noShowConsome` para o qual o
+  campo caía quando `nil` ([`:1103`](../interface/Movimento.dc.html#L1103)); **a produção não tem**.
+  `falta_punitiva` é `allow_nil? false` no pacote: não existe estado indefinido, e portanto não há
+  para onde cair. Consequência aceita: não há um botão de clínica que mude a regra de todos os
+  pacotes de uma vez — a regra foi combinada com o paciente quando o pacote foi vendido, e vale por
+  aquele pacote. (Isso também apaga o antigo `clinic.falta_consome_padrao`, removido do schema.)
 - **RN-32. Justificar falta é reversível e tem efeito duplo.** Justificar uma falta
   (`justificarFalta`, [`:1121`](../interface/Movimento.dc.html#L1121)) faz a sessão deixar de
   debitar o pacote **e** deixar de contar para o paciente; desfazer reverte os dois. O efeito

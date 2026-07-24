@@ -189,11 +189,14 @@ wouldConsume(a,statusVal,pk){
 }
 ```
 
-e `pkgPunitivo` ([`:1103`](../interface/Movimento.dc.html#L1103)) resolve a "falta punitiva"
-do pacote com fallback para a configuração global `settings.noShowConsome`:
+e `pkgPunitivo` ([`:1103`](../interface/Movimento.dc.html#L1103)) resolvia a "falta punitiva" do
+pacote com fallback para a configuração global `settings.noShowConsome`. **A produção diverge
+(revisão 2026-07-24):** `falta_punitiva` é obrigatória na criação do pacote e não há fallback — o
+`clinic.falta_consome_padrao` foi removido. Em produção, portanto, `pkgPunitivo(pk)` é simplesmente
+`pk.falta_punitiva`. O verbatim do protótipo fica só como proveniência:
 
 ```js
-// interface/Movimento.dc.html:1103 (verbatim, verificado)
+// interface/Movimento.dc.html:1103 (verbatim, verificado) — fallback NÃO reproduzido na produção
 pkgPunitivo(pk){ return (pk && pk.faltaPunitiva!=null) ? !!pk.faltaPunitiva : !!this.state.settings.noShowConsome; }
 ```
 
