@@ -10,16 +10,32 @@ const m = vi.hoisted(() => ({
 }));
 vi.mock('$lib/server/patients', () => m);
 
+const k = vi.hoisted(() => ({
+	fetchPatientPackages: vi.fn(),
+	pausePackage: vi.fn(),
+	resumePackage: vi.fn(),
+	cancelPackage: vi.fn()
+}));
+vi.mock('$lib/server/packages', () => k);
+
 import { load, actions } from './+page.server';
 
-beforeEach(() => [...Object.values(pf), ...Object.values(m)].forEach((fn) => fn.mockReset()));
+beforeEach(() => {
+	[...Object.values(pf), ...Object.values(m), ...Object.values(k)].forEach((fn) => fn.mockReset());
+	k.fetchPatientPackages.mockResolvedValue({ status: 200, packages: [] });
+});
 
 describe('load', () => {
-	it('200 → paciente + diretório', async () => {
+	it('200 → paciente + diretório + pacotes', async () => {
 		m.fetchPatient.mockResolvedValueOnce({ status: 200, patient: { id: 'pac1', nome: 'Mari' } });
 		pf.fetchProfessionals.mockResolvedValueOnce({ data: { professionals: [{ id: 'p1' }] } });
-		const r = (await load({ params: { id: 'pac1' } } as never)) as { patient: { nome: string } };
+		k.fetchPatientPackages.mockResolvedValueOnce({ status: 200, packages: [{ id: 'k1' }] });
+		const r = (await load({ params: { id: 'pac1' } } as never)) as {
+			patient: { nome: string };
+			packages: unknown[];
+		};
 		expect(r.patient.nome).toBe('Mari');
+		expect(r.packages).toEqual([{ id: 'k1' }]);
 	});
 	it('não encontrado → 404', async () => {
 		m.fetchPatient.mockResolvedValueOnce({ status: 404, patient: null });
@@ -42,5 +58,35 @@ describe('actions arquivar/reativar', () => {
 	it('deactivate recusado (403) → fail', async () => {
 		m.deactivatePatient.mockResolvedValueOnce({ ok: false, status: 403 });
 		expect(await actions.deactivate(ev)).toMatchObject({ status: 403 });
+	});
+});
+
+describe('actions do ciclo de vida do pacote', () => {
+	// O `id` do pacote chega do form-data; monta um evento com esse corpo.
+	const evWith = (id: unknown) =>
+		({
+			params: { id: 'pac1' },
+			request: { formData: async () => new Map(id === undefined ? [] : [['package_id', id]]) }
+		}) as never;
+
+	it('pausePackage ok → { ok: true }', async () => {
+		k.pausePackage.mockResolvedValueOnce({ ok: true });
+		expect(await actions.pausePackage(evWith('k1'))).toEqual({ ok: true });
+		expect(k.pausePackage.mock.calls[0][1]).toBe('k1');
+	});
+
+	it('resumePackage ok → { ok: true }', async () => {
+		k.resumePackage.mockResolvedValueOnce({ ok: true });
+		expect(await actions.resumePackage(evWith('k1'))).toEqual({ ok: true });
+	});
+
+	it('cancelPackage recusado (403) → fail', async () => {
+		k.cancelPackage.mockResolvedValueOnce({ ok: false, status: 403, error: 'não pode' });
+		expect(await actions.cancelPackage(evWith('k1'))).toMatchObject({ status: 403 });
+	});
+
+	it('sem package_id → 400', async () => {
+		expect(await actions.pausePackage(evWith(undefined))).toMatchObject({ status: 400 });
+		expect(k.pausePackage).not.toHaveBeenCalled();
 	});
 });

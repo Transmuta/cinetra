@@ -14,6 +14,7 @@
 	import ArchiveRestore from '@lucide/svelte/icons/archive-restore';
 	import { initials } from '$lib/format';
 	import { patientColor, convLabel, idade, prefNomes, canManagePatients } from '$lib/patients';
+	import PackageList from '$lib/components/patients/PackageList.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -225,4 +226,7 @@
 		{/snippet}
 		{@render card(ShieldCheck, 'Consentimentos', consentBody)}
 	</div>
+
+	<!-- Pacotes (Fatia 3): lista + ciclo de vida. A criação (modal com prévia) é o próximo passo. -->
+	<PackageList packages={data.packages} {canManage} />
 </div>
