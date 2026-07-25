@@ -202,6 +202,23 @@ defmodule Api.Packages.Bulk do
     end
   end
 
+  @doc """
+  Cancela **uma** sessão do pacote pela regra por-presença — pública porque o ciclo de vida do
+  pacote (`cancel_package`) usa exatamente a mesma decisão.
+
+  Era o furo que o bate-volta mediu: `cancel_package` cancelava o **bloco**, e numa turma isso
+  levava junto a sessão dos colegas (o `pkgOf` do protótipo, vivo pela porta do lado enquanto a
+  massa já o havia corrigido). Duas regras opostas para "as sessões deste pacote", no mesmo
+  domínio — agora é uma.
+  """
+  def cancelar_sessao(%Api.Scope{} = scope, {_appt, _att} = alvo), do: cancel_one(scope, alvo)
+
+  @doc """
+  Os alvos (`[{appointment, attendance}]`) do escopo pedido — a resolução única de "as sessões
+  futuras ainda não resolvidas deste pacote", compartilhada com o ciclo de vida.
+  """
+  def alvos(%Api.Scope{} = scope, package_id, params), do: targets(scope, package_id, params)
+
   defp cancel_one(scope, {appt, att}) do
     if sozinho?(appt, att) do
       write(fn ->
@@ -255,7 +272,11 @@ defmodule Api.Packages.Bulk do
                  appointment_type_id: appt.appointment_type_id,
                  patient_ids: [att.patient_id],
                  package_id: package_id,
-                 encaixe: plano.forcar
+                 # A sessão de origem pode ter duração fora do padrão do tipo e ser um encaixe —
+                 # o bloco novo herda as duas. Sem isto, uma sessão de 80 min virava 50 em
+                 # silêncio (o default do tipo) e o encaixe caía, medido no bate-volta da Onda 3.
+                 duration_minutos: DateTime.diff(appt.ends_at, appt.starts_at, :minute),
+                 encaixe: plano.forcar or appt.encaixe
                },
                opts(scope)
              )
@@ -285,10 +306,16 @@ defmodule Api.Packages.Bulk do
     starts_at
   end
 
-  # `authorize?: false` + `tenant`: quem autoriza é a leitura do pacote que trouxe o alvo (a massa
-  # é operação do pacote, como o pausar/cancelar); as escritas são cascata interna.
-  defp opts(scope),
-    do: [tenant: scope.clinic_id, authorize?: false, return_notifications?: true]
+  # As escritas passam pelo **autorizador**, com o actor do escopo — e não como cascata interna.
+  #
+  # Era `authorize?: false`, com o argumento de que "quem autoriza é a leitura do pacote que trouxe
+  # o alvo". O bate-volta mediu o furo: `professional_id` e `forcar` vêm do CORPO do request e
+  # chegavam intactos a `reschedule`/`schedule`, que nunca viam o ator. Um papel `profissional`
+  # empurrava a própria sessão para a coluna de um colega (A7) e ligava `encaixe` (A9, que isenta a
+  # exclusion constraint) — as duas coisas que o `Ash.can?` nega no caminho normal.
+  #
+  # A regra continua morando na policy: em vez de copiá-la aqui, a massa deixa de ser porta lateral.
+  defp opts(scope), do: [scope: scope, return_notifications?: true]
 
   # Normaliza o retorno das escritas para `{:ok, notificações}` — o que o `run/3` acumula.
   defp write(fun) do

@@ -88,27 +88,33 @@ defmodule Api.Packages do
   def pause_package(%Api.Scope{} = scope, package_id) do
     # `authorize?: false`: quem autoriza é a ação do pacote (`mark_paused`); a escrita na sessão é
     # cascata interna, como `CascadeToAttendances`. `tenant` mantém a GUC.
-    lifecycle(scope, package_id, [:agendado, :confirmado], :mark_paused, fn appt ->
-      Api.Scheduling.set_appointment_pkg_hold(appt, %{pkg_hold: true},
-        tenant: scope.clinic_id,
-        authorize?: false,
-        return_notifications?: true
-      )
+    # `set_pkg_hold` segue como cascata interna (`authorize?: false`): não é ação de `@write_actions`
+    # (não tem policy própria) e não carrega nada do corpo do request — não há o que escalar.
+    lifecycle(scope, package_id, [:agendado, :confirmado], :mark_paused, fn {appt, _att} ->
+      {:ok, _held, notes} =
+        Api.Scheduling.set_appointment_pkg_hold(appt, %{pkg_hold: true},
+          tenant: scope.clinic_id,
+          authorize?: false,
+          return_notifications?: true
+        )
+
+      notes
     end)
   end
 
   @doc """
   **Cancela** o pacote (RN-25): cancela as sessões futuras (inclusive as seguradas por uma pausa
   anterior) e marca o pacote como `:cancelado`. Sessões passadas/concluídas/faltadas ficam como
-  registro. Reusa a transição `:cancel` do agendamento (que cascateia as presenças).
+  registro.
+
+  O alvo é a **presença**, não o bloco — a mesma regra da massa (`Api.Packages.Bulk`). Antes daqui
+  cancelava-se o bloco, e numa turma isso levava junto a sessão dos colegas: o `pkgOf` do protótipo
+  vivo pela porta do ciclo de vida, enquanto a massa já o havia corrigido.
   """
   def cancel_package(%Api.Scope{} = scope, package_id) do
-    lifecycle(scope, package_id, [:agendado, :confirmado], :mark_cancelled, fn appt ->
-      Api.Scheduling.cancel_appointment_slot(appt, %{},
-        tenant: scope.clinic_id,
-        authorize?: false,
-        return_notifications?: true
-      )
+    lifecycle(scope, package_id, [:agendado, :confirmado], :mark_cancelled, fn alvo ->
+      {:ok, notes} = Api.Packages.Bulk.cancelar_sessao(scope, alvo)
+      notes
     end)
   end
 
@@ -185,12 +191,18 @@ defmodule Api.Packages do
 
   # As sessões seguradas do pacote — via `list_held_sessions`, que abre a porta `include_held` do
   # `HideHeld` (a preparation global as esconderia de qualquer leitura normal).
+  #
+  # **Cancelada fica de fora**: uma segurada que já foi cancelada (pela massa, ou por um
+  # `cancel_package` anterior) não tem o que reprojetar, e tentar cancelá-la de novo fazia o
+  # `resume_package` estourar com "transição indisponível a partir de cancelado" — 500 no botão
+  # Retomar que a ficha oferece (bate-volta da Onda 3).
   defp held_sessions(scope, clinic_id, package_id) do
     ids =
       list_attendances_for_package(scope, package_id)
       |> Enum.map(& &1.appointment_id)
 
     Api.Scheduling.list_held_sessions(clinic_id, ids)
+    |> Enum.reject(&(&1.status == :cancelado))
   end
 
   # Roda `fun` sobre cada sessão futura não-resolvida do pacote e vira o status do pacote, **tudo
@@ -204,10 +216,7 @@ defmodule Api.Packages do
           notes =
             scope
             |> future_sessions(package_id, statuses)
-            |> Enum.flat_map(fn appt ->
-              {:ok, _updated, notifications} = fun.(appt)
-              notifications
-            end)
+            |> Enum.flat_map(fun)
 
           {:ok, pkg, pkg_notes} =
             get_package!(package_id, scope: scope)
@@ -233,22 +242,32 @@ defmodule Api.Packages do
   defp apply_mark(pkg, :mark_cancelled, scope),
     do: mark_package_cancelled(pkg, scope: scope, return_notifications?: true)
 
-  # As sessões do pacote cujo dia local é hoje-ou-depois e cujo status está na lista. Lê os blocos
-  # pelos ids das presenças **incluindo os segurados** (`include_held`) — senão o `.appointment` de
-  # uma sessão segurada por uma pausa anterior volta `nil` (HideHeld) e o cancelar (RN-25) estourava
-  # e deixava as seguradas órfãs (bate-volta 2026-07-24).
+  # Os **pares** `{appointment, attendance}` das sessões do pacote cujo dia local é hoje-ou-depois e
+  # cujo status está na lista — o par, e não só o bloco, porque quem decide o efeito é a presença
+  # (uma turma com colegas não pode ser cancelada inteira por causa de um pacote).
+  #
+  # Lê os blocos **incluindo os segurados** (`include_held`) — senão o `.appointment` de uma sessão
+  # segurada por uma pausa anterior volta `nil` (HideHeld) e o cancelar (RN-25) estoura, deixando as
+  # seguradas órfãs (bate-volta 2026-07-24).
+  #
+  # Presença **cancelada** fica de fora: ela já não é sessão de ninguém, e mantê-la na varredura
+  # fazia o bloco dos colegas ser arrastado por um vínculo morto (bate-volta da Onda 3).
   defp future_sessions(scope, package_id, statuses) do
     %{today: today, timezone: tz} = Api.Scheduling.clinic_now(scope)
 
-    ids =
+    por_bloco =
       list_attendances_for_package(scope, package_id)
-      |> Enum.map(& &1.appointment_id)
+      |> Enum.reject(&(&1.status == :cancelada))
+      |> Map.new(&{&1.appointment_id, &1})
 
-    Api.Scheduling.list_sessions_including_held(scope.clinic_id, ids)
+    Api.Scheduling.list_sessions_including_held(scope.clinic_id, Map.keys(por_bloco),
+      load: [:attendances]
+    )
     |> Enum.filter(fn appt ->
       appt.status in statuses and
         not Date.before?(Api.Scheduling.LocalTime.to_local_date(appt.starts_at, tz), today)
     end)
+    |> Enum.map(&{&1, Map.fetch!(por_bloco, &1.id)})
   end
 
   defp list_attendances_for_package(scope, package_id) do

@@ -61,11 +61,17 @@ defmodule Api.Notifications.Fanout do
   Recebe a `Attendance` que acabou de virar `:faltou`; o bloco (coluna, horário) é lido a partir
   dela, `authorize?: false` como o resto do fan-out. Autor suprimido: na prática dispara quando a
   recepção marca a falta na agenda do profissional, que é o caso em que ele precisa saber.
+
+  **A ordem das cláusulas é o conserto do bate-volta**: o teste barato (existe algum profissional
+  com usuário nesta clínica? — 1 query) vem antes do caro (ler o bloco, que abre transação própria
+  e custa 4). Numa clínica sem vínculo profissional↔usuário — o caso comum da clínica pequena —
+  eram 4 idas ao banco jogadas fora **por clique**, no caminho mais clicado da agenda.
   """
   def participant_missed(attendance, actor) do
-    with %{} = appointment <- load_appointment(attendance),
+    with donos when donos != %{} <- professional_users(attendance.clinic_id),
+         %{} = appointment <- load_appointment(attendance),
          recipient_id when not is_nil(recipient_id) <-
-           professional_user_id(attendance.clinic_id, appointment.professional_id),
+           Map.get(donos, appointment.professional_id),
          true <- deliver?(recipient_id, actor) do
       tz = clinic_timezone(attendance.clinic_id)
       paciente = patient_name(attendance)
@@ -200,6 +206,14 @@ defmodule Api.Notifications.Fanout do
   end
 
   defp professional_user_id(_clinic_id, _professional_id), do: nil
+
+  # `professional_id => user_id` de quem tem vínculo ativo — a pergunta barata que decide se vale
+  # a pena ler o bloco (ver `participant_missed/2`). Mapa vazio = ninguém para notificar.
+  defp professional_users(clinic_id) do
+    active_memberships(clinic_id)
+    |> Enum.reject(&is_nil(&1.professional_id))
+    |> Map.new(&{&1.professional_id, &1.user_id})
+  end
 
   defp role_user_ids(clinic_id, roles) do
     active_memberships(clinic_id)

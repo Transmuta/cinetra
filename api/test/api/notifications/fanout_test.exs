@@ -197,6 +197,31 @@ defmodule Api.Notifications.FanoutTest do
       refute :appointment_missed in kinds(prof_user, ctx.clinic)
     end
 
+    # Bate-volta da Onda 3: o `with` começava lendo o BLOCO (uma transação inteira) e só depois
+    # perguntava se havia destinatário. Numa clínica sem usuário vinculado ao profissional — o caso
+    # comum — eram 4 queries jogadas fora por clique, no caminho mais clicado da agenda.
+    test "#46 — sem destinatário, não paga a leitura do bloco" do
+      ctx = setup_clinic()
+      owner_scope = scope_for(ctx.owner, ctx.clinic)
+      {:ok, appt} = schedule(ctx, owner_scope, %{starts_at: segunda_passada("08:00")})
+
+      att =
+        Scheduling.list_attendances!(
+          tenant: ctx.clinic.id,
+          authorize?: false,
+          query: [filter: [appointment_id: appt.id]]
+        )
+        |> hd()
+
+      # ninguém vinculado ao `ctx.prof` → não há quem notificar
+      {_, queries} =
+        Api.QueryCounter.count(fn ->
+          Api.Notifications.Fanout.participant_missed(att, ctx.owner)
+        end)
+
+      assert queries <= 2, "leu #{queries} queries para descobrir que não há destinatário"
+    end
+
     test "#47 — entrar numa turma avisa o profissional" do
       ctx = setup_clinic()
       prof_user = member(ctx.clinic, :profissional, ctx.prof.id)

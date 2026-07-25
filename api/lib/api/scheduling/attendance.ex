@@ -202,6 +202,14 @@ defmodule Api.Scheduling.Attendance do
     belongs_to :patient, Api.Records.Patient, allow_nil?: false
   end
 
+  aggregates do
+    # O instante da sessão, trazido do bloco para a própria presença — é por ele que o histórico
+    # da ficha ordena (C13). Existe como **aggregate** porque `sort` por campo de relação não
+    # desce para o SQL: sem ele, ordenar exigia carregar o histórico inteiro e usar `Enum.sort_by`,
+    # que foi o que o bate-volta da Onda 3 mediu em 4.003 linhas para devolver 50.
+    first :session_starts_at, :appointment, :starts_at
+  end
+
   identities do
     # O mesmo paciente duas vezes na mesma turma é sempre erro (e quebraria o contador N/cap).
     #

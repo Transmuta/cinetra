@@ -57,6 +57,30 @@ defmodule Api.Packages.BulkTest do
     }
   end
 
+  # Um usuário com papel `profissional` vinculado a `professional_id` — o papel menos privilegiado
+  # com acesso à agenda, e o que as policies A7/A9 recortam.
+  defp scope_profissional(ctx, professional_id) do
+    user = Accounts.register_user!("Prof", email(), authorize?: false)
+
+    {:ok, m} =
+      Accounts.invite_member(
+        %{
+          papel: :profissional,
+          user_id: user.id,
+          clinic_id: ctx.clinic.id,
+          professional_id: professional_id
+        },
+        authorize?: false
+      )
+
+    {:ok, _} = Accounts.accept_invite(m, authorize?: false)
+
+    Api.Scope.with_membership(
+      user,
+      Accounts.get_active_membership!(user.id, ctx.clinic.id, authorize?: false)
+    )
+  end
+
   defp novo_paciente(ctx),
     do:
       Records.create_patient!("Paciente #{System.unique_integer([:positive])}", %{},
@@ -311,6 +335,45 @@ defmodule Api.Packages.BulkTest do
                Enum.sort([vizinho.id, dono.id])
     end
 
+    test "a reinserção preserva a duração e o encaixe do bloco de origem" do
+      ctx = setup_clinic()
+      dono = novo_paciente(ctx)
+      colega = novo_paciente(ctx)
+      pkg = pacote(ctx, dono)
+
+      # bloco de 80 min marcado como encaixe, compartilhado com um colega
+      {:ok, appt} =
+        Scheduling.schedule_appointment(
+          %{
+            starts_at: at(@segunda, "08:00"),
+            professional_id: ctx.prof.id,
+            appointment_type_id: ctx.tipo.id,
+            patient_ids: [dono.id],
+            package_id: pkg.id,
+            duration_minutos: 80,
+            encaixe: true
+          },
+          scope: ctx.scope
+        )
+
+      sessao_avulsa(ctx, colega, @segunda, "08:00")
+
+      assert {:ok, %{afetadas: 1}} =
+               Packages.bulk_adjust(ctx.scope, pkg.id, %{
+                 escopo: :todas,
+                 aplicar_horario: true,
+                 hhmm: "10:00"
+               })
+
+      nova = sessao_do_pacote(ctx, pkg.id)
+
+      assert DateTime.diff(nova.ends_at, nova.starts_at, :minute) == 80,
+             "a sessão encolheu para a duração padrão do tipo"
+
+      assert nova.encaixe == true, "o bloco reinserido perdeu a classificação de encaixe"
+      assert nova.id != appt.id
+    end
+
     test "conflito no destino aborta a massa inteira (nada é escrito pela metade)" do
       ctx = setup_clinic()
       dono = novo_paciente(ctx)
@@ -418,5 +481,66 @@ defmodule Api.Packages.BulkTest do
       |> Enum.reject(&(&1.status == :cancelada))
 
     recarrega(ctx, att.appointment_id)
+  end
+
+  # A2 etapa 3 + bate-volta: a massa escreve em nome do usuário, e as policies do `Appointment`
+  # (A7 — o profissional só escreve na PRÓPRIA coluna; A9 — encaixe é de recepção para cima)
+  # continuam valendo. Sem isto, a massa é uma porta lateral que contorna as duas.
+  describe "a massa respeita as policies do agendamento" do
+    test "profissional não empurra a própria sessão para a coluna do colega" do
+      ctx = setup_clinic()
+      dono = novo_paciente(ctx)
+      pkg = pacote(ctx, dono)
+      appt = sessao(ctx, pkg, dono, @segunda, "08:00")
+      scope = scope_profissional(ctx, ctx.prof.id)
+
+      assert {:error, _} =
+               Packages.bulk_adjust(scope, pkg.id, %{
+                 escopo: :todas,
+                 aplicar_profissional: true,
+                 professional_id: ctx.outra_prof.id
+               })
+
+      assert recarrega(ctx, appt.id).professional_id == ctx.prof.id
+    end
+
+    test "profissional não liga encaixe pela massa (A9)" do
+      ctx = setup_clinic()
+      dono = novo_paciente(ctx)
+      pkg = pacote(ctx, dono)
+      appt = sessao(ctx, pkg, dono, @segunda, "08:00")
+      scope = scope_profissional(ctx, ctx.prof.id)
+
+      assert {:error, _} =
+               Packages.bulk_adjust(scope, pkg.id, %{
+                 escopo: :todas,
+                 aplicar_horario: true,
+                 hhmm: "09:00",
+                 forcar: true
+               })
+
+      assert recarrega(ctx, appt.id).encaixe == false
+    end
+
+    test "a recepção continua podendo as duas coisas" do
+      ctx = setup_clinic()
+      dono = novo_paciente(ctx)
+      pkg = pacote(ctx, dono)
+      appt = sessao(ctx, pkg, dono, @segunda, "08:00")
+
+      assert {:ok, %{afetadas: 1}} =
+               Packages.bulk_adjust(ctx.scope, pkg.id, %{
+                 escopo: :todas,
+                 aplicar_profissional: true,
+                 professional_id: ctx.outra_prof.id,
+                 aplicar_horario: true,
+                 hhmm: "09:00",
+                 forcar: true
+               })
+
+      movido = recarrega(ctx, appt.id)
+      assert movido.professional_id == ctx.outra_prof.id
+      assert movido.encaixe == true
+    end
   end
 end

@@ -203,6 +203,21 @@ describe('connectAgenda', () => {
 		expect(h.appointments).toHaveLength(2);
 	});
 
+	// Bate-volta da Onda 3: o servidor passou a empurrar `participant_removed` (A2 etapa 3), e o
+	// cliente não o escutava — quem estava com a turma aberta seguia vendo o participante que saiu.
+	it('participant_removed também chega ao handler de bloco', () => {
+		const h = handlers();
+		connectAgenda(config, ['t'], h);
+
+		fake.FakeSocket.last!.channels[0].emit('participant_removed', {
+			appointment: { id: 'a3' },
+			patients: [],
+			actor: null
+		});
+
+		expect(h.appointments).toHaveLength(1);
+	});
+
 	it('o sinal do mês vai para onSignal, não para onAppointment', () => {
 		const h = handlers();
 		connectAgenda(config, ['t'], h);

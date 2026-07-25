@@ -58,6 +58,10 @@ export interface AgendaHandlers {
 const EVENTOS_DE_BLOCO = [
 	'appointment_scheduled',
 	'participant_added',
+	// A2 etapa 3: sair da turma também repinta o bloco — o canal relê e empurra o bloco já sem a
+	// presença. Faltava aqui: o servidor emitia e ninguém escutava, então quem estava com a turma
+	// aberta seguia vendo o participante que saiu até dar refresh (bate-volta da Onda 3).
+	'participant_removed',
 	'appointment_rescheduled',
 	'appointment_status_changed',
 	'appointment_canceled'

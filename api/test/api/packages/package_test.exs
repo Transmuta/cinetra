@@ -256,4 +256,132 @@ defmodule Api.Packages.PackageTest do
                Packages.get_package(pkg.id, scope: outra.scope)
     end
   end
+
+  # Bate-volta da Onda 3: o ciclo de vida do pacote (pausar/cancelar) operava sobre o BLOCO,
+  # enquanto a massa (etapa 3) opera sobre a PRESENÇA — duas regras opostas para "as sessões deste
+  # pacote", no mesmo domínio. Os três testes abaixo são as três portas que isso abria.
+  describe "o ciclo de vida do pacote não atropela quem não é do pacote" do
+    # O `@segunda` do arquivo já passou; pausar/cancelar só alcançam sessão futura.
+    @futuro ~D[2027-03-01]
+
+    defp at_futuro(hhmm) do
+      {:ok, dt} = Scheduling.LocalTime.to_utc(@futuro, hhmm, "America/Sao_Paulo")
+      dt
+    end
+
+    defp turma_tipo(ctx) do
+      Directory.create_appointment_type!(
+        %{
+          nome: "Turma #{System.unique_integer([:positive])}",
+          duracao_minutos: 50,
+          cor: "#0FB5A6",
+          icon: "Users",
+          grupo: true,
+          capacidade: 4
+        },
+        tenant: ctx.clinic.id,
+        actor: ctx.owner
+      )
+    end
+
+    defp sessao_de_turma(ctx, tipo, pacientes, pkg_id) do
+      [primeiro | resto] = pacientes
+
+      {:ok, appt} =
+        Scheduling.schedule_appointment(
+          %{
+            starts_at: at_futuro("08:00"),
+            professional_id: ctx.prof.id,
+            appointment_type_id: tipo.id,
+            patient_ids: [primeiro.id],
+            package_id: pkg_id
+          },
+          scope: ctx.scope
+        )
+
+      for p <- resto do
+        {:ok, _} =
+          Scheduling.schedule_appointment(
+            %{
+              starts_at: at_futuro("08:00"),
+              professional_id: ctx.prof.id,
+              appointment_type_id: tipo.id,
+              patient_ids: [p.id]
+            },
+            scope: ctx.scope
+          )
+      end
+
+      appt
+    end
+
+    test "cancelar o pacote de um paciente não cancela a turma dos colegas" do
+      ctx = setup_clinic()
+      tipo = turma_tipo(ctx)
+      colega = Records.create_patient!("Colega", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+      {:ok, pkg} = create_package(ctx, %{appointment_type_id: tipo.id})
+      appt = sessao_de_turma(ctx, tipo, [ctx.paciente, colega], pkg.id)
+
+      {:ok, _} = Packages.cancel_package(ctx.scope, pkg.id)
+
+      bloco =
+        Api.Tenancy.in_clinic(ctx.scope, fn ->
+          Scheduling.get_appointment!(appt.id, scope: ctx.scope, load: [:attendances])
+        end)
+
+      vivas = Enum.reject(bloco.attendances, &(&1.status == :cancelada))
+      assert bloco.status == :agendado, "o bloco do colega foi cancelado junto"
+      assert Enum.map(vivas, & &1.patient_id) == [colega.id]
+    end
+
+    test "uma presença já cancelada não arrasta o bloco de ninguém" do
+      ctx = setup_clinic()
+      tipo = turma_tipo(ctx)
+      colega = Records.create_patient!("Colega", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+      {:ok, pkg} = create_package(ctx, %{appointment_type_id: tipo.id})
+      appt = sessao_de_turma(ctx, tipo, [ctx.paciente, colega], pkg.id)
+
+      att =
+        Scheduling.list_attendances!(scope: ctx.scope, query: [filter: [package_id: pkg.id]])
+        |> hd()
+
+      Ash.update!(att, %{status: :cancelada},
+        action: :transition,
+        tenant: ctx.clinic.id,
+        authorize?: false
+      )
+
+      {:ok, _} = Packages.cancel_package(ctx.scope, pkg.id)
+
+      bloco =
+        Api.Tenancy.in_clinic(ctx.scope, fn ->
+          Scheduling.get_appointment!(appt.id, scope: ctx.scope)
+        end)
+
+      assert bloco.status == :agendado
+    end
+
+    test "retomar um pacote cujas seguradas já foram canceladas não estoura" do
+      ctx = setup_clinic()
+      {:ok, pkg} = create_package(ctx)
+
+      {:ok, _} =
+        Scheduling.schedule_appointment(
+          %{
+            starts_at: at_futuro("08:00"),
+            professional_id: ctx.prof.id,
+            appointment_type_id: ctx.tipo.id,
+            patient_ids: [ctx.paciente.id],
+            package_id: pkg.id
+          },
+          scope: ctx.scope
+        )
+
+      {:ok, _} = Packages.pause_package(ctx.scope, pkg.id)
+      {:ok, _} = Packages.bulk_cancel(ctx.scope, pkg.id, %{escopo: :todas})
+
+      assert {:ok, retomado} = Packages.resume_package(ctx.scope, pkg.id)
+      assert retomado.status == :ativo
+    end
+  end
 end

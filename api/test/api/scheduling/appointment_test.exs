@@ -1533,4 +1533,55 @@ defmodule Api.Scheduling.AppointmentTest do
   defp faltas(ctx) do
     Records.get_patient!(ctx.paciente.id, scope: ctx.scope, load: [:faltas]).faltas
   end
+
+  # Bate-volta da Onda 3: `count_participants/2` — o `N` do `N/cap` que a validação de capacidade
+  # usa — contava presença CANCELADA. Uma turma com vaga real recusava paciente.
+  describe "o teto da turma conta só quem está de fato nela" do
+    test "presença cancelada libera a vaga" do
+      ctx = setup_clinic()
+      tipo = grupo_tipo(ctx, 2)
+      p1 = novo_paciente(ctx)
+      p2 = novo_paciente(ctx)
+
+      {:ok, appt} =
+        Scheduling.schedule_appointment(
+          %{
+            starts_at: at("08:00"),
+            professional_id: ctx.prof.id,
+            appointment_type_id: tipo.id,
+            patient_ids: [p1.id, p2.id]
+          },
+          scope: ctx.scope
+        )
+
+      assert Scheduling.count_participants(ctx.clinic.id, appt.id) == 2
+
+      att =
+        Scheduling.list_attendances!(scope: ctx.scope, query: [filter: [appointment_id: appt.id]])
+        |> hd()
+
+      Ash.update!(att, %{status: :cancelada},
+        action: :transition,
+        tenant: ctx.clinic.id,
+        authorize?: false
+      )
+
+      assert Scheduling.count_participants(ctx.clinic.id, appt.id) == 1,
+             "o teto ainda conta quem saiu"
+
+      # e a vaga liberada aceita alguém de fato
+      p3 = novo_paciente(ctx)
+
+      assert {:ok, _} =
+               Scheduling.schedule_appointment(
+                 %{
+                   starts_at: at("08:00"),
+                   professional_id: ctx.prof.id,
+                   appointment_type_id: tipo.id,
+                   patient_ids: [p3.id]
+                 },
+                 scope: ctx.scope
+               )
+    end
+  end
 end

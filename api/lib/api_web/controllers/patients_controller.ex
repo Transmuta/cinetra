@@ -51,10 +51,19 @@ defmodule ApiWeb.PatientsController do
   # PRESENÇA: numa turma o bloco pode estar concluído com a presença dele faltando.
   def history(conn, %{"patient_id" => patient_id} = params) do
     with_member_scope(conn, fn scope ->
-      %{sessions: sessions, more?: more?} =
-        Api.Scheduling.list_patient_history(scope, patient_id, limit: parse_int(params["limit"]))
+      # Resolve o paciente ANTES — pela mesma porta do `show/2`, que já trata id malformado como
+      # inexistente (`{:ok, nil}` → 404). Sem isto, um id de outra clínica (ou lixo) devolvia
+      # **200 com lista vazia**: o mesmo sucesso silencioso que a massa por pacote corrigiu.
+      case Records.fetch_clinic_patient(scope, patient_id) do
+        {:ok, %{id: id}} ->
+          %{sessions: sessions, more?: more?} =
+            Api.Scheduling.list_patient_history(scope, id, limit: parse_int(params["limit"]))
 
-      json(conn, %{sessions: Enum.map(sessions, &session_json/1), more: more?})
+          json(conn, %{sessions: Enum.map(sessions, &session_json/1), more: more?})
+
+        {:ok, nil} ->
+          not_found(conn)
+      end
     end)
   end
 

@@ -250,6 +250,10 @@ defmodule Api.Scheduling do
   Lido **sem escopo** de propósito: é contagem de invariante, não de exibição. Sob o recorte
   da A7, um `profissional` contaria menos participantes do que a turma tem e o teto se abriria
   sozinho para ele.
+
+  Conta só as presenças **vivas**: a cancelada não ocupa vaga. Contá-la fazia uma turma com lugar
+  livre recusar paciente — medido no bate-volta da Onda 3 (cap 4, duas presenças vivas, entrada
+  negada). É a mesma noção de "viva" que o rollup e a massa usam.
   """
   def count_participants(clinic_id, appointment_id)
       when is_binary(clinic_id) and is_binary(appointment_id) do
@@ -258,7 +262,7 @@ defmodule Api.Scheduling do
         list_attendances!(
           tenant: clinic_id,
           authorize?: false,
-          query: [filter: [appointment_id: appointment_id]]
+          query: [filter: [appointment_id: appointment_id, status: [not_eq: :cancelada]]]
         )
       end)
 
@@ -451,32 +455,51 @@ defmodule Api.Scheduling do
   O recorte A7 vale de graça: a preparation `OwnAgendaOnly, via: :appointment` da `Attendance` já
   esconde do papel `profissional` a sessão que não é da coluna dele.
 
-  **Limitado** (default 50, teto 200): a ficha desenha as últimas, e "carrega tudo" numa fila de
-  dois anos é a mesma armadilha que a lista de pacientes já pagou. `more?` diz se ficou coisa para
-  trás — a tela avisa em vez de mentir que aquilo é o histórico inteiro.
+  **Limitado no SQL** (default 50, teto 200): `sort` e `limit` descem para o banco, e o `limit + 1`
+  responde `more?` sem varrer o resto. A primeira versão aplicava `Enum.sort_by`/`Enum.take`
+  **depois** de ler tudo — medido no bate-volta da Onda 3: 4.003 linhas trafegadas para desenhar
+  50 cartões num paciente de 2.000 sessões, e o plano do papel `profissional` virava nested loop
+  dirigido pela agenda inteira dele (1.595 buffers contra 57).
+
+  `patient_id` que não é UUID devolve vazio em vez de estourar: o read do Ash sobe `{:error, _}` no
+  cast e o `MatchError` virava **500** na ficha (a mesma armadilha que a tela de auditoria pegou no
+  doc 32, e que o `Bulk` já guardava).
   """
-  def list_patient_history(%Api.Scope{} = scope, patient_id, opts \\ [])
-      when is_binary(patient_id) do
+  def list_patient_history(scope, patient_id, opts \\ [])
+
+  def list_patient_history(%Api.Scope{} = scope, patient_id, opts) when is_binary(patient_id) do
     limit = Api.Pagination.limit(Keyword.get(opts, :limit), default: 50, max: 200)
 
-    in_clinic(scope, fn ->
-      attendances =
-        list_attendances!(
-          scope: scope,
-          query: [filter: [patient_id: patient_id]],
-          load: [appointment: [:appointment_type, :professional]]
-        )
-        # A ordenação é do BLOCO (`appointment.starts_at`), não da presença — e ordenar pelo campo
-        # de uma relação carregada em memória é o único caminho enquanto a leitura entra pela
-        # `Attendance`. Por isso o teto acima: o corte acontece depois da ordenação, então precisa
-        # caber na memória. Sessão segurada (`pkg_hold`) volta com `.appointment` nulo (RN-05) e
-        # não é histórico — sai aqui.
-        |> Enum.reject(&is_nil(&1.appointment))
-        |> Enum.sort_by(& &1.appointment.starts_at, {:desc, DateTime})
+    if uuid?(patient_id) do
+      in_clinic(scope, fn ->
+        attendances =
+          list_attendances!(
+            scope: scope,
+            query: [
+              filter: [patient_id: patient_id],
+              # Ordena pelo instante da sessão via o aggregate `session_starts_at` (o `starts_at`
+              # do bloco trazido para a presença): `sort` por campo de relação não desce para o
+              # SQL, o aggregate desce.
+              sort: [session_starts_at: :desc],
+              # +1 é o que separa "tem mais" de "acabou" sem uma segunda query nem um `COUNT`.
+              limit: limit + 1
+            ],
+            load: [appointment: [:appointment_type, :professional]]
+          )
+          # Sessão segurada (`pkg_hold`) volta com `.appointment` nulo (RN-05) e não é histórico.
+          |> Enum.reject(&is_nil(&1.appointment))
 
-      %{sessions: Enum.take(attendances, limit), more?: length(attendances) > limit}
-    end)
+        %{sessions: Enum.take(attendances, limit), more?: length(attendances) > limit}
+      end)
+    else
+      %{sessions: [], more?: false}
+    end
   end
+
+  def list_patient_history(%Api.Scope{}, _patient_id, _opts), do: %{sessions: [], more?: false}
+
+  defp uuid?(value) when is_binary(value), do: match?({:ok, _}, Ecto.UUID.cast(value))
+  defp uuid?(_value), do: false
 
   @doc """
   Tudo o que a visão Dia precisa, **numa transação só** com a GUC de tenant setada:

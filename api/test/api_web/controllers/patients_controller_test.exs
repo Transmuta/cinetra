@@ -45,6 +45,38 @@ defmodule ApiWeb.PatientsControllerTest do
     {owner, clinic}
   end
 
+  # Soma as LINHAS devolvidas pelo banco numa tabela durante `fun` — o instrumento que separa
+  # "devolveu 5" de "leu 30 e jogou 25 fora".
+  defp com_linhas(source, fun) do
+    parent = self()
+    ref = make_ref()
+
+    handler = fn _e, _m, meta, _c ->
+      if meta[:source] == source do
+        n =
+          case meta[:result] do
+            {:ok, %{num_rows: n}} -> n
+            _ -> 0
+          end
+
+        send(parent, {ref, n})
+      end
+    end
+
+    :telemetry.attach({__MODULE__, ref}, [:api, :repo, :query], handler, nil)
+    resultado = fun.()
+    :telemetry.detach({__MODULE__, ref})
+    {resultado, drenar(ref, 0)}
+  end
+
+  defp drenar(ref, acc) do
+    receive do
+      {^ref, n} -> drenar(ref, acc + n)
+    after
+      50 -> acc
+    end
+  end
+
   defp create_patient(clinic, nome \\ "Mariana Alves", overrides \\ %{}) do
     Records.create_patient!(nome, overrides, tenant: clinic.id, authorize?: false)
   end
@@ -415,6 +447,84 @@ defmodule ApiWeb.PatientsControllerTest do
 
       assert length(body["sessions"]) == 2
       assert body["more"] == true
+    end
+
+    # Bate-volta da Onda 3: o `limit` era aplicado com `Enum.take` DEPOIS de ler tudo — a ficha de
+    # um paciente antigo trazia o histórico inteiro do banco para desenhar 50 cartões. O teste mede
+    # as LINHAS que vêm do banco, não as devolvidas: é a diferença que o `Enum.take` esconde.
+    test "não lê o histórico inteiro para devolver a página", %{
+      conn: conn,
+      owner: owner,
+      clinic: clinic
+    } do
+      paciente = create_patient(clinic, "Muitas sessões")
+      prof = Api.Directory.create_professional!("Dra. H", %{}, tenant: clinic.id, actor: owner)
+
+      tipo =
+        Api.Directory.create_appointment_type!(
+          %{
+            nome: "Sessão #{System.unique_integer([:positive])}",
+            duracao_minutos: 50,
+            cor: "#0FB5A6",
+            icon: "Activity"
+          },
+          tenant: clinic.id,
+          actor: owner
+        )
+
+      # 30 sessões; pedimos 5. Semeadas direto (o volume é o ponto do teste, não o expediente —
+      # agendar pela ação esbarraria no fim de semana).
+      for i <- 1..30 do
+        {:ok, dt} =
+          Api.Scheduling.LocalTime.to_utc(
+            Date.add(Date.utc_today(), -i),
+            "08:00",
+            "America/Sao_Paulo"
+          )
+
+        appt =
+          Ash.Seed.seed!(
+            Api.Scheduling.Appointment,
+            %{
+              starts_at: dt,
+              ends_at: DateTime.add(dt, 50 * 60, :second),
+              professional_id: prof.id,
+              appointment_type_id: tipo.id,
+              status: :concluido,
+              clinic_id: clinic.id
+            },
+            tenant: clinic.id
+          )
+
+        Ash.Seed.seed!(
+          Api.Scheduling.Attendance,
+          %{
+            appointment_id: appt.id,
+            patient_id: paciente.id,
+            status: :concluida,
+            clinic_id: clinic.id
+          },
+          tenant: clinic.id
+        )
+      end
+
+      {resp, linhas} =
+        com_linhas("attendances", fn ->
+          get(conn, "/api/patients/#{paciente.id}/history?limit=5")
+        end)
+
+      assert length(json_response(resp, 200)["sessions"]) == 5
+
+      # 5 pedidas + 1 para saber se há mais. O teto é generoso de propósito (a leitura pode ter
+      # mais de uma query); o que ele barra é ler as 30.
+      assert linhas <= 12, "leu #{linhas} linhas de attendances para devolver 5"
+    end
+
+    test "patient_id malformado não estoura 500", %{conn: conn} do
+      # O mesmo id em `GET /patients/:id` degrada para 404 (o `fetchPatient` já tratava); a rota
+      # nova entrava no read do Ash sem cast e subia `MatchError` — 500 na ficha.
+      assert json_response(get(conn, "/api/patients/nao-e-uuid/history"), 404)["error"] ==
+               "not_found"
     end
 
     test "exige autenticação", %{base_conn: base_conn} do
