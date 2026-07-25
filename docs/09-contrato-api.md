@@ -201,7 +201,7 @@ pkgPunitivo(pk){ return (pk && pk.faltaPunitiva!=null) ? !!pk.faltaPunitiva : !!
 ```
 
 Lido em prosa: **concluir sempre debita uma sessão do pacote. Faltar debita conforme a
-`faltaPunitiva` daquele pacote** (e, se o pacote não define, conforme o padrão da clínica),
+`faltaPunitiva` daquele pacote** (obrigatória na criação; sem fallback de clínica — ver acima),
 **a menos que a falta esteja justificada** (`faltaJustificada`), caso em que não debita.
 **Cancelar não debita nunca.** É por isso que `mark_completed`, `mark_no_show` e `cancel`
 são três ações separadas com efeitos diferentes, e não um único `PATCH status=...`: a

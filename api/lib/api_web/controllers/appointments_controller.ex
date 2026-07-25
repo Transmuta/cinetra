@@ -176,6 +176,11 @@ defmodule ApiWeb.AppointmentsController do
         |> put_status(:unprocessable_entity)
         |> json(%{error: "session_not_started", message: "Disponível após o horário da sessão."})
 
+      {:error, :block_not_open} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: "block_not_open", message: "Este agendamento não está aberto para presença."})
+
       {:error, error} ->
         error_response(conn, error)
     end

@@ -380,6 +380,7 @@ defmodule Api.Scheduling do
       )
       when is_binary(appointment_id) and is_binary(patient_id) and is_atom(kind) do
     with {:ok, appt} <- fetch_for_transition(scope, appointment_id, expected_version),
+         :ok <- block_open_for_participant(appt),
          :ok <- session_started_ok(appt, kind, scope),
          {:ok, attendance} <- find_participant(appt, patient_id),
          {:ok, _updated} <- dispatch_participant(kind, attendance, input, scope) do
@@ -390,6 +391,13 @@ defmodule Api.Scheduling do
        in_clinic(scope, fn -> get_appointment!(appointment_id, scope: scope, load: [:attendances]) end)}
     end
   end
+
+  # Um bloco CANCELADO não recebe transição de presença (bate-volta 2026-07-24): sem este guard,
+  # `cancel → add_participant → complete` ressuscitava o bloco `:cancelado` para `:concluido` pelo
+  # rollup (as canceladas são filtradas), furando o F4 que as ações de bloco garantem. Excluído
+  # nem chega aqui (o `HideExcluded` o esconde do fetch → `:not_found`).
+  defp block_open_for_participant(%{status: :cancelado}), do: {:error, :block_not_open}
+  defp block_open_for_participant(_appt), do: :ok
 
   # `:reopen`/`:justify` liberam a qualquer hora (desfazer clique errado); concluir/faltar só
   # depois de a sessão começar (RN-58, mesma fronteira do `SessionStarted` do bloco).
@@ -1365,6 +1373,26 @@ defmodule Api.Scheduling do
       Api.Scheduling.Appointment
       |> Ash.Query.set_context(%{include_held: true})
       |> Ash.Query.filter(id in ^appointment_ids and pkg_hold == true)
+
+    in_clinic(clinic_id, fn ->
+      find_appointments!(query: query, tenant: clinic_id, authorize?: false)
+    end)
+  end
+
+  @doc """
+  As sessões de um pacote pelos ids **incluindo as seguradas** (`pkg_hold`), que o `HideHeld`
+  esconde de toda leitura normal. Diferente de `list_held_sessions/2` (que traz **só** as
+  seguradas), esta traz **todas** — o cancelar/pausar do pacote precisa das visíveis E das
+  seguradas por uma pausa anterior (RN-25). Sem isto, carregar `.appointment` numa presença
+  segurada devolve `nil` (bate-volta 2026-07-24): `future_sessions` estourava e as seguradas
+  ficavam órfãs. Roda sob a GUC (`in_clinic`), `authorize?: false` (operação interna do pacote).
+  """
+  def list_sessions_including_held(clinic_id, appointment_ids)
+      when is_binary(clinic_id) and is_list(appointment_ids) do
+    query =
+      Api.Scheduling.Appointment
+      |> Ash.Query.set_context(%{include_held: true})
+      |> Ash.Query.filter(id in ^appointment_ids)
 
     in_clinic(clinic_id, fn ->
       find_appointments!(query: query, tenant: clinic_id, authorize?: false)

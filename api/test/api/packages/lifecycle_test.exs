@@ -214,6 +214,23 @@ defmodule Api.Packages.LifecycleTest do
       assert Enum.all?(cruas, &(&1.status == "cancelado"))
     end
 
+    test "cancelar um pacote PAUSADO cancela as seguradas (bate-volta: era 500 + órfãs)" do
+      ctx = setup_clinic()
+      pkg = criar_e_materializar(ctx)
+      # pausa primeiro: as 4 futuras ficam seguradas (pkg_hold), invisíveis à leitura normal
+      {:ok, _} = Packages.pause_package(scope_before(ctx), pkg.id)
+
+      # cancelar depois de pausar é o fluxo RN-25 ("inclusive as seguradas por uma pausa anterior")
+      assert {:ok, cancelado} = Packages.cancel_package(scope_before(ctx), pkg.id)
+      assert cancelado.status == :cancelado
+
+      cruas = sessoes_cruas(pkg)
+      assert length(cruas) == 4
+
+      assert Enum.all?(cruas, &(&1.status == "cancelado")),
+             "sessão segurada ficou órfã: cancelar não alcançou as seguradas por HideHeld"
+    end
+
     test "cancelar libera a agenda (as sessões saem)" do
       ctx = setup_clinic()
       pkg = criar_e_materializar(ctx)

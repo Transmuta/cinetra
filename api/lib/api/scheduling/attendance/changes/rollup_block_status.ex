@@ -13,17 +13,25 @@ defmodule Api.Scheduling.Attendance.Changes.RollupBlockStatus do
   """
   use Ash.Resource.Change
 
+  require Ash.Query
+
   alias Api.Scheduling.Attendance.Rollup
 
   @impl true
   def change(changeset, _opts, context) do
     Ash.Changeset.after_action(changeset, fn cs, attendance ->
+      # `FOR UPDATE` no bloco ANTES de ler as presenças (bate-volta 2026-07-24): sem o lock, duas
+      # transições simultâneas de participantes DIFERENTES leem, cada uma, um snapshot velho das
+      # presenças (READ COMMITTED) e o rollup fica preso na fase antiga (ex.: `:agendado` quando os
+      # dois concluíram). O lock serializa os rollups do mesmo bloco: a 2ª espera a 1ª commitar e
+      # relê as presenças já frescas. A escrita das presenças é em linhas distintas; o ponto de
+      # serialização é o próprio bloco.
       appt =
-        Ash.get!(Api.Scheduling.Appointment, attendance.appointment_id,
-          authorize?: false,
-          tenant: cs.tenant,
-          load: [:attendances]
-        )
+        Api.Scheduling.Appointment
+        |> Ash.Query.filter(id == ^attendance.appointment_id)
+        |> Ash.Query.lock(:for_update)
+        |> Ash.read_one!(authorize?: false, tenant: cs.tenant)
+        |> Ash.load!([:attendances], authorize?: false, tenant: cs.tenant)
 
       statuses = Enum.map(appt.attendances, & &1.status)
       novo = Rollup.block_status(appt.status, statuses)

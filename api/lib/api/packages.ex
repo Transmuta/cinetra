@@ -233,12 +233,18 @@ defmodule Api.Packages do
   defp apply_mark(pkg, :mark_cancelled, scope),
     do: mark_package_cancelled(pkg, scope: scope, return_notifications?: true)
 
-  # As sessões do pacote cujo dia local é hoje-ou-depois e cujo status está na lista.
+  # As sessões do pacote cujo dia local é hoje-ou-depois e cujo status está na lista. Lê os blocos
+  # pelos ids das presenças **incluindo os segurados** (`include_held`) — senão o `.appointment` de
+  # uma sessão segurada por uma pausa anterior volta `nil` (HideHeld) e o cancelar (RN-25) estourava
+  # e deixava as seguradas órfãs (bate-volta 2026-07-24).
   defp future_sessions(scope, package_id, statuses) do
     %{today: today, timezone: tz} = Api.Scheduling.clinic_now(scope)
 
-    list_attendances_for_package(scope, package_id)
-    |> Enum.map(& &1.appointment)
+    ids =
+      list_attendances_for_package(scope, package_id)
+      |> Enum.map(& &1.appointment_id)
+
+    Api.Scheduling.list_sessions_including_held(scope.clinic_id, ids)
     |> Enum.filter(fn appt ->
       appt.status in statuses and
         not Date.before?(Api.Scheduling.LocalTime.to_local_date(appt.starts_at, tz), today)

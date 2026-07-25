@@ -150,6 +150,19 @@ defmodule Api.Scheduling.ParticipantTransitionTest do
                Scheduling.transition_participant(ctx.scope, appt.id, estranho.id, :complete, %{}, appt.version)
     end
 
+    test "bloco cancelado não recebe presença → :block_not_open (F4, não ressuscita)" do
+      ctx = setup_clinic()
+      {appt, _p2} = turma_com_dois(ctx)
+      {:ok, cancelado} = Scheduling.transition_appointment(ctx.scope, appt.id, :cancel, %{}, appt.version)
+
+      assert {:error, :block_not_open} =
+               Scheduling.transition_participant(ctx.scope, appt.id, ctx.paciente.id, :complete, %{}, cancelado.version)
+
+      # e o bloco continua cancelado
+      recarregado = Scheduling.get_appointment!(appt.id, scope: ctx.scope)
+      assert recarregado.status == :cancelado
+    end
+
     test "concluir antes de a sessão começar → :session_not_started" do
       ctx = setup_clinic()
       {appt, _p2} = turma_com_dois(ctx)
