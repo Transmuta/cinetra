@@ -18,6 +18,7 @@
 	import PackageList from '$lib/components/patients/PackageList.svelte';
 	import PackageCreateModal from '$lib/components/patients/PackageCreateModal.svelte';
 	import PackageBulkModal from '$lib/components/patients/PackageBulkModal.svelte';
+	import PatientHistory from '$lib/components/patients/PatientHistory.svelte';
 	import type { Package as Pkg } from '$lib/packages';
 	import type { PageData, ActionData } from './$types';
 
@@ -252,6 +253,9 @@
 		onNew={() => (criandoPacote = true)}
 		onBulk={(pkg) => (ajustando = pkg)}
 	/>
+
+	<!-- Histórico (C13, Frente 7): abaixo dos pacotes, como no protótipo. -->
+	<PatientHistory sessions={data.history} more={data.historyMore} timezone={data.me.timezone ?? 'America/Sao_Paulo'} />
 
 	{#if form?.ok && form?.afetadas != null}
 		<p class="mt-2 text-[12.5px] font-semibold text-success">

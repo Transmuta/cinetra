@@ -298,4 +298,127 @@ defmodule ApiWeb.PatientsControllerTest do
              |> json_response(403)
     end
   end
+
+  # C13 / Frente 7: o histórico é a lista de PRESENÇAS do paciente, não de blocos — numa turma o
+  # bloco pode estar concluído com a presença dele faltando.
+  describe "GET /api/patients/:patient_id/history" do
+    defp dias_atras(n, hhmm) do
+      hoje = Date.utc_today()
+      {:ok, dt} = Api.Scheduling.LocalTime.to_utc(Date.add(hoje, -n), hhmm, "America/Sao_Paulo")
+      dt
+    end
+
+    defp sessao_para(clinic, owner, paciente, starts_at) do
+      prof = Api.Directory.create_professional!("Dra. H", %{}, tenant: clinic.id, actor: owner)
+
+      tipo =
+        Api.Directory.create_appointment_type!(
+          %{
+            nome: "Sessão #{System.unique_integer([:positive])}",
+            duracao_minutos: 50,
+            cor: "#0FB5A6",
+            icon: "Activity"
+          },
+          tenant: clinic.id,
+          actor: owner
+        )
+
+      {:ok, appt} =
+        Api.Scheduling.schedule_appointment(
+          %{
+            starts_at: starts_at,
+            professional_id: prof.id,
+            appointment_type_id: tipo.id,
+            patient_ids: [paciente.id]
+          },
+          tenant: clinic.id,
+          authorize?: false
+        )
+
+      {appt, tipo}
+    end
+
+    test "lista da sessão mais recente para a mais antiga", %{
+      conn: conn,
+      owner: owner,
+      clinic: clinic
+    } do
+      paciente = create_patient(clinic, "Histórico")
+      sessao_para(clinic, owner, paciente, dias_atras(14, "08:00"))
+      {_appt, tipo} = sessao_para(clinic, owner, paciente, dias_atras(7, "09:00"))
+
+      body = json_response(get(conn, "/api/patients/#{paciente.id}/history"), 200)
+
+      assert [primeira, segunda] = body["sessions"]
+      assert primeira["starts_at"] > segunda["starts_at"]
+      assert primeira["tipo"] == tipo.nome
+      assert primeira["status"] == "prevista"
+      assert primeira["profissional"] == "Dra. H"
+      assert body["more"] == false
+    end
+
+    test "o que aparece é a presença DELE, não o desfecho do bloco", %{
+      conn: conn,
+      owner: owner,
+      clinic: clinic
+    } do
+      paciente = create_patient(clinic, "Dono da turma")
+      {appt, _tipo} = sessao_para(clinic, owner, paciente, dias_atras(1, "08:00"))
+      colega = create_patient(clinic, "Colega")
+
+      {:ok, _} =
+        Api.Scheduling.add_appointment_participants(appt, %{patient_ids: [colega.id]},
+          tenant: clinic.id,
+          authorize?: false
+        )
+
+      presencas =
+        Api.Scheduling.list_attendances!(
+          tenant: clinic.id,
+          authorize?: false,
+          query: [filter: [appointment_id: appt.id]]
+        )
+
+      presenca = fn patient_id -> Enum.find(presencas, &(&1.patient_id == patient_id)) end
+
+      # o dono compareceu, o colega faltou → o BLOCO rola para `:concluido` ("aconteceu para pelo
+      # menos um"), e é justamente isso que a ficha do colega não pode mostrar como concluída
+      {:ok, _} =
+        Api.Scheduling.mark_attendance_present(presenca.(paciente.id), %{},
+          tenant: clinic.id,
+          authorize?: false
+        )
+
+      {:ok, _} =
+        Api.Scheduling.mark_attendance_absent(presenca.(colega.id), %{},
+          tenant: clinic.id,
+          authorize?: false
+        )
+
+      dono = json_response(get(conn, "/api/patients/#{paciente.id}/history"), 200)["sessions"]
+      outro = json_response(get(conn, "/api/patients/#{colega.id}/history"), 200)["sessions"]
+
+      assert [%{"status" => "concluida"}] = dono
+      # mesmo bloco, presença diferente — é o ponto do modelo (attendance.ex:8)
+      assert [%{"status" => "faltou", "appointment_status" => "concluido"}] = outro
+    end
+
+    test "respeita o limite e avisa que ficou coisa para trás", %{
+      conn: conn,
+      owner: owner,
+      clinic: clinic
+    } do
+      paciente = create_patient(clinic, "Muitas sessões")
+      Enum.each(1..3, &sessao_para(clinic, owner, paciente, dias_atras(&1, "08:00")))
+
+      body = json_response(get(conn, "/api/patients/#{paciente.id}/history?limit=2"), 200)
+
+      assert length(body["sessions"]) == 2
+      assert body["more"] == true
+    end
+
+    test "exige autenticação", %{base_conn: base_conn} do
+      assert json_response(get(base_conn, "/api/patients/#{Ash.UUID.generate()}/history"), 401)
+    end
+  end
 end

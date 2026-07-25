@@ -8,6 +8,7 @@ vi.mock('$lib/server/appointment-types', () => at);
 
 const m = vi.hoisted(() => ({
 	fetchPatient: vi.fn(),
+	fetchPatientHistory: vi.fn(),
 	deactivatePatient: vi.fn(),
 	reactivatePatient: vi.fn()
 }));
@@ -29,6 +30,7 @@ beforeEach(() => {
 		(fn) => fn.mockReset()
 	);
 	k.fetchPatientPackages.mockResolvedValue({ status: 200, packages: [] });
+	m.fetchPatientHistory.mockResolvedValue({ status: 200, sessions: [], more: false });
 	at.fetchAppointmentTypes.mockResolvedValue({
 		status: 200,
 		data: { appointment_types: [] }
@@ -61,6 +63,24 @@ describe('load', () => {
 		expect(r.appointmentTypes).toEqual([{ id: 't1' }]);
 		expect(r.packages).toEqual([{ id: 'k1' }]);
 	});
+	it('o histórico entra no load (C13, Frente 7)', async () => {
+		m.fetchPatient.mockResolvedValueOnce({ status: 200, patient: { id: 'pac1', nome: 'Mari' } });
+		pf.fetchProfessionals.mockResolvedValueOnce({ data: { professionals: [] } });
+		m.fetchPatientHistory.mockResolvedValueOnce({
+			status: 200,
+			sessions: [{ id: 'att1', status: 'faltou' }],
+			more: true
+		});
+
+		const r = (await load({ params: { id: 'pac1' } } as never)) as {
+			history: unknown[];
+			historyMore: boolean;
+		};
+
+		expect(r.history).toHaveLength(1);
+		expect(r.historyMore).toBe(true);
+	});
+
 	it('não encontrado → 404', async () => {
 		m.fetchPatient.mockResolvedValueOnce({ status: 404, patient: null });
 		pf.fetchProfessionals.mockResolvedValueOnce({ data: null });

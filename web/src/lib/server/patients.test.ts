@@ -7,6 +7,7 @@ import {
 	patientsQuery,
 	fetchPatients,
 	fetchPatient,
+	fetchPatientHistory,
 	createPatient,
 	updatePatient,
 	deactivatePatient,
@@ -149,5 +150,36 @@ describe('runPatientSave', () => {
 		const persist = vi.fn(async () => ({ ok: false, status: 403, error: 'x' }));
 		const res = await runPatientSave(event, form({ ficha: JSON.stringify({ nome: 'Mari' }) }), { persist });
 		expect(res).toMatchObject({ ok: false, status: 403 });
+	});
+});
+
+// C13 / Frente 7. A ficha inteira não pode cair por causa da seção de baixo: falha de rede ou 500
+// no histórico degrada para lista vazia, não para erro de página.
+describe('fetchPatientHistory', () => {
+	it('200 → sessões e o aviso de corte', async () => {
+		apiFetch.mockResolvedValueOnce(
+			json({ sessions: [{ id: 'att1', status: 'faltou' }], more: true })
+		);
+
+		const r = await fetchPatientHistory(event, 'pac1');
+
+		expect(r.sessions).toHaveLength(1);
+		expect(r.more).toBe(true);
+		expect(apiFetch.mock.calls[0][1]).toBe('/api/patients/pac1/history');
+	});
+
+	it('erro → lista vazia (a ficha degrada, não quebra)', async () => {
+		apiFetch.mockResolvedValueOnce(json({}, 500));
+		expect(await fetchPatientHistory(event, 'pac1')).toEqual({
+			status: 500,
+			sessions: [],
+			more: false
+		});
+	});
+
+	it('id forjado não sai do caminho do recurso', async () => {
+		apiFetch.mockResolvedValueOnce(json({ sessions: [], more: false }));
+		await fetchPatientHistory(event, '../../admin');
+		expect(apiFetch.mock.calls[0][1]).toBe('/api/patients/..%2F..%2Fadmin/history');
 	});
 });

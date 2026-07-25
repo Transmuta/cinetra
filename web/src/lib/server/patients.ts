@@ -70,6 +70,47 @@ export async function fetchPatient(event: RequestEvent, id: string): Promise<Pat
 	}
 }
 
+// Histórico de sessões da ficha (C13, Frente 7). É por PRESENÇA: numa turma o bloco pode estar
+// concluído com a presença deste paciente faltando — por isso `status` (da presença) e
+// `appointment_status` (do bloco) vêm separados. Degrada para lista vazia: a ficha inteira não
+// cai por causa da seção de baixo.
+export interface HistorySession {
+	id: string;
+	status: 'prevista' | 'concluida' | 'faltou' | 'cancelada';
+	falta_justificada: boolean;
+	package_id: string | null;
+	appointment_id: string;
+	starts_at: string;
+	ends_at: string;
+	appointment_status: string;
+	obs: string | null;
+	tipo: string | null;
+	cor: string | null;
+	profissional: string | null;
+}
+
+export interface HistoryResult {
+	status: number;
+	sessions: HistorySession[];
+	more: boolean;
+}
+
+export async function fetchPatientHistory(
+	event: RequestEvent,
+	id: string
+): Promise<HistoryResult> {
+	try {
+		const res = await apiFetch(event, `${path(id)}/history`, {
+			headers: { accept: 'application/json' }
+		});
+		if (!res.ok) return { status: res.status, sessions: [], more: false };
+		const body = (await res.json()) as { sessions: HistorySession[]; more: boolean };
+		return { status: res.status, sessions: body.sessions ?? [], more: !!body.more };
+	} catch {
+		return { status: 0, sessions: [], more: false };
+	}
+}
+
 // Create devolve o `id` criado — o save aplica a situação (ativo) logo em seguida. Por isso não
 // usa `mutate` (que descarta o corpo).
 export interface CreateResult extends MutationResult {

@@ -44,6 +44,40 @@ defmodule ApiWeb.PatientsController do
     end)
   end
 
+  # GET /api/patients/:patient_id/history — as sessões do paciente (C13, Frente 7).
+  #
+  # Sai daqui, e não do `AppointmentsController`, porque a pergunta é da FICHA ("o que aconteceu
+  # com este paciente?"), não da agenda ("o que acontece neste dia?") — e a resposta é por
+  # PRESENÇA: numa turma o bloco pode estar concluído com a presença dele faltando.
+  def history(conn, %{"patient_id" => patient_id} = params) do
+    with_member_scope(conn, fn scope ->
+      %{sessions: sessions, more?: more?} =
+        Api.Scheduling.list_patient_history(scope, patient_id, limit: parse_int(params["limit"]))
+
+      json(conn, %{sessions: Enum.map(sessions, &session_json/1), more: more?})
+    end)
+  end
+
+  defp session_json(attendance) do
+    appt = attendance.appointment
+
+    %{
+      id: attendance.id,
+      status: attendance.status,
+      falta_justificada: attendance.falta_justificada,
+      package_id: attendance.package_id,
+      appointment_id: appt.id,
+      starts_at: DateTime.to_iso8601(appt.starts_at),
+      ends_at: DateTime.to_iso8601(appt.ends_at),
+      appointment_status: appt.status,
+      obs: appt.obs,
+      tipo: appt.appointment_type && appt.appointment_type.nome,
+      cor: appt.appointment_type && appt.appointment_type.cor,
+      profissional:
+        appt.professional && (appt.professional.nome_exibicao || appt.professional.nome)
+    }
+  end
+
   # POST /api/patients — cria a ficha (só o nome é obrigatório).
   def create(conn, params) do
     with_admin_scope(conn, fn scope ->

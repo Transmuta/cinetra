@@ -440,6 +440,45 @@ defmodule Api.Scheduling do
   # ---- Agenda: leitura da tela ----
 
   @doc """
+  O **histórico de sessões de um paciente** (C13, Frente 7): as presenças dele com o bloco, do
+  mais recente para o mais antigo.
+
+  É leitura de presença (`Attendance`), não de bloco: numa turma, o que a ficha do paciente conta
+  é o que aconteceu **com ele** — o bloco pode estar `:concluido` com a presença dele `:faltou`
+  (`attendance.ex:8`). Vem com `package_id` para a ficha distinguir sessão de pacote de sessão
+  avulsa.
+
+  O recorte A7 vale de graça: a preparation `OwnAgendaOnly, via: :appointment` da `Attendance` já
+  esconde do papel `profissional` a sessão que não é da coluna dele.
+
+  **Limitado** (default 50, teto 200): a ficha desenha as últimas, e "carrega tudo" numa fila de
+  dois anos é a mesma armadilha que a lista de pacientes já pagou. `more?` diz se ficou coisa para
+  trás — a tela avisa em vez de mentir que aquilo é o histórico inteiro.
+  """
+  def list_patient_history(%Api.Scope{} = scope, patient_id, opts \\ [])
+      when is_binary(patient_id) do
+    limit = Api.Pagination.limit(Keyword.get(opts, :limit), default: 50, max: 200)
+
+    in_clinic(scope, fn ->
+      attendances =
+        list_attendances!(
+          scope: scope,
+          query: [filter: [patient_id: patient_id]],
+          load: [appointment: [:appointment_type, :professional]]
+        )
+        # A ordenação é do BLOCO (`appointment.starts_at`), não da presença — e ordenar pelo campo
+        # de uma relação carregada em memória é o único caminho enquanto a leitura entra pela
+        # `Attendance`. Por isso o teto acima: o corte acontece depois da ordenação, então precisa
+        # caber na memória. Sessão segurada (`pkg_hold`) volta com `.appointment` nulo (RN-05) e
+        # não é histórico — sai aqui.
+        |> Enum.reject(&is_nil(&1.appointment))
+        |> Enum.sort_by(& &1.appointment.starts_at, {:desc, DateTime})
+
+      %{sessions: Enum.take(attendances, limit), more?: length(attendances) > limit}
+    end)
+  end
+
+  @doc """
   Tudo o que a visão Dia precisa, **numa transação só** com a GUC de tenant setada:
   agendamentos da janela, profissionais e tipos ativos, e os pacientes citados.
 

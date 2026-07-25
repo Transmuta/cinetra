@@ -1,6 +1,11 @@
 import { error, fail } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
-import { fetchPatient, deactivatePatient, reactivatePatient } from '$lib/server/patients';
+import {
+	fetchPatient,
+	fetchPatientHistory,
+	deactivatePatient,
+	reactivatePatient
+} from '$lib/server/patients';
 import { fetchProfessionals } from '$lib/server/professionals';
 import { fetchAppointmentTypes } from '$lib/server/appointment-types';
 import {
@@ -11,14 +16,16 @@ import {
 	bulkAdjustPackage
 } from '$lib/server/packages';
 
-// A ficha (só leitura). Vai junto o diretório (nomes dos profissionais preferidos) e os pacotes
-// do paciente (Fatia 3). Histórico e anexos ainda não entram (dependem de v2).
+// A ficha (só leitura). Vão junto o diretório (nomes dos profissionais preferidos), os pacotes
+// (Fatia 3) e o histórico de sessões (C13, Frente 7). Anexos seguem fora: dependem do prontuário
+// (v2). As leituras vão em paralelo — nenhuma depende da outra (H61).
 export const load: PageServerLoad = async (event) => {
-	const [pat, prof, types, pkgs] = await Promise.all([
+	const [pat, prof, types, pkgs, hist] = await Promise.all([
 		fetchPatient(event, event.params.id),
 		fetchProfessionals(event),
 		fetchAppointmentTypes(event),
-		fetchPatientPackages(event, event.params.id)
+		fetchPatientPackages(event, event.params.id),
+		fetchPatientHistory(event, event.params.id)
 	]);
 
 	if (!pat.patient) error(pat.status || 404, 'Paciente não encontrado.');
@@ -27,7 +34,9 @@ export const load: PageServerLoad = async (event) => {
 		patient: pat.patient,
 		professionals: prof.data?.professionals ?? [],
 		appointmentTypes: types.data?.appointment_types ?? [],
-		packages: pkgs.packages
+		packages: pkgs.packages,
+		history: hist.sessions,
+		historyMore: hist.more
 	};
 };
 

@@ -130,6 +130,8 @@ defmodule ApiWeb.Router do
     # decide server-side e enfileira a materialização. Pausar/cancelar operam sobre a série. A
     # lista mora sob o paciente (a ficha). `clinic_id` sempre do escopo.
     get "/patients/:patient_id/packages", PackagesController, :index
+    # Histórico de sessões da ficha (C13, Frente 7) — por PRESENÇA, não por bloco.
+    get "/patients/:patient_id/history", PatientsController, :history
     post "/packages/preview", PackagesController, :preview
     post "/packages", PackagesController, :create
     post "/packages/:id/pause", PackagesController, :pause
