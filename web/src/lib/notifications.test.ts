@@ -35,6 +35,9 @@ describe('notificationHref', () => {
 		expect(notificationHref('appointment_scheduled')).toBe('/agenda');
 		expect(notificationHref('appointment_rescheduled')).toBe('/agenda');
 		expect(notificationHref('appointment_canceled')).toBe('/agenda');
+		// A2 (doc 41 etapa 5)
+		expect(notificationHref('appointment_missed')).toBe('/agenda');
+		expect(notificationHref('participant_added')).toBe('/agenda');
 	});
 
 	it('vaga livre leva à fila', () => {

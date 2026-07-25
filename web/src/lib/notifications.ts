@@ -5,6 +5,10 @@ export type NotificationKind =
 	| 'appointment_scheduled'
 	| 'appointment_rescheduled'
 	| 'appointment_canceled'
+	// A2 (doc 41 etapa 5): falta por participante e entrada em turma — as duas que o doc 31 §3a
+	// deixou para "depois" porque esperavam a fatia de turma/pacote.
+	| 'appointment_missed'
+	| 'participant_added'
 	| 'slot_opened'
 	| 'member_joined';
 
@@ -45,6 +49,8 @@ export function notificationHref(kind: NotificationKind): string | null {
 		case 'appointment_scheduled':
 		case 'appointment_rescheduled':
 		case 'appointment_canceled':
+		case 'appointment_missed':
+		case 'participant_added':
 			return '/agenda';
 		case 'slot_opened':
 			return '/fila';

@@ -19,7 +19,11 @@ defmodule Api.Scheduling.Attendance do
     domain: Api.Scheduling,
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer],
-    extensions: [AshPaperTrail.Resource]
+    extensions: [AshPaperTrail.Resource],
+    # Só o da caixa de notificações, e só para a falta por participante (#46, doc 41 etapa 5): o
+    # `AgendaNotifier` continua **fora** daqui de propósito, senão o evento de tempo real sairia
+    # duas vezes (a presença muda e o rollup escreve o bloco). Ver o moduledoc do `Appointment`.
+    notifiers: [Api.Notifications.Notifier]
 
   postgres do
     table "attendances"

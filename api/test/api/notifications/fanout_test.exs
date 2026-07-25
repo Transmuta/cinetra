@@ -154,6 +154,85 @@ defmodule Api.Notifications.FanoutTest do
     end
   end
 
+  # A2 (doc 41 etapa 5): as duas famílias que o doc 31 §3a deixou como "🟡 depois" porque
+  # esperavam a fatia de turma/pacote.
+  describe "falta e entrada em turma → profissional dono da coluna" do
+    test "#46 — falta POR PARTICIPANTE avisa o profissional, com o nome do paciente" do
+      ctx = setup_clinic()
+      prof_user = member(ctx.clinic, :profissional, ctx.prof.id)
+      owner_scope = scope_for(ctx.owner, ctx.clinic)
+
+      {:ok, appt} = schedule(ctx, owner_scope, %{starts_at: segunda_passada("08:00")})
+
+      {:ok, _} =
+        Scheduling.transition_participant(owner_scope, appt.id, ctx.paciente.id, :no_show)
+
+      falta = Enum.find(inbox(prof_user, ctx.clinic), &(&1.kind == :appointment_missed))
+      assert falta
+      assert falta.body =~ "Paciente"
+      assert falta.data["patient_id"] == ctx.paciente.id
+    end
+
+    test "#46 — o próprio profissional marcando não se notifica" do
+      ctx = setup_clinic()
+      prof_user = member(ctx.clinic, :profissional, ctx.prof.id)
+      prof_scope = scope_for(prof_user, ctx.clinic)
+
+      {:ok, appt} = schedule(ctx, prof_scope, %{starts_at: segunda_passada("08:00")})
+      {:ok, _} = Scheduling.transition_participant(prof_scope, appt.id, ctx.paciente.id, :no_show)
+
+      refute :appointment_missed in kinds(prof_user, ctx.clinic)
+    end
+
+    test "#46 — concluir NÃO gera notificação (é ruído: doc 31 §3a)" do
+      ctx = setup_clinic()
+      prof_user = member(ctx.clinic, :profissional, ctx.prof.id)
+      owner_scope = scope_for(ctx.owner, ctx.clinic)
+
+      {:ok, appt} = schedule(ctx, owner_scope, %{starts_at: segunda_passada("08:00")})
+
+      {:ok, _} =
+        Scheduling.transition_participant(owner_scope, appt.id, ctx.paciente.id, :complete)
+
+      refute :appointment_missed in kinds(prof_user, ctx.clinic)
+    end
+
+    test "#47 — entrar numa turma avisa o profissional" do
+      ctx = setup_clinic()
+      prof_user = member(ctx.clinic, :profissional, ctx.prof.id)
+      owner_scope = scope_for(ctx.owner, ctx.clinic)
+
+      turma =
+        Directory.create_appointment_type!(
+          %{
+            nome: "Turma #{System.unique_integer([:positive])}",
+            duracao_minutos: 50,
+            cor: "#0FB5A6",
+            icon: "Users",
+            grupo: true,
+            capacidade: 4
+          },
+          tenant: ctx.clinic.id,
+          actor: ctx.owner
+        )
+
+      {:ok, _} =
+        schedule(ctx, owner_scope, %{appointment_type_id: turma.id})
+
+      colega =
+        Records.create_patient!("Colega", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+
+      # mesmo profissional/tipo/horário → funde na turma (o caminho do `:add_participant`)
+      {:ok, _} =
+        schedule(ctx, owner_scope, %{
+          appointment_type_id: turma.id,
+          patient_ids: [colega.id]
+        })
+
+      assert :participant_added in kinds(prof_user, ctx.clinic)
+    end
+  end
+
   describe "vaga que abre com fila casando → recepção" do
     test "cancelar com fila que casa avisa a recepção" do
       ctx = setup_clinic()

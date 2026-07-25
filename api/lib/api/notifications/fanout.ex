@@ -54,6 +54,68 @@ defmodule Api.Notifications.Fanout do
 
   def appointment_touched(_appointment, _action_name, _actor), do: :ok
 
+  @doc """
+  Notifica o profissional dono da coluna quando **um participante falta** (#46, doc 31 §3a; A2:
+  a falta é da presença, não do bloco — numa turma um pode faltar e o outro não).
+
+  Recebe a `Attendance` que acabou de virar `:faltou`; o bloco (coluna, horário) é lido a partir
+  dela, `authorize?: false` como o resto do fan-out. Autor suprimido: na prática dispara quando a
+  recepção marca a falta na agenda do profissional, que é o caso em que ele precisa saber.
+  """
+  def participant_missed(attendance, actor) do
+    with %{} = appointment <- load_appointment(attendance),
+         recipient_id when not is_nil(recipient_id) <-
+           professional_user_id(attendance.clinic_id, appointment.professional_id),
+         true <- deliver?(recipient_id, actor) do
+      tz = clinic_timezone(attendance.clinic_id)
+      paciente = patient_name(attendance)
+
+      notify(
+        attendance.clinic_id,
+        recipient_id,
+        :appointment_missed,
+        "Falta registrada",
+        "#{paciente} faltou na sessão de #{when_str(appointment.starts_at, tz)}.",
+        %{
+          appointment_id: appointment.id,
+          patient_id: attendance.patient_id,
+          date: local_date_iso(appointment.starts_at, tz),
+          actor: actor_payload(actor)
+        }
+      )
+    end
+
+    :ok
+  end
+
+  @doc """
+  Notifica o profissional dono da coluna quando alguém **entra numa turma** dele (#47, doc 31
+  §3a). Uma notificação por escrita, não por participante: entrar com três de uma vez é um
+  evento só para quem lê.
+  """
+  def participant_added(appointment, actor) do
+    recipient_id = professional_user_id(appointment.clinic_id, appointment.professional_id)
+
+    if deliver?(recipient_id, actor) do
+      tz = clinic_timezone(appointment.clinic_id)
+
+      notify(
+        appointment.clinic_id,
+        recipient_id,
+        :participant_added,
+        "Novo participante na turma",
+        "Alguém entrou na turma de #{when_str(appointment.starts_at, tz)}.",
+        %{
+          appointment_id: appointment.id,
+          date: local_date_iso(appointment.starts_at, tz),
+          actor: actor_payload(actor)
+        }
+      )
+    end
+
+    :ok
+  end
+
   # ---- Falta/cancelamento que abre vaga com fila casando → recepção/admin/owner ----
 
   @doc """
@@ -150,6 +212,36 @@ defmodule Api.Notifications.Fanout do
       query: [filter: [clinic_id: clinic_id, status: :ativo]],
       authorize?: false
     )
+  end
+
+  # O bloco de uma presença, para saber de quem é a coluna e a que horas. `nil` se sumiu (o
+  # fan-out é best-effort e pós-commit — não é ele que decide se a escrita valeu).
+  defp load_appointment(%{clinic_id: clinic_id, appointment_id: appointment_id}) do
+    Api.Repo.with_clinic(clinic_id, fn ->
+      Api.Scheduling.get_appointment(appointment_id,
+        tenant: clinic_id,
+        authorize?: false,
+        not_found_error?: false
+      )
+    end)
+    |> case do
+      {:ok, {:ok, %{} = appointment}} -> appointment
+      _ -> nil
+    end
+  end
+
+  defp patient_name(%{clinic_id: clinic_id, patient_id: patient_id}) do
+    Api.Repo.with_clinic(clinic_id, fn ->
+      Api.Records.get_patient(patient_id,
+        tenant: clinic_id,
+        authorize?: false,
+        not_found_error?: false
+      )
+    end)
+    |> case do
+      {:ok, {:ok, %{nome: nome}}} when is_binary(nome) -> nome
+      _ -> "Um paciente"
+    end
   end
 
   defp user_name(user_id) do

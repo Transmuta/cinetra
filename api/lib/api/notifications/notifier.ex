@@ -2,13 +2,31 @@ defmodule Api.Notifications.Notifier do
   @moduledoc """
   A cola Ash entre os eventos de domínio e o `Api.Notifications.Fanout` (doc 31). Um `Ash.Notifier`
   roda **depois do commit**, então a caixa nunca registra um evento que a transação ainda vai
-  desfazer. Anexado ao `Appointment` (ciclo de vida) e ao `Membership` (convite aceito).
+  desfazer. Anexado ao `Appointment` (ciclo de vida), à `Attendance` (falta por participante, A2)
+  e ao `Membership` (convite aceito).
 
   Toda decisão de *quem recebe* mora no `Fanout`; aqui só se roteia a ação para a função certa. As
   gravações do Fanout são best-effort e engolidas lá — este notifier sempre devolve `:ok`, para
   não transformar uma falha de notificação em erro da ação de origem.
+
+  **A ordem das cláusulas importa**: a de `:add_participant` vem antes da cláusula geral do
+  `Appointment`, que casa qualquer nome de ação. Invertê-las faria a específica nunca rodar — e o
+  sintoma seria só uma notificação a menos, sem erro nenhum.
   """
   use Ash.Notifier
+
+  # #47 (doc 31 §3a): alguém entrou numa turma da coluna do profissional. Cláusula própria porque
+  # o texto é outro — `appointment_touched` fala de "um agendamento", e aqui o bloco já existia.
+  @impl true
+  def notify(%Ash.Notifier.Notification{
+        resource: Api.Scheduling.Appointment,
+        action: %{name: :add_participant},
+        data: appointment,
+        actor: actor
+      }) do
+    Api.Notifications.Fanout.participant_added(appointment, actor)
+    :ok
+  end
 
   @impl true
   def notify(%Ash.Notifier.Notification{
@@ -26,6 +44,20 @@ defmodule Api.Notifications.Notifier do
       actor
     )
 
+    :ok
+  end
+
+  # #46 (doc 31 §3a), na forma da A2: a falta é da PRESENÇA. Por isso este notifier também está
+  # na `Attendance` — o rollup do bloco não distingue "um dos quatro faltou" de "a turma toda
+  # faltou", e é o participante que o profissional precisa saber.
+  @impl true
+  def notify(%Ash.Notifier.Notification{
+        resource: Api.Scheduling.Attendance,
+        action: %{name: :mark_absent},
+        data: attendance,
+        actor: actor
+      }) do
+    Api.Notifications.Fanout.participant_missed(attendance, actor)
     :ok
   end
 
