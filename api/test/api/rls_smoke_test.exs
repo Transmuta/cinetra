@@ -349,4 +349,55 @@ defmodule Api.RlsSmokeTest do
                :concluida
     end
   end
+
+  describe "massa por pacote e histórico sob RLS (A2 etapa 3 / C13)" do
+    test "bulk_cancel varre e escreve sob a própria GUC — 0 afetadas aqui = GUC faltando" do
+      ctx = fixture()
+
+      {:ok, pkg} = Packages.create_series(ctx.scope, package_params(ctx, total: 2), forcar: false)
+      :ok = sem_guc()
+      assert %{success: 1, failure: 0} = Oban.drain_queue(queue: :housekeeping)
+
+      # A massa abre a PRÓPRIA transação (`Api.Packages.Bulk.run/3`) e seta a GUC nela: sem isso a
+      # escrita estouraria `""::uuid` ou bateria no WITH CHECK da policy. Nada disso aparece no
+      # `mix test`, que roda como `postgres`.
+      #
+      # LIMITE MEDIDO deste gate (vale para todo este arquivo): o sandbox roda o teste inteiro numa
+      # transação só, então o **primeiro** `in_clinic` do caminho deixa a GUC pendurada para as
+      # leituras seguintes. Tirar o `in_clinic` de uma leitura INTERNA (`Bulk.attendances/2`, por
+      # exemplo) continua passando aqui — em produção não, porque lá cada `with_clinic` commita e a
+      # GUC morre com ele. O que este teste prova é a porta de entrada e a escrita; leitura interna
+      # sem GUC continua sendo achado de revisão, não de suíte.
+      :ok = sem_guc()
+
+      assert {:ok, %{afetadas: afetadas}} =
+               Packages.bulk_cancel(ctx.scope, pkg.id, %{escopo: :todas})
+
+      assert afetadas > 0, "a massa não achou as sessões do pacote (GUC faltando?)"
+    end
+
+    test "o histórico da ficha lê as presenças sob RLS" do
+      ctx = fixture()
+
+      {:ok, _appt} =
+        Scheduling.schedule_appointment(
+          %{
+            starts_at: at("08:00"),
+            professional_id: ctx.prof.id,
+            appointment_type_id: ctx.tipo.id,
+            patient_ids: [ctx.paciente.id]
+          },
+          scope: ctx.scope
+        )
+
+      # Mesma armadilha das outras leituras da ficha: sem `in_clinic` a lista volta VAZIA no
+      # servidor real e cheia no `mix test`.
+      :ok = sem_guc()
+
+      assert %{sessions: [sessao], more?: false} =
+               Scheduling.list_patient_history(ctx.scope, ctx.paciente.id)
+
+      assert sessao.appointment, "o bloco não veio junto (GUC faltando na relação?)"
+    end
+  end
 end

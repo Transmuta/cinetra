@@ -98,15 +98,29 @@ describe('AppointmentDrawer', () => {
 		expect(screen.getByRole('button', { name: 'Faltou' })).toBeEnabled();
 	});
 
-	it('o clique preenche o form da presença com participante e verbo', async () => {
-		const { container } = render(AppointmentDrawer, { props: { appt: appt(), ...base } });
+	// Regressão do bug que só o clique AO VIVO pegou: os campos são atribuídos e o form é
+	// submetido logo em seguida. Sem esperar o flush do Svelte, o submit sai com os campos VAZIOS
+	// (400 "Participante ou ação não informados") — e o `fireEvent` sozinho não denuncia, porque
+	// ele já devolve depois do flush. Por isso a asserção é no MOMENTO do submit.
+	it('o form da presença chega ao submit já preenchido', async () => {
+		const capturado: Record<string, string> = {};
+		const original = HTMLFormElement.prototype.requestSubmit;
 
-		await fireEvent.click(screen.getByRole('button', { name: 'Faltou' }));
+		HTMLFormElement.prototype.requestSubmit = function () {
+			for (const campo of ['patient_id', 'kind', 'justificada']) {
+				capturado[campo] =
+					this.querySelector<HTMLInputElement>(`input[name="${campo}"]`)?.value ?? '';
+			}
+		};
 
-		expect(container.querySelector<HTMLInputElement>('input[name="patient_id"]')?.value).toBe(
-			'pac1'
-		);
-		expect(container.querySelector<HTMLInputElement>('input[name="kind"]')?.value).toBe('no_show');
+		try {
+			render(AppointmentDrawer, { props: { appt: appt(), ...base } });
+			await fireEvent.click(screen.getByRole('button', { name: 'Faltou' }));
+		} finally {
+			HTMLFormElement.prototype.requestSubmit = original;
+		}
+
+		expect(capturado).toEqual({ patient_id: 'pac1', kind: 'no_show', justificada: 'false' });
 	});
 
 	it('presença resolvida troca os botões por "Desfazer"', () => {

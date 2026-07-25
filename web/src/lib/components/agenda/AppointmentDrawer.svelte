@@ -8,6 +8,7 @@
 	//
 	// A autoridade é a policy/máquina do servidor; o que mora aqui é espelho de UX (D-E4.1: o
 	// gate de "começou" desabilita concluir/faltar; o servidor recusa de qualquer jeito).
+	import { tick } from 'svelte';
 	import { enhance } from '$app/forms';
 	import ArrowRight from '@lucide/svelte/icons/arrow-right';
 	import Send from '@lucide/svelte/icons/send';
@@ -96,10 +97,16 @@
 	let presencaKind = $state('');
 	let presencaJustificada = $state('false');
 
-	function marcarPresenca(patientId: string, kind: string, justificada = false) {
+	// O `await tick()` NÃO é cerimônia: sem ele o `requestSubmit()` roda no mesmo tick da
+	// atribuição, o Svelte 5 ainda não escreveu os `value` dos inputs escondidos, e o form sai com
+	// os campos VAZIOS — o servidor responde "Participante ou ação não informados" (400). Achado no
+	// clique ao vivo: o teste de componente não pega, porque o `fireEvent` do testing-library já
+	// devolve depois do flush.
+	async function marcarPresenca(patientId: string, kind: string, justificada = false) {
 		presencaPatient = patientId;
 		presencaKind = kind;
 		presencaJustificada = String(justificada);
+		await tick();
 		presencaForm?.requestSubmit();
 	}
 
