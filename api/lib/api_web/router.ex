@@ -154,6 +154,23 @@ defmodule ApiWeb.Router do
     post "/appointments/:id/exclude", AppointmentsController, :exclude
     post "/appointments/:id/justify-absence", AppointmentsController, :justify_absence
 
+    # Presença por participante (Frente 6/A2, doc 41 / 09 §3.1.1). Sub-rota do bloco.
+    post "/appointments/:id/participants/:patient_id/complete",
+         AppointmentsController,
+         :participant_complete
+
+    post "/appointments/:id/participants/:patient_id/no_show",
+         AppointmentsController,
+         :participant_no_show
+
+    post "/appointments/:id/participants/:patient_id/reopen",
+         AppointmentsController,
+         :participant_reopen
+
+    post "/appointments/:id/participants/:patient_id/justify",
+         AppointmentsController,
+         :participant_justify
+
     # Cálculo, não coleção (09:253): a composição das 4 camadas de expediente.
     get "/availability", AvailabilityController, :index
 

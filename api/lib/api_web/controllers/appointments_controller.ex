@@ -116,11 +116,52 @@ defmodule ApiWeb.AppointmentsController do
   end
 
   defp transition(conn, scope, id, kind, input, params) do
-    case Scheduling.transition_appointment(scope, id, kind, input, expected_version(params)) do
+    handle_transition(
+      conn,
+      Scheduling.transition_appointment(scope, id, kind, input, expected_version(params))
+    )
+  end
+
+  # ---- presença por participante (Frente 6/A2, doc 41) ----
+  #
+  # Sub-rotas do bloco: `POST /appointments/:id/participants/:patient_id/{complete,no_show,reopen,
+  # justify}` (docs/09 §3.1.1). Marca UMA presença; o desfecho do bloco vira rollup. O guard de
+  # versão (409) e o `SessionStarted` são do `transition_participant/6`; o débito é automático,
+  # pela `Attendance.package_id` do dono (Frente 5).
+
+  # POST /api/appointments/:id/participants/:patient_id/complete
+  def participant_complete(conn, %{"id" => id, "patient_id" => pid} = params),
+    do: participant(conn, id, pid, :complete, %{}, params)
+
+  # POST /api/appointments/:id/participants/:patient_id/no_show
+  def participant_no_show(conn, %{"id" => id, "patient_id" => pid} = params),
+    do: participant(conn, id, pid, :no_show, %{}, params)
+
+  # POST /api/appointments/:id/participants/:patient_id/reopen
+  def participant_reopen(conn, %{"id" => id, "patient_id" => pid} = params),
+    do: participant(conn, id, pid, :reopen, %{}, params)
+
+  # POST /api/appointments/:id/participants/:patient_id/justify
+  def participant_justify(conn, %{"id" => id, "patient_id" => pid} = params),
+    do: participant(conn, id, pid, :justify, %{justificada: truthy(params["justificada"])}, params)
+
+  defp participant(conn, id, patient_id, kind, input, params) do
+    with_member_scope(conn, fn scope ->
+      handle_transition(
+        conn,
+        Scheduling.transition_participant(scope, id, patient_id, kind, input, expected_version(params))
+      )
+    end)
+  end
+
+  # A escada de resposta é a mesma do bloco; `:participant_not_found` e `:session_not_started`
+  # entram no vocabulário das sub-rotas.
+  defp handle_transition(conn, result) do
+    case result do
       {:ok, appointment} ->
         json(conn, %{appointment: render_appointment(appointment)})
 
-      {:error, :not_found} ->
+      {:error, kind} when kind in [:not_found, :participant_not_found] ->
         not_found(conn)
 
       {:error, :version_conflict} ->
@@ -129,6 +170,11 @@ defmodule ApiWeb.AppointmentsController do
           "version_conflict",
           "Este agendamento mudou desde que você o abriu. Recarregue e tente de novo."
         )
+
+      {:error, :session_not_started} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: "session_not_started", message: "Disponível após o horário da sessão."})
 
       {:error, error} ->
         error_response(conn, error)

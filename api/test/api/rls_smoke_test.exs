@@ -310,4 +310,30 @@ defmodule Api.RlsSmokeTest do
       assert length(carimbadas) == 3, "materialização não gravou as 3 sessões sob RLS"
     end
   end
+
+  describe "presença por participante sob RLS (Frente 6/A2)" do
+    test "marcar presente rola o desfecho do bloco — o rollup lê+escreve o bloco sob RLS" do
+      ctx = fixture()
+
+      {:ok, appt} =
+        Scheduling.schedule_appointment(
+          %{starts_at: at("08:00"), professional_id: ctx.prof.id,
+            appointment_type_id: ctx.tipo.id, patient_ids: [ctx.paciente.id]},
+          scope: ctx.scope
+        )
+
+      # A GUC pendurada pelo setup é zerada: o `RollupBlockStatus` lê o bloco e o reescreve DENTRO
+      # da transação da ação de presença — se a GUC não caísse ali (o `SetTenantGuc` da ação de
+      # `Attendance`), a leitura do bloco voltaria vazia e o `Ash.get!` estouraria. Invisível ao
+      # `mix test` (postgres/BYPASSRLS).
+      :ok = sem_guc()
+
+      assert {:ok, updated} =
+               Scheduling.transition_participant(ctx.scope, appt.id, ctx.paciente.id, :complete, %{}, appt.version)
+
+      assert updated.status == :concluido, "o rollup não escreveu o desfecho (GUC faltando?)"
+      assert updated.version == appt.version + 1
+      assert Enum.find(updated.attendances, &(&1.patient_id == ctx.paciente.id)).status == :concluida
+    end
+  end
 end

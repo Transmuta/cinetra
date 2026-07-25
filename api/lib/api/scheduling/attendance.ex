@@ -83,6 +83,46 @@ defmodule Api.Scheduling.Attendance do
       accept [:status, :falta_justificada]
     end
 
+    # As transições de presença POR PARTICIPANTE (Frente 6/A2, doc 41). Substituem, na UI, as
+    # ações de bloco (`Appointment.mark_completed`/`mark_missed`/`set_falta_justificada`): marca-se
+    # cada presença, e o desfecho do bloco vira ROLLUP (`RollupBlockStatus`). O guard de horário
+    # (`SessionStarted`) e o de versão (409) moram no wrapper do domínio (`transition_participant`),
+    # como no bloco — a presença não tem `starts_at`, e ler o bloco aqui cairia antes do
+    # `SetTenantGuc` (RLS). O `StatusIn` (genérico, lê `data.status`) fica aqui: é o F4 do QA.
+    update :mark_present do
+      require_atomic? false
+      validate {Api.Scheduling.Appointment.Validations.StatusIn, from: [:prevista]}
+      change set_attribute(:status, :concluida)
+      change Api.Scheduling.Attendance.Changes.RollupBlockStatus
+    end
+
+    update :mark_absent do
+      require_atomic? false
+      validate {Api.Scheduling.Appointment.Validations.StatusIn, from: [:prevista]}
+      change set_attribute(:status, :faltou)
+      change Api.Scheduling.Attendance.Changes.RollupBlockStatus
+    end
+
+    # Desfaz um clique errado nesta presença: volta a `:prevista` e zera a justificativa, então o
+    # agregado `Patient.faltas` e o `usadas` do pacote recuam junto.
+    update :reopen_attendance do
+      require_atomic? false
+      validate {Api.Scheduling.Appointment.Validations.StatusIn, from: [:concluida, :faltou]}
+      change set_attribute(:status, :prevista)
+      change set_attribute(:falta_justificada, false)
+      change Api.Scheduling.Attendance.Changes.RollupBlockStatus
+    end
+
+    # Justificar/desjustificar a falta desta presença (só quando faltou). Não mexe no status; o
+    # rollup ainda roda (bumpa a versão do bloco e notifica), e é o que faz a falta parar de contar.
+    update :justify_absence do
+      require_atomic? false
+      validate {Api.Scheduling.Appointment.Validations.StatusIn, from: [:faltou]}
+      argument :justificada, :boolean, allow_nil?: false
+      change set_attribute(:falta_justificada, arg(:justificada))
+      change Api.Scheduling.Attendance.Changes.RollupBlockStatus
+    end
+
     # Vincula a presença ao pacote (Fatia 3). Chamada pela materialização da série
     # (`Api.Packages.Materializer`) logo após criar a sessão: `package_id` é o vínculo por
     # participante (D11) que o contador `usadas` do pacote conta. Separada da `:create` porque a

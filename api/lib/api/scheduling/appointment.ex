@@ -361,6 +361,17 @@ defmodule Api.Scheduling.Appointment do
       change Api.Scheduling.Appointment.Changes.BumpVersion
     end
 
+    # Rollup do desfecho a partir das presenças (Frente 6/A2, doc 41). Interna: só a
+    # `Attendance.Changes.RollupBlockStatus` a chama (`authorize?: false`), depois de uma
+    # transição de presença. Sempre bumpa a `version` — mexer numa presença é mexer no bloco —, o
+    # que também dispara o `AgendaNotifier`. Não passa por `SessionStarted`/`StatusIn`: o gate é
+    # da presença; o bloco só reflete.
+    update :apply_participant_rollup do
+      require_atomic? false
+      accept [:status]
+      change Api.Scheduling.Appointment.Changes.BumpVersion
+    end
+
     # Excluir (soft-delete, doc 40): tira da vista um lançamento feito por engano. Só o que
     # **não aconteceu** — `agendado`/`confirmado`/`cancelado`; `concluido`/`faltou`/`em_atendimento`
     # não, porque debitam pacote e cascatearam presença (para desfazer um "faltou" errado o

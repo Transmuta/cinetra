@@ -61,6 +61,14 @@ defmodule Api.Scheduling do
       # A materialização do pacote (Fatia 3) carimba o `package_id` na presença logo após criar a
       # sessão. Recebe o registro e o novo pacote como argumento extra (mapa antes das opções).
       define :set_attendance_package, action: :set_package
+
+      # Transições de presença POR PARTICIPANTE (Frente 6/A2). Cruas: quem chama de fora usa
+      # `transition_participant/6`, que faz o fetch-then-update com o guard de `version` (409) e o
+      # `SessionStarted` sobre o bloco.
+      define :mark_attendance_present, action: :mark_present
+      define :mark_attendance_absent, action: :mark_absent
+      define :reopen_attendance_slot, action: :reopen_attendance
+      define :justify_attendance_absence, action: :justify_absence
     end
 
     # Os recursos `*.Version` acima nasciam registrados (`include_versions?`) mas **sem code
@@ -339,6 +347,78 @@ defmodule Api.Scheduling do
 
   defp dispatch_transition(:justify, appt, input, scope),
     do: justify_appointment_absence(appt, input, scope: scope)
+
+  @doc """
+  Transição de presença de **um participante** (Frente 6/A2, doc 41): `:complete` | `:no_show` |
+  `:reopen` | `:justify`. Espelha `transition_appointment/5` — fetch-then-update com o guard de
+  `version` (409) no **bloco** —, mas escreve na `Attendance` do `patient_id`; o desfecho do bloco
+  vira rollup (`Attendance.Changes.RollupBlockStatus`).
+
+  `:complete`/`:no_show` só depois de a sessão começar (`SessionStarted` sobre o `starts_at` do
+  bloco — a presença não o tem, e lê-lo dentro da ação cairia antes do `SetTenantGuc`). `:reopen`
+  e `:justify` não passam por esse gate. `input` carrega `%{justificada: bool}` no `:justify`.
+
+  Devolve `{:ok, appointment}` (o bloco com o status já rolado e as presenças frescas) ou
+  `{:error, :not_found | :participant_not_found | :version_conflict | :session_not_started | _}`.
+  """
+  def transition_participant(
+        scope,
+        appointment_id,
+        patient_id,
+        kind,
+        input \\ %{},
+        expected_version \\ nil
+      )
+
+  def transition_participant(
+        %Api.Scope{} = scope,
+        appointment_id,
+        patient_id,
+        kind,
+        input,
+        expected_version
+      )
+      when is_binary(appointment_id) and is_binary(patient_id) and is_atom(kind) do
+    with {:ok, appt} <- fetch_for_transition(scope, appointment_id, expected_version),
+         :ok <- session_started_ok(appt, kind, scope),
+         {:ok, attendance} <- find_participant(appt, patient_id),
+         {:ok, _updated} <- dispatch_participant(kind, attendance, input, scope) do
+      # O rollup mudou o status/version do bloco: relê o bloco inteiro (não só a relação) para
+      # a fronteira renderizar o desfecho novo com as presenças. Uma leitura a mais, no caminho
+      # frio de uma transição.
+      {:ok,
+       in_clinic(scope, fn -> get_appointment!(appointment_id, scope: scope, load: [:attendances]) end)}
+    end
+  end
+
+  # `:reopen`/`:justify` liberam a qualquer hora (desfazer clique errado); concluir/faltar só
+  # depois de a sessão começar (RN-58, mesma fronteira do `SessionStarted` do bloco).
+  defp session_started_ok(_appt, kind, _scope) when kind in [:reopen, :justify], do: :ok
+
+  defp session_started_ok(%{starts_at: %DateTime{} = starts_at}, _kind, %{now: now}) do
+    if DateTime.compare(starts_at, now) != :gt, do: :ok, else: {:error, :session_not_started}
+  end
+
+  defp find_participant(%{attendances: attendances}, patient_id) when is_list(attendances) do
+    case Enum.find(attendances, &(&1.patient_id == patient_id)) do
+      nil -> {:error, :participant_not_found}
+      attendance -> {:ok, attendance}
+    end
+  end
+
+  defp find_participant(_appt, _patient_id), do: {:error, :participant_not_found}
+
+  defp dispatch_participant(:complete, attendance, _input, scope),
+    do: mark_attendance_present(attendance, %{}, scope: scope)
+
+  defp dispatch_participant(:no_show, attendance, _input, scope),
+    do: mark_attendance_absent(attendance, %{}, scope: scope)
+
+  defp dispatch_participant(:reopen, attendance, _input, scope),
+    do: reopen_attendance_slot(attendance, %{}, scope: scope)
+
+  defp dispatch_participant(:justify, attendance, input, scope),
+    do: justify_attendance_absence(attendance, input, scope: scope)
 
   # ---- Agenda: leitura da tela ----
 

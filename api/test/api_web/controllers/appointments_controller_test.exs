@@ -841,6 +841,110 @@ defmodule ApiWeb.AppointmentsControllerTest do
     end
   end
 
+  # Cria uma turma com dois participantes via HTTP; devolve {id, version, p2_id}.
+  defp create_turma(conn, ctx) do
+    turma =
+      Directory.create_appointment_type!(
+        %{nome: "Turma #{System.unique_integer([:positive])}", duracao_minutos: 50,
+          cor: "#0FB5A6", icon: "Users", grupo: true, capacidade: 4},
+        tenant: ctx.clinic.id,
+        actor: ctx.owner
+      )
+
+    p2 = Records.create_patient!("P2 #{System.unique_integer([:positive])}", %{},
+           tenant: ctx.clinic.id, actor: ctx.owner)
+
+    resp =
+      conn
+      |> authed(ctx.owner)
+      |> post("/api/appointments",
+        payload(ctx, %{"appointment_type_id" => turma.id, "patient_ids" => [ctx.paciente.id, p2.id]})
+      )
+
+    appt = json_response(resp, 201)["appointment"]
+    {appt["id"], appt["version"], p2.id}
+  end
+
+  defp part_post(conn, ctx, id, patient_id, verbo, body) do
+    conn
+    |> authed(ctx.owner)
+    |> post("/api/appointments/#{id}/participants/#{patient_id}/#{verbo}", body)
+  end
+
+  describe "presença por participante (A2, doc 41)" do
+    test "complete de um participante devolve 200 e avança a versão do bloco", %{conn: conn} do
+      ctx = fixture()
+      {id, version, _p2} = create_turma(conn, ctx)
+
+      resp = part_post(conn, ctx, id, ctx.paciente.id, "complete", %{"expected_version" => version})
+      appt = json_response(resp, 200)["appointment"]
+      assert appt["version"] == version + 1
+    end
+
+    test "um complete + um no_show fecham o bloco em :concluido", %{conn: conn} do
+      ctx = fixture()
+      {id, version, p2} = create_turma(conn, ctx)
+
+      c1 = part_post(conn, ctx, id, ctx.paciente.id, "complete", %{"expected_version" => version})
+      v1 = json_response(c1, 200)["appointment"]["version"]
+
+      resp = part_post(conn, ctx, id, p2, "no_show", %{"expected_version" => v1})
+      assert json_response(resp, 200)["appointment"]["status"] == "concluido"
+    end
+
+    test "expected_version obsoleto → 409 version_conflict", %{conn: conn} do
+      ctx = fixture()
+      {id, version, _p2} = create_turma(conn, ctx)
+
+      resp = part_post(conn, ctx, id, ctx.paciente.id, "complete", %{"expected_version" => version + 5})
+      assert json_response(resp, 409)["code"] == "version_conflict"
+    end
+
+    test "paciente fora do bloco → 404", %{conn: conn} do
+      ctx = fixture()
+      {id, version, _p2} = create_turma(conn, ctx)
+      estranho = Records.create_patient!("Estranho", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+
+      resp = part_post(conn, ctx, id, estranho.id, "complete", %{"expected_version" => version})
+      assert json_response(resp, 404)
+    end
+
+    test "justify após no_show devolve 200", %{conn: conn} do
+      ctx = fixture()
+      {id, version, _p2} = create_turma(conn, ctx)
+
+      c1 = part_post(conn, ctx, id, ctx.paciente.id, "no_show", %{"expected_version" => version})
+      v1 = json_response(c1, 200)["appointment"]["version"]
+
+      resp = part_post(conn, ctx, id, ctx.paciente.id, "justify",
+               %{"justificada" => true, "expected_version" => v1})
+      assert json_response(resp, 200)
+    end
+
+    test "recepção PODE marcar presença (A8)", %{conn: conn} do
+      ctx = fixture()
+      {id, version, _p2} = create_turma(conn, ctx)
+      recepcao = member_session(ctx.owner, ctx.clinic, :recepcao)
+
+      resp =
+        conn
+        |> authed(recepcao)
+        |> post("/api/appointments/#{id}/participants/#{ctx.paciente.id}/complete",
+          %{"expected_version" => version})
+
+      assert json_response(resp, 200)
+    end
+
+    test "sem sessão é 401", %{conn: conn} do
+      ctx = fixture()
+      {id, version, _p2} = create_turma(conn, ctx)
+
+      resp = post(conn, "/api/appointments/#{id}/participants/#{ctx.paciente.id}/complete",
+               %{"expected_version" => version})
+      assert json_response(resp, 401)
+    end
+  end
+
   # Sem medir, "otimizei" é alegação — o teto no teste é o que impede a regressão voltar calada.
   defp count_queries(fun, source \\ nil) do
     {_result, n} = Api.QueryCounter.count(fun, source)
