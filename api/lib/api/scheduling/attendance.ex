@@ -71,7 +71,10 @@ defmodule Api.Scheduling.Attendance do
 
     create :create do
       primary? true
-      accept [:patient_id, :appointment_id]
+      # `package_id` entra aqui (doc 41 etapa 2) porque quem cria a presença é o
+      # `manage_relationship` do bloco (`Changes.ManageParticipants`): o vínculo com o pacote nasce
+      # com ela, em vez de um `set_package` numa segunda escrita.
+      accept [:patient_id, :appointment_id, :package_id]
     end
 
     # A presença acompanha o ciclo de vida do bloco (Entrega 4). Só é chamada **em cascata**,

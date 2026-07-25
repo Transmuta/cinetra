@@ -149,7 +149,10 @@ defmodule Api.Scheduling do
           turma,
           %{
             patient_ids: List.wrap(fetch(attrs, :patient_ids)),
-            encaixe: fetch(attrs, :encaixe) in [true, "true"]
+            encaixe: fetch(attrs, :encaixe) in [true, "true"],
+            # O pacote atravessa a fusão (doc 41 etapa 2): a série que cai numa turma existente
+            # carimba a presença que entrou, e só ela.
+            package_id: fetch(attrs, :package_id)
           },
           opts
         )
@@ -388,7 +391,9 @@ defmodule Api.Scheduling do
       # a fronteira renderizar o desfecho novo com as presenças. Uma leitura a mais, no caminho
       # frio de uma transição.
       {:ok,
-       in_clinic(scope, fn -> get_appointment!(appointment_id, scope: scope, load: [:attendances]) end)}
+       in_clinic(scope, fn ->
+         get_appointment!(appointment_id, scope: scope, load: [:attendances])
+       end)}
     end
   end
 

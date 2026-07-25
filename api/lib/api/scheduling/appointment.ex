@@ -222,9 +222,14 @@ defmodule Api.Scheduling.Appointment do
       # argumento (não o atributo) que a policy julga, porque só ele existe antes dos changes.
       argument :encaixe, :boolean, default: false
 
+      # O pacote que origina a sessão (doc 41 etapa 2). Nulo = sessão avulsa/particular. Carimba a
+      # presença na mesma escrita, em vez do `set_package` de fora que a materialização fazia.
+      argument :package_id, :uuid
+
       # Paciente de outra clínica não vira participante desta agenda.
       validate Api.Scheduling.Appointment.Validations.PatientsInClinic
       validate Api.Scheduling.Appointment.Validations.PatientsActive
+      validate Api.Scheduling.Appointment.Validations.PackageBelongsToPatient
 
       # Tipo arquivado / profissional inativo (doc 25 §7). Só aqui: o passado não é revalidado.
       validate Api.Scheduling.Appointment.Validations.ReferencesActive
@@ -234,10 +239,7 @@ defmodule Api.Scheduling.Appointment do
       change Api.Scheduling.Appointment.Changes.ComputeEndsAt
       change Api.Scheduling.Appointment.Changes.CheckAvailability
 
-      change manage_relationship(:patient_ids, :attendances,
-               type: :create,
-               value_is_key: :patient_id
-             )
+      change Api.Scheduling.Appointment.Changes.ManageParticipants
     end
 
     # Acrescenta participantes a uma turma que já existe — o outro lado do merge (A-D4).
@@ -261,14 +263,16 @@ defmodule Api.Scheduling.Appointment do
       # constraint — trocaria um limite operacional por um buraco na garantia de A5.
       argument :encaixe, :boolean, default: false
 
+      # Idem `:schedule` — é por aqui que a série de um pacote entra numa turma que já existe
+      # (o caso comum do Pilates), carimbando só a presença que entrou.
+      argument :package_id, :uuid
+
       validate Api.Scheduling.Appointment.Validations.PatientsInClinic
       validate Api.Scheduling.Appointment.Validations.PatientsActive
+      validate Api.Scheduling.Appointment.Validations.PackageBelongsToPatient
       validate Api.Scheduling.Appointment.Validations.GroupCapacity
 
-      change manage_relationship(:patient_ids, :attendances,
-               type: :create,
-               value_is_key: :patient_id
-             )
+      change Api.Scheduling.Appointment.Changes.ManageParticipants
     end
 
     # ---- Ciclo de vida (Entrega 4, doc 25 §9 / §8d) ----

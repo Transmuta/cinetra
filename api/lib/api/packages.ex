@@ -260,6 +260,34 @@ defmodule Api.Packages do
   end
 
   @doc """
+  O `package_id` é um pacote **deste** paciente nesta clínica? (doc 41 etapa 2, contrato
+  09 §3.1.1 ponto 2.)
+
+  Pergunta de validação, não de exibição: `authorize?: false` de propósito — o recorte da A7
+  esconderia do papel `profissional` o pacote de um paciente que não é dele, e a resposta viraria
+  "não é do paciente" quando é. Quem decide se aquele ator pode escrever ali é a policy da ação.
+
+  Abre a própria transação com a GUC (`with_clinic`), como `Api.Records.patients_outside_clinic/2`:
+  sem ela a leitura volta vazia sob RLS no servidor real — e **passa** no `mix test`, onde o
+  sandbox conecta como `postgres` (BYPASSRLS).
+  """
+  def package_of_patient?(package_id, patient_id, clinic_id)
+      when is_binary(package_id) and is_binary(patient_id) and is_binary(clinic_id) do
+    {:ok, found} =
+      Api.Repo.with_clinic(clinic_id, fn ->
+        list_packages!(
+          tenant: clinic_id,
+          authorize?: false,
+          query: [filter: [id: package_id, patient_id: patient_id]]
+        )
+      end)
+
+    found != []
+  end
+
+  def package_of_patient?(_package_id, _patient_id, _clinic_id), do: false
+
+  @doc """
   Os pacotes de um paciente na clínica ativa, com os derivados carregados. Wrapper de leitura sob
   RLS (ADR-018) — o controller chama isto, não a code interface crua.
   """
