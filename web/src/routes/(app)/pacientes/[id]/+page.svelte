@@ -17,13 +17,25 @@
 	import { patientColor, convLabel, idade, prefNomes, canManagePatients } from '$lib/patients';
 	import PackageList from '$lib/components/patients/PackageList.svelte';
 	import PackageCreateModal from '$lib/components/patients/PackageCreateModal.svelte';
-	import type { PageData } from './$types';
+	import PackageBulkModal from '$lib/components/patients/PackageBulkModal.svelte';
+	import type { Package as Pkg } from '$lib/packages';
+	import type { PageData, ActionData } from './$types';
 
-	let { data }: { data: PageData } = $props();
+	let { data, form }: { data: PageData; form: ActionData } = $props();
 
 	// O modal de criação de pacote é dono do pai (a ficha): abre pelo "Novo pacote" da lista e, ao
 	// criar, recarrega a ficha (`invalidateAll`) para o novo pacote aparecer com os contadores.
 	let criandoPacote = $state(false);
+
+	// A massa (doc 41 etapa 3) também é do pai, pelo mesmo motivo: ela submete uma action DESTA
+	// página, e é o resultado dela (`form`) que diz se deu conflito ou quantas sessões mudaram.
+	let ajustando = $state<Pkg | null>(null);
+
+	// Fecha o modal quando a massa deu certo; erro mantém aberto, com a mensagem e o "aplicar mesmo
+	// assim". `afetadas` vira o aviso — o número é do servidor, que sabe o recorte de futuras.
+	$effect(() => {
+		if (form?.ok && form?.afetadas != null) ajustando = null;
+	});
 
 	const p = $derived(data.patient);
 	const canManage = $derived(canManagePatients(data.me.papel));
@@ -234,7 +246,18 @@
 	</div>
 
 	<!-- Pacotes (Fatia 3): lista + ciclo de vida + criação (modal com prévia ao vivo). -->
-	<PackageList packages={data.packages} {canManage} onNew={() => (criandoPacote = true)} />
+	<PackageList
+		packages={data.packages}
+		{canManage}
+		onNew={() => (criandoPacote = true)}
+		onBulk={(pkg) => (ajustando = pkg)}
+	/>
+
+	{#if form?.ok && form?.afetadas != null}
+		<p class="mt-2 text-[12.5px] font-semibold text-success">
+			{form.afetadas} sessão(ões) ajustada(s).
+		</p>
+	{/if}
 </div>
 
 {#if criandoPacote}
@@ -247,5 +270,14 @@
 			criandoPacote = false;
 			invalidateAll();
 		}}
+	/>
+{/if}
+
+{#if ajustando}
+	<PackageBulkModal
+		pkg={ajustando}
+		professionals={data.professionals}
+		erro={form?.ok ? undefined : form?.error}
+		onClose={() => (ajustando = null)}
 	/>
 {/if}

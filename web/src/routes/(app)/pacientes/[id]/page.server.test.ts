@@ -17,7 +17,8 @@ const k = vi.hoisted(() => ({
 	fetchPatientPackages: vi.fn(),
 	pausePackage: vi.fn(),
 	resumePackage: vi.fn(),
-	cancelPackage: vi.fn()
+	cancelPackage: vi.fn(),
+	bulkAdjustPackage: vi.fn()
 }));
 vi.mock('$lib/server/packages', () => k);
 
@@ -123,5 +124,64 @@ describe('actions do ciclo de vida do pacote', () => {
 			status: 400
 		});
 		expect(k.pausePackage).not.toHaveBeenCalled();
+	});
+});
+
+// Massa por pacote (doc 41 etapa 3). Do cartão da ficha o escopo é sempre `todas`: `esta`/
+// `proximas` pedem uma sessão de referência, que só existe olhando a agenda.
+describe('action da massa (bulkAdjustPackage)', () => {
+	const evCom = (campos: Record<string, string>) =>
+		({
+			params: { id: 'pac1' },
+			request: { formData: async () => new Map(Object.entries(campos)) }
+		}) as never;
+
+	it('manda escopo todas + só o que foi marcado, e devolve quantas', async () => {
+		k.bulkAdjustPackage.mockResolvedValueOnce({ ok: true, status: 200, afetadas: 3 });
+
+		const r = await actions.bulkAdjustPackage(
+			evCom({ package_id: 'k1', professional_id: 'pr9', forcar: 'false' })
+		);
+
+		expect(r).toEqual({ ok: true, afetadas: 3 });
+		expect(k.bulkAdjustPackage.mock.calls[0][2]).toEqual({
+			escopo: 'todas',
+			aplicar_profissional: true,
+			professional_id: 'pr9',
+			forcar: false
+		});
+	});
+
+	it('horário sozinho não manda profissional (não reescreve o que ninguém pediu)', async () => {
+		k.bulkAdjustPackage.mockResolvedValueOnce({ ok: true, status: 200, afetadas: 1 });
+
+		await actions.bulkAdjustPackage(evCom({ package_id: 'k1', hhmm: '09:00' }));
+
+		expect(k.bulkAdjustPackage.mock.calls[0][2]).toEqual({
+			escopo: 'todas',
+			aplicar_horario: true,
+			hhmm: '09:00',
+			forcar: false
+		});
+	});
+
+	it('sem nada marcado → 400 sem tocar a API', async () => {
+		expect(await actions.bulkAdjustPackage(evCom({ package_id: 'k1' }))).toMatchObject({
+			status: 400
+		});
+		expect(k.bulkAdjustPackage).not.toHaveBeenCalled();
+	});
+
+	it('conflito (422) sobe com a mensagem para a tela oferecer o "mesmo assim"', async () => {
+		k.bulkAdjustPackage.mockResolvedValueOnce({
+			ok: false,
+			status: 422,
+			error: 'Conflito de horário.',
+			code: 'schedule_conflict'
+		});
+
+		expect(
+			await actions.bulkAdjustPackage(evCom({ package_id: 'k1', hhmm: '09:00' }))
+		).toMatchObject({ status: 422 });
 	});
 });

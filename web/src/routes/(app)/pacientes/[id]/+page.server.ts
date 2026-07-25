@@ -7,7 +7,8 @@ import {
 	fetchPatientPackages,
 	pausePackage,
 	resumePackage,
-	cancelPackage
+	cancelPackage,
+	bulkAdjustPackage
 } from '$lib/server/packages';
 
 // A ficha (só leitura). Vai junto o diretório (nomes dos profissionais preferidos) e os pacotes
@@ -48,7 +49,34 @@ export const actions: Actions = {
 	// `id` do pacote chega do form; o `enhance` recarrega a ficha com os contadores atualizados.
 	pausePackage: (event) => lifecycle(event, pausePackage),
 	resumePackage: (event) => lifecycle(event, resumePackage),
-	cancelPackage: (event) => lifecycle(event, cancelPackage)
+	cancelPackage: (event) => lifecycle(event, cancelPackage),
+
+	// Massa por pacote (doc 41 etapa 3): muda profissional e/ou horário das sessões futuras. Do
+	// cartão da ficha o escopo é sempre `todas` — `esta`/`proximas` precisam de uma sessão de
+	// referência, que só existe olhando a agenda. `forcar` é o "aplicar mesmo assim" depois de um
+	// conflito, o mesmo idioma da criação da série.
+	bulkAdjustPackage: async (event) => {
+		const data = await event.request.formData();
+		const id = String(data.get('package_id') ?? '');
+		if (!id) return fail(400, { error: 'Pacote não informado.' });
+
+		const professional_id = String(data.get('professional_id') ?? '');
+		const hhmm = String(data.get('hhmm') ?? '');
+
+		if (!professional_id && !hhmm) {
+			return fail(400, { error: 'Escolha o que aplicar: profissional e/ou horário.' });
+		}
+
+		const res = await bulkAdjustPackage(event, id, {
+			escopo: 'todas',
+			...(professional_id ? { aplicar_profissional: true, professional_id } : {}),
+			...(hhmm ? { aplicar_horario: true, hhmm } : {}),
+			forcar: data.get('forcar') === 'true'
+		});
+
+		if (!res.ok) return fail(res.status || 400, { error: res.error, code: res.code });
+		return { ok: true, afetadas: res.afetadas ?? 0 };
+	}
 };
 
 async function lifecycle(

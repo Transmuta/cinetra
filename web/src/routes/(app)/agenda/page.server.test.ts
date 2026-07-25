@@ -4,7 +4,8 @@ const m = vi.hoisted(() => ({
 	fetchAgenda: vi.fn(),
 	fetchAvailability: vi.fn(),
 	fetchCounts: vi.fn(),
-	createAppointment: vi.fn()
+	createAppointment: vi.fn(),
+	transitionParticipant: vi.fn()
 }));
 vi.mock('$lib/server/appointments', () => m);
 
@@ -480,5 +481,72 @@ describe('action criar', () => {
 		m.createAppointment.mockResolvedValueOnce({ ok: true, status: 201 });
 		await actions.criar(formEvent({ ...validos, obs: '   ' }));
 		expect(m.createAppointment.mock.calls[0][1]).not.toHaveProperty('obs');
+	});
+});
+
+// Presença por participante (A2, doc 41): uma action para os quatro verbos. O que ela precisa
+// travar é o roteamento — id do bloco, id do paciente, verbo e a versão do BLOCO (o guard de 409).
+describe('action presenca', () => {
+	it('repassa bloco, participante, verbo e a versão do bloco', async () => {
+		m.transitionParticipant.mockResolvedValueOnce({ ok: true, status: 200 });
+
+		const r = await actions.presenca(
+			formEvent({ id: 'a1', patient_id: 'pac1', kind: 'no_show', expected_version: '7' })
+		);
+
+		expect(r).toEqual({ ok: true, action: 'presenca' });
+		const [, id, patientId, kind, input] = m.transitionParticipant.mock.calls[0];
+		expect([id, patientId, kind]).toEqual(['a1', 'pac1', 'no_show']);
+		expect(input).toEqual({ expected_version: 7 });
+	});
+
+	it('justify leva a flag; os outros verbos não a mandam', async () => {
+		m.transitionParticipant.mockResolvedValueOnce({ ok: true, status: 200 });
+
+		await actions.presenca(
+			formEvent({
+				id: 'a1',
+				patient_id: 'pac1',
+				kind: 'justify',
+				justificada: 'true',
+				expected_version: '7'
+			})
+		);
+
+		expect(m.transitionParticipant.mock.calls[0][4]).toEqual({
+			expected_version: 7,
+			justificada: true
+		});
+	});
+
+	// O `kind` decide o SEGMENTO da URL: aceitá-lo cru deixaria o cliente escolher o caminho.
+	it('verbo fora da lista → 400 sem tocar a API', async () => {
+		const r = await actions.presenca(
+			formEvent({ id: 'a1', patient_id: 'pac1', kind: '../../cancel', expected_version: '1' })
+		);
+
+		expect(r).toMatchObject({ status: 400 });
+		expect(m.transitionParticipant).not.toHaveBeenCalled();
+	});
+
+	it('sem participante → 400', async () => {
+		const r = await actions.presenca(formEvent({ id: 'a1', kind: 'complete' }));
+		expect(r).toMatchObject({ status: 400 });
+		expect(m.transitionParticipant).not.toHaveBeenCalled();
+	});
+
+	it('409 do servidor sobe com o code (o drawer manda recarregar)', async () => {
+		m.transitionParticipant.mockResolvedValueOnce({
+			ok: false,
+			status: 409,
+			error: 'Recarregue',
+			code: 'version_conflict'
+		});
+
+		const r = await actions.presenca(
+			formEvent({ id: 'a1', patient_id: 'pac1', kind: 'complete', expected_version: '1' })
+		);
+
+		expect(r).toMatchObject({ status: 409 });
 	});
 });

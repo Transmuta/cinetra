@@ -77,3 +77,28 @@ describe('PackageList', () => {
 		expect(screen.getByText(/serão canceladas e/i)).toBeInTheDocument();
 	});
 });
+
+describe('PackageList — massa (doc 41 etapa 3)', () => {
+	it('pacote ativo oferece "Ajustar sessões" e devolve o pacote ao pai', async () => {
+		const onBulk = vi.fn();
+		render(PackageList, { packages: [pkg()], canManage: true, onBulk });
+
+		await userEvent.click(screen.getByRole('button', { name: /Ajustar sessões/ }));
+
+		expect(onBulk).toHaveBeenCalledWith(expect.objectContaining({ id: 'k1' }));
+	});
+
+	it('pacote PAUSADO não oferece a massa — as sessões estão seguradas, fora da agenda', () => {
+		render(PackageList, {
+			packages: [pkg({ status: 'pausado' })],
+			canManage: true,
+			onBulk: vi.fn()
+		});
+		expect(screen.queryByRole('button', { name: /Ajustar sessões/ })).not.toBeInTheDocument();
+	});
+
+	it('sem onBulk (pai que não trata massa) o botão não aparece', () => {
+		render(PackageList, { packages: [pkg()], canManage: true });
+		expect(screen.queryByRole('button', { name: /Ajustar sessões/ })).not.toBeInTheDocument();
+	});
+});

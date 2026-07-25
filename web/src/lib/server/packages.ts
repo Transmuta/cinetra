@@ -1,6 +1,6 @@
 import type { RequestEvent } from '@sveltejs/kit';
 import { apiFetch } from './api';
-import { mutate, type MutationResult } from './mutate';
+import { mutate, errorInfo, type MutationResult } from './mutate';
 import type { Package, PreviewResult } from '$lib/packages';
 
 // BFF dos pacotes (Fatia 3 / ADR-005): fala com `/api/packages` server-to-server, repassando o
@@ -140,6 +140,62 @@ export function resumePackage(event: RequestEvent, id: string): Promise<Mutation
 
 export function cancelPackage(event: RequestEvent, id: string): Promise<MutationResult> {
 	return mutate(event, `${path(id)}/cancel`, 'POST');
+}
+
+// ---------------------------------------------------------------------------
+// Massa por pacote (doc 41 etapa 3/4). Opera sobre as PRESENÇAS do pacote: numa turma, mexe só
+// na do dono do pacote — os colegas ficam. `afetadas` volta no corpo e é o feedback da tela
+// ("3 sessões ajustadas"): recontar no cliente daria outro número, porque quem sabe o recorte de
+// "futuras ainda não resolvidas" é o servidor.
+// ---------------------------------------------------------------------------
+
+export interface BulkInput {
+	escopo?: 'esta' | 'proximas' | 'todas';
+	appointment_id?: string;
+	aplicar_profissional?: boolean;
+	professional_id?: string;
+	aplicar_horario?: boolean;
+	hhmm?: string;
+	forcar?: boolean;
+}
+
+export interface BulkResult extends MutationResult {
+	afetadas?: number;
+}
+
+export function bulkAdjustPackage(
+	event: RequestEvent,
+	id: string,
+	input: BulkInput
+): Promise<BulkResult> {
+	return bulk(event, `${path(id)}/bulk_adjust`, input);
+}
+
+export function bulkCancelPackage(
+	event: RequestEvent,
+	id: string,
+	input: BulkInput
+): Promise<BulkResult> {
+	return bulk(event, `${path(id)}/bulk_cancel`, input);
+}
+
+async function bulk(event: RequestEvent, url: string, input: BulkInput): Promise<BulkResult> {
+	try {
+		const res = await apiFetch(event, url, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json', accept: 'application/json' },
+			body: JSON.stringify(input)
+		});
+
+		if (res.ok) {
+			const body = (await res.json()) as { afetadas?: number };
+			return { ok: true, status: res.status, afetadas: body?.afetadas ?? 0 };
+		}
+
+		return { ok: false, status: res.status, ...(await errorInfo(res)) };
+	} catch {
+		return { ok: false, status: 0, error: 'Falha de conexão com o servidor.' };
+	}
 }
 
 // Id escapado: um id forjado não sai do caminho do recurso (mesma defesa de `server/waitlist.ts`).

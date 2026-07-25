@@ -7,19 +7,23 @@
 	import Pause from '@lucide/svelte/icons/pause';
 	import Play from '@lucide/svelte/icons/play';
 	import Plus from '@lucide/svelte/icons/plus';
+	import CalendarClock from '@lucide/svelte/icons/calendar-clock';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import { statusLabel, type Package as Pkg } from '$lib/packages';
 
 	let {
 		packages,
 		canManage = false,
-		onNew = undefined
+		onNew = undefined,
+		onBulk = undefined
 	}: {
 		packages: Pkg[];
 		/** owner·admin·recepcao·profissional podem mexer; a policy da API é a autoridade */
 		canManage?: boolean;
 		/** abre o modal de criação (o pai é dono dele) */
 		onNew?: () => void;
+		/** abre a massa (ajustar sessões futuras) daquele pacote — o pai é dono do modal */
+		onBulk?: (pkg: Pkg) => void;
 	} = $props();
 
 	// O pacote em confirmação de cancelamento (destrutivo → ConfirmDialog). O form escondido é
@@ -112,6 +116,17 @@
 										<Play size={13} /> Retomar
 									</button>
 								</form>
+							{/if}
+							<!-- Massa (doc 41 etapa 3): mexe nas sessões FUTURAS do pacote. Só com o pacote
+							     ativo — pausado tem as sessões seguradas, fora da agenda. -->
+							{#if pkg.status === 'ativo' && onBulk}
+								<button
+									type="button"
+									onclick={() => onBulk(pkg)}
+									class="inline-flex items-center gap-1.5 rounded-[7px] border border-edge px-2.5 py-1 text-[12px] font-semibold text-muted hover:text-ink"
+								>
+									<CalendarClock size={13} /> Ajustar sessões
+								</button>
 							{/if}
 							<button
 								type="button"
