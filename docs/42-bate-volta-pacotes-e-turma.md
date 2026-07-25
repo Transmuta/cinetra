@@ -6,11 +6,21 @@ Revisão adversarial do que a sessão de **2026-07-24** entregou:
 - `94852aa` — `docs/41`: spec da A2 (presença por participante).
 - `513bca1` — A2 etapa 1: presença por participante (backend, aditivo).
 
-**Método.** Três auditores em paralelo, cada um numa dimensão (correção do backend da A2;
-resíduo de RLS/loop na Frente 5; consistência código↔spec/contrato), cada achado **provado contra
-a stack rodando** (container: `mix test`, `psql`, o teste-descartável do auditor). Consertos com
-regressão que morde. Este doc é o registro do que foi consertado e do que fica para decisão humana.
-Correções em `9e00620`.
+**Método.** Duas passadas. (1) Três auditores em paralelo, cada um numa dimensão (correção do
+backend da A2; resíduo de RLS/loop na Frente 5; consistência código↔spec/contrato). (2) Rodada
+formal do skill `bate-volta`: cada achado **provado contra a stack rodando** — `psql`, `mix test`
+(DataCase/ConnCase = o Router/domínio de verdade), e **`iex` no dev com log de SQL** disparando as
+transições na app. Consertos com regressão vermelho-primeiro. Correções em `9e00620` + `b7599a6`.
+
+**Re-sonda ao vivo (rodada 5).** Disparei as ações na app rodando (dev), não só no `mix test`:
+
+- **A presença por participante fecha o rollup e o `FOR UPDATE` do conserto H-2 SAI de verdade** —
+  `iex` no dev, com o SQL logado: `... FROM "appointments" ... FOR UPDATE OF a0` antes do
+  `UPDATE`. `agendado(v8) → complete → concluido(v9) → reopen → agendado(v10)`, ~5 queries por
+  transição, **sem N+1** (as presenças carregam numa query só). O lock não é no-op.
+- **Cancelar um pacote pausado (H-1) cancela as seguradas na app** — criar → esperar o Oban
+  materializar → pausar → cancelar: as 3 seguradas viram `cancelado`, nenhuma órfã. (Foi essa
+  sonda que revelou o M-4 abaixo, ao cancelar ANTES da materialização.)
 
 ## Consertado
 
@@ -52,6 +62,15 @@ virava `:cancelado → :concluido` (as canceladas são filtradas no rollup), fur
 de bloco garantem. Fix: guard `block_open_for_participant` (recusa `:cancelado` → 422
 `block_not_open`). Excluído não chega (o `HideExcluded` o esconde do fetch → 404).
 
+### M-4 (MED) — o job de materialização ignorava o status do pacote (achado da sonda ao vivo)
+
+Revelado só na app rodando (o `iex` acima): criar um pacote e **cancelá-lo antes** de o job async
+materializar deixava o job criar as N sessões mesmo assim — órfãs `:agendado` na agenda de um
+pacote `:cancelado`. `build_plan` (`materializer.ex`) só guardava `schedule: nil`, nunca o status.
+Fix (`b7599a6`): pula quando o pacote está `:cancelado` (o job lê o status atual; a retomada roda
+com `:ativo`, então não é afetada). Regressão vermelho-primeiro: criar → cancelar → drenar → 0
+sessões.
+
 ### Doc — parêntese obsoleto em `docs/09`
 
 `docs/09:204` ainda descrevia o fallback de clínica da falta punitiva ("se o pacote não define,
@@ -60,6 +79,14 @@ contradizendo o próprio parágrafo oito linhas acima. Corrigido.
 
 ## Fica para decisão humana / próximas etapas
 
+- **A-6 — corrida "pausar antes de materializar" (estrutural).** Provado ao vivo junto do M-4: se o
+  usuário **pausa** um pacote recém-criado dentro da janela (segundos) do job async, o `pause`
+  segura 0 sessões (ainda não existem) e o job depois cria sessões `:agendado` **não** seguradas
+  num pacote `:pausado`. O guard do M-4 não cobre isto: pular na materialização quando `:pausado`
+  quebraria a retomada (que reprojeta pelo `count` de seguradas = 0 → 0 sessões). A correção certa é
+  arquitetural — materializar-e-segurar quando `:pausado`, ou o `pause` reprocessar após o job — e é
+  decisão de produto/arquitetura, não patch de impulso. Janela estreita; sem dado corrompido além do
+  par status↔sessões inconsistente. Fica para a etapa que reabrir o ciclo de vida do pacote.
 - **A-4 — `SessionStarted` da presença mora no wrapper, não na ação.** Uma chamada direta à code
   interface `mark_attendance_present/absent` marcaria presença antes de a sessão começar (RN-58).
   **Não** alcançável pela HTTP (o controller só entra pelo `transition_participant`). É a **mesma**
