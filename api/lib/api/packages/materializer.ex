@@ -72,6 +72,13 @@ defmodule Api.Packages.Materializer do
 
   # Resolve, sob a GUC, TUDO que precisa de leitura: tipo, feriados, série projetada e os horários
   # já materializados. Devolve só os instantes a criar — as escritas acontecem fora daqui.
+
+  # Pacote CANCELADO não materializa (bate-volta 2026-07-24, provado ao vivo): se o usuário cancela
+  # um pacote recém-criado ANTES de o job async rodar, o job criava as sessões mesmo assim — órfãs
+  # `:agendado` ocupando a agenda de um pacote `:cancelado`. O job lê o status atual do pacote; se
+  # já foi cancelado, pula. (Retomada roda com o pacote `:ativo`, então não é afetada.)
+  defp build_plan(%{status: :cancelado} = pkg, _clinic_id, _anchor, _count), do: {:skip, pkg.id}
+
   defp build_plan(%{schedule: nil} = pkg, _clinic_id, _anchor, _count), do: {:no_grade, pkg.id}
 
   defp build_plan(pkg, clinic_id, anchor, total) do
@@ -100,6 +107,13 @@ defmodule Api.Packages.Materializer do
 
       {:ok, pkg, tipo, starts}
     end
+  end
+
+  defp create_sessions({:skip, pkg_id}, _clinic_id, _forcar) do
+    # Pacote cancelado antes do job — nada a materializar (ver `build_plan`). Encerra em `:ok`
+    # para o Oban não re-tentar um job que nunca vai ter o que fazer.
+    Logger.info("Pacote #{pkg_id} cancelado antes da materialização; job ignorado")
+    :ok
   end
 
   defp create_sessions({:no_grade, pkg_id}, _clinic_id, _forcar) do

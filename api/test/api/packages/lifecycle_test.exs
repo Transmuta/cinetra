@@ -231,6 +231,21 @@ defmodule Api.Packages.LifecycleTest do
              "sessão segurada ficou órfã: cancelar não alcançou as seguradas por HideHeld"
     end
 
+    test "cancelar ANTES da materialização impede sessões órfãs (bate-volta: job ignorava status)" do
+      ctx = setup_clinic()
+      # cria a série (enfileira o job; Oban manual não roda ainda)
+      {:ok, pkg} = Packages.create_series(scope_before(ctx), params(ctx))
+      # cancela ANTES de materializar
+      {:ok, cancelado} = Packages.cancel_package(scope_before(ctx), pkg.id)
+      assert cancelado.status == :cancelado
+
+      # só AGORA o job roda: deve PULAR (pacote cancelado), não criar sessões para um cancelado
+      Oban.drain_queue(queue: :housekeeping)
+
+      assert sessoes_cruas(pkg) == [],
+             "materializer criou sessões para um pacote já cancelado (órfãs ocupando a agenda)"
+    end
+
     test "cancelar libera a agenda (as sessões saem)" do
       ctx = setup_clinic()
       pkg = criar_e_materializar(ctx)
