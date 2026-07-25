@@ -278,6 +278,30 @@ agendamento:
 | POST | `/appointments/:id/participants` | `:add_participant` | admin, membro, profissional(próprio) | `{patient_id, package_id?}` → `attendance` | `422` turma cheia; `422` paciente já na turma |
 | DELETE | `/appointments/:id/participants/:patient_id` | `:remove_participant` | idem | — → `204` | — |
 
+**Presença por participante — construída (A2, [doc 41](41-turma-presenca-por-participante.md)).**
+A "lacuna consciente" abaixo foi fechada: `complete`/`no_show` ganharam granularidade por presença,
+e o desfecho do BLOCO (`:concluido`/`:faltou`) virou **rollup** delas. As quatro sub-rotas:
+
+| Método | Rota | Ação Ash (`Attendance`) | Corpo → Resposta | Erros |
+|---|---|---|---|---|
+| POST | `/appointments/:id/participants/:patient_id/complete` | `:mark_present` | `{expected_version}` → o **bloco** (com `participants`) | `409` versão; `422` `block_not_open`; `422` sessão não começou |
+| POST | `/appointments/:id/participants/:patient_id/no_show` | `:mark_absent` | idem | idem |
+| POST | `/appointments/:id/participants/:patient_id/reopen` | `:reopen_attendance` | idem (sem gate de horário) | `409` versão |
+| POST | `/appointments/:id/participants/:patient_id/justify` | `:justify_absence` | `{justificada, expected_version}` → o bloco | `409` versão; `422` se não faltou |
+
+Três notas de contrato que valem para as quatro:
+
+- **a versão é a do BLOCO** (`Appointment.version`), não da presença — o lock otimista continua
+  sendo um só para a agenda inteira;
+- **a resposta é o bloco**, com o `participants` já rolado: a tela precisa do desfecho novo E das
+  presenças na mesma resposta, senão repinta com dois estados diferentes;
+- `participants` entra no JSON do agendamento (`{patient_id, status, falta_justificada,
+  package_id}`) ao lado de `patient_ids`, que continua sendo o que a grade usa para o N/cap.
+
+> **Papercut de nomenclatura, registrado:** a sub-rota do participante usa `/no_show` (este
+> contrato) enquanto a de bloco, construída antes, ficou em `/miss`. As de bloco são as que a A2
+> aposenta — quando saírem, o drift sai com elas.
+
 Cada `attendance` liga `appointment` ↔ `patient` **e carrega o `package_id` daquele
 participante** — ver a [subseção 3.1.1](#311-turma-multi-pacote-cada-participante-tem-seu-próprio-pacote).
 
@@ -386,8 +410,15 @@ revalida na hora de agendar.
 |---|---|---|---|---|
 | GET | `/patients?filter[nome]=&sort=nome` | `:read` | admin, membro; profissional só os próprios | — |
 | GET | `/patients/:id` | `:read` get_by id | idem | — |
+| GET | `/patients/:patient_id/history?limit=` | leitura de `attendance` | idem | — |
 | POST | `/patients` | `:create` | admin, membro, profissional | `422` CPF inválido/duplicado |
 | PATCH | `/patients/:id` | `:update` | idem | `422` |
+
+O **histórico** (C13, Frente 7) é lido por PRESENÇA, não por bloco: numa turma o bloco pode estar
+`:concluido` com a presença daquele paciente `:faltou`, e a ficha mostra o que aconteceu **com
+ele**. Por isso cada linha traz `status` (da presença) e `appointment_status` (do bloco) separados,
+mais `package_id` (sessão de pacote × avulsa). É limitado (default 50, teto 200) e devolve
+`{sessions, more}` — `more: true` é a tela dizendo "isto é o recente", em vez de fingir que é tudo.
 
 A ficha do paciente é o recurso mais sensível: `tags` clínicas, `medico`/`crm`,
 consentimento LGPD versionado — todos sob `field_policies` e `AshCloak` (ADR-007). O
@@ -408,8 +439,8 @@ protótipo:
 | POST | `/packages/:id/resume` | `:resume` | `pkgResume` [`:561`](../interface/Movimento.dc.html#L561) | Marca `ativo`; sessões voltam à agenda |
 | POST | `/packages/:id/cancel` | `:cancel` | `cancelarPkg` [`:568`](../interface/Movimento.dc.html#L568) | Marca `cancelado`; sessões futuras viram `cancelado` |
 | PATCH | `/packages/:id/grade` | `:adjust_grade` | `pkgSaveGrade` [`:578`](../interface/Movimento.dc.html#L578) | Remarca todas as sessões futuras para a nova grade (profissional/dows/horários) |
-| POST | `/packages/:id/bulk_adjust` | `:bulk_adjust` | `applyMassaPacote` [`:1149`](../interface/Movimento.dc.html#L1149) | Muda profissional e/ou horário de um escopo de sessões (`esta`/`proximas`/`todas`) |
-| POST | `/packages/:id/bulk_cancel` | `:bulk_cancel` | `cancelarMassaPacote` [`:1174`](../interface/Movimento.dc.html#L1174) | Cancela o escopo de sessões |
+| POST | `/packages/:id/bulk_adjust` | `:bulk_adjust` | `applyMassaPacote` [`:1149`](../interface/Movimento.dc.html#L1149) | Muda profissional e/ou horário de um escopo de sessões (`esta`/`proximas`/`todas`) — **construído** |
+| POST | `/packages/:id/bulk_cancel` | `:bulk_cancel` | `cancelarMassaPacote` [`:1174`](../interface/Movimento.dc.html#L1174) | Cancela o escopo de sessões — **construído** |
 | POST | `/packages/:id/sessions` | `:add_session` | (grade+1) | Acrescenta uma sessão avulsa à série; reativa o pacote se estava `concluido` |
 | DELETE | `/packages/:id/sessions/:appointment_id` | `:remove_session` | — | Remove uma sessão da série |
 | POST | `/packages/:id/archive` | `:archive` | `archivePkg` [`:576`](../interface/Movimento.dc.html#L576) | Marca `concluido` e arquiva no histórico (habilitado quando `done`) |
@@ -442,7 +473,12 @@ Notas de contrato que vêm direto do protótipo:
   espelho do protótipo.
 - **`bulk_adjust` carrega o `escopo`** (`esta` | `proximas` | `todas`) e flags
   `aplicar_profissional`/`aplicar_horario`, exatamente os campos de `applyMassaPacote`
-  ([`:1149`](../interface/Movimento.dc.html#L1149)).
+  ([`:1149`](../interface/Movimento.dc.html#L1149)). **Construído** ([doc 41](41-turma-presenca-por-participante.md)
+  etapa 3): `esta`/`proximas` exigem `appointment_id` (a sessão de referência) — sem ele, `404`;
+  `todas` dispensa. `hhmm` é hora **local** da clínica e a data de cada sessão não muda. `forcar`
+  vira `encaixe` na reinserção. A resposta é `{package, afetadas}` — o contador é do servidor,
+  que é quem sabe o recorte de "futuras ainda não resolvidas". Um conflito em QUALQUER sessão
+  desfaz a massa inteira (422): meia-massa aplicada não tem desfazer.
 - **Não há `renew` ([ADR-011](00-decisoes.md)).** O protótipo era ambíguo (sucessor via
   `renovadoDe` [`:362`](../interface/Movimento.dc.html#L362) **e** `total += N` no mesmo pacote,
   `confirmRenovar` [`:590`](../interface/Movimento.dc.html#L590)); a produção **elimina a

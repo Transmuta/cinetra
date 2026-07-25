@@ -1,5 +1,28 @@
 # 41 — Turma: presença e débito por participante (Frente 6 / A2)
 
+> ## ✅ A2 COMPLETA (2026-07-25) — as cinco etapas
+>
+> | Etapa | O que entrou | Commit |
+> | --- | --- | --- |
+> | 1 | presença por participante (backend) + rollup | `513bca1` (+ `9e00620`) |
+> | 2 | `package_id` na entrada de `:schedule`/`:add_participant` | `0b6ba8a` |
+> | 3 | massa por pacote sobre presenças + `remove_participant` | `6b7461c` |
+> | 4 | drawer por participante + massa no cartão | `065d70b`, `298fd00`, `a2a0d27` |
+> | 5 | notificações #46 e #47 | `60808a6` |
+>
+> **Correção de rumo em relação a esta spec: a entrega foi ADITIVA.** O texto abaixo diz que a
+> etapa 1 "remove as ações de bloco e a `CascadeToAttendances`" — não removeu. As ações de bloco
+> (`mark_completed`/`mark_missed`/`set_falta_justificada`) e a cascata **continuam no recurso**; o
+> que a etapa 4 fez foi tirá-las da TELA. A aposentadoria de verdade (apagar as ações) fica para
+> quando nenhum caminho as chamar — hoje elas ainda servem seed e testes antigos.
+>
+> Dois pontos que a spec não previa e o código tem:
+>
+> - **rollup ao reabrir** — desfecho volta para `:agendado` quando as presenças voltam a
+>   `:prevista` (`rollup.ex:37-42`); a regra abaixo omitia esse ramo;
+> - **bloco cancelado não recebe presença** (`block_not_open`) — guard nascido do achado M-3 do
+>   [bate-volta 42](42-bate-volta-pacotes-e-turma.md).
+
 Fecha o **gate #1** do [doc 35](35-plano-execucao-backlog.md) e constrói a Frente 6. Depende da
 Frente 5 (Pacotes, [doc 09 §3.1.1](09-contrato-api.md), commit `cb86851`), que já entregou o
 **débito por participante** — `Package.usadas` conta cada `Attendance.package_id` do dono. Falta o
@@ -30,7 +53,9 @@ têm as presenças no status certo (a cascata antiga escreveu). Então **o enum
   - todas resolvidas e **alguma** `:concluida` → bloco `:concluido` (a sessão aconteceu p/ alguém);
   - todas resolvidas e **todas** `:faltou` → bloco `:faltou`;
   - resolução **parcial** (algumas ainda `:prevista`) → mantém a fase atual (a sessão está em
-    curso). A cor da agenda reflete o rollup; o drawer mostra o N/M por linha.
+    curso). A cor da agenda reflete o rollup; o drawer mostra o N/M por linha;
+  - **reabrir** (todas voltam a `:prevista`) devolve o bloco à fase de agendamento — o ramo que
+    esta spec omitia e o `rollup.ex` tem.
 
 Regra de leitura para o `bloco pode estar :concluido com um participante :faltou`
 (`attendance.ex:8`): o rollup é "concluído se aconteceu para pelo menos um", não "para todos".
@@ -76,15 +101,19 @@ de execução. Um pacote 100% individual continua cancelando/remarcando `appoint
 
 ## Sequência (TDD, cada etapa fechável e testada)
 
-1. **Presença por participante (backend):** ações `mark_present`/`mark_absent`/`reopen_attendance`/
-   `justify_absence` + `RollupBlockStatus` + policies + version guard; remove as ações de bloco e a
-   `CascadeToAttendances`. Sub-rotas no controller. Gate `:rls`. **← começa aqui.**
-2. **`add_participant` com `package_id`** + validação de dono; materialização passa a usá-lo.
-3. **Massa por pacote** (`bulk_adjust`/`bulk_cancel`) sobre presenças + eventos
-   `participant_added`/`participant_removed`.
-4. **Frontend:** toggle de presença por linha no drawer (turma e individual), massa no cartão do
-   pacote; verificação ao vivo.
-5. **Notificações** #46 (`:faltou` por presença) e #47 (`participant_added`).
+1. ✅ **Presença por participante (backend):** ações `mark_present`/`mark_absent`/
+   `reopen_attendance`/`justify_absence` + `RollupBlockStatus` + policies + version guard.
+   Sub-rotas no controller. Gate `:rls`. *(As ações de bloco ficaram — ver o aviso no topo.)*
+2. ✅ **`add_participant` com `package_id`** + validação de dono. Entrou também no `:schedule`, e
+   o `set_package` de fora (`Sessions.stamp/3`) **saiu**: o vínculo nasce com a presença.
+3. ✅ **Massa por pacote** (`bulk_adjust`/`bulk_cancel`) sobre presenças, com
+   `Appointment.remove_participant` (evento `participant_removed`) e o guard do último
+   participante — esvaziar o bloco deixaria horário ocupado que não é sessão de ninguém.
+4. ✅ **Frontend:** presença por linha no drawer (turma e individual), massa no cartão do pacote.
+   A verificação ao vivo achou um bug real: o form da presença submetia **antes do flush** do
+   Svelte e ia vazio (400). Conserto + regressão que afirma no momento do submit.
+5. ✅ **Notificações** #46 (`:faltou` por presença — o notifier passou a escutar a `Attendance`)
+   e #47 (`participant_added`).
 
 ## Raio de alcance (o que a etapa 1 toca)
 

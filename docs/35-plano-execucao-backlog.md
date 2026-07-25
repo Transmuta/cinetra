@@ -10,22 +10,27 @@ Natureza do bloqueio: **[P]** decisão de produto · **[T]** técnico/arquitetur
 
 > ## ▶︎ Onde retomar
 >
-> **A Onda 2 fechou (2026-07-24).** Frentes 1, 2, 3 e 4 feitas; da Onda 1 sobra só o **D-S**
-> (seed removido — se voltar, nasce fora de `priv/`). O **D-A** foi fechado **pelo A2 do doc 36**,
-> não pelo índice: um CHECK de 8h no banco tornou legítimo cortar a varredura por baixo, e o
-> `:in_range` passou de **Seq Scan descartando 10.099 linhas** para **Index Scan** (1,41 ms → 0,11 ms,
-> 231 → 103 buffers, mesma resposta). O GiST continua descartado. Ver "D-A: fechado pelo teto".
+> **A Onda 3 fechou (2026-07-25).** Frentes 5 (Pacotes/A1), 6 (Turma/A2, as cinco etapas) e 7
+> (Histórico da ficha) feitas — o **caminho crítico** `D-C → A1 → A2 → C13/#47` está inteiro. As
+> Ondas 1 e 2 já haviam fechado, sobrando só o **D-S** (seed removido) e o **D-A**, que foi
+> resolvido pelo teto de 8h (ver "D-A: fechado pelo teto").
 >
-> Próximo passo: **Onda 3 — Frente 5 (Pacotes/A1)**, que é o caminho crítico.
+> Próximo passo: **Onda 4 — Frente 10 (Notificações)**, agora só com a parte de **perf/estrutura**
+> (#52…#55) e os gatilhos que sobraram — **#46 e #47 saíram junto com a A2**.
 >
-> A recomendação de **verificar antes de codar** se confirmou de novo: na Frente 3, **2 dos 6
-> itens já estavam prontos** (D-Q e D-N) — 7 no acumulado das três frentes. O doc 30 envelheceu;
-> confira cada item no código antes de abrir editor.
+> Lições que esta onda reforçou:
 >
-> Duas lições da leva anterior, que continuam valendo: **medir pelo caminho da aplicação**, nunca
-> por SQL escrito à mão; e **provar que o teste morde** (mutação), porque teste verde não é rede.
-> A Frente 3 seguiu a primeira (as medições saíram do `Api.QueryCounter`, no caminho real) e
-> deixou a segunda **pendente** — os tetos novos não foram testados por mutação.
+> - **clicar no browser continua achando o que a suíte não acha.** O drawer da presença passou em
+>   20 testes de componente e falhava no primeiro clique real: o form submetia antes do flush do
+>   Svelte e ia vazio. O `fireEvent` do testing-library devolve depois do flush — por isso o teste
+>   passava. A regressão agora afirma **no momento do submit**;
+> - **mutação continua sendo o que separa teste de decoração**: 11 mutações rodadas nesta onda,
+>   todas com teste vermelho (dono do pacote, `sozinho?`, corte de data, normalização de erro,
+>   ordem das cláusulas do notifier, `tick` do drawer, corte do fan-out);
+> - **o gate `:rls` tem um limite medido**, agora escrito no próprio arquivo: o sandbox roda o
+>   teste numa transação só, então o **primeiro** `in_clinic` do caminho deixa a GUC pendurada —
+>   tirar o `in_clinic` de uma leitura **interna** continua passando. O gate prova a porta de
+>   entrada e a escrita; leitura interna sem GUC segue sendo achado de revisão.
 
 ## Fora desta rodada (deferidos de novo, conscientes)
 
@@ -49,8 +54,9 @@ Registro para não parecerem esquecidos — **não** entram nas ondas abaixo:
 
 ## Gates de decisão de produto (resolver ANTES da frente)
 
-1. **A2 (Turma):** presença individual é requisito? + bug do `pkgOf` (ajuste em massa
-   multi-pacote). *Muda schema.* — bloqueia Frente 6.
+1. ~~**A2 (Turma):** presença individual é requisito? + bug do `pkgOf`.~~ ✅ **RESOLVIDO**
+   (2026-07-24, doc 41): é requisito, e **sem migração** — o enum do bloco ficou, o que mudou foi
+   quem escreve o status (rollup das presenças).
 2. **A3 (futureConflicts):** estender D12 (horário do profissional) para clínica/exceção + o
    terceiro consumidor esquecido (`addHoliday`). — bloqueia Frente 8.
 3. **F#48:** limiar de "paciente urgente entrou na fila". — bloqueia esse gatilho na Frente 10.
@@ -98,15 +104,19 @@ Registro para não parecerem esquecidos — **não** entram nas ondas abaixo:
 - **F3** — `cancel_reason` na UI. **F4** — indicador ao vivo "alguém oferecendo esta vaga".
 - **F6** — paginação da fila. **D-L** — Oban cron O(clínicas)/min → statement único.
 
-### Frente 5 — Pacotes (Fatia 3) *(depende de D-C)* ← **PRÓXIMA**
+### Frente 5 — Pacotes (Fatia 3) ✅ FEITA
 - **A1** — `computeSerie` (domínio puro + Oban), débito com falta punitiva, pausar/retomar
-  reprojetando p/ futuro (GAP-06). **Precede A2, C13, notificação #47.** **[T]**
+  reprojetando p/ futuro (GAP-06). Commits até `cb86851`; bate-volta em [`42`](42-bate-volta-pacotes-e-turma.md).
 
-### Frente 6 — Turma (Fatia 5) *(depende de A1 + gate #1)*
-- **A2** — presença + débito por participante; resolver o bug do `pkgOf`. **[P+T]**
+### Frente 6 — Turma (Fatia 5) ✅ FEITA — as cinco etapas
+- **A2** — presença e débito por participante ([`41`](41-turma-presenca-por-participante.md)).
+  O `pkgOf` do protótipo foi resolvido pela raiz: a massa opera sobre **presenças**, então
+  cancelar o pacote da Maria não cancela mais a turma do João. Detalhe por etapa no doc 41.
 
-### Frente 7 — Ficha do paciente (C13, parcial) *(depende de A1)*
-- **C13** — destravar abas **Pacotes** e **Histórico** (Anexos ficam ocultos).
+### Frente 7 — Ficha do paciente (C13, parcial) ✅ FEITA
+- **C13** — **Pacotes** (`af9d651`) e **Histórico** (`5f7c592`) destravados. O histórico é por
+  PRESENÇA, com teto de leitura e aviso de corte. **Anexos** seguem ocultos (v2); `faltas` na
+  ficha do drawer continua dependendo de F1.
 
 ### Frente 8 — futureConflicts (Fatia 7, A3) *(gate #2)*
 - **A3** — ligar o motor `ImpactAnalysis`/`futureConflicts` ao editar horários. **[P]**
@@ -117,8 +127,10 @@ Registro para não parecerem esquecidos — **não** entram nas ondas abaixo:
 ### Frente 10 — Notificações
 - **Perf/estrutura:** #52 `who_fits` síncrono → Oban; #53 `mark_all_read` via `Ash.bulk_update`;
   #54 LIMIT/paginação + poda/expurgo; #55 índice `[clinic_id, recipient_id, inserted_at desc]`.
-- **Gatilhos:** #46 `:faltou`; #47 `participant_added` *(pós-A2)*; #48 urgente na fila *(gate #3)*;
-  #50 papel alterado/membro removido; #51 resumo diário + "sessão em 15 min"; #56 deep-link fino.
+- **Gatilhos:** ~~#46 `:faltou`~~ e ~~#47 `participant_added`~~ **FEITOS na A2 etapa 5**
+  (`60808a6`) — o #46 na forma da A2: a falta é da **presença**, então o notifier passou a
+  escutar a `Attendance`. Seguem pendentes: #48 urgente na fila *(gate #3)*; #50 papel
+  alterado/membro removido; #51 resumo diário + "sessão em 15 min"; #56 deep-link fino.
 
 ### Frente 11 — Endurecimento de produção
 - **H59** — cookie `secure`, CSP/HSTS/X-Frame, sign-out via POST (CSRF).
@@ -141,12 +153,12 @@ Registro para não parecerem esquecidos — **não** entram nas ondas abaixo:
 |---|---|---|---|
 | **1 — Fundação** | 0, 1 | 🟡 Frente 1 feita; Frente 0 parcial (D-S removido) | Enablers de medição + higiene barata destravam e iluminam o resto |
 | **2 — Perf & tempo real** | 2, 3, 4 | 🟡 Frentes 3 e 4 feitas; Frente 2 parcial (**D-A revertido**, volta ao backlog) | Mensuráveis com a Onda 1; mesma trilha de código |
-| **3 — Valor central** | 5 → 6 → 7 | pendente | Pacotes → Turma → Ficha, sequencial por dependência |
-| **4 — Notificações** | 10 | pendente | Perf antes dos gatilhos; #47 só depois da Onda 3 |
+| **3 — Valor central** | 5 → 6 → 7 | ✅ **feita (2026-07-25)** | Pacotes → Turma → Ficha, sequencial por dependência |
+| **4 — Notificações** | 10 | pendente (menos #46/#47, feitos na A2) | Perf antes dos gatilhos |
 | **5 — Produção** | 11 | pendente | Antes do primeiro deploy real |
 | **6 — Soltas + limpeza** | 8, 9, 12, 13 | pendente | Features isoladas, auditoria e refactors por último |
 
-**Caminho crítico:** D-C → A1 (Pacotes) → A2 (Turma) → C13/#47.
+**Caminho crítico:** D-C → A1 (Pacotes) → A2 (Turma) → C13/#47. ✅ **percorrido inteiro.**
 
 ---
 
@@ -289,6 +301,43 @@ tetos e chips novos de F3/F4/F6 têm teste, mas não a prova de que mordem.
 > A rodada adversarial achou **um bug de correção do F6** — a lista e o motor de vagas pediam
 > janelas diferentes quando havia filtro — corrigido e provado por mutação. Restam F3 e S1 sem
 > verificação de browser, por dependerem de clique.
+
+### Onda 3 (valor central) — COMPLETA (2026-07-25)
+
+| Frente | Estado |
+| --- | --- |
+| **5 — Pacotes (A1)** | ✅ série + débito + pausar/retomar/cancelar, com o bate-volta [`42`](42-bate-volta-pacotes-e-turma.md) fechado |
+| **6 — Turma (A2)** | ✅ **as cinco etapas** — presença por participante, `package_id` na entrada, massa sobre presenças, tela e notificações. Ver [`41`](41-turma-presenca-por-participante.md) |
+| **7 — Ficha (C13)** | ✅ Pacotes + Histórico destravados (Anexos ficam para v2) |
+
+**O que a A2 mudou de modelo, em uma frase:** o desfecho do bloco deixou de ser um clique e virou
+**rollup das presenças** — e, como consequência, toda a massa de pacote passou a operar sobre
+presenças, que é o que fecha o bug do `pkgOf` do protótipo (cancelar o pacote de um paciente
+cancelava a turma dos outros).
+
+Achados desta leva que valem além dela:
+
+- **o form que submetia vazio** (etapa 4): atribuir campos e chamar `requestSubmit()` no mesmo
+  tick não funciona no Svelte 5 — os `value` ainda não foram escritos. O teste de componente
+  passava porque o `fireEvent` do testing-library devolve **depois** do flush. Só o clique real
+  denunciou; a regressão agora espiona `requestSubmit` e afirma no momento do submit;
+- **quem aborta a transação da massa é o Ash**, não o `Repo.rollback/1` do laço: a ação que falha
+  chama `rollback(changeset)` na transação que não abriu, e o que sai é um `Ash.Changeset` cru —
+  sem normalizar, a fronteira devolvia **400** para o que é 422 de conflito;
+- **sucesso silencioso é pior que erro**: `bulk_*` sobre um pacote inexistente respondia
+  `{:ok, %{afetadas: 0}}`. Virou 404, com `uuid?/1` antes do read (id malformado estoura no Ash —
+  o mesmo 500 do doc 32);
+- **a ordem das cláusulas de um `Ash.Notifier` é contrato**: a específica (`:add_participant`)
+  tem de vir antes da geral, que casa qualquer nome. Invertidas, o sintoma é *uma notificação a
+  menos*, sem erro nenhum — por isso virou comentário no módulo **e** teste de mutação;
+- **o limite do gate `:rls`**, medido e escrito no arquivo: o sandbox roda o teste numa transação
+  só, então o primeiro `in_clinic` do caminho deixa a GUC pendurada. Tirar o `in_clinic` de uma
+  leitura **interna** continua passando o gate. Ele prova a porta de entrada e a escrita.
+
+Verde ao fim: api **928/0** (91,7% de cobertura), gate RLS **7/0** como `movimento_app`, web
+**1268/1268** (91,3% stmts), `svelte-check` 0 erros. Verificação ao vivo no browser: falta por
+participante → rollup + contador de faltas, justificar → contador volta, massa move as 4 sessões
+do pacote e o histórico da ficha reflete.
 
 ### D-A — o diagnóstico correto (para quando voltar)
 
