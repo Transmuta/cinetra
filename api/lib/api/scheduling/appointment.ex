@@ -275,6 +275,23 @@ defmodule Api.Scheduling.Appointment do
       change Api.Scheduling.Appointment.Changes.ManageParticipants
     end
 
+    # O outro lado do `:add_participant` (doc 41 etapa 3, contrato 09 §3.1.1 ponto 3): tira um
+    # participante sem tocar nos colegas. É o que a massa por pacote precisa — cancelar o bloco
+    # cancelaria a sessão de todo mundo, que é o bug que o `pkgOf` do protótipo produzia.
+    #
+    # A escrita é ancorada no BLOCO (e não um destroy solto na `Attendance`) por três razões: as
+    # policies A7/A8 já moram aqui; a `version` bumpa, invalidando o cliente que tinha a
+    # composição antiga; e o `AgendaNotifier` só escuta o `Appointment` — é daqui que sai o
+    # `participant_removed` do contrato de wire.
+    update :remove_participant do
+      require_atomic? false
+
+      argument :patient_ids, {:array, :uuid}, allow_nil?: false
+
+      change Api.Scheduling.Appointment.Changes.RemoveParticipants
+      change Api.Scheduling.Appointment.Changes.BumpVersion
+    end
+
     # ---- Ciclo de vida (Entrega 4, doc 25 §9 / §8d) ----
     #
     # Ações **nomeadas**, nunca `PATCH` de `status` (doc 25 §3): a intenção — remarcou,
@@ -413,6 +430,7 @@ defmodule Api.Scheduling.Appointment do
   @write_actions [
     :schedule,
     :add_participant,
+    :remove_participant,
     :reschedule,
     :mark_completed,
     :mark_missed,

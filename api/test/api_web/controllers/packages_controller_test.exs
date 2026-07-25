@@ -187,4 +187,95 @@ defmodule ApiWeb.PackagesControllerTest do
       assert json_response(conn, 200)["package"]["status"] == "cancelado"
     end
   end
+
+  describe "massa por pacote (doc 41 etapa 3)" do
+    # A massa só alcança sessões futuras — o `@segunda` dos outros testes já passou.
+    @futuro "2027-03-01"
+
+    defp criar_futuro(ctx) do
+      corpo =
+        body(ctx, %{
+          "data_inicio" => @futuro,
+          "total" => 2,
+          "grade" => %{
+            "dows" => [1],
+            "horarios" => %{"1" => "08:00"},
+            "professional_id" => ctx.prof.id
+          }
+        })
+
+      pkg = json_response(as(ctx.owner) |> post("/api/packages", corpo), 201)
+      Oban.drain_queue(queue: :housekeeping)
+      pkg["package"]
+    end
+
+    test "bulk_cancel devolve quantas sessões foram tocadas" do
+      ctx = fixture()
+      pkg = criar_futuro(ctx)
+
+      conn =
+        as(ctx.owner) |> post("/api/packages/#{pkg["id"]}/bulk_cancel", %{"escopo" => "todas"})
+
+      assert %{"afetadas" => 2, "package" => %{"id" => _}} = json_response(conn, 200)
+    end
+
+    test "bulk_adjust move o horário das sessões do escopo" do
+      ctx = fixture()
+      pkg = criar_futuro(ctx)
+
+      conn =
+        as(ctx.owner)
+        |> post("/api/packages/#{pkg["id"]}/bulk_adjust", %{
+          "escopo" => "todas",
+          "aplicar_horario" => "true",
+          "hhmm" => "09:00"
+        })
+
+      assert %{"afetadas" => 2} = json_response(conn, 200)
+
+      # a agenda do dia mostra a sessão no horário novo
+      dia =
+        json_response(
+          as(ctx.owner) |> get("/api/appointments?from=#{@futuro}&to=#{@futuro}"),
+          200
+        )["appointments"]
+
+      assert [%{"starts_at" => starts_at}] = dia
+      assert String.contains?(starts_at, "12:00")
+    end
+
+    test "sem escolher o que aplicar → 422" do
+      ctx = fixture()
+      pkg = criar_futuro(ctx)
+
+      conn =
+        as(ctx.owner) |> post("/api/packages/#{pkg["id"]}/bulk_adjust", %{"escopo" => "todas"})
+
+      assert %{"error" => "invalid", "details" => [%{"message" => msg}]} =
+               json_response(conn, 422)
+
+      assert msg =~ "escolha o que aplicar"
+    end
+
+    test "pacote inexistente → 404" do
+      ctx = fixture()
+
+      conn =
+        as(ctx.owner)
+        |> post("/api/packages/#{Ash.UUID.generate()}/bulk_cancel", %{"escopo" => "todas"})
+
+      assert json_response(conn, 404)["error"] == "not_found"
+    end
+
+    test "exige autenticação" do
+      conn =
+        post(
+          Phoenix.ConnTest.build_conn(),
+          "/api/packages/#{Ash.UUID.generate()}/bulk_cancel",
+          %{}
+        )
+
+      assert json_response(conn, 401)
+    end
+  end
 end

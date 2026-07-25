@@ -40,6 +40,7 @@ defmodule Api.Scheduling do
       # (abaixo), que decide entre criar e fundir numa turma existente (A-D4).
       define :create_appointment_slot, action: :schedule
       define :add_appointment_participants, action: :add_participant
+      define :remove_appointment_participants, action: :remove_participant
 
       # Interfaces **cruas** do ciclo de vida (Entrega 4). Quem chama de fora usa
       # `transition_appointment/5`, que faz o fetch-then-update com o guard de `version` (409).
@@ -175,9 +176,12 @@ defmodule Api.Scheduling do
             starts_at == ^starts_at and status != :cancelado
         )
 
-      case in_clinic_or_tenant(opts, clinic_id, fn ->
-             find_appointments!(Keyword.put(opts, :query, query))
-           end) do
+      # `return_notifications?` é opção de escrita e chega aqui porque `schedule_appointment/2`
+      # recebe os mesmos `opts` das duas pontas (a massa do pacote pede notificação da fusão);
+      # numa leitura ela não tem sentido e o Ash recusa opção desconhecida.
+      read_opts = opts |> Keyword.drop([:return_notifications?]) |> Keyword.put(:query, query)
+
+      case in_clinic_or_tenant(opts, clinic_id, fn -> find_appointments!(read_opts) end) do
         [turma | _] -> turma
         _ -> nil
       end
@@ -1392,7 +1396,7 @@ defmodule Api.Scheduling do
   segurada devolve `nil` (bate-volta 2026-07-24): `future_sessions` estourava e as seguradas
   ficavam órfãs. Roda sob a GUC (`in_clinic`), `authorize?: false` (operação interna do pacote).
   """
-  def list_sessions_including_held(clinic_id, appointment_ids)
+  def list_sessions_including_held(clinic_id, appointment_ids, opts \\ [])
       when is_binary(clinic_id) and is_list(appointment_ids) do
     query =
       Api.Scheduling.Appointment
@@ -1400,7 +1404,12 @@ defmodule Api.Scheduling do
       |> Ash.Query.filter(id in ^appointment_ids)
 
     in_clinic(clinic_id, fn ->
-      find_appointments!(query: query, tenant: clinic_id, authorize?: false)
+      find_appointments!(
+        query: query,
+        tenant: clinic_id,
+        authorize?: false,
+        load: Keyword.get(opts, :load, [])
+      )
     end)
   end
 

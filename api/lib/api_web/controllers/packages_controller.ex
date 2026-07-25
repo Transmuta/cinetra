@@ -87,6 +87,45 @@ defmodule ApiWeb.PackagesController do
     end)
   end
 
+  # POST /api/packages/:id/bulk_adjust
+  def bulk_adjust(conn, %{"id" => id} = params) do
+    with_member_scope(conn, fn scope ->
+      bulk(conn, scope, id, Packages.bulk_adjust(scope, id, params))
+    end)
+  end
+
+  # POST /api/packages/:id/bulk_cancel
+  def bulk_cancel(conn, %{"id" => id} = params) do
+    with_member_scope(conn, fn scope ->
+      bulk(conn, scope, id, Packages.bulk_cancel(scope, id, params))
+    end)
+  end
+
+  # A resposta da massa devolve o pacote (os derivados mudaram) e **quantas** sessões foram
+  # tocadas — a tela precisa do número para o "3 sessões remarcadas", e recontar no cliente daria
+  # outro número (o cliente não sabe o recorte de futuras não-resolvidas).
+  defp bulk(conn, scope, id, result) do
+    case result do
+      {:ok, %{afetadas: afetadas}} ->
+        pkg = Packages.get_patient_package!(scope, id, load: derivados())
+        json(conn, %{package: PackagesJSON.package(pkg), afetadas: afetadas})
+
+      {:error, :not_found} ->
+        not_found(conn)
+
+      {:error, motivo} when is_atom(motivo) ->
+        invalid(conn, motivo_da_massa(motivo))
+
+      {:error, error} ->
+        error_response(conn, error)
+    end
+  end
+
+  defp motivo_da_massa(:nada_a_aplicar), do: "escolha o que aplicar: profissional e/ou horário"
+  defp motivo_da_massa(:horario_invalido), do: "horário inválido"
+  defp motivo_da_massa(:escopo_invalido), do: "escopo inválido"
+  defp motivo_da_massa(outro), do: to_string(outro)
+
   defp transition(conn, scope, result) do
     case result do
       {:ok, pkg} ->

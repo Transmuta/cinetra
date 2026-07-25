@@ -42,6 +42,7 @@ defmodule Api.Scheduling.AgendaNotifier do
   @lifecycle [
     :schedule,
     :add_participant,
+    :remove_participant,
     :reschedule,
     :mark_completed,
     :mark_missed,
@@ -131,6 +132,7 @@ defmodule Api.Scheduling.AgendaNotifier do
   # Os nomes são os do contrato 09 §7.2 — o cliente casa por eles.
   defp event_name(:schedule), do: "appointment_scheduled"
   defp event_name(:add_participant), do: "participant_added"
+  defp event_name(:remove_participant), do: "participant_removed"
   defp event_name(:reschedule), do: "appointment_rescheduled"
   defp event_name(:cancel), do: "appointment_canceled"
 

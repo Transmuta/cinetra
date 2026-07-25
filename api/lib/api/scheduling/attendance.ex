@@ -135,6 +135,16 @@ defmodule Api.Scheduling.Attendance do
       require_atomic? false
       accept [:package_id]
     end
+
+    # Sair da turma (doc 41 etapa 3). Chamada **em cascata**, de dentro da ação do bloco
+    # (`Appointment.Changes.RemoveParticipants`), com `authorize?: false` — quem autoriza é o
+    # bloco, e é lá que moram o guard do último participante e o `participant_removed`.
+    # `require_atomic? false` pelo `SetTenantGuc` (before_action), como todas as escritas
+    # por-tenant.
+    destroy :remove do
+      primary? true
+      require_atomic? false
+    end
   end
 
   policies do
@@ -142,7 +152,7 @@ defmodule Api.Scheduling.Attendance do
       authorize_if {Api.Accounts.Checks.HasClinicRole, roles: :any, clinic_from: :tenant}
     end
 
-    policy action_type([:create, :update]) do
+    policy action_type([:create, :update, :destroy]) do
       authorize_if {Api.Accounts.Checks.HasClinicRole,
                     roles: [:owner, :admin, :recepcao, :profissional], clinic_from: :tenant}
     end

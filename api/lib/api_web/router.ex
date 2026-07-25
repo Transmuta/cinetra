@@ -135,6 +135,9 @@ defmodule ApiWeb.Router do
     post "/packages/:id/pause", PackagesController, :pause
     post "/packages/:id/resume", PackagesController, :resume
     post "/packages/:id/cancel", PackagesController, :cancel
+    # Massa por pacote (doc 41 etapa 3): opera sobre as PRESENÇAS do pacote, não sobre o bloco.
+    post "/packages/:id/bulk_adjust", PackagesController, :bulk_adjust
+    post "/packages/:id/bulk_cancel", PackagesController, :bulk_cancel
 
     # Agenda (doc 25). Papéis owner·admin·recepcao·profissional (A8) — recepção é quem agenda,
     # e o profissional só enxerga a própria agenda (A7, recorte por linha na preparation).

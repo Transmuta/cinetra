@@ -260,6 +260,17 @@ defmodule Api.Packages do
   end
 
   @doc """
+  Ajuste em massa das sessões do pacote (doc 41 etapa 3). Delega a `Api.Packages.Bulk` — ver lá a
+  semântica por presença.
+  """
+  defdelegate bulk_adjust(scope, package_id, params), to: Api.Packages.Bulk, as: :adjust
+
+  @doc """
+  Cancelamento em massa das sessões do pacote (doc 41 etapa 3). Delega a `Api.Packages.Bulk`.
+  """
+  defdelegate bulk_cancel(scope, package_id, params), to: Api.Packages.Bulk, as: :cancel
+
+  @doc """
   O `package_id` é um pacote **deste** paciente nesta clínica? (doc 41 etapa 2, contrato
   09 §3.1.1 ponto 2.)
 
