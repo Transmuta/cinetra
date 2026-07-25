@@ -317,8 +317,12 @@ defmodule Api.RlsSmokeTest do
 
       {:ok, appt} =
         Scheduling.schedule_appointment(
-          %{starts_at: at("08:00"), professional_id: ctx.prof.id,
-            appointment_type_id: ctx.tipo.id, patient_ids: [ctx.paciente.id]},
+          %{
+            starts_at: at("08:00"),
+            professional_id: ctx.prof.id,
+            appointment_type_id: ctx.tipo.id,
+            patient_ids: [ctx.paciente.id]
+          },
           scope: ctx.scope
         )
 
@@ -329,11 +333,20 @@ defmodule Api.RlsSmokeTest do
       :ok = sem_guc()
 
       assert {:ok, updated} =
-               Scheduling.transition_participant(ctx.scope, appt.id, ctx.paciente.id, :complete, %{}, appt.version)
+               Scheduling.transition_participant(
+                 ctx.scope,
+                 appt.id,
+                 ctx.paciente.id,
+                 :complete,
+                 %{},
+                 appt.version
+               )
 
       assert updated.status == :concluido, "o rollup não escreveu o desfecho (GUC faltando?)"
       assert updated.version == appt.version + 1
-      assert Enum.find(updated.attendances, &(&1.patient_id == ctx.paciente.id)).status == :concluida
+
+      assert Enum.find(updated.attendances, &(&1.patient_id == ctx.paciente.id)).status ==
+               :concluida
     end
   end
 end

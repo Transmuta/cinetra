@@ -845,20 +845,33 @@ defmodule ApiWeb.AppointmentsControllerTest do
   defp create_turma(conn, ctx) do
     turma =
       Directory.create_appointment_type!(
-        %{nome: "Turma #{System.unique_integer([:positive])}", duracao_minutos: 50,
-          cor: "#0FB5A6", icon: "Users", grupo: true, capacidade: 4},
+        %{
+          nome: "Turma #{System.unique_integer([:positive])}",
+          duracao_minutos: 50,
+          cor: "#0FB5A6",
+          icon: "Users",
+          grupo: true,
+          capacidade: 4
+        },
         tenant: ctx.clinic.id,
         actor: ctx.owner
       )
 
-    p2 = Records.create_patient!("P2 #{System.unique_integer([:positive])}", %{},
-           tenant: ctx.clinic.id, actor: ctx.owner)
+    p2 =
+      Records.create_patient!("P2 #{System.unique_integer([:positive])}", %{},
+        tenant: ctx.clinic.id,
+        actor: ctx.owner
+      )
 
     resp =
       conn
       |> authed(ctx.owner)
-      |> post("/api/appointments",
-        payload(ctx, %{"appointment_type_id" => turma.id, "patient_ids" => [ctx.paciente.id, p2.id]})
+      |> post(
+        "/api/appointments",
+        payload(ctx, %{
+          "appointment_type_id" => turma.id,
+          "patient_ids" => [ctx.paciente.id, p2.id]
+        })
       )
 
     appt = json_response(resp, 201)["appointment"]
@@ -876,7 +889,9 @@ defmodule ApiWeb.AppointmentsControllerTest do
       ctx = fixture()
       {id, version, _p2} = create_turma(conn, ctx)
 
-      resp = part_post(conn, ctx, id, ctx.paciente.id, "complete", %{"expected_version" => version})
+      resp =
+        part_post(conn, ctx, id, ctx.paciente.id, "complete", %{"expected_version" => version})
+
       appt = json_response(resp, 200)["appointment"]
       assert appt["version"] == version + 1
     end
@@ -896,7 +911,9 @@ defmodule ApiWeb.AppointmentsControllerTest do
       ctx = fixture()
       {id, version, _p2} = create_turma(conn, ctx)
 
-      resp = part_post(conn, ctx, id, ctx.paciente.id, "complete", %{"expected_version" => version + 5})
+      resp =
+        part_post(conn, ctx, id, ctx.paciente.id, "complete", %{"expected_version" => version + 5})
+
       assert json_response(resp, 409)["code"] == "version_conflict"
     end
 
@@ -916,8 +933,12 @@ defmodule ApiWeb.AppointmentsControllerTest do
       c1 = part_post(conn, ctx, id, ctx.paciente.id, "no_show", %{"expected_version" => version})
       v1 = json_response(c1, 200)["appointment"]["version"]
 
-      resp = part_post(conn, ctx, id, ctx.paciente.id, "justify",
-               %{"justificada" => true, "expected_version" => v1})
+      resp =
+        part_post(conn, ctx, id, ctx.paciente.id, "justify", %{
+          "justificada" => true,
+          "expected_version" => v1
+        })
+
       assert json_response(resp, 200)
     end
 
@@ -929,8 +950,10 @@ defmodule ApiWeb.AppointmentsControllerTest do
       resp =
         conn
         |> authed(recepcao)
-        |> post("/api/appointments/#{id}/participants/#{ctx.paciente.id}/complete",
-          %{"expected_version" => version})
+        |> post(
+          "/api/appointments/#{id}/participants/#{ctx.paciente.id}/complete",
+          %{"expected_version" => version}
+        )
 
       assert json_response(resp, 200)
     end
@@ -939,8 +962,11 @@ defmodule ApiWeb.AppointmentsControllerTest do
       ctx = fixture()
       {id, version, _p2} = create_turma(conn, ctx)
 
-      resp = post(conn, "/api/appointments/#{id}/participants/#{ctx.paciente.id}/complete",
-               %{"expected_version" => version})
+      resp =
+        post(conn, "/api/appointments/#{id}/participants/#{ctx.paciente.id}/complete", %{
+          "expected_version" => version
+        })
+
       assert json_response(resp, 401)
     end
   end

@@ -143,13 +143,21 @@ defmodule ApiWeb.AppointmentsController do
 
   # POST /api/appointments/:id/participants/:patient_id/justify
   def participant_justify(conn, %{"id" => id, "patient_id" => pid} = params),
-    do: participant(conn, id, pid, :justify, %{justificada: truthy(params["justificada"])}, params)
+    do:
+      participant(conn, id, pid, :justify, %{justificada: truthy(params["justificada"])}, params)
 
   defp participant(conn, id, patient_id, kind, input, params) do
     with_member_scope(conn, fn scope ->
       handle_transition(
         conn,
-        Scheduling.transition_participant(scope, id, patient_id, kind, input, expected_version(params))
+        Scheduling.transition_participant(
+          scope,
+          id,
+          patient_id,
+          kind,
+          input,
+          expected_version(params)
+        )
       )
     end)
   end
@@ -179,7 +187,10 @@ defmodule ApiWeb.AppointmentsController do
       {:error, :block_not_open} ->
         conn
         |> put_status(:unprocessable_entity)
-        |> json(%{error: "block_not_open", message: "Este agendamento não está aberto para presença."})
+        |> json(%{
+          error: "block_not_open",
+          message: "Este agendamento não está aberto para presença."
+        })
 
       {:error, error} ->
         error_response(conn, error)

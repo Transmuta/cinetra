@@ -31,7 +31,8 @@ defmodule Api.Scheduling.Attendance.Rollup do
   canceladas — filtramos aqui).
   """
   @spec block_status(atom(), [atom()]) :: atom()
-  def block_status(current, attendance_statuses) when is_atom(current) and is_list(attendance_statuses) do
+  def block_status(current, attendance_statuses)
+      when is_atom(current) and is_list(attendance_statuses) do
     live = Enum.reject(attendance_statuses, &(&1 == :cancelada))
 
     cond do
