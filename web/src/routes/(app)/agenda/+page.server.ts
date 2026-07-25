@@ -11,7 +11,9 @@ import {
 	cancelAppointment,
 	reopenAppointment,
 	excludeAppointment,
-	justifyAbsence
+	justifyAbsence,
+	transitionParticipant,
+	type ParticipantKind
 } from '$lib/server/appointments';
 import type { MutationResult } from '$lib/server/mutate';
 import {
@@ -288,8 +290,36 @@ export const actions: Actions = {
 				expected_version: expectedVersion(form)
 			})
 		);
+	},
+
+	// Presença por participante (A2, doc 41): uma action só para os quatro verbos, porque a
+	// diferença entre eles é o segmento da rota — não o fluxo. `patient_id` e `kind` vêm do form;
+	// `kind` é validado contra a lista, senão o campo do cliente escolheria o caminho da URL.
+	presenca: async (event) => {
+		const s = await submission(event, 'presenca');
+		if (!('id' in s)) return s;
+		const { form, id } = s;
+
+		const patient_id = String(form.get('patient_id') ?? '');
+		const kind = String(form.get('kind') ?? '');
+
+		if (!patient_id || !PARTICIPANT_KINDS.includes(kind as ParticipantKind)) {
+			return fail(400, { action: 'presenca', error: 'Participante ou ação não informados.' });
+		}
+
+		return finish(
+			'presenca',
+			await transitionParticipant(event, id, patient_id, kind as ParticipantKind, {
+				expected_version: expectedVersion(form),
+				...(kind === 'justify'
+					? { justificada: form.get('justificada') === 'true' || form.get('justificada') === 'on' }
+					: {})
+			})
+		);
 	}
 };
+
+const PARTICIPANT_KINDS: readonly ParticipantKind[] = ['complete', 'no_show', 'reopen', 'justify'];
 
 // Lê o corpo e exige o `id` do agendamento — o preâmbulo que as quatro actions de ciclo de
 // vida com corpo próprio repetiam. Devolve `{form, id}` OU o `fail(400)` pronto (o chamador

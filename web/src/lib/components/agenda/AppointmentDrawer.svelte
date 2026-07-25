@@ -23,7 +23,10 @@
 	import Drawer from '$lib/components/Drawer.svelte';
 	import {
 		STATUS_META,
+		ATTENDANCE_META,
 		statusActions,
+		participantActions,
+		resolvedCount,
 		isTerminal,
 		canExcludeAppointment,
 		DRAWER_ACTIONS,
@@ -31,6 +34,7 @@
 		zonedParts,
 		m2t,
 		type Appointment,
+		type Participant,
 		type AgendaPatient,
 		type AgendaProfessional,
 		type AgendaAppointmentType
@@ -78,9 +82,33 @@
 	const participantes = $derived(appt.patient_ids.map((id) => porId.get(id)).filter(Boolean) as AgendaPatient[]);
 	const soloPaciente = $derived(!grupo ? participantes[0] : undefined);
 
-	const acoes = $derived(statusActions(appt, agora));
+	// A2 (doc 41): a presença é por participante. A lista de status vem do `participants` do
+	// bloco; a ORDEM segue `patient_ids`, para o drawer não reordenar sozinho a cada push do
+	// tempo real.
+	const presencas = $derived(new Map(appt.participants.map((p) => [p.patient_id, p])));
+	const resolvidas = $derived(resolvedCount(appt.participants));
+	const presencaSolo = $derived(soloPaciente ? presencas.get(soloPaciente.id) : undefined);
+
+	// O form da presença é UM só, submetido com os campos preenchidos no clique (o mesmo padrão
+	// do cancelar): N participantes × 4 verbos como forms separados seriam 4N forms no DOM.
+	let presencaForm = $state<HTMLFormElement>();
+	let presencaPatient = $state('');
+	let presencaKind = $state('');
+	let presencaJustificada = $state('false');
+
+	function marcarPresenca(patientId: string, kind: string, justificada = false) {
+		presencaPatient = patientId;
+		presencaKind = kind;
+		presencaJustificada = String(justificada);
+		presencaForm?.requestSubmit();
+	}
+
+	const ICON_PRESENCA = { Check, UserX, RotateCcw } as const;
+
+	// Do trio do protótipo sobra o cancelar: concluir/faltar viraram presença por participante
+	// (A2). Continua saindo de `statusActions` para o estado (`on`) ter fonte única.
+	const cancelar = $derived(statusActions(appt, agora).find((a) => a.kind === 'cancelar'));
 	const terminal = $derived(isTerminal(appt.status));
-	const faltou = $derived(appt.status === 'faltou');
 
 	// Excluir (soft-delete, doc 40) só o que não aconteceu — regra única em `$lib/agenda`. Um
 	// cancelado (terminal, sem "Enviar confirmação") ainda pode ser excluído: é o caso mais comum
@@ -89,16 +117,11 @@
 	const podeExcluir = $derived(canExcludeAppointment(appt.status));
 	const mostraRodape = $derived(podeMexer && (!terminal || podeExcluir));
 
-	// Ícone por ação — o `statusActions` devolve o NOME (evita importar Lucide na regra pura).
-	const ICON = { Check, UserX, X } as const;
-
 	// O erro (409/422) só é do drawer quando a última action foi de ciclo de vida (fonte única
 	// em `$lib/agenda`, não uma lista solta aqui).
 	const erro = $derived(
 		form && (DRAWER_ACTIONS as readonly string[]).includes(form.action ?? '') ? form.error : undefined
 	);
-
-	let justifyForm = $state<HTMLFormElement>();
 
 	// Cancelar é a única ação de status que **pergunta** algo antes (F3). A coluna
 	// `cancel_reason` sempre existiu e o drawer já a exibia depois do fato; o que faltava era
@@ -206,49 +229,106 @@
 			</div>
 		{/if}
 
-		<!-- Falta justificada (só com status faltou) -->
-		{#if faltou && podeMexer}
-			<form method="POST" action="?/justificar" use:enhance bind:this={justifyForm}>
-				<input type="hidden" name="id" value={appt.id} />
-				<input type="hidden" name="expected_version" value={appt.version} />
-				<input type="hidden" name="justificada" value={String(!appt.falta_justificada)} />
-				<div class="flex items-center gap-2.5 rounded-lg border border-edge px-3 py-2.5">
-					<div class="min-w-0 flex-1">
-						<div class="font-semibold">Falta justificada</div>
-						<div class="text-[11.5px] text-faint">Não conta para o paciente nem debita pacote.</div>
-					</div>
-					<SwitchToggle
-						checked={appt.falta_justificada}
-						label="Justificar falta"
-						onchange={() => justifyForm?.requestSubmit()}
-					/>
+		<!-- Presença POR PARTICIPANTE (A2, doc 41). Substitui, na tela, o concluir/faltar do bloco:
+		     numa turma de quatro, um pode ter vindo e outro não, e o desfecho do bloco é o ROLLUP
+		     disso (quem escreve o status do bloco é o servidor). Vale igual para sessão individual —
+		     marca-se a única presença. -->
+		{#snippet controlesPresenca(p: AgendaPatient, presenca: Participant)}
+			{@const acoes = participantActions(presenca, appt, agora)}
+			{#if podeMexer && acoes.length > 0}
+				<div class="mt-1.5 flex flex-wrap items-center gap-1.5">
+					{#each acoes as ac (ac.kind)}
+						{@const Icon = ICON_PRESENCA[ac.icon as keyof typeof ICON_PRESENCA]}
+						<button
+							type="button"
+							onclick={() => marcarPresenca(p.id, ac.kind)}
+							disabled={ac.disabled}
+							title={ac.title}
+							class="flex items-center gap-1.5 rounded-lg border border-edge px-2 py-1.5 text-[12px] font-semibold transition-colors hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-55"
+						>
+							<Icon size={13} />
+							{ac.label}
+						</button>
+					{/each}
+
+					{#if presenca.status === 'faltou'}
+						<!-- Justificar é da PRESENÇA, não do bloco: numa turma, a falta de um pode ser
+						     justificada e a do outro não — e é isso que decide o débito de cada pacote. -->
+						<label class="ml-auto flex items-center gap-2 text-[11.5px] text-faint">
+							<span>Justificada</span>
+							<SwitchToggle
+								checked={presenca.falta_justificada}
+								label="Justificar falta de {p.nome}"
+								onchange={() => marcarPresenca(p.id, 'justify', !presenca.falta_justificada)}
+							/>
+						</label>
+					{/if}
 				</div>
-			</form>
-		{/if}
+			{/if}
+		{/snippet}
+
+		{#snippet selo(presenca: Participant)}
+			{@const attMeta = ATTENDANCE_META[presenca.status]}
+			{#if presenca.status !== 'prevista'}
+				<span
+					class="rounded-full px-2 py-0.5 text-[11px] font-semibold"
+					style="background:{attMeta.tone
+						? `color-mix(in srgb, var(--color-${attMeta.tone}) 14%, transparent)`
+						: 'var(--color-surface-2)'}; color:{attMeta.tone
+						? `var(--color-${attMeta.tone})`
+						: 'var(--color-muted)'}"
+				>
+					{attMeta.label}{presenca.falta_justificada ? ' · justificada' : ''}
+				</span>
+			{/if}
+		{/snippet}
+
+		<!-- O form é um só para as N linhas × 4 verbos (o mesmo padrão do cancelar): os campos são
+		     preenchidos no clique e submetidos. `expected_version` é a do BLOCO — a versão vive lá,
+		     e o 409 continua sendo o mesmo guard do resto da agenda. -->
+		<form method="POST" action="?/presenca" use:enhance bind:this={presencaForm} class="hidden">
+			<input type="hidden" name="id" value={appt.id} />
+			<input type="hidden" name="expected_version" value={appt.version} />
+			<input type="hidden" name="patient_id" value={presencaPatient} />
+			<input type="hidden" name="kind" value={presencaKind} />
+			<input type="hidden" name="justificada" value={presencaJustificada} />
+		</form>
 
 		<!-- Paciente(s) -->
 		{#if grupo}
 			<div class="rounded-lg border border-edge">
 				<div class="flex items-center justify-between border-b border-edge px-3 py-2 text-[12px] text-faint">
 					<span>Pacientes na turma</span>
-					<span class="font-mono">{participantes.length}/{capacidade}</span>
+					<span class="font-mono">
+						{participantes.length}/{capacidade}
+						{#if resolvidas > 0}· {resolvidas} resolvida(s){/if}
+					</span>
 				</div>
 				<ul class="divide-y divide-edge">
 					{#each participantes as p (p.id)}
-						<li class="flex items-center gap-2 px-3 py-2">
-							<span class="truncate">{p.nome}</span>
-							{#if p.faltas}<span class="ml-auto text-[11px] text-faint">{p.faltas} falta(s)</span>{/if}
+						{@const presenca = presencas.get(p.id)}
+						<li class="px-3 py-2">
+							<div class="flex items-center gap-2">
+								<span class="truncate">{p.nome}</span>
+								{#if presenca}{@render selo(presenca)}{/if}
+								{#if p.faltas}<span class="ml-auto text-[11px] text-faint">{p.faltas} falta(s)</span>{/if}
+							</div>
+							{#if presenca}{@render controlesPresenca(p, presenca)}{/if}
 						</li>
 					{/each}
 				</ul>
 			</div>
 		{:else if soloPaciente}
 			<div class="rounded-lg border border-edge px-3 py-2.5">
-				<div class="font-semibold">{soloPaciente.nome}</div>
+				<div class="flex items-center gap-2">
+					<div class="font-semibold">{soloPaciente.nome}</div>
+					{#if presencaSolo}{@render selo(presencaSolo)}{/if}
+				</div>
 				<div class="mt-0.5 flex items-center gap-2 text-[12px] text-faint">
 					{#if soloPaciente.tel}<span class="font-mono">{soloPaciente.tel}</span>{/if}
 					{#if soloPaciente.faltas != null}<span>· {soloPaciente.faltas} falta(s)</span>{/if}
 				</div>
+				{#if presencaSolo}{@render controlesPresenca(soloPaciente, presencaSolo)}{/if}
 				<a
 					href="/pacientes/{soloPaciente.id}"
 					class="mt-2 inline-flex items-center gap-1 text-[12.5px] font-semibold text-teal-text hover:underline"
@@ -279,47 +359,25 @@
 				<CalendarClock size={15} /> Remarcar sessão
 			</button>
 
-			<!-- Mudar status (protótipo :1807) -->
-			<div>
-				<div class="mb-1.5 text-[12px] text-faint">Mudar status</div>
-				<div class="grid grid-cols-3 gap-2">
-					<!-- O botão é o mesmo nos dois caminhos; o que muda é quem o envolve. Cancelar
-					     não submete: abre a confirmação, que pergunta o motivo (F3). -->
-					{#snippet botaoAcao(ac: (typeof acoes)[number], Icon: typeof Check, pergunta: boolean)}
-						<button
-							type={pergunta ? 'button' : 'submit'}
-							onclick={pergunta ? () => (cancelando = true) : undefined}
-							disabled={ac.disabled || ac.on}
-							title={ac.title}
-							class="flex w-full items-center justify-center gap-1.5 rounded-lg border px-2 py-2 text-[12.5px] font-semibold transition-colors disabled:cursor-not-allowed
-							{ac.on
-								? 'border-current text-ink'
-								: ac.disabled
-									? 'border-edge text-faint opacity-55'
-									: 'border-edge hover:bg-surface-2'}"
-							style={ac.on && STATUS_META[ac.status].tone
-								? `color:var(--color-${STATUS_META[ac.status].tone}); background:color-mix(in srgb, var(--color-${STATUS_META[ac.status].tone}) 10%, transparent)`
-								: ''}
-						>
-							<Icon size={14} />
-							{ac.label}
-						</button>
-					{/snippet}
-
-					{#each acoes as ac (ac.kind)}
-						{@const Icon = ICON[ac.icon as keyof typeof ICON]}
-						{#if ac.kind === 'cancelar'}
-							{@render botaoAcao(ac, Icon, true)}
-						{:else}
-							<form method="POST" action="?/{ac.kind}" use:enhance>
-								<input type="hidden" name="id" value={appt.id} />
-								<input type="hidden" name="expected_version" value={appt.version} />
-								{@render botaoAcao(ac, Icon, false)}
-							</form>
-						{/if}
-					{/each}
-				</div>
-			</div>
+			<!-- Cancelar a sessão. Concluir/faltar saíram daqui na A2 (doc 41): o desfecho do bloco
+			     deixou de ser um clique e virou o rollup das presenças acima. Cancelar fica porque é
+			     fase de AGENDAMENTO (a sessão não vai acontecer), não desfecho — e continua sendo
+			     escrita no bloco. Não submete direto: abre a confirmação, que pergunta o motivo (F3). -->
+			{#if cancelar}
+				<button
+					type="button"
+					onclick={() => (cancelando = true)}
+					disabled={cancelar.on}
+					class="flex w-full items-center justify-center gap-1.5 rounded-lg border px-2 py-2.5 text-[12.5px] font-semibold transition-colors disabled:cursor-not-allowed
+					{cancelar.on ? 'border-current text-ink' : 'border-edge hover:bg-surface-2'}"
+					style={cancelar.on && STATUS_META[cancelar.status].tone
+						? `color:var(--color-${STATUS_META[cancelar.status].tone}); background:color-mix(in srgb, var(--color-${STATUS_META[cancelar.status].tone}) 10%, transparent)`
+						: ''}
+				>
+					<X size={14} />
+					{cancelar.on ? 'Cancelado' : 'Cancelar sessão'}
+				</button>
+			{/if}
 
 			<!-- Fora do laço porque é submetido de fora dele (pela confirmação), e porque leva um
 			     campo que nenhuma outra ação tem. -->

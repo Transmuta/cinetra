@@ -28,7 +28,8 @@ defmodule ApiWeb.AgendaJSON do
       package_id: appt.package_id,
       version: appt.version,
       created_by_id: appt.created_by_id,
-      patient_ids: patient_ids(appt)
+      patient_ids: patient_ids(appt),
+      participants: participants(appt)
     }
   end
 
@@ -74,6 +75,22 @@ defmodule ApiWeb.AgendaJSON do
     do: Enum.map(attendances, & &1.patient_id)
 
   defp patient_ids(_appt), do: []
+
+  # A presença POR PARTICIPANTE (A2, doc 41): é o que o drawer marca linha a linha, e o que
+  # `patient_ids` sozinho não conta — numa turma de quatro, um pode ter concluído e outro faltado.
+  # `patient_ids` fica: é o que a grade usa para desenhar o N/cap sem olhar status nenhum.
+  defp participants(%{attendances: attendances}) when is_list(attendances) do
+    Enum.map(attendances, fn att ->
+      %{
+        patient_id: att.patient_id,
+        status: att.status,
+        falta_justificada: att.falta_justificada,
+        package_id: att.package_id
+      }
+    end)
+  end
+
+  defp participants(_appt), do: []
 
   # Bloco-nível a partir das presenças (`set_falta_justificada` cascateia para todas, então elas
   # são sempre uniformes). Vazio ou não-carregado → `false`. É o que o drawer lê para o bloco

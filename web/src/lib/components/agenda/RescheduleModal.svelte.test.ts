@@ -26,7 +26,8 @@ const appt: Appointment = {
 	package_id: null,
 	version: 5,
 	created_by_id: null,
-	patient_ids: ['pac1']
+	patient_ids: ['pac1'],
+	participants: [],
 };
 
 const base = {

@@ -896,6 +896,22 @@ defmodule ApiWeb.AppointmentsControllerTest do
       assert appt["version"] == version + 1
     end
 
+    test "o bloco serializa a presença de cada participante", %{conn: conn} do
+      ctx = fixture()
+      {id, version, p2} = create_turma(conn, ctx)
+
+      resp =
+        part_post(conn, ctx, id, ctx.paciente.id, "complete", %{"expected_version" => version})
+
+      participantes = json_response(resp, 200)["appointment"]["participants"]
+
+      assert %{"status" => "concluida", "falta_justificada" => false} =
+               Enum.find(participantes, &(&1["patient_id"] == ctx.paciente.id))
+
+      # o colega não foi tocado — é o que `patient_ids` sozinho não sabe dizer
+      assert %{"status" => "prevista"} = Enum.find(participantes, &(&1["patient_id"] == p2))
+    end
+
     test "um complete + um no_show fecham o bloco em :concluido", %{conn: conn} do
       ctx = fixture()
       {id, version, p2} = create_turma(conn, ctx)

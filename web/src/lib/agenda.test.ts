@@ -25,7 +25,10 @@ import {
 	parseHiddenProfs,
 	serializeHiddenProfs,
 	patientNameMap,
-	type Appointment
+	participantActions,
+	resolvedCount,
+	type Appointment,
+	type Participant
 } from './agenda';
 
 const SP = 'America/Sao_Paulo';
@@ -46,6 +49,7 @@ function appt(over: Partial<Appointment> = {}): Appointment {
 		cancel_reason: null,
 		falta_justificada: false,
 		patient_ids: ['pat1'],
+		participants: [],
 		...over
 	};
 }
@@ -496,6 +500,7 @@ describe('ciclo de vida (Entrega 4)', () => {
 			version: 1,
 			created_by_id: null,
 			patient_ids: ['pac1'],
+			participants: [],
 			...over
 		};
 	}
@@ -539,6 +544,65 @@ describe('ciclo de vida (Entrega 4)', () => {
 	it('statusActions: depois de começar, tudo habilitado', () => {
 		const acoes = statusActions(appt(), '2026-07-20T17:00:00Z');
 		expect(acoes.every((a) => !a.disabled)).toBe(true);
+	});
+
+	// A2 (doc 41): a presença é de cada participante, e o desfecho do bloco é rollup disso. As
+	// regras aqui são espelho de UX de `transition_participant/6` — o servidor é a autoridade.
+	describe('participantActions', () => {
+		const previsto: Participant = {
+			patient_id: 'pac1',
+			status: 'prevista',
+			falta_justificada: false,
+			package_id: null
+		};
+
+		it('antes de a sessão começar, presente/faltou ficam desabilitados com o title', () => {
+			const acoes = participantActions(previsto, appt(), '2026-07-20T09:00:00Z');
+			expect(acoes.map((a) => a.kind)).toEqual(['complete', 'no_show']);
+			expect(acoes.every((a) => a.disabled)).toBe(true);
+			expect(acoes[0].title).toBe('Disponível após o horário da sessão');
+		});
+
+		it('depois de começar, os dois liberam', () => {
+			const acoes = participantActions(previsto, appt(), '2026-07-20T17:00:00Z');
+			expect(acoes.every((a) => !a.disabled)).toBe(true);
+		});
+
+		it('presença resolvida oferece só desfazer — e sem gate de horário', () => {
+			const acoes = participantActions(
+				{ ...previsto, status: 'concluida' },
+				appt({ status: 'concluido' }),
+				'2026-07-20T09:00:00Z'
+			);
+			expect(acoes.map((a) => a.kind)).toEqual(['reopen']);
+			expect(acoes[0].disabled).toBe(false);
+		});
+
+		it('bloco cancelado não oferece ação nenhuma (o guard block_not_open do servidor)', () => {
+			expect(
+				participantActions(previsto, appt({ status: 'cancelado' }), '2026-07-20T17:00:00Z')
+			).toEqual([]);
+		});
+
+		it('presença cancelada (participante removido do bloco) também não oferece ação', () => {
+			const acoes = participantActions(
+				{ ...previsto, status: 'cancelada' },
+				appt(),
+				'2026-07-20T17:00:00Z'
+			);
+			expect(acoes).toEqual([]);
+		});
+
+		it('resolvedCount conta só o que foi resolvido', () => {
+			expect(
+				resolvedCount([
+					previsto,
+					{ ...previsto, patient_id: 'p2', status: 'concluida' },
+					{ ...previsto, patient_id: 'p3', status: 'faltou' },
+					{ ...previsto, patient_id: 'p4', status: 'cancelada' }
+				])
+			).toBe(2);
+		});
 	});
 
 	it('statusActions: a ação que já é o status atual fica marcada e nunca desabilitada', () => {

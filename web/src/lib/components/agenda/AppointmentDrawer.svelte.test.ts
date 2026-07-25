@@ -44,6 +44,9 @@ function appt(over: Partial<Appointment> = {}): Appointment {
 		version: 3,
 		created_by_id: null,
 		patient_ids: ['pac1'],
+		participants: [
+			{ patient_id: 'pac1', status: 'prevista', falta_justificada: false, package_id: null }
+		],
 		...over
 	};
 }
@@ -78,19 +81,54 @@ describe('AppointmentDrawer', () => {
 		expect(v?.value).toBe('3');
 	});
 
-	it('concluir/faltar ficam DESABILITADOS antes de a sessão começar', () => {
+	// A2 (doc 41): o desfecho deixou de ser um clique no BLOCO e virou presença por participante —
+	// mesmo numa sessão individual, marca-se a presença daquele paciente.
+	it('presente/faltou ficam DESABILITADOS antes de a sessão começar', () => {
 		render(AppointmentDrawer, {
-			props: { appt: appt(), ...base, agora: '2026-07-20T09:00:00Z' } // antes das 08:00 local? 09Z=06 local
+			props: { appt: appt(), ...base, agora: '2026-07-20T09:00:00Z' } // 09Z = 06:00 local
 		});
-		const concluir = screen.getByRole('button', { name: 'Concluir' });
-		expect(concluir).toBeDisabled();
-		expect(concluir).toHaveAttribute('title', 'Disponível após o horário da sessão');
+		const presente = screen.getByRole('button', { name: 'Presente' });
+		expect(presente).toBeDisabled();
+		expect(presente).toHaveAttribute('title', 'Disponível após o horário da sessão');
 	});
 
-	it('concluir/faltar ficam habilitados depois de começar', () => {
+	it('presente/faltou ficam habilitados depois de começar', () => {
 		render(AppointmentDrawer, { props: { appt: appt(), ...base } });
-		expect(screen.getByRole('button', { name: 'Concluir' })).toBeEnabled();
+		expect(screen.getByRole('button', { name: 'Presente' })).toBeEnabled();
 		expect(screen.getByRole('button', { name: 'Faltou' })).toBeEnabled();
+	});
+
+	it('o clique preenche o form da presença com participante e verbo', async () => {
+		const { container } = render(AppointmentDrawer, { props: { appt: appt(), ...base } });
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Faltou' }));
+
+		expect(container.querySelector<HTMLInputElement>('input[name="patient_id"]')?.value).toBe(
+			'pac1'
+		);
+		expect(container.querySelector<HTMLInputElement>('input[name="kind"]')?.value).toBe('no_show');
+	});
+
+	it('presença resolvida troca os botões por "Desfazer"', () => {
+		render(AppointmentDrawer, {
+			props: {
+				appt: appt({
+					status: 'concluido',
+					participants: [
+						{ patient_id: 'pac1', status: 'concluida', falta_justificada: false, package_id: null }
+					]
+				}),
+				...base
+			}
+		});
+		expect(screen.getByRole('button', { name: 'Desfazer' })).toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: 'Presente' })).not.toBeInTheDocument();
+	});
+
+	it('bloco cancelado não oferece presença nenhuma (guard block_not_open)', () => {
+		render(AppointmentDrawer, { props: { appt: appt({ status: 'cancelado' }), ...base } });
+		expect(screen.queryByRole('button', { name: 'Presente' })).not.toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: 'Faltou' })).not.toBeInTheDocument();
 	});
 
 	it('estado terminal mostra "Reabrir"; agendado não', () => {
@@ -101,10 +139,21 @@ describe('AppointmentDrawer', () => {
 		expect(screen.queryByRole('button', { name: /Reabrir/ })).not.toBeInTheDocument();
 	});
 
-	it('faltou expõe o toggle "Falta justificada"', () => {
-		render(AppointmentDrawer, { props: { appt: appt({ status: 'faltou' }), ...base } });
-		expect(screen.getByText('Falta justificada')).toBeInTheDocument();
-		expect(screen.getByRole('switch', { name: 'Justificar falta' })).toBeInTheDocument();
+	it('presença que faltou expõe o toggle de justificada — por participante', () => {
+		render(AppointmentDrawer, {
+			props: {
+				appt: appt({
+					status: 'faltou',
+					participants: [
+						{ patient_id: 'pac1', status: 'faltou', falta_justificada: false, package_id: null }
+					]
+				}),
+				...base
+			}
+		});
+		expect(
+			screen.getByRole('switch', { name: 'Justificar falta de João Silva' })
+		).toBeInTheDocument();
 	});
 
 	it('cancelado mostra o motivo e esconde "Enviar confirmação"', () => {
@@ -122,7 +171,7 @@ describe('AppointmentDrawer', () => {
 		it('o botão Cancelar abre a confirmação em vez de submeter', async () => {
 			render(AppointmentDrawer, { props: { appt: appt(), ...base } });
 
-			const botao = screen.getByRole('button', { name: /^Cancelar$/ });
+			const botao = screen.getByRole('button', { name: 'Cancelar sessão' });
 			expect(botao).toHaveAttribute('type', 'button');
 
 			await fireEvent.click(botao);
@@ -135,7 +184,7 @@ describe('AppointmentDrawer', () => {
 		it('o motivo digitado entra no form que a confirmação submete', async () => {
 			const { container } = render(AppointmentDrawer, { props: { appt: appt(), ...base } });
 
-			await fireEvent.click(screen.getByRole('button', { name: /^Cancelar$/ }));
+			await fireEvent.click(screen.getByRole('button', { name: 'Cancelar sessão' }));
 			await fireEvent.input(screen.getByPlaceholderText(/paciente pediu/i), {
 				target: { value: 'imprevisto do profissional' }
 			});
@@ -148,7 +197,7 @@ describe('AppointmentDrawer', () => {
 		it('Voltar fecha sem submeter', async () => {
 			render(AppointmentDrawer, { props: { appt: appt(), ...base } });
 
-			await fireEvent.click(screen.getByRole('button', { name: /^Cancelar$/ }));
+			await fireEvent.click(screen.getByRole('button', { name: 'Cancelar sessão' }));
 			await fireEvent.click(screen.getByRole('button', { name: 'Voltar' }));
 
 			expect(screen.queryByPlaceholderText(/paciente pediu/i)).not.toBeInTheDocument();

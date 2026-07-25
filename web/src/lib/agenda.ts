@@ -54,6 +54,22 @@ export interface Appointment {
 	version: number;
 	created_by_id: string | null;
 	patient_ids: string[];
+	/**
+	 * A presença de cada participante (A2, doc 41). `patient_ids` continua sendo o que a grade
+	 * usa para o N/cap; isto é o que o drawer marca linha a linha — numa turma de quatro, um pode
+	 * ter concluído e outro faltado, e o status do bloco é o **rollup** disso.
+	 */
+	participants: Participant[];
+}
+
+/** O status de UMA presença (`Api.Scheduling.AttendanceStatus`). */
+export type AttendanceStatus = 'prevista' | 'concluida' | 'faltou' | 'cancelada';
+
+export interface Participant {
+	patient_id: string;
+	status: AttendanceStatus;
+	falta_justificada: boolean;
+	package_id: string | null;
 }
 
 /** O profissional como a agenda o consome (subconjunto do diretório). */
@@ -390,8 +406,80 @@ export const DRAWER_ACTIONS = [
 	'cancelar',
 	'reabrir',
 	'excluir',
-	'justificar'
+	'justificar',
+	// A2 (doc 41): presença por participante — os quatro verbos entram por uma action só.
+	'presenca'
 ] as const;
+
+// ---------------------------------------------------------------------------
+// Presença por participante (A2, doc 41)
+// ---------------------------------------------------------------------------
+
+/** Os verbos das sub-rotas `/participants/:patient_id/…`. */
+export type ParticipantKind = 'complete' | 'no_show' | 'reopen' | 'justify';
+
+export interface ParticipantAction {
+	kind: ParticipantKind;
+	label: string;
+	icon: string;
+	/** Este é o estado atual da presença (destaque, não alvo de clique). */
+	on: boolean;
+	disabled: boolean;
+	title: string;
+}
+
+/**
+ * O que a linha de um participante oferece, no mesmo espírito do `statusActions` do bloco:
+ * espelho de UX das regras do servidor (`transition_participant/6`), não a autoridade.
+ *
+ *  - `complete`/`no_show` ficam **desabilitados até a sessão começar** (RN-58, o mesmo
+ *    `SessionStarted` do bloco) e só saem de `prevista`;
+ *  - `reopen` desfaz um clique errado — sem gate de horário, como no servidor;
+ *  - bloco **cancelado** não recebe presença nenhuma (o guard `block_not_open`, achado M-3 do
+ *    bate-volta): a linha inteira fica sem ação, em vez de pintar botão que o 422 recusa.
+ */
+export function participantActions(
+	p: Participant,
+	appt: Appointment,
+	agoraIso: string
+): ParticipantAction[] {
+	if (appt.status === 'cancelado' || p.status === 'cancelada') return [];
+
+	const comecou = started(appt, agoraIso);
+	const gated = comecou ? '' : 'Disponível após o horário da sessão';
+	const resolvida = p.status === 'concluida' || p.status === 'faltou';
+
+	if (resolvida) {
+		return [
+			{
+				kind: 'reopen',
+				label: 'Desfazer',
+				icon: 'RotateCcw',
+				on: false,
+				disabled: false,
+				title: 'Voltar para "previsto"'
+			}
+		];
+	}
+
+	return [
+		{ kind: 'complete', label: 'Presente', icon: 'Check', on: false, disabled: !comecou, title: gated },
+		{ kind: 'no_show', label: 'Faltou', icon: 'UserX', on: false, disabled: !comecou, title: gated }
+	];
+}
+
+/** O rótulo e o tom de uma presença resolvida (a linha do drawer e o N/M do cabeçalho). */
+export const ATTENDANCE_META: Record<AttendanceStatus, { label: string; tone?: string }> = {
+	prevista: { label: 'Previsto' },
+	concluida: { label: 'Presente', tone: 'success' },
+	faltou: { label: 'Faltou', tone: 'danger' },
+	cancelada: { label: 'Cancelada' }
+};
+
+/** Quantas presenças já foram resolvidas — o "2/4" do cabeçalho da turma. */
+export function resolvedCount(participants: Participant[]): number {
+	return participants.filter((p) => p.status === 'concluida' || p.status === 'faltou').length;
+}
 
 /**
  * As ações do grid "Mudar status" do drawer e seu estado (protótipo :1807). Fiel à decisão

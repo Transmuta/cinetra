@@ -220,3 +220,24 @@ export function justifyAbsence(
 ) {
 	return mutate(event, `/api/appointments/${id}/justify-absence`, 'POST', input);
 }
+
+// ---------------------------------------------------------------------------
+// Presença POR PARTICIPANTE (A2, doc 41) — as sub-rotas do bloco. Numa turma, concluir é de
+// cada um: o desfecho do bloco vira rollup no servidor. `expected_version` continua sendo a do
+// BLOCO (a versão vive lá), então o guard de 409 é o mesmo das ações de bloco.
+// ---------------------------------------------------------------------------
+
+/** `complete` | `no_show` | `reopen` | `justify` — os verbos das sub-rotas. */
+export type ParticipantKind = 'complete' | 'no_show' | 'reopen' | 'justify';
+
+export function transitionParticipant(
+	event: RequestEvent,
+	id: string,
+	patientId: string,
+	kind: ParticipantKind,
+	input: { expected_version: number; justificada?: boolean }
+): Promise<MutationResult> {
+	// Ids escapados: um id forjado não sai do caminho do recurso (defesa de `server/waitlist.ts`).
+	const path = `/api/appointments/${encodeURIComponent(id)}/participants/${encodeURIComponent(patientId)}/${kind}`;
+	return mutate(event, path, 'POST', input);
+}

@@ -69,6 +69,34 @@ defmodule Api.Notifications.FanoutTest do
 
   defp kinds(user, clinic), do: inbox(user, clinic) |> Enum.map(& &1.kind)
 
+  # A segunda-feira da semana passada: dia de expediente (o seed abre seg–sex) e **no passado**,
+  # que é o que o gate `SessionStarted` das transições de presença exige. Calculada, não fixa: uma
+  # data literal envelhece para o futuro conforme a suíte roda.
+  defp segunda_passada(hhmm) do
+    hoje = Date.utc_today()
+    data = Date.add(hoje, -(Date.day_of_week(hoje) - 1) - 7)
+    {:ok, dt} = Scheduling.LocalTime.to_utc(data, hhmm, "America/Sao_Paulo")
+    dt
+  end
+
+  # Um item de fila que encaixa em qualquer horário (janela `:qualquer`, sem regras).
+  defp fila(ctx, scope) do
+    {:ok, entry} =
+      Waitlist.enqueue_entry(scope, %{
+        patient_id:
+          Records.create_patient!("Fila #{System.unique_integer([:positive])}", %{},
+            tenant: ctx.clinic.id,
+            actor: ctx.owner
+          ).id,
+        prio: :urgente,
+        janela: :qualquer,
+        professional_ids: [],
+        rules: []
+      })
+
+    entry
+  end
+
   defp schedule(ctx, scope, attrs \\ %{}) do
     base = %{
       starts_at: at("08:00"),
@@ -147,6 +175,42 @@ defmodule Api.Notifications.FanoutTest do
       {:ok, _} = Scheduling.transition_appointment(owner_scope, appt.id, :cancel)
 
       assert :slot_opened in kinds(recep, ctx.clinic)
+    end
+
+    # A2 (doc 41), achado A-5: com o desfecho virando rollup das presenças, a falta deixou de
+    # chegar como `:mark_missed` — e o aviso para a fila sumiria assim que a UI migrasse.
+    test "falta marcada POR PARTICIPANTE também avisa a recepção" do
+      ctx = setup_clinic()
+      recep = member(ctx.clinic, :recepcao)
+      owner_scope = scope_for(ctx.owner, ctx.clinic)
+      fila(ctx, owner_scope)
+
+      {:ok, appt} = schedule(ctx, owner_scope, %{starts_at: segunda_passada("08:00")})
+
+      {:ok, _} =
+        Scheduling.transition_participant(owner_scope, appt.id, ctx.paciente.id, :no_show)
+
+      assert :slot_opened in kinds(recep, ctx.clinic)
+    end
+
+    test "justificar depois NÃO reavisa a mesma vaga" do
+      ctx = setup_clinic()
+      recep = member(ctx.clinic, :recepcao)
+      owner_scope = scope_for(ctx.owner, ctx.clinic)
+      fila(ctx, owner_scope)
+
+      {:ok, appt} = schedule(ctx, owner_scope, %{starts_at: segunda_passada("08:00")})
+
+      {:ok, _} =
+        Scheduling.transition_participant(owner_scope, appt.id, ctx.paciente.id, :no_show)
+
+      {:ok, _} =
+        Scheduling.transition_participant(owner_scope, appt.id, ctx.paciente.id, :justify, %{
+          justificada: true
+        })
+
+      # o rollup roda de novo (bloco já em `:faltou`), e o aviso não pode duplicar
+      assert Enum.count(kinds(recep, ctx.clinic), &(&1 == :slot_opened)) == 1
     end
 
     test "sem fila casando, cancelar não gera slot_opened" do
