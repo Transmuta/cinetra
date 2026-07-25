@@ -118,7 +118,14 @@ defmodule Api.Packages.LifecycleTest do
 
       # relógio 1h depois do início da primeira sessão (08:00 seg): passa o gate 'começou'
       {:ok, depois} = Scheduling.LocalTime.to_utc(@segunda, "09:00", "America/Sao_Paulo")
-      {:ok, _} = Scheduling.transition_appointment(scope_at(ctx, depois), primeira.id, :complete)
+
+      {:ok, _} =
+        Scheduling.transition_participant(
+          scope_at(ctx, depois),
+          primeira.id,
+          ctx.paciente.id,
+          :complete
+        )
 
       recarregado = Packages.get_package!(pkg.id, scope: ctx.scope, load: [:usadas, :restantes])
       assert recarregado.usadas == 1
@@ -187,7 +194,14 @@ defmodule Api.Packages.LifecycleTest do
       # conclui a primeira sessão (consome 1)
       primeira = hd(sessoes(ctx, pkg))
       {:ok, depois} = Scheduling.LocalTime.to_utc(@segunda, "09:00", "America/Sao_Paulo")
-      {:ok, _} = Scheduling.transition_appointment(scope_at(ctx, depois), primeira.id, :complete)
+
+      {:ok, _} =
+        Scheduling.transition_participant(
+          scope_at(ctx, depois),
+          primeira.id,
+          ctx.paciente.id,
+          :complete
+        )
 
       {:ok, _} = Packages.pause_package(scope_at(ctx, depois), pkg.id)
       {:ok, hoje} = Scheduling.LocalTime.to_utc(~D[2026-08-05], "07:00", "America/Sao_Paulo")

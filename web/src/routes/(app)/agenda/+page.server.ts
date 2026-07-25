@@ -6,12 +6,9 @@ import {
 	fetchCounts,
 	createAppointment,
 	rescheduleAppointment,
-	completeAppointment,
-	missAppointment,
 	cancelAppointment,
 	reopenAppointment,
 	excludeAppointment,
-	justifyAbsence,
 	transitionParticipant,
 	type ParticipantKind
 } from '$lib/server/appointments';
@@ -256,8 +253,6 @@ export const actions: Actions = {
 		);
 	},
 
-	concluir: (event) => transition(event, 'concluir', (e, id, v) => completeAppointment(e, id, v)),
-	faltar: (event) => transition(event, 'faltar', (e, id, v) => missAppointment(e, id, v)),
 	reabrir: (event) => transition(event, 'reabrir', (e, id, v) => reopenAppointment(e, id, v)),
 	// Soft-delete (doc 40): mesma forma de reabrir (id + versão), sem corpo próprio.
 	excluir: (event) => transition(event, 'excluir', (e, id, v) => excludeAppointment(e, id, v)),
@@ -278,19 +273,6 @@ export const actions: Actions = {
 		);
 	},
 
-	justificar: async (event) => {
-		const s = await submission(event, 'justificar');
-		if (!('id' in s)) return s;
-		const { form, id } = s;
-
-		return finish(
-			'justificar',
-			await justifyAbsence(event, id, {
-				justificada: form.get('justificada') === 'true' || form.get('justificada') === 'on',
-				expected_version: expectedVersion(form)
-			})
-		);
-	},
 
 	// Presença por participante (A2, doc 41): uma action só para os quatro verbos, porque a
 	// diferença entre eles é o segmento da rota — não o fluxo. `patient_id` e `kind` vêm do form;

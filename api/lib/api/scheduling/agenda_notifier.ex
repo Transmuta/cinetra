@@ -44,12 +44,9 @@ defmodule Api.Scheduling.AgendaNotifier do
     :add_participant,
     :remove_participant,
     :reschedule,
-    :mark_completed,
-    :mark_missed,
     :cancel,
     :reopen,
     :exclude,
-    :set_falta_justificada,
     # A2: presença por participante rola o desfecho pro bloco (doc 41). O cliente relê o bloco
     # (novo status + presenças) no mesmo evento de status.
     :apply_participant_rollup
@@ -140,15 +137,8 @@ defmodule Api.Scheduling.AgendaNotifier do
   # do id. Ver `ApiWeb.AgendaChannel`.
   defp event_name(:exclude), do: "appointment_excluded"
 
-  defp event_name(name)
-       when name in [
-              :mark_completed,
-              :mark_missed,
-              :reopen,
-              :set_falta_justificada,
-              :apply_participant_rollup
-            ],
-       do: "appointment_status_changed"
+  defp event_name(name) when name in [:reopen, :apply_participant_rollup],
+    do: "appointment_status_changed"
 
   defp actor_payload(%{id: id, nome: nome}), do: %{id: id, nome: nome}
   defp actor_payload(_), do: nil

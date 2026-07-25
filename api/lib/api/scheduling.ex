@@ -45,15 +45,12 @@ defmodule Api.Scheduling do
       # Interfaces **cruas** do ciclo de vida (Entrega 4). Quem chama de fora usa
       # `transition_appointment/5`, que faz o fetch-then-update com o guard de `version` (409).
       define :reschedule_appointment_slot, action: :reschedule
-      define :complete_appointment_slot, action: :mark_completed
-      define :miss_appointment_slot, action: :mark_missed
       define :cancel_appointment_slot, action: :cancel
 
       # Pausa/retoma uma sessão de pacote (RN-05/23). Recebe `%{pkg_hold: bool}` antes das opções.
       define :set_appointment_pkg_hold, action: :set_pkg_hold
       define :reopen_appointment_slot, action: :reopen
       define :exclude_appointment_slot, action: :exclude
-      define :justify_appointment_absence, action: :set_falta_justificada
     end
 
     resource Api.Scheduling.Attendance do
@@ -270,8 +267,13 @@ defmodule Api.Scheduling do
   end
 
   @doc """
-  Ciclo de vida do bloco (Entrega 4): remarcar, concluir, faltar, cancelar, reabrir, justificar
-  falta. **fetch-then-update** com o guard de locking otimista.
+  Ciclo de vida do bloco (Entrega 4): remarcar, cancelar, reabrir e excluir. **fetch-then-update**
+  com o guard de locking otimista.
+
+  **Concluir, faltar e justificar saíram daqui** (A2, doc 41): o desfecho é das PRESENÇAS, e o
+  status do bloco é o rollup delas — ver `transition_participant/6`. Enquanto os dois eixos
+  coexistiram, todo guard novo precisava ser escrito duas vezes e o fan-out da fila precisou de um
+  tradutor entre os dois nomes de evento.
 
   ## O guard de versão, e por que ele mora aqui (não numa validação atômica)
 
@@ -341,12 +343,6 @@ defmodule Api.Scheduling do
   defp dispatch_transition(:reschedule, appt, input, scope),
     do: reschedule_appointment_slot(appt, input, scope: scope)
 
-  defp dispatch_transition(:complete, appt, _input, scope),
-    do: complete_appointment_slot(appt, %{}, scope: scope)
-
-  defp dispatch_transition(:miss, appt, _input, scope),
-    do: miss_appointment_slot(appt, %{}, scope: scope)
-
   defp dispatch_transition(:cancel, appt, input, scope),
     do: cancel_appointment_slot(appt, input, scope: scope)
 
@@ -355,9 +351,6 @@ defmodule Api.Scheduling do
 
   defp dispatch_transition(:exclude, appt, _input, scope),
     do: exclude_appointment_slot(appt, %{}, scope: scope)
-
-  defp dispatch_transition(:justify, appt, input, scope),
-    do: justify_appointment_absence(appt, input, scope: scope)
 
   @doc """
   Transição de presença de **um participante** (Frente 6/A2, doc 41): `:complete` | `:no_show` |

@@ -82,6 +82,9 @@ const APPOINTMENT_ACTIONS: Record<string, string> = {
 	schedule: 'Agendou',
 	add_participant: 'Adicionou participante',
 	reschedule: 'Remarcou',
+	// As três abaixo são de ações **aposentadas** (o eixo de bloco saiu na A2/bate-volta da Onda 3).
+	// Ficam porque a trilha guarda o que aconteceu: linhas antigas de `appointments_versions`
+	// carregam esses nomes, e sem o rótulo a tela de auditoria mostraria o átomo cru.
 	mark_completed: 'Concluiu',
 	mark_missed: 'Marcou falta',
 	cancel: 'Cancelou',

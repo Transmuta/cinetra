@@ -187,14 +187,6 @@ export function rescheduleAppointment(
 	return mutate(event, `/api/appointments/${id}/reschedule`, 'PATCH', input);
 }
 
-export function completeAppointment(event: RequestEvent, id: string, expected_version: number) {
-	return mutate(event, `/api/appointments/${id}/complete`, 'POST', { expected_version });
-}
-
-export function missAppointment(event: RequestEvent, id: string, expected_version: number) {
-	return mutate(event, `/api/appointments/${id}/miss`, 'POST', { expected_version });
-}
-
 export function cancelAppointment(
 	event: RequestEvent,
 	id: string,
@@ -213,13 +205,8 @@ export function excludeAppointment(event: RequestEvent, id: string, expected_ver
 	return mutate(event, `/api/appointments/${id}/exclude`, 'POST', { expected_version });
 }
 
-export function justifyAbsence(
-	event: RequestEvent,
-	id: string,
-	input: { justificada: boolean; expected_version: number }
-) {
-	return mutate(event, `/api/appointments/${id}/justify-absence`, 'POST', input);
-}
+// A2 (doc 41): `completeAppointment`/`missAppointment`/`justifyAbsence` saíram — o desfecho é da
+// PRESENÇA, e as rotas de bloco foram aposentadas no servidor.
 
 // ---------------------------------------------------------------------------
 // Presença POR PARTICIPANTE (A2, doc 41) — as sub-rotas do bloco. Numa turma, concluir é de

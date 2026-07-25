@@ -974,15 +974,27 @@ defmodule Api.Scheduling.AppointmentTest do
     end
   end
 
-  describe "concluir / faltar (gated por 'começou', D-E4.1)" do
+  # A2 (doc 41): o desfecho é da PRESENÇA. O helper resolve a presença do bloco para os testes
+  # que exercitam concluir/faltar/justificar — as ações de bloco foram aposentadas.
+  defp presenca_de(ctx, appt) do
+    Scheduling.list_attendances!(scope: ctx.scope, query: [filter: [appointment_id: appt.id]])
+    |> hd()
+  end
+
+  describe "presença: concluir / faltar (gated por 'começou', D-E4.1)" do
     test "concluir antes da sessão começar é recusado" do
       ctx = setup_clinic()
       appt = agendado(ctx)
       # Relógio 1h ANTES do início.
       scope = scope_at(ctx.owner, ctx.clinic, DateTime.add(at("08:00"), -3600, :second))
 
-      assert {:error, %Ash.Error.Invalid{}} =
-               Scheduling.transition_appointment(scope, appt.id, :complete)
+      assert {:error, :session_not_started} =
+               Scheduling.transition_participant(
+                 scope,
+                 appt.id,
+                 presenca_de(ctx, appt).patient_id,
+                 :complete
+               )
     end
 
     # D-J: a transição não pode reler as presenças DEPOIS do commit. O teto pega a volta do
@@ -993,9 +1005,11 @@ defmodule Api.Scheduling.AppointmentTest do
       appt = agendado(ctx)
       scope = scope_at(ctx.owner, ctx.clinic, DateTime.add(at("08:00"), 3600, :second))
 
+      pid = presenca_de(ctx, appt).patient_id
+
       {resultado, toques} =
         Api.QueryCounter.count(
-          fn -> Scheduling.transition_appointment(scope, appt.id, :complete) end,
+          fn -> Scheduling.transition_participant(scope, appt.id, pid, :complete) end,
           "attendances"
         )
 
@@ -1003,7 +1017,9 @@ defmodule Api.Scheduling.AppointmentTest do
       # O bloco sai daqui pronto para serializar — é isso que a releitura fazia.
       assert [%{status: :concluida}] = concluido.attendances
 
-      assert toques <= 3,
+      # O caminho por presença lê a presença, escreve nela e relê para o rollup — o teto é maior
+      # que o do bloco (3), e o que ele guarda é o mesmo: releitura pós-commit não volta.
+      assert toques <= 6,
              "#{toques} toques na tabela de presenças: a releitura pós-commit voltou?"
     end
 
@@ -1012,7 +1028,14 @@ defmodule Api.Scheduling.AppointmentTest do
       appt = agendado(ctx)
       scope = scope_at(ctx.owner, ctx.clinic, DateTime.add(at("08:00"), 3600, :second))
 
-      assert {:ok, concluido} = Scheduling.transition_appointment(scope, appt.id, :complete)
+      assert {:ok, concluido} =
+               Scheduling.transition_participant(
+                 scope,
+                 appt.id,
+                 presenca_de(ctx, appt).patient_id,
+                 :complete
+               )
+
       assert concluido.status == :concluido
       assert [%{status: :concluida}] = Scheduling.list_attendances!(scope: ctx.scope)
     end
@@ -1022,17 +1045,19 @@ defmodule Api.Scheduling.AppointmentTest do
       appt = agendado(ctx)
       scope = scope_at(ctx.owner, ctx.clinic, DateTime.add(at("08:00"), 3600, :second))
 
-      {:ok, _} = Scheduling.transition_appointment(scope, appt.id, :miss)
+      pid = presenca_de(ctx, appt).patient_id
+
+      {:ok, _} = Scheduling.transition_participant(scope, appt.id, pid, :no_show)
       assert faltas(ctx) == 1
 
       {:ok, just} =
-        Scheduling.transition_appointment(scope, appt.id, :justify, %{justificada: true})
+        Scheduling.transition_participant(scope, appt.id, pid, :justify, %{justificada: true})
 
       assert faltas(ctx) == 0
-      # A serialização do bloco reflete a justificativa.
-      assert ApiWeb.AgendaJSON.appointment(just).falta_justificada == true
+      # A serialização carrega a justificativa NA PRESENÇA (o campo de bloco saiu com a A2).
+      assert [%{falta_justificada: true}] = ApiWeb.AgendaJSON.appointment(just).participants
 
-      {:ok, reaberto} = Scheduling.transition_appointment(scope, appt.id, :reopen)
+      {:ok, reaberto} = Scheduling.transition_participant(scope, appt.id, pid, :reopen)
       assert reaberto.status == :agendado
 
       assert [%{status: :prevista, falta_justificada: false}] =
@@ -1053,14 +1078,18 @@ defmodule Api.Scheduling.AppointmentTest do
                Scheduling.transition_appointment(ctx.scope, appt.id, :reopen)
     end
 
-    test "justificar falta de um bloco que nunca faltou é recusado" do
+    test "justificar presença que nunca faltou é recusado" do
       ctx = setup_clinic()
       appt = agendado(ctx)
 
       assert {:error, %Ash.Error.Invalid{}} =
-               Scheduling.transition_appointment(ctx.scope, appt.id, :justify, %{
-                 justificada: true
-               })
+               Scheduling.transition_participant(
+                 ctx.scope,
+                 appt.id,
+                 presenca_de(ctx, appt).patient_id,
+                 :justify,
+                 %{justificada: true}
+               )
     end
 
     test "cancelar um bloco JÁ concluído é recusado (concluído → cancelado inválido)" do
@@ -1068,7 +1097,14 @@ defmodule Api.Scheduling.AppointmentTest do
       appt = agendado(ctx)
       scope = scope_at(ctx.owner, ctx.clinic, DateTime.add(at("08:00"), 3600, :second))
 
-      {:ok, concluido} = Scheduling.transition_appointment(scope, appt.id, :complete)
+      {:ok, concluido} =
+        Scheduling.transition_participant(
+          scope,
+          appt.id,
+          presenca_de(ctx, appt).patient_id,
+          :complete
+        )
+
       assert concluido.status == :concluido
 
       assert {:error, %Ash.Error.Invalid{}} =
@@ -1078,14 +1114,15 @@ defmodule Api.Scheduling.AppointmentTest do
       assert %{status: :concluido} = Scheduling.get_appointment!(appt.id, scope: scope)
     end
 
-    test "concluir um bloco cancelado é recusado" do
+    test "marcar presença num bloco cancelado é recusado (block_not_open)" do
       ctx = setup_clinic()
       appt = agendado(ctx)
+      pid = presenca_de(ctx, appt).patient_id
       {:ok, _} = Scheduling.transition_appointment(ctx.scope, appt.id, :cancel)
       scope = scope_at(ctx.owner, ctx.clinic, DateTime.add(at("08:00"), 3600, :second))
 
-      assert {:error, %Ash.Error.Invalid{}} =
-               Scheduling.transition_appointment(scope, appt.id, :complete)
+      assert {:error, :block_not_open} =
+               Scheduling.transition_participant(scope, appt.id, pid, :complete)
     end
   end
 
@@ -1139,7 +1176,14 @@ defmodule Api.Scheduling.AppointmentTest do
       ctx = setup_clinic()
       appt = agendado(ctx)
       scope = scope_at(ctx.owner, ctx.clinic, DateTime.add(at("08:00"), 3600, :second))
-      {:ok, _} = Scheduling.transition_appointment(scope, appt.id, :complete)
+
+      {:ok, _} =
+        Scheduling.transition_participant(
+          scope,
+          appt.id,
+          presenca_de(ctx, appt).patient_id,
+          :complete
+        )
 
       assert {:error, %Ash.Error.Invalid{}} =
                Scheduling.transition_appointment(scope, appt.id, :exclude)
@@ -1149,7 +1193,14 @@ defmodule Api.Scheduling.AppointmentTest do
       ctx = setup_clinic()
       appt = agendado(ctx)
       scope = scope_at(ctx.owner, ctx.clinic, DateTime.add(at("08:00"), 3600, :second))
-      {:ok, _} = Scheduling.transition_appointment(scope, appt.id, :miss)
+
+      {:ok, _} =
+        Scheduling.transition_participant(
+          scope,
+          appt.id,
+          presenca_de(ctx, appt).patient_id,
+          :no_show
+        )
 
       assert {:error, %Ash.Error.Invalid{}} =
                Scheduling.transition_appointment(scope, appt.id, :exclude)

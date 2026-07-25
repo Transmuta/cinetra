@@ -47,7 +47,6 @@ function appt(over: Partial<Appointment> = {}): Appointment {
 		version: 1,
 		created_by_id: null,
 		cancel_reason: null,
-		falta_justificada: false,
 		patient_ids: ['pat1'],
 		participants: [],
 		...over
@@ -493,7 +492,6 @@ describe('ciclo de vida (Entrega 4)', () => {
 			encaixe: false,
 			obs: null,
 			cancel_reason: null,
-			falta_justificada: false,
 			professional_id: 'p1',
 			appointment_type_id: 't1',
 			package_id: null,
@@ -530,20 +528,13 @@ describe('ciclo de vida (Entrega 4)', () => {
 		expect(canExcludeAppointment('faltou')).toBe(false);
 	});
 
-	it('statusActions: antes de começar, concluir/faltar desabilitados com o title', () => {
-		// agora 06:00 local (09:00Z) < início 08:00 local.
-		const acoes = statusActions(appt(), '2026-07-20T09:00:00Z');
-		const concluir = acoes.find((a) => a.kind === 'concluir')!;
-		const cancelar = acoes.find((a) => a.kind === 'cancelar')!;
-		expect(concluir.disabled).toBe(true);
-		expect(concluir.title).toBe('Disponível após o horário da sessão');
-		// Cancelar nunca é bloqueado por horário.
-		expect(cancelar.disabled).toBe(false);
-	});
 
-	it('statusActions: depois de começar, tudo habilitado', () => {
-		const acoes = statusActions(appt(), '2026-07-20T17:00:00Z');
-		expect(acoes.every((a) => !a.disabled)).toBe(true);
+
+	// A2 (doc 41): do trio do protótipo sobra o cancelar — concluir e faltar viraram presença.
+	it('statusActions devolve só o cancelar, e ele nunca é bloqueado por horário', () => {
+		const acoes = statusActions(appt(), '2026-07-20T09:00:00Z');
+		expect(acoes.map((a) => a.kind)).toEqual(['cancelar']);
+		expect(acoes[0].disabled).toBe(false);
 	});
 
 	// A2 (doc 41): a presença é de cada participante, e o desfecho do bloco é rollup disso. As
@@ -605,11 +596,4 @@ describe('ciclo de vida (Entrega 4)', () => {
 		});
 	});
 
-	it('statusActions: a ação que já é o status atual fica marcada e nunca desabilitada', () => {
-		// Faltou antes de "começar" seria desabilitado, mas por ser o status atual fica `on`.
-		const acoes = statusActions(appt({ status: 'faltou' }), '2026-07-20T09:00:00Z');
-		const faltar = acoes.find((a) => a.kind === 'faltar')!;
-		expect(faltar.on).toBe(true);
-		expect(faltar.disabled).toBe(false);
-	});
 });

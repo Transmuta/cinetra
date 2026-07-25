@@ -20,7 +20,6 @@ const appt: Appointment = {
 	encaixe: false,
 	obs: null,
 	cancel_reason: null,
-	falta_justificada: false,
 	professional_id: 'p1',
 	appointment_type_id: 't1',
 	package_id: null,

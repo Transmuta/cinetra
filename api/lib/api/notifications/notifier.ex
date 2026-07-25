@@ -15,6 +15,8 @@ defmodule Api.Notifications.Notifier do
   """
   use Ash.Notifier
 
+  alias Api.Notifications.Fanout
+
   # #47 (doc 31 §3a): alguém entrou numa turma da coluna do profissional. Cláusula própria porque
   # o texto é outro — `appointment_touched` fala de "um agendamento", e aqui o bloco já existia.
   @impl true
@@ -37,13 +39,7 @@ defmodule Api.Notifications.Notifier do
         actor: actor
       }) do
     Api.Notifications.Fanout.appointment_touched(appointment, name, actor)
-
-    Api.Notifications.Fanout.slot_maybe_opened(
-      appointment,
-      slot_action(name, appointment, changeset),
-      actor
-    )
-
+    if vaga_abriu?(name, appointment, changeset), do: Fanout.slot_maybe_opened(appointment, actor)
     :ok
   end
 
@@ -74,18 +70,22 @@ defmodule Api.Notifications.Notifier do
   @impl true
   def notify(_notification), do: :ok
 
-  # A2 (doc 41), achado A-5 do bate-volta: o desfecho do bloco virou ROLLUP das presenças, então a
-  # falta que abre vaga não chega mais como `:mark_missed` — chega como `:apply_participant_rollup`,
-  # e o aviso para a fila sumiria assim que a UI migrasse para a presença por participante.
+  # Quando a escrita **abre uma vaga** que a fila pode preencher: cancelar, ou o rollup levando o
+  # bloco para `:faltou`.
   #
   # O gate é a **transição**, não o estado: o rollup roda a cada mexida numa presença (justificar
   # uma falta depois roda de novo, com o bloco já em `:faltou`), e sem comparar com o valor
   # anterior a mesma vaga seria anunciada várias vezes.
-  defp slot_action(:apply_participant_rollup, %{status: :faltou}, %Ash.Changeset{
-         data: %{status: anterior}
-       })
-       when anterior != :faltou,
-       do: :mark_missed
+  #
+  # Antes do bate-volta isto era um **tradutor** (`:apply_participant_rollup` → `:mark_missed`), que
+  # só existia porque os dois eixos — bloco e presença — emitiam nomes diferentes para o mesmo fato.
+  # Com o eixo de bloco aposentado, a pergunta virou o que sempre foi: abriu vaga?
+  defp vaga_abriu?(:cancel, _appointment, _changeset), do: true
 
-  defp slot_action(name, _appointment, _changeset), do: name
+  defp vaga_abriu?(:apply_participant_rollup, %{status: :faltou}, %Ash.Changeset{
+         data: %{status: anterior}
+       }),
+       do: anterior != :faltou
+
+  defp vaga_abriu?(_name, _appointment, _changeset), do: false
 end

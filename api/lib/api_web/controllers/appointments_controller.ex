@@ -81,16 +81,6 @@ defmodule ApiWeb.AppointmentsController do
     end)
   end
 
-  # POST /api/appointments/:id/complete
-  def complete(conn, %{"id" => id} = params) do
-    with_member_scope(conn, fn scope -> transition(conn, scope, id, :complete, %{}, params) end)
-  end
-
-  # POST /api/appointments/:id/miss
-  def miss(conn, %{"id" => id} = params) do
-    with_member_scope(conn, fn scope -> transition(conn, scope, id, :miss, %{}, params) end)
-  end
-
   # POST /api/appointments/:id/cancel — motivo opcional (D4).
   def cancel(conn, %{"id" => id} = params) do
     with_member_scope(conn, fn scope ->
@@ -106,13 +96,6 @@ defmodule ApiWeb.AppointmentsController do
   # POST /api/appointments/:id/exclude — soft-delete de lançamento feito por engano (doc 40).
   def exclude(conn, %{"id" => id} = params) do
     with_member_scope(conn, fn scope -> transition(conn, scope, id, :exclude, %{}, params) end)
-  end
-
-  # POST /api/appointments/:id/justify-absence — o toggle "Falta justificada" do drawer.
-  def justify_absence(conn, %{"id" => id} = params) do
-    with_member_scope(conn, fn scope ->
-      transition(conn, scope, id, :justify, %{justificada: truthy(params["justificada"])}, params)
-    end)
   end
 
   defp transition(conn, scope, id, kind, input, params) do

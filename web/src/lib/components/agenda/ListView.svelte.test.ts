@@ -21,7 +21,6 @@ const appt = (over: Partial<Appointment> = {}): Appointment => ({
 	version: 1,
 	created_by_id: null,
 	cancel_reason: null,
-	falta_justificada: false,
 	patient_ids: ['pat1'],
 	participants: [],
 	...over

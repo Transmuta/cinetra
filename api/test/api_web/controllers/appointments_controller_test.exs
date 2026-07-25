@@ -774,20 +774,19 @@ defmodule ApiWeb.AppointmentsControllerTest do
       assert json_response(resp, 200)["appointment"]["status"] == "agendado"
     end
 
-    test "POST justify-absence marca o selo", %{conn: conn} do
+    # A2 (doc 41): justificar é da PRESENÇA — a rota de bloco foi aposentada junto com
+    # concluir/faltar, e o selo viaja em `participants`, não num campo do bloco.
+    test "justificar é por participante e o selo viaja na presença", %{conn: conn} do
       ctx = fixture()
       {id, _} = create_appt(conn, ctx)
 
-      # Só se justifica uma falta de verdade (F4/doc 34): marca faltou antes de justificar.
       # O bloco de referência é 20/07 (passado), então o gate `SessionStarted` já liberou.
-      conn |> authed(ctx.owner) |> post("/api/appointments/#{id}/miss", %{})
+      part_post(conn, ctx, id, ctx.paciente.id, "no_show", %{})
 
-      resp =
-        conn
-        |> authed(ctx.owner)
-        |> post("/api/appointments/#{id}/justify-absence", %{"justificada" => true})
+      resp = part_post(conn, ctx, id, ctx.paciente.id, "justify", %{"justificada" => true})
 
-      assert json_response(resp, 200)["appointment"]["falta_justificada"] == true
+      assert [%{"falta_justificada" => true, "status" => "faltou"}] =
+               json_response(resp, 200)["appointment"]["participants"]
     end
 
     test "POST exclude some com o bloco da leitura (soft-delete, doc 40)", %{conn: conn} do
@@ -818,7 +817,8 @@ defmodule ApiWeb.AppointmentsControllerTest do
       {id, _version} = create_appt(conn, ctx)
 
       # O bloco de referência é 20/07 (passado): o gate `SessionStarted` já liberou concluir.
-      conn |> authed(ctx.owner) |> post("/api/appointments/#{id}/complete", %{})
+      # O desfecho chega pelo rollup da presença (A2).
+      part_post(conn, ctx, id, ctx.paciente.id, "complete", %{})
 
       resp = conn |> authed(ctx.owner) |> post("/api/appointments/#{id}/exclude", %{})
       assert json_response(resp, 422)

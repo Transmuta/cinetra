@@ -80,6 +80,17 @@ defmodule Api.Scheduling.SummaryTest do
     appt
   end
 
+  # O DESFECHO é da presença (A2, doc 41) — o relatório lê o status do bloco, que é o rollup dela.
+  # Cancelar continua sendo do bloco: é fase de agendamento, não desfecho.
+  defp transition(ctx, appt, kind) when kind in [:complete, :no_show] do
+    att =
+      Scheduling.list_attendances!(scope: ctx.scope, query: [filter: [appointment_id: appt.id]])
+      |> hd()
+
+    {:ok, updated} = Scheduling.transition_participant(ctx.scope, appt.id, att.patient_id, kind)
+    updated
+  end
+
   defp transition(ctx, appt, kind) do
     {:ok, updated} = Scheduling.transition_appointment(ctx.scope, appt.id, kind)
     updated
@@ -94,7 +105,7 @@ defmodule Api.Scheduling.SummaryTest do
       ctx = setup_clinic()
       transition(ctx, schedule(ctx, @segunda, "08:00"), :complete)
       transition(ctx, schedule(ctx, @segunda, "09:00"), :complete)
-      transition(ctx, schedule(ctx, @segunda, "10:00"), :miss)
+      transition(ctx, schedule(ctx, @segunda, "10:00"), :no_show)
       schedule(ctx, @segunda, "11:00")
       transition(ctx, schedule(ctx, @segunda, "13:00"), :cancel)
 
@@ -180,7 +191,7 @@ defmodule Api.Scheduling.SummaryTest do
         Directory.create_professional!("Dr. Bruno", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
 
       transition(ctx, schedule(ctx, @segunda, "08:00"), :complete)
-      transition(ctx, schedule(ctx, @segunda, "09:00"), :miss)
+      transition(ctx, schedule(ctx, @segunda, "09:00"), :no_show)
       schedule(ctx, @segunda, "10:00", %{professional_id: bruno.id})
 
       por_prof = summary(ctx, @segunda, @segunda).por_profissional

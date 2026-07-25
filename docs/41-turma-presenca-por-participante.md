@@ -10,11 +10,13 @@
 > | 4 | drawer por participante + massa no cartão | `065d70b`, `298fd00`, `a2a0d27` |
 > | 5 | notificações #46 e #47 | `60808a6` |
 >
-> **Correção de rumo em relação a esta spec: a entrega foi ADITIVA.** O texto abaixo diz que a
-> etapa 1 "remove as ações de bloco e a `CascadeToAttendances`" — não removeu. As ações de bloco
-> (`mark_completed`/`mark_missed`/`set_falta_justificada`) e a cascata **continuam no recurso**; o
-> que a etapa 4 fez foi tirá-las da TELA. A aposentadoria de verdade (apagar as ações) fica para
-> quando nenhum caminho as chamar — hoje elas ainda servem seed e testes antigos.
+> **A entrega foi aditiva primeiro, e a aposentadoria veio depois.** A etapa 4 tirou as ações de
+> bloco da TELA; o bate-volta ([doc 43](43-bate-volta-onda-3.md)) mediu o custo de mantê-las vivas
+> — duas máquinas de estado escrevendo `Appointment.status`, com guards só de um lado — e elas
+> **foram removidas** (ação, rota, BFF, action do SvelteKit e o campo `falta_justificada` de bloco
+> no JSON). Sobrou o que não é desfecho: `cancel`, `reopen`, `exclude` e a `CascadeToAttendances`
+> que os dois primeiros usam. Os rótulos `mark_completed`/`mark_missed`/`set_falta_justificada`
+> ficam na tela de auditoria: a trilha guarda o que aconteceu.
 >
 > Dois pontos que a spec não previa e o código tem:
 >

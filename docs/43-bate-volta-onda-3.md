@@ -232,7 +232,22 @@ Cancelar já foi corrigido (opera por presença); **pausar não tem como**, sem 
 "presença segurada" — coluna/status novo na `Attendance` + leitura que a esconda. É a mesma classe
 de decisão do rollup: schema + semântica, não conserto de auditoria.
 
-### (d) O eixo de bloco continua vivo — decisão de escopo
+### (d) O eixo de bloco continua vivo — decisão de escopo ✅ **RESOLVIDO (2026-07-25)**
+
+> **Decidido: aposentar.** As três ações de desfecho do bloco (`mark_completed`, `mark_missed`,
+> `set_falta_justificada`) foram removidas — ação Ash, rota, controller, BFF, action do SvelteKit
+> e o campo `falta_justificada` de bloco no JSON. O desfecho passa a ter **um** caminho: a
+> presença, com o rollup como único autor de `Appointment.status`. Duas consequências que caem
+> junto: o tradutor `slot_action/3` do notifier morreu (a pergunta virou `vaga_abriu?`), e o
+> `Enum.all?` sobre a invariante revogada saiu do serializer. `cancel`/`reopen`/`exclude` ficam
+> (não são desfecho), e os rótulos antigos seguem na tela de auditoria — a trilha guarda o que
+> aconteceu. Os testes que exercitavam o eixo foram **migrados** para a presença, não apagados.
+>
+> A alternativa (reimplementar as ações de bloco como cascata que escreve presenças, mantendo um
+> "concluir a turma toda") foi descartada por ora: o botão não existe na tela e ninguém pediu.
+> Quando pedirem, nasce certo — sobre o eixo de presença.
+
+O registro original do achado:
 
 `mark_completed`/`mark_missed`/`set_falta_justificada` seguem alcançáveis por action SvelteKit, BFF,
 controller e policy, embora o drawer não os renderize mais. Consequências medidas: os guards novos

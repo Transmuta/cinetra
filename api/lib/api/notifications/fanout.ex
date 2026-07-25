@@ -125,12 +125,14 @@ defmodule Api.Notifications.Fanout do
   # ---- Falta/cancelamento que abre vaga com fila casando → recepção/admin/owner ----
 
   @doc """
-  Quando um `:cancel`/`:mark_missed` abre a vaga `(professional_id, starts_at, ends_at)` e há
-  paciente na fila que **cabe** (`who_fits`), avisa quem preenche vaga (operacional). Silencioso
-  quando a fila está vazia ou ninguém casa — é o que separa o sinal de valor do ruído.
+  Quando uma escrita abre a vaga `(professional_id, starts_at, ends_at)` e há paciente na fila que
+  **cabe** (`who_fits`), avisa quem preenche vaga (operacional). Silencioso quando a fila está vazia
+  ou ninguém casa — é o que separa o sinal de valor do ruído.
+
+  **Quem** decide que a vaga abriu é o `Api.Notifications.Notifier` (só ele tem o changeset para
+  comparar o status anterior); aqui a pergunta já está respondida.
   """
-  def slot_maybe_opened(appointment, action_name, actor)
-      when action_name in [:cancel, :mark_missed] do
+  def slot_maybe_opened(appointment, actor) do
     with %{} = scope <- system_scope(appointment.clinic_id, actor),
          count when count > 0 <- candidate_count(scope, appointment) do
       tz = clinic_timezone(appointment.clinic_id)
@@ -149,8 +151,6 @@ defmodule Api.Notifications.Fanout do
 
     :ok
   end
-
-  def slot_maybe_opened(_appointment, _action_name, _actor), do: :ok
 
   # ---- Convite aceito → owner/admin ----
 

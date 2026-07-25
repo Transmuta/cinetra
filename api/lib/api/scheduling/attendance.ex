@@ -90,9 +90,11 @@ defmodule Api.Scheduling.Attendance do
       accept [:status, :falta_justificada]
     end
 
-    # As transições de presença POR PARTICIPANTE (Frente 6/A2, doc 41). Substituem, na UI, as
-    # ações de bloco (`Appointment.mark_completed`/`mark_missed`/`set_falta_justificada`): marca-se
-    # cada presença, e o desfecho do bloco vira ROLLUP (`RollupBlockStatus`). O guard de horário
+    # As transições de presença POR PARTICIPANTE (Frente 6/A2, doc 41) — o **único** caminho de
+    # desfecho desde o bate-volta da Onda 3: as ações de bloco equivalentes
+    # (`mark_completed`/`mark_missed`/`set_falta_justificada`) foram removidas, porque duas máquinas
+    # de estado escrevendo `Appointment.status` faziam todo guard novo nascer só de um lado.
+    # Marca-se cada presença, e o desfecho do bloco vira ROLLUP (`RollupBlockStatus`). O guard de horário
     # (`SessionStarted`) e o de versão (409) moram no wrapper do domínio (`transition_participant`),
     # como no bloco — a presença não tem `starts_at`, e ler o bloco aqui cairia antes do
     # `SetTenantGuc` (RLS). O `StatusIn` (genérico, lê `data.status`) fica aqui: é o F4 do QA.

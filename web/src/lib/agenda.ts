@@ -44,9 +44,8 @@ export interface Appointment {
 	status: AppointmentStatus;
 	encaixe: boolean;
 	obs: string | null;
-	/** Entrega 4: motivo do cancelamento (opcional, D4) e o selo "Falta justificada". */
+	/** Entrega 4: motivo do cancelamento (opcional, D4). */
 	cancel_reason: string | null;
-	falta_justificada: boolean;
 	professional_id: string;
 	appointment_type_id: string;
 	/** Gancho da Fatia 3 (pacotes); nesta fatia só desenha a tarja lateral. */
@@ -401,12 +400,9 @@ export function canExcludeAppointment(status: AppointmentStatus): boolean {
 // action sem tocar aqui deixaria o erro do 409/422 sem aparecer no drawer — por isso não é uma
 // lista solta no componente.
 export const DRAWER_ACTIONS = [
-	'concluir',
-	'faltar',
 	'cancelar',
 	'reabrir',
 	'excluir',
-	'justificar',
 	// A2 (doc 41): presença por participante — os quatro verbos entram por uma action só.
 	'presenca'
 ] as const;
@@ -482,12 +478,15 @@ export function resolvedCount(participants: Participant[]): number {
 }
 
 /**
- * As ações do grid "Mudar status" do drawer e seu estado (protótipo :1807). Fiel à decisão
- * D-E4.1: concluir e faltar ficam **desabilitados até a sessão começar** (com o title do
- * protótipo); cancelar é sempre possível. `on` marca a ação que já é o status atual.
+ * A ação de status que sobrou no drawer: **cancelar**.
+ *
+ * Concluir e faltar saíram com a aposentadoria do eixo de bloco (A2, doc 41) — o desfecho é das
+ * presenças e o status do bloco é o rollup delas (`participantActions/3`). Cancelar fica porque é
+ * fase de AGENDAMENTO ("não vai acontecer"), não desfecho, e continua sendo escrita no bloco.
+ * `on` marca a ação que já é o status atual.
  */
 export interface StatusAction {
-	kind: 'concluir' | 'faltar' | 'cancelar';
+	kind: 'cancelar';
 	label: string;
 	status: AppointmentStatus;
 	icon: string;
@@ -496,15 +495,8 @@ export interface StatusAction {
 	title: string;
 }
 
-export function statusActions(appt: Appointment, agoraIso: string): StatusAction[] {
-	const comecou = started(appt, agoraIso);
-	const gated = comecou ? '' : 'Disponível após o horário da sessão';
-
-	return [
-		action('concluir', 'Concluir', 'concluido', 'Check', appt, !comecou, gated),
-		action('faltar', 'Faltou', 'faltou', 'UserX', appt, !comecou, gated),
-		action('cancelar', 'Cancelar', 'cancelado', 'X', appt, false, '')
-	];
+export function statusActions(appt: Appointment, _agoraIso: string): StatusAction[] {
+	return [action('cancelar', 'Cancelar', 'cancelado', 'X', appt, false, '')];
 }
 
 function action(

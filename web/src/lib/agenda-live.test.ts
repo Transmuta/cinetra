@@ -16,7 +16,6 @@ function appt(over: Partial<Appointment> = {}): Appointment {
 		version: 1,
 		created_by_id: null,
 		cancel_reason: null,
-		falta_justificada: false,
 		patient_ids: ['pac1'],
 		participants: [],
 		...over

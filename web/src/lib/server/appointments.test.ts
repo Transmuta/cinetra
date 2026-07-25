@@ -9,12 +9,9 @@ import {
 	fetchCounts,
 	createAppointment,
 	rescheduleAppointment,
-	completeAppointment,
-	missAppointment,
 	cancelAppointment,
 	reopenAppointment,
 	excludeAppointment,
-	justifyAbsence,
 	agendaQuery,
 	availabilityQuery
 } from './appointments';
@@ -308,10 +305,8 @@ describe('ciclo de vida (Entrega 4)', () => {
 		expect(r.error).toBe('Recarregue.');
 	});
 
-	it('complete/miss/reopen batem nas rotas POST nomeadas', async () => {
+	it('reopen/exclude batem nas rotas POST nomeadas', async () => {
 		for (const [fn, path] of [
-			[completeAppointment, 'complete'],
-			[missAppointment, 'miss'],
 			[reopenAppointment, 'reopen'],
 			[excludeAppointment, 'exclude']
 		] as const) {
@@ -324,11 +319,4 @@ describe('ciclo de vida (Entrega 4)', () => {
 		}
 	});
 
-	it('justifyAbsence manda justificada + versão', async () => {
-		m.apiFetch.mockResolvedValueOnce(res(200, { appointment: { id: 'a1' } }));
-		await justifyAbsence(event, 'a1', { justificada: true, expected_version: 2 });
-		const body = JSON.parse(m.apiFetch.mock.calls[0][2].body);
-		expect(body.justificada).toBe(true);
-		expect(body.expected_version).toBe(2);
-	});
 });

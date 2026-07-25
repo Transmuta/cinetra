@@ -314,33 +314,6 @@ defmodule Api.Scheduling.Appointment do
       change Api.Scheduling.Appointment.Changes.BumpVersion
     end
 
-    # Concluir e faltar: bloqueadas até a sessão começar (D-E4.1, `SessionStarted`).
-    update :mark_completed do
-      require_atomic? false
-
-      # Só um bloco AINDA aberto conclui/falta (F4/doc 34): concluir um cancelado/concluído/faltou
-      # não faz sentido e sujava a trilha. `SessionStarted` continua sendo o gate de horário.
-      validate {Api.Scheduling.Appointment.Validations.StatusIn,
-                from: [:agendado, :confirmado, :em_atendimento]}
-
-      validate Api.Scheduling.Appointment.Validations.SessionStarted
-      change set_attribute(:status, :concluido)
-      change {Api.Scheduling.Appointment.Changes.CascadeToAttendances, status: :concluida}
-      change Api.Scheduling.Appointment.Changes.BumpVersion
-    end
-
-    update :mark_missed do
-      require_atomic? false
-
-      validate {Api.Scheduling.Appointment.Validations.StatusIn,
-                from: [:agendado, :confirmado, :em_atendimento]}
-
-      validate Api.Scheduling.Appointment.Validations.SessionStarted
-      change set_attribute(:status, :faltou)
-      change {Api.Scheduling.Appointment.Changes.CascadeToAttendances, status: :faltou}
-      change Api.Scheduling.Appointment.Changes.BumpVersion
-    end
-
     # Cancelar preserva o registro (doc 25 §3, "sem hard delete"). Motivo opcional (D4).
     # Segura/solta uma sessão de pacote (RN-05/RN-23). `pkg_hold: true` a tira da agenda (o
     # `prepare build(filter: [pkg_hold: false])` do `:in_range`); `false` a devolve. Não mexe em
@@ -408,22 +381,6 @@ defmodule Api.Scheduling.Appointment do
       change Api.Scheduling.Appointment.Changes.StampExcludedAt
       change Api.Scheduling.Appointment.Changes.BumpVersion
     end
-
-    # Justificar/desjustificar a falta (o bloco "Falta justificada" do drawer). Não mexe no
-    # status; só na `falta_justificada` das presenças — que é o que faz a falta parar de contar.
-    update :set_falta_justificada do
-      require_atomic? false
-
-      # Só faz sentido justificar quando houve falta (F4): justificar um agendado marcava presenças
-      # que nunca faltaram.
-      validate {Api.Scheduling.Appointment.Validations.StatusIn, from: [:faltou]}
-
-      argument :justificada, :boolean, allow_nil?: false
-
-      change {Api.Scheduling.Appointment.Changes.CascadeToAttendances, justify_from: :justificada}
-
-      change Api.Scheduling.Appointment.Changes.BumpVersion
-    end
   end
 
   # As ações de escrita, para as policies abaixo não repetirem a lista.
@@ -432,12 +389,9 @@ defmodule Api.Scheduling.Appointment do
     :add_participant,
     :remove_participant,
     :reschedule,
-    :mark_completed,
-    :mark_missed,
     :cancel,
     :reopen,
-    :exclude,
-    :set_falta_justificada
+    :exclude
   ]
   # Onde `encaixe` pode ser marcado — os únicos caminhos que a A9 precisa guardar.
   @encaixe_actions [:schedule, :add_participant, :reschedule]
