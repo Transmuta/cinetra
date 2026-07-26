@@ -170,16 +170,32 @@ ainda falava em `params`, foi corrigido junto.
 ### D1 — quatro FKs anteriores sem índice liderando
 
 **O que é:** `attendances.appointment_id`, `attendances.patient_id`, `packages.patient_id` e
-`package_schedules.package_id`. Todas têm um índice composto que **contém** a coluna sem que ela
-lidere, então o plano é varredura de índice — não seq scan, e não o caso das versões.
+`package_schedules.package_id`.
 
 **A sonda:** a consulta cruzando `pg_constraint` com `pg_index` (a mesma do teste novo) devolve
-7 FKs sem índice liderando; 3 eram do alvo e foram corrigidas, estas 4 não são.
+7 FKs sem índice liderando; 3 eram do alvo e foram corrigidas, estas 4 não são. Medido o plano de
+cada uma — e **três delas são Seq Scan**, não varredura de índice como este doc afirmou na
+primeira versão:
+
+| FK | plano | buffers | linhas da tabela |
+| --- | --- | --- | --- |
+| `attendances.appointment_id` (CASCADE) | **Seq Scan** | **342** | 10.219 |
+| `attendances.patient_id` (RESTRICT) | Index Only Scan no composto | 33 | 10.219 |
+| `packages.patient_id` (RESTRICT) | Seq Scan | 1 | 5 |
+| `package_schedules.package_id` (CASCADE) | Seq Scan | 1 | ~10 |
+
+Nas duas tabelas pequenas o Seq Scan é a escolha **certa** do planner e não é achado. A que
+importa é `attendances.appointment_id`: 342 buffers por agendamento apagado, numa tabela quente.
 
 **Por que não foi corrigido:** estão **fora do alvo** — nenhuma nasceu ou mudou nesta onda, e
 auditoria que escorrega para o código vizinho não termina. Estão na lista de exceções do teste,
 com nome, o que significa que sair da lista é trabalho declarado e entrar nela sem querer é
 impossível.
+
+**Quando isso custa alguma coisa:** hoje, nunca — `Appointment`, `Package` e `Patient` **não têm
+ação `destroy`** (0 ocorrências nos três recursos); tudo arquiva. O caminho existe só por SQL à
+mão ou pela eliminação da LGPD (F8), e aí o custo não é linear: apagar N agendamentos são N
+varreduras da tabela inteira.
 
 **Qual seria a correção:** `index [:coluna], all_tenants?: true` em cada recurso, com migration
 `CONCURRENTLY`. Candidato natural à Frente 13 (refactors/limpeza).
