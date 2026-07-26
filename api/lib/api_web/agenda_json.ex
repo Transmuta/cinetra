@@ -23,7 +23,6 @@ defmodule ApiWeb.AgendaJSON do
       cancel_reason: appt.cancel_reason,
       professional_id: appt.professional_id,
       appointment_type_id: appt.appointment_type_id,
-      package_id: appt.package_id,
       version: appt.version,
       created_by_id: appt.created_by_id,
       patient_ids: patient_ids(appt),

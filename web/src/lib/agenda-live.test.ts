@@ -12,7 +12,6 @@ function appt(over: Partial<Appointment> = {}): Appointment {
 		obs: null,
 		professional_id: 'p1',
 		appointment_type_id: 't1',
-		package_id: null,
 		version: 1,
 		created_by_id: null,
 		cancel_reason: null,

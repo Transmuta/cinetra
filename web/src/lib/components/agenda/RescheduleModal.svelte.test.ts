@@ -22,7 +22,6 @@ const appt: Appointment = {
 	cancel_reason: null,
 	professional_id: 'p1',
 	appointment_type_id: 't1',
-	package_id: null,
 	version: 5,
 	created_by_id: null,
 	patient_ids: ['pac1'],

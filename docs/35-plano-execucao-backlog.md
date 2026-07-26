@@ -35,10 +35,12 @@ Natureza do bloqueio: **[P]** decisão de produto · **[T]** técnico/arquitetur
 > `GOOGLE_REDIRECT_URI` do doc 17 apontava para a API quando o callback do Google é rota do
 > **web**, e o `prod.exs` descrevia um proxy Caddy que não existe mais. Os dois corrigidos.
 >
+> O único item que ficou aberto foi **decidido e executado na mesma sessão**:
+> `appointments.package_id` era coluna morta (0 de 10.212 linhas) desde que a A2 moveu o pacote
+> para a presença, e foi **removida** com o índice, o campo do JSON e as duas marcas de UI que
+> nunca apareciam ([`46` §6c](46-onda-5-producao.md)).
+>
 > Próximo passo: **Onda 6 — Frentes 8, 9, 12 e 13** (features soltas, auditoria e refactors).
-> Fica **um item aberto de decisão humana** antes dela, registrado no [`46` §6c](46-onda-5-producao.md):
-> `appointments.package_id` é coluna morta (0 de 10.212 linhas) desde que a A2 moveu o pacote para
-> a presença — e leva junto uma tarja de UI que nunca aparece e um índice mantido a cada escrita.
 >
 > A lição que a Onda 4 acrescentou: **a paginação era pré-requisito do índice, não o contrário.**
 > Entregar o #55 antes do #54 teria produzido um índice íntegro e nunca escolhido — o mesmo

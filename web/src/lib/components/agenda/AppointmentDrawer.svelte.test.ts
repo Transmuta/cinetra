@@ -39,7 +39,6 @@ function appt(over: Partial<Appointment> = {}): Appointment {
 		cancel_reason: null,
 		professional_id: 'p1',
 		appointment_type_id: 't1',
-		package_id: null,
 		version: 3,
 		created_by_id: null,
 		patient_ids: ['pac1'],

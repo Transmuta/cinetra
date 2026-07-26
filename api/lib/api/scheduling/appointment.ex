@@ -27,9 +27,13 @@ defmodule Api.Scheduling.Appointment do
 
   ## Ganchos que nascem sem UI
 
-  `package_id`, `pkg_hold` e `version` entram agora porque mudam tabela depois (doc 25 §0):
-  pacote é a Fatia 3, locking otimista é a Entrega 4. `package_id` é `:uuid` **sem FK**, no
-  precedente de `Patient.prefs`.
+  `pkg_hold` e `version` entram agora porque mudam tabela depois (doc 25 §0): pacote é a Fatia 3,
+  locking otimista é a Entrega 4.
+
+  Havia aqui um terceiro gancho, `package_id`, e ele **não existe mais** (Onda 5): a A2 decidiu
+  que pacote é por **participante** (D11 — não existe pacote de turma), o vínculo passou a nascer
+  na `Attendance`, e esta coluna ficou 0 de 10.212 linhas. Quem quiser sinalizar "este bloco vem
+  de pacote" deriva de `participants`, que é onde o dado está.
   """
   use Ash.Resource,
     otp_app: :api,
@@ -91,9 +95,6 @@ defmodule Api.Scheduling.Appointment do
       # ADR-017: `clinic_id` lidera todo índice de recurso por-tenant.
       index [:clinic_id, :professional_id, :starts_at]
       index [:clinic_id, :starts_at]
-      # Gancho da Fatia 3; barato agora, caro de adicionar com a tabela cheia.
-      index [:package_id]
-
       # Achado (h) do doc 26: FK sem índice faz o Postgres varrer `appointments` inteira a cada
       # DELETE do lado apontado, para checar se alguma linha ainda referencia. Tipo e
       # profissional **arquivam** em vez de excluir, o que atenua — mas `users` não tem essa
@@ -522,8 +523,6 @@ defmodule Api.Scheduling.Appointment do
     # Locking otimista — consumido só na Entrega 4, mas a coluna nasce agora.
     attribute :version, :integer, allow_nil?: false, default: 1, public?: true
 
-    # Ganchos da Fatia 3 (pacotes). `package_id` sem FK, precedente de `Patient.prefs`.
-    attribute :package_id, :uuid, public?: true
     attribute :pkg_hold, :boolean, allow_nil?: false, default: false, public?: true
 
     # Soft-delete (doc 40): exclusão de lançamento feito por engano. Marca a hora e o registro

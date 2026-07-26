@@ -48,8 +48,6 @@ export interface Appointment {
 	cancel_reason: string | null;
 	professional_id: string;
 	appointment_type_id: string;
-	/** Gancho da Fatia 3 (pacotes); nesta fatia só desenha a tarja lateral. */
-	package_id: string | null;
 	version: number;
 	created_by_id: string | null;
 	patient_ids: string[];

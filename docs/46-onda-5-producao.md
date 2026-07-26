@@ -171,17 +171,23 @@ listava o OAuth como acesso direto do browser à API.
 
 **(b) O `prod.exs` descrevia um proxy Caddy que não existe** e atribuía o TLS/HSTS a ele. Ver §2.
 
-**(c) `appointments.package_id` é coluna morta — e leva uma tarja de UI morta junto.**
-Não corrigido: é decisão de produto. Medido: **0 de 10.212** agendamentos têm `package_id`
-preenchido. A A2 (doc 41 etapa 2) moveu o pacote para a **presença** (D11: não existe pacote de
-turma), e o argumento `package_id` das ações de `Appointment` carimba a `Attendance`, nunca a
-coluna do bloco. Só que o serializador ainda envia `package_id` do bloco e o
-`AppointmentBlock.svelte` ainda desenha **duas** marcas com ele — a tarja lateral teal e o ícone
-de pacote —, que hoje **nunca aparecem**. Além do enfeite inerte, a coluna carrega o índice
+**(c) `appointments.package_id` era coluna morta — REMOVIDA.** Medido: **0 de 10.212**
+agendamentos tinham `package_id` preenchido. A A2 (doc 41 etapa 2) moveu o pacote para a
+**presença** (D11: não existe pacote de turma), e o argumento `package_id` das ações de
+`Appointment` carimba a `Attendance`, nunca a coluna do bloco. Só que o serializador ainda
+enviava o campo e o `AppointmentBlock.svelte` ainda desenhava **duas** marcas com ele — a tarja
+lateral teal e o ícone de pacote —, que **nunca apareciam**; e a coluna carregava o índice
 `appointments_clinic_id_package_id_index`, mantido a cada escrita de uma tabela quente para uma
-coluna sempre nula. As opções são apagar as duas marcas ou derivá-las das presenças do bloco
-(fazendo a tarja voltar a funcionar) — a segunda é mudança de comportamento visível, e por isso
-está aqui e não no diff.
+coluna sempre nula.
+
+Saíram: a coluna, o índice, o campo do JSON, o campo do tipo `Appointment` (web) e as duas marcas
+do bloco. **Nada muda na tela** — era isso que "nunca apareciam" queria dizer —, e a verificação
+ao vivo confirmou: a grade de 105 blocos desenha igual, com o ícone de tipo voltando ao
+`ml-auto` que a marca de pacote lhe disputava.
+
+Quem quiser, no futuro, a sinalização de "este bloco vem de pacote" **não precisa da coluna de
+volta**: `participants[].package_id` já viaja no mesmo payload e é onde o dado de fato está. A
+diferença é que aí ela funcionaria.
 
 ## 7. Verde ao fim
 

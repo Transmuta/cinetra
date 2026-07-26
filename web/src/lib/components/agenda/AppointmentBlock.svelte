@@ -2,7 +2,6 @@
 	// O bloco do grid (protótipo `renderBlock` :1666).
 	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 	import CircleAlert from '@lucide/svelte/icons/circle-alert';
-	import Package from '@lucide/svelte/icons/package';
 	import { STATUS_META, type Appointment } from '$lib/agenda';
 	import { blockGeometry, type Slot } from '$lib/agenda-layout';
 	import { iconComponent } from '$lib/appointment-types';
@@ -109,11 +108,6 @@
 	       border-width:{variant === 'status' ? 1 : 1.5}px; z-index:{variant === 'conflict' ? 3 : 2};"
 	class="absolute flex flex-col gap-0.5 overflow-hidden rounded-lg border border-solid px-1.5 py-1 text-left"
 >
-	{#if appt.package_id}
-		<!-- Tarja do pacote (gancho da Fatia 3; aqui só sinaliza). -->
-		<span class="absolute inset-y-0 left-0 w-[3px] rounded-l-lg bg-teal"></span>
-	{/if}
-
 	<div class="flex items-center gap-1.25">
 		<span class="size-1.5 shrink-0 rounded-full" style="background:{profColor}"></span>
 		<span class="font-mono text-[10.5px] font-semibold tabular-nums">{startLabel}</span>
@@ -130,11 +124,7 @@
 			</span>
 		{/if}
 
-		{#if appt.package_id}
-			<span class="ml-auto text-teal-text"><Package size={10} /></span>
-		{/if}
-
-		<span class="{appt.package_id ? '' : 'ml-auto'} shrink-0 text-muted">
+		<span class="ml-auto shrink-0 text-muted">
 			<TypeIcon size={12} />
 		</span>
 
