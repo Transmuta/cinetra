@@ -10,15 +10,29 @@ Natureza do bloqueio: **[P]** decisão de produto · **[T]** técnico/arquitetur
 
 > ## ▶︎ Onde retomar
 >
+> **A Onda 4 fechou (2026-07-26)** — Frente 10 inteira: perf/estrutura (#52–#55) e os gatilhos que
+> sobravam (#48, #50, #51, #56). Registro em [`44`](44-onda-4-notificacoes.md); os três gates de
+> produto que a bloqueavam foram decididos na abertura dela. Auditada em
+> [`45`](45-bate-volta-onda-4.md): cinco causas corrigidas, **zero achados de segurança**, e o
+> `oban_jobs` ganhou a poda que faltava — o projeto tinha duas podas e nenhuma para a fila que
+> executa as duas.
+>
 > **A Onda 3 fechou (2026-07-25).** Frentes 5 (Pacotes/A1), 6 (Turma/A2, as cinco etapas) e 7
 > (Histórico da ficha) feitas — o **caminho crítico** `D-C → A1 → A2 → C13/#47` está inteiro. As
 > Ondas 1 e 2 já haviam fechado, sobrando só o **D-S** (seed removido) e o **D-A**, que foi
 > resolvido pelo teto de 8h (ver "D-A: fechado pelo teto").
 >
-> Próximo passo: **Onda 4 — Frente 10 (Notificações)**, agora só com a parte de **perf/estrutura**
-> (#52…#55) e os gatilhos que sobraram — **#46 e #47 saíram junto com a A2**.
+> Próximo passo: **Onda 5 — Frente 11 (endurecimento de produção)**: cookie `secure`, CSP/HSTS/
+> X-Frame, sign-out via POST (CSRF), hosts da CSP por ambiente, token do WS fora da query string e
+> a semântica de `ON DELETE` por relação. É a onda que o plano põe **antes do primeiro deploy
+> real**.
 >
-> Lições que esta onda reforçou:
+> A lição que a Onda 4 acrescentou: **a paginação era pré-requisito do índice, não o contrário.**
+> Entregar o #55 antes do #54 teria produzido um índice íntegro e nunca escolhido — o mesmo
+> desfecho do D-A. E o índice parcial só anexou quando o predicado passou a repetir o cast
+> (`::timestamp`) que o AshPostgres emite, o que é a lição do D-A cobrada uma segunda vez.
+>
+> Lições que a Onda 3 reforçou:
 >
 > - **clicar no browser continua achando o que a suíte não acha.** O drawer da presença passou em
 >   20 testes de componente e falhava no primeiro clique real: o form submetia antes do flush do
@@ -59,9 +73,14 @@ Registro para não parecerem esquecidos — **não** entram nas ondas abaixo:
    quem escreve o status (rollup das presenças).
 2. **A3 (futureConflicts):** estender D12 (horário do profissional) para clínica/exceção + o
    terceiro consumidor esquecido (`addHoliday`). — bloqueia Frente 8.
-3. **F#48:** limiar de "paciente urgente entrou na fila". — bloqueia esse gatilho na Frente 10.
+3. ~~**F#48:** limiar de "paciente urgente entrou na fila".~~ ✅ **RESOLVIDO** (2026-07-26): **só
+   `urgente`**. `alta` é frequente demais em clínica movimentada, e sino que apita demais deixa de
+   ser olhado (doc 31 §4).
 4. **D-Aud1:** semântica do rótulo "X–Y de Z" (reltuples / `countable:false`+limit+1 / contar
-   só com filtro). — bloqueia Frente 12.
+   só com filtro). — bloqueia Frente 12. **A Onda 4 acrescentou dado a este gate**: `countable`
+   vira `COUNT(*) OVER ()` e lê o recorte inteiro apesar do `LIMIT` — medido em 10.265 buffers
+   contra 26 ([doc 44](44-onda-4-notificacoes.md) §2). O `Api.Pagination.page_opts/1` já aceita
+   `count: false`.
 
 ---
 
@@ -124,13 +143,16 @@ Registro para não parecerem esquecidos — **não** entram nas ondas abaixo:
 ### Frente 9 — Realtime "quem está vendo este dia" (F5)
 - **F5** — `Phoenix.Presence` por dia (feature nova, isolada).
 
-### Frente 10 — Notificações
+### Frente 10 — Notificações ✅ FEITA (2026-07-26, [doc 44](44-onda-4-notificacoes.md))
 - **Perf/estrutura:** #52 `who_fits` síncrono → Oban; #53 `mark_all_read` via `Ash.bulk_update`;
-  #54 LIMIT/paginação + poda/expurgo; #55 índice `[clinic_id, recipient_id, inserted_at desc]`.
+  #54 LIMIT/paginação + poda/expurgo; #55 índice `[clinic_id, recipient_id, inserted_at]` — **sem
+  o `desc`** (btree lê ao contrário) e com um segundo, parcial, para as não-lidas. O **P5** caiu
+  junto com o #52, como a auditoria previu.
 - **Gatilhos:** ~~#46 `:faltou`~~ e ~~#47 `participant_added`~~ **FEITOS na A2 etapa 5**
   (`60808a6`) — o #46 na forma da A2: a falta é da **presença**, então o notifier passou a
-  escutar a `Attendance`. Seguem pendentes: #48 urgente na fila *(gate #3)*; #50 papel
-  alterado/membro removido; #51 resumo diário + "sessão em 15 min"; #56 deep-link fino.
+  escutar a `Attendance`. ~~#48~~ (só `urgente`), ~~#50~~ (papel ao afetado; remoção à governança,
+  porque o removido perde acesso à caixa daquela clínica), ~~#51~~ (os dois lembretes) e ~~#56~~
+  (`/agenda?date=`, `/fila?prio=urgente`) **feitos na Onda 4**.
 
 ### Frente 11 — Endurecimento de produção
 - **H59** — cookie `secure`, CSP/HSTS/X-Frame, sign-out via POST (CSRF).
@@ -154,8 +176,8 @@ Registro para não parecerem esquecidos — **não** entram nas ondas abaixo:
 | **1 — Fundação** | 0, 1 | 🟡 Frente 1 feita; Frente 0 parcial (D-S removido) | Enablers de medição + higiene barata destravam e iluminam o resto |
 | **2 — Perf & tempo real** | 2, 3, 4 | 🟡 Frentes 3 e 4 feitas; Frente 2 parcial (**D-A revertido**, volta ao backlog) | Mensuráveis com a Onda 1; mesma trilha de código |
 | **3 — Valor central** | 5 → 6 → 7 | ✅ **feita (2026-07-25)** | Pacotes → Turma → Ficha, sequencial por dependência |
-| **4 — Notificações** | 10 | pendente (menos #46/#47, feitos na A2) | Perf antes dos gatilhos |
-| **5 — Produção** | 11 | pendente | Antes do primeiro deploy real |
+| **4 — Notificações** | 10 | ✅ **feita (2026-07-26)** | Perf antes dos gatilhos — e a paginação acabou sendo pré-requisito do índice |
+| **5 — Produção** | 11 | pendente ← **próxima** | Antes do primeiro deploy real |
 | **6 — Soltas + limpeza** | 8, 9, 12, 13 | pendente | Features isoladas, auditoria e refactors por último |
 
 **Caminho crítico:** D-C → A1 (Pacotes) → A2 (Turma) → C13/#47. ✅ **percorrido inteiro.**

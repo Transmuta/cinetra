@@ -84,7 +84,7 @@ só se cada um vira registro no sino.
 | Evento | Quem recebe | Rec. | Racional |
 | --- | --- | --- | --- |
 | **Vaga abriu com fila casando** (falta/cancelamento **e** `who_fits > 0`) | Recepção/admin/owner | 🟢 **v1** | O **único que gera receita**. Hoje o "quem cabe" ([`waitlist.ex:301`](../api/lib/api/waitlist.ex)) só existe se a recepção *for* abrir o drawer da falta. Como notificação, vira proativo: "Vaga livre qui 15h — 2 pacientes da fila cabem." Transforma um evento passivo (cancelamento) em ação. |
-| Paciente **urgente/alta** entrou na fila | Recepção | 🟡 depois | Bom sinal operacional, mas risco de ruído em clínica movimentada; decidir limiar (só `urgente`? só quando não há vaga hoje?). |
+| Paciente **urgente** entrou na fila | Recepção/admin/owner | 🟢 **v1** (Onda 4, #48) | O limiar era o bloqueio, e foi decidido em 2026-07-26: **só `urgente`**. `alta` ficou fora — é frequente em clínica movimentada, e o custo de um sino que apita demais não é volume, é o usuário parar de olhar (§4). Também dispara quando um item **já na fila** sobe para urgente. |
 | Oferta/hold **expirando** ou expirou sem conversão | Quem ofereceu | 🟡 depois | O `SlotHold` de 10 min já existe ([`slot_hold.ex`](../api/lib/api/scheduling/slot_hold.ex)) e o cleanup roda por Oban. "Sua reserva da vaga expira em 2 min" é útil, mas era o F4 já deferido no [doc 30 §2](30-decisoes-pendentes-agenda.md). |
 
 ### 3c. Membros / governança
@@ -92,7 +92,8 @@ só se cada um vira registro no sino.
 | Evento | Quem recebe | Rec. | Racional |
 | --- | --- | --- | --- |
 | **Convite aceito / novo membro entrou** | Owner/admin | 🟢 **v1** | O convite já dispara e-mail ([`resolve_invited_user.ex`](../api/lib/api/accounts/membership/changes/resolve_invited_user.ex)); falta o **retorno**. "Fulano aceitou e entrou como recepção." Barato, baixa frequência, ótimo sinal de que quem convidou não fica no escuro. |
-| Papel alterado / membro removido | O próprio membro afetado | 🟡 depois | Sensível (mexe em acesso); pequeno volume; pode esperar. |
+| Papel alterado | O próprio membro afetado | 🟢 **v1** (Onda 4, #50) | Único evento da caixa cujo destinatário é o **alvo** da ação: mexer no papel mexe no que a pessoa pode fazer, e ela descobriria sozinha só ao esbarrar num botão que sumiu. Autor suprimido. |
+| Membro removido | **Owner/admin** in-app + **o removido por e-mail** | 🟢 **v1** (Onda 4, #50) | O destinatário in-app mudou por razão **estrutural**, não de gosto: a caixa é por-tenant e só se lê com vínculo ativo, então o removido não alcança mais a caixa daquela clínica. A notícia in-app vai à governança, espelhando o convite aceito; quem saiu recebe **e-mail** (`AccessRevokedEmailJob`) — a exceção à §5 está justificada lá. |
 
 ### 3d. Lembretes por tempo (classe diferente — *cron*, não evento)
 
@@ -101,9 +102,9 @@ Estes não nascem de uma ação; nascem do **relógio** (Oban já está de pé, 
 
 | Ideia | Rec. | Bloqueio |
 | --- | --- | --- |
-| "Você tem N atendimentos amanhã" (resumo diário) | 🟡 depois | Fácil tecnicamente; decidir se agrega valor sobre só abrir a agenda. |
+| "Você tem N atendimentos amanhã" (resumo diário) | 🟢 **feito** (Onda 4, #51) | Era "decidir se agrega valor". Decidido que sim. Sai às 19h **locais de cada clínica** — por isso o cron acorda de hora em hora. |
 | "Paciente não confirmou presença" | 🔴 não (v1) | Depende de **F7** ([doc 30 §2](30-decisoes-pendentes-agenda.md)): o que "confirmar" significa sem WhatsApp está **indefinido**. Sem isso, não há evento. |
-| "Sessão em 15 min" | 🔴 não (v1) | A tela do dia já mostra; valor marginal; ruído alto. |
+| "Sessão em 15 min" | 🟢 **feito** (Onda 4, #51) — **contra esta recomendação** | A recomendação era 🔴 ("a tela do dia já mostra; ruído alto") e foi **vencida por decisão** em 2026-07-26, não por esquecimento. Fica registrada porque continua sendo o risco do item; desligar é tirar uma linha do crontab ([doc 44](44-onda-4-notificacoes.md)). |
 
 ---
 
@@ -136,10 +137,14 @@ enxuto e alto-sinal, e só então medir se falta algo.
 - **Persistência + lido/não-lido.** É a peça inexistente: recurso Ash `Notification` com
   `recipient_user_id`, `clinic_id` (tenant/RLS como todo o resto), `kind`, `payload` (jsonb),
   `read_at`, `inserted_at`. O badge do sino conta `read_at IS NULL`.
-- **Canal de entrega — v1 é só in-app.** Nada de e-mail/push por evento de agenda agora: o
-  Swoosh existente ([`emails.ex`](../api/lib/api/accounts/emails.ex)) só manda magic link, e
-  e-mail por cancelamento vira spam rápido. E-mail/push ficam para uma decisão própria (ex.:
-  resumo diário, ou só urgências).
+- **Canal de entrega — in-app, com uma exceção nomeada.** Nada de e-mail/push por evento de
+  agenda: e-mail por cancelamento vira spam rápido. A régua, então, não é "e-mail é proibido" e
+  sim **"evento de agenda não sai por e-mail"**.
+
+  A Onda 4 (#50) usou a exceção uma vez, e o critério ficou escrito: **mudança de acesso não é
+  evento de agenda**, e é a única classe em que o destinatário perde o canal in-app exatamente no
+  momento em que precisa saber — quem foi removido de uma clínica não consegue mais abrir a caixa
+  dela. Ver `Api.Accounts.AccessRevokedEmailJob`. Push segue fora.
 - **Tempo real do próprio sino.** Reusar o PubSub que já existe: ao criar a `Notification`, um
   broadcast num tópico **por-usuário** (`user:<id>:notifications`) faz o badge subir sem refresh —
   mesma mecânica dos canais de agenda, escopo novo.
