@@ -14,6 +14,29 @@ defmodule Api.OnDeleteTest do
   """
   use Api.DataCase, async: true
 
+  @dominios [
+    Api.Accounts,
+    Api.Scheduling,
+    Api.Directory,
+    Api.Records,
+    Api.Packages,
+    Api.Waitlist,
+    Api.Notifications
+  ]
+
+  # As tabelas que o PROJETO escreve, derivadas dos próprios recursos Ash — não de uma lista à
+  # mão. Sem isto, os dois contratos abaixo varreriam `public` inteiro e passariam a cobrar
+  # decisão sobre FK de tabela de biblioteca (`oban_jobs` e companhia), que não é nossa e sobre a
+  # qual não decidimos nada. Derivar dos recursos faz recurso novo entrar na vigilância sozinho e
+  # tabela de terceiro nunca entrar. Hoje são 20.
+  defp tabelas_do_projeto do
+    @dominios
+    |> Enum.flat_map(&Ash.Domain.Info.resources/1)
+    |> Enum.map(&AshPostgres.DataLayer.Info.table/1)
+    |> Enum.reject(&is_nil/1)
+    |> MapSet.new()
+  end
+
   # `{tabela, coluna} => ação esperada`
   #
   # `CASCADE` — o filho não existe sem o pai (tudo que pende de `clinics` é o tenant inteiro).
@@ -81,7 +104,11 @@ defmodule Api.OnDeleteTest do
       WHERE c.contype = 'f' AND c.connamespace = 'public'::regnamespace
       """)
 
-    Map.new(rows, fn [tabela, coluna, acao] -> {{tabela, coluna}, acao} end)
+    tabelas = tabelas_do_projeto()
+
+    rows
+    |> Enum.filter(fn [tabela, _coluna, _acao] -> MapSet.member?(tabelas, tabela) end)
+    |> Map.new(fn [tabela, coluna, acao] -> {{tabela, coluna}, acao} end)
   end
 
   test "cada FK tem a semântica de ON DELETE que o projeto escolheu" do
@@ -116,9 +143,19 @@ defmodule Api.OnDeleteTest do
   # doc 30 —, e é por isso que `appointments` declara `index [..], all_tenants?: true`.
 
   # As quatro FKs **anteriores a esta onda** que ainda não têm índice liderando. Estão aqui como
-  # dívida declarada, não como permissão: cada uma tem um índice composto que cobre parcialmente
-  # (a coluna aparece, mas não lidera), então o plano é varredura de índice, não seq scan. Sair
-  # desta lista é trabalho de outra frente — entrar nela sem querer é o que o teste impede.
+  # dívida declarada, não como permissão — sair desta lista é trabalho de outra frente, entrar
+  # nela sem querer é o que o teste impede.
+  #
+  # Medido (docs/47 §4 D1), porque as quatro NÃO são o mesmo caso:
+  #
+  #   * `attendances.appointment_id`  → **Seq Scan**, 342 buffers em 10.219 linhas — a que importa;
+  #   * `attendances.patient_id`      → varredura do índice composto, 33 buffers;
+  #   * `packages.patient_id` e `package_schedules.package_id` → Seq Scan em tabela de ~5 e ~10
+  #     linhas, onde é a escolha CERTA do planner e não há nada a consertar.
+  #
+  # Nenhuma dispara hoje: `Appointment`, `Package` e `Patient` não têm ação `destroy` (tudo
+  # arquiva). O caminho só existe pela eliminação da LGPD (F8) — e é junto dela que o índice de
+  # `appointment_id` deve entrar, medindo o caminho inteiro.
   @sem_indice_liderando_conhecidas [
     {"attendances", "appointment_id"},
     {"attendances", "patient_id"},
@@ -148,7 +185,11 @@ defmodule Api.OnDeleteTest do
       FROM fk
       """)
 
-    Map.new(rows, fn [tabela, coluna, tem?] -> {{tabela, coluna}, tem?} end)
+    tabelas = tabelas_do_projeto()
+
+    rows
+    |> Enum.filter(fn [tabela, _coluna, _tem?] -> MapSet.member?(tabelas, tabela) end)
+    |> Map.new(fn [tabela, coluna, tem?] -> {{tabela, coluna}, tem?} end)
   end
 
   test "toda FK tem índice que serve à checagem do DELETE (WHERE fk = $1)" do

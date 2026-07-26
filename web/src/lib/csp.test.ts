@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { connectSrc, DEV_API_ORIGIN, wsOrigin } from './csp';
+import { conferirOrigem, connectSrc, DEV_API_ORIGIN, wsOrigin } from './csp';
 import { socketUrl } from './realtime';
 
 // S3 (Onda 5). O `connect-src` listava `localhost:4010` **e** o host de produção, fixos: o build
@@ -68,5 +68,41 @@ describe('wsOrigin — a fonte única da regra de esquema', () => {
 			const autorizada = connectSrc(origem).find((o) => o.startsWith('ws'));
 			expect(socketUrl(origem)).toBe(`${autorizada}/socket`);
 		}
+	});
+});
+
+// D2 (handoff do doc 47): a CSP é assada no BUILD e a origem do socket é lida em RUNTIME. Nada
+// checava que as duas batem, e divergir bloqueia o WebSocket **em silêncio** — o erro só aparece
+// no console do browser do usuário. Esta é a função que transforma o silêncio em falha de boot.
+describe('conferirOrigem — a guarda entre o build e o runtime', () => {
+	const autorizadas = connectSrc('https://movimento-api.fly.dev');
+
+	it('origem que a CSP autoriza passa', () => {
+		expect(conferirOrigem(autorizadas, 'https://movimento-api.fly.dev')).toBeNull();
+	});
+
+	it('tolera barra no fim dos dois lados', () => {
+		expect(conferirOrigem(autorizadas, 'https://movimento-api.fly.dev/')).toBeNull();
+	});
+
+	// O caso real: `[env]` do fly.toml atualizado para o domínio novo, `[build.args]` esquecido.
+	it('origem de runtime fora da CSP vira mensagem — com os dois valores', () => {
+		const erro = conferirOrigem(autorizadas, 'https://agenda.clinica.com.br');
+
+		expect(erro).toContain('agenda.clinica.com.br');
+		expect(erro).toContain('movimento-api.fly.dev');
+	});
+
+	// O outro caso real: build sem o ARG. A CSP sai com localhost e produção disca o host real.
+	it('build sem o ARG (CSP de dev) contra runtime de produção é pego', () => {
+		const cspDeDev = connectSrc(undefined);
+
+		expect(conferirOrigem(cspDeDev, 'https://movimento-api.fly.dev')).toContain('localhost');
+	});
+
+	// Dev e CI: os dois lados caem no MESMO default, então a guarda não pode disparar por omissão
+	// — só por divergência de verdade.
+	it('sem configuração nenhuma, os dois lados batem (dev e CI não quebram)', () => {
+		expect(conferirOrigem(connectSrc(undefined), DEV_API_ORIGIN)).toBeNull();
 	});
 });

@@ -3,8 +3,27 @@ import { sveltekit } from '@sveltejs/kit/vite';
 import tailwindcss from '@tailwindcss/vite';
 import { svelteTesting } from '@testing-library/svelte/vite';
 import { defineConfig } from 'vitest/config';
+import { loadEnv } from 'vite';
+import { connectSrc } from './src/lib/csp.js';
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
+	// D2 (doc 47): assa no bundle o `connect-src` que a `kit.csp` vai emitir, para o servidor
+	// conferir no boot se a origem que ele lê em RUNTIME é uma das que a CSP autoriza. As duas
+	// saem da mesma `API_PUBLIC_ORIGIN`, mas em momentos diferentes — e era essa diferença de
+	// momento que passava sem ninguém checar, bloqueando o WebSocket em silêncio.
+	//
+	// `define` (e não `$env/static/private`) porque este valor precisa ter **default**: a
+	// variável não existe no job `web` do CI, e um build que quebra por falta dela trocaria uma
+	// falha silenciosa por outra barulhenta no lugar errado. Com default, dev e CI caem no mesmo
+	// valor dos dois lados e a guarda só acende em divergência de verdade.
+	// `loadEnv` do Vite (prefixo vazio = todas as variáveis) em vez de `process.env`: o tsconfig
+	// do projeto não carrega os tipos do Node, e acrescentar `@types/node` por uma linha traria a
+	// superfície inteira da stdlib para o typecheck do app.
+	define: {
+		__CSP_CONNECT_SRC__: JSON.stringify(
+			connectSrc(loadEnv(mode, '.', '').API_PUBLIC_ORIGIN)
+		)
+	},
 	plugins: [
 		// Tailwind v4 via plugin de Vite (ADR-010): a config é o próprio app.css.
 		tailwindcss(),
@@ -68,4 +87,4 @@ export default defineConfig({
 			}
 		]
 	}
-});
+}));

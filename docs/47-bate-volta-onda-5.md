@@ -167,6 +167,9 @@ ainda falava em `params`, foi corrigido junto.
 
 ## 4. O que fica para decisão humana
 
+> **Atualização (mesma sessão): D2 e D3 foram executados**, seguindo a recomendação; o D1 fica
+> para a F8, que é quem o torna real. O que cada um virou está ao fim do respectivo item.
+
 ### D1 — quatro FKs anteriores sem índice liderando
 
 **O que é:** `attendances.appointment_id`, `attendances.patient_id`, `packages.patient_id` e
@@ -197,8 +200,15 @@ ação `destroy`** (0 ocorrências nos três recursos); tudo arquiva. O caminho 
 mão ou pela eliminação da LGPD (F8), e aí o custo não é linear: apagar N agendamentos são N
 varreduras da tabela inteira.
 
-**Qual seria a correção:** `index [:coluna], all_tenants?: true` em cada recurso, com migration
-`CONCURRENTLY`. Candidato natural à Frente 13 (refactors/limpeza).
+**Qual seria a correção:** `index [:appointment_id], all_tenants?: true` em `Attendance`, com
+migration `CONCURRENTLY` — **só essa**. As outras três não pagam: em `packages` (5 linhas) e
+`package_schedules` (~10) o Seq Scan é a escolha certa do planner, e `attendances.patient_id` já
+sai por índice.
+
+> **Decisão (mesma sessão): fica para a F8.** Nada dispara hoje — os três pais não têm `destroy`
+> —, e é a eliminação da LGPD que transforma isto de latente em real. Fazer o índice junto dela
+> permite medir o caminho inteiro em vez de um `EXPLAIN` isolado. A lista de exceções do teste
+> ganhou os números medidos, para quem chegar lá não precisar remedir.
 
 ### D2 — `API_PUBLIC_ORIGIN` build-time × runtime, sem guarda
 
@@ -219,6 +229,26 @@ build-time), não conserto de bug, e a skill manda não abrir isso no meio de um
 conferir que o `connect-src` traz o par do host real e **não** `localhost` —, que roda no momento
 exato em que o erro seria introduzido.
 
+> **FEITO (mesma sessão), por um caminho melhor que o proposto.** `$env/static/private` foi
+> descartado: ele quebraria o `npm run build` do job `web` do CI, que não tem a variável — seria
+> trocar uma falha silenciosa por outra barulhenta no lugar errado. Em vez disso, o `define` do
+> Vite **assa no bundle o `connect-src` que a CSP vai emitir** (com default, então dev e CI caem
+> no mesmo valor dos dois lados e nada dispara por omissão), e o `hooks.server.ts` compara com a
+> origem de runtime no boot. `conferirOrigem/2` é pura e testada; quem levanta é o hook.
+>
+> **Provado na imagem de produção**, com `[env]` de um domínio novo e `[build.args]` do antigo:
+>
+> ```
+> Error: A CSP assada no build não autoriza a origem que o runtime vai usar para o WebSocket.
+>   runtime (API_PUBLIC_ORIGIN):  https://api.clinica.com.br
+>   connect-src assado no build: self https://movimento-api.fly.dev wss://movimento-api.fly.dev
+> Iguale API_PUBLIC_ORIGIN em [build.args] e [env] no web/fly.toml (ver docs/17).
+> ```
+>
+> O container sai com **exit 1** — no Fly isso é release que falha e reverte, em vez de agenda
+> que para de atualizar sem ninguém saber. Com os dois valores batendo, o mesmo build responde
+> **HTTP 200**.
+
 ### D3 — o teste de FK vigia tabelas que o projeto não escreve
 
 **O que é:** o contrato novo varre **todas** as FKs do schema `public`. Se uma dependência (Oban,
@@ -227,6 +257,11 @@ por exemplo) criar tabela com FK, o teste falha pedindo decisão sobre algo que 
 **A sonda:** hoje `oban_jobs` não tem FK — as 33 FKs do schema são todas de recursos do projeto,
 então não há falso positivo agora.
 
-**Por que não foi corrigido:** filtrar por lista de tabelas próprias enfraqueceria justamente o
-que o teste existe para pegar (FK nova sem decisão). Preferi o falso positivo raro e barulhento
-ao falso negativo silencioso — mas é escolha, e fica registrada.
+**Por que não foi corrigido na hora:** filtrar por uma lista de tabelas **escrita à mão**
+enfraqueceria o que o teste existe para pegar — bastaria alguém não acrescentar a tabela nova.
+
+> **FEITO (mesma sessão), sem esse custo.** A lista não é à mão: sai dos **próprios recursos
+> Ash** (`Ash.Domain.Info.resources/1` → `AshPostgres.DataLayer.Info.table/1`), hoje 20 tabelas.
+> Recurso novo entra na vigilância sozinho; `oban_jobs`, `oban_peers` e `schema_migrations` nunca
+> entram. É estritamente melhor que varrer `public` inteiro: mesma cobertura do que é nosso, zero
+> falso positivo do que não é.

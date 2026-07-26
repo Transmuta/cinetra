@@ -1,4 +1,20 @@
 import type { Handle } from '@sveltejs/kit';
+import { conferirOrigem } from '$lib/csp.js';
+import { apiPublicOrigin } from '$lib/server/api';
+
+// D2 (doc 47) — a guarda entre o build e o runtime, no boot do servidor.
+//
+// A CSP é fixada no BUILD (`kit.csp` → `[build.args]` do fly.toml) e a origem do WebSocket é
+// lida em RUNTIME (`[env]`). Divergir não dá erro de servidor: dá agenda que para de atualizar
+// sozinha, com o motivo só no console do browser de quem está usando — um deploy passa verde
+// por cima disso.
+//
+// **Levanta de propósito, em vez de logar.** Divergência aqui significa que o tempo real já
+// está quebrado; recusar subir transforma isso numa release que falha (e o Fly reverte) em vez
+// de um recurso que some sem ninguém saber. Um log seria a mesma falha silenciosa com uma linha
+// a mais, enquanto o projeto ainda não tem agregação de log.
+const divergencia = conferirOrigem(__CSP_CONNECT_SRC__, apiPublicOrigin());
+if (divergencia) throw new Error(divergencia);
 
 // Dark mode sem flash (doc 03 §4.4): estampa `data-theme` no <html> já no HTML servido,
 // a partir do cookie `mv-theme`. Sem cookie, NÃO emite o atributo — aí o `prefers-color-scheme`

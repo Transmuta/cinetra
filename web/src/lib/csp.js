@@ -43,3 +43,36 @@ export function connectSrc(apiPublicOrigin) {
 	const origin = (apiPublicOrigin || DEV_API_ORIGIN).replace(/\/+$/, '');
 	return ['self', origin, wsOrigin(origin)];
 }
+
+/**
+ * A origem que o runtime vai discar está entre as que a CSP **assada** autoriza?
+ *
+ * Existe porque as duas pontas leem a mesma variável em momentos diferentes: a `kit.csp` fixa o
+ * `connect-src` no **build** (por isso `[build.args]` no fly.toml), e o BFF resolve
+ * `API_PUBLIC_ORIGIN` em **runtime** (por isso `[env]`). Divergir não dá erro de servidor: dá
+ * agenda que para de atualizar sozinha, com o motivo só no console do browser do usuário. É o
+ * tipo de falha que um deploy passa verde.
+ *
+ * Devolve `null` quando está tudo certo, ou a mensagem a levantar. Não levanta aqui: quem decide
+ * o que fazer com o problema é o `hooks.server.ts` — assim esta parte continua testável sem
+ * derrubar processo.
+ *
+ * Dev e CI não disparam por omissão: sem configuração, os dois lados caem no mesmo
+ * `DEV_API_ORIGIN`. Só divergência de verdade acende.
+ *
+ * @param {string[]} autorizadas  o `connect-src` que foi assado no build
+ * @param {string} origemRuntime  o `API_PUBLIC_ORIGIN` que o servidor está lendo agora
+ * @returns {string | null}
+ */
+export function conferirOrigem(autorizadas, origemRuntime) {
+	const origem = (origemRuntime || DEV_API_ORIGIN).replace(/\/+$/, '');
+
+	if (autorizadas.includes(origem)) return null;
+
+	return (
+		`A CSP assada no build não autoriza a origem que o runtime vai usar para o WebSocket.\n` +
+		`  runtime (API_PUBLIC_ORIGIN):  ${origem}\n` +
+		`  connect-src assado no build: ${autorizadas.join(' ')}\n` +
+		`Iguale API_PUBLIC_ORIGIN em [build.args] e [env] no web/fly.toml (ver docs/17).`
+	);
+}
