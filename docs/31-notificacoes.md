@@ -76,7 +76,8 @@ só se cada um vira registro no sino.
 | `appointment_canceled` | Profissional dono | 🟢 **v1** | "Sua sessão das 15h foi cancelada." Abre buraco na agenda; ele precisa saber (e talvez ofertar da fila). |
 | `appointment_status_changed` → `:faltou` | Profissional dono | 🟡 depois | Útil, mas quase sempre é o próprio profissional marcando (autor suprimido → quase nunca dispara). Amarra com a fila (3b). |
 | `appointment_status_changed` → `:concluido`/`:reopen`/`justify` | — | 🔴 não | Ação do próprio profissional na maioria dos casos; não muda nada para terceiro. Ruído. |
-| `participant_added` (turma) | Profissional dono | 🟡 depois | Baixa frequência; espera a fatia de turma/pacote madurecer. |
+| `participant_added` (turma) | Profissional dono | 🟢 **v1** (A2) | Baixa frequência; entrou com a fatia de turma (doc 41 etapa 5, #47). |
+| `package_bulk_adjusted` (massa por pacote) | Profissional dono (origem **e** destino) | 🟢 **v1** (bate-volta) | Uma linha por **massa**, não por sessão: remarcar um pacote de 40 mandava 40 "novo agendamento na sua agenda" para o que é um evento só — e as sessões foram *movidas*, não criadas. Ver [doc 43 §5b](43-bate-volta-onda-3.md). |
 
 ### 3b. Fila de espera
 

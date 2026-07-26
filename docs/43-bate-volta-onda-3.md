@@ -147,7 +147,40 @@ Verde ao fim: api **941/0** (91,8%), gate `:rls` **7/0** como `movimento_app`, w
 
 ---
 
-## 4. O que a rodada 5 achou (não consertado)
+## 4. O que a rodada 5 achou ✅ **FECHADO (2026-07-25)**
+
+> **Feito: a coluna denormalizada.** `attendances.session_starts_at` (cópia do `starts_at` do
+> bloco) com o índice `(clinic_id, patient_id, session_starts_at)`. O aggregate homônimo saiu — os
+> dois juntos seriam duas verdades para o mesmo instante. Quem mantém a cópia são os **dois** únicos
+> caminhos em que o par (presença, horário) nasce ou muda: `ManageParticipants` na criação e
+> `SyncSessionStartsAt` na remarcação. `allow_nil? false` é deliberado — caminho novo que esqueça
+> falha alto, em vez de sumir do histórico em silêncio.
+>
+> Medido **pelo caminho da aplicação** (a lição do doc 35: índice só conta se o SQL que o Ash emite
+> o usar), na clínica de 10.185 blocos, como `movimento_app`:
+>
+> ```
+> Limit (actual time=0.025..0.197 rows=51)  Buffers: shared hit=48
+>   -> Index Scan Backward using attendances_clinic_id_patient_id_session_starts_at_index
+>        Index Cond: (clinic_id = current_setting(...) AND patient_id = ...)
+> ```
+>
+> `pg_stat_user_indexes.idx_scan` do índice novo subiu a cada chamada de
+> `list_patient_history/3` — é a prova de que quem o usa é a aplicação, não o `psql`. Sem sort,
+> sem hash join, sem varrer a clínica: **291 buffers → 48**, e as duas curvas (paciente e clínica)
+> ficam planas. Wall time pela app: ~15 ms, dominado pelo `load` do bloco/tipo/profissional.
+>
+> **O caso do papel `profissional` foi re-medido** (era o "não re-medido" de antes): criei a
+> membership `:profissional` no banco de dev, vinculada à coluna do paciente. Mesmo plano, mesmo
+> índice (`idx_scan` sobe igual), **8 sessões** devolvidas em ~15 ms — o recorte da A7 continua
+> valendo e o nested loop de 679 iterações não existe mais.
+>
+> Migration ajustada à mão em três pontos que o codegen não sabe: coluna nasce nula → backfill
+> (`UPDATE … FROM appointments`) → `SET NOT NULL`; `CONCURRENTLY` nos índices
+> (`.claude/rules/migrations.md`); e o índice `(clinic_id, patient_id)`, agora prefixo estrito do
+> novo, cai junto — a mesma lição de §5f.
+
+O registro original do achado:
 
 **O conserto do CR-4 trocou uma curva de crescimento por outra.** O plano novo, como
 `movimento_app` na clínica de 10.185 blocos:
@@ -178,9 +211,52 @@ banco de dev — que eu não faço sem seu aval.
 
 ---
 
-## 5. O que fica para você
+## 5. O que ficou para decisão — e o que se decidiu
 
-### (a) A massa é uma transação longa com N escritas — estrutural
+> **Todos os itens desta seção foram fechados em 2026-07-25**, na sessão seguinte à auditoria. Cada
+> um traz, abaixo do registro original, o que foi feito e a medida depois. Dois deles foram
+> fechados **decidindo não fazer** — e o porquê está escrito, que é o ponto de registrar.
+
+### (a) A massa é uma transação longa com N escritas ✅ **PARCIALMENTE FEITO (2026-07-25)**
+
+> **Feito: o passo (1), o hoist do invariante.** `Api.Scheduling.Warm` carrega uma vez por lote o
+> que não muda entre as sessões — clínica, profissional + expediente da janela (pelo
+> `load_availability_window/4` que a agenda já usava desde o doc 26), tipo, paciente e o dono do
+> pacote — e viaja no **contexto** do changeset. Os leitores (`CheckAvailability`,
+> `ReferencesActive`, `GroupCapacity`, `PatientsInClinic`, `PatientsActive`,
+> `PackageBelongsToPatient`, `find_turma`) perguntam ao warm primeiro; em `:miss` seguem pelo
+> caminho de sempre. **O warm é atalho, nunca autoridade**: uma ação chamada sem ele se comporta
+> exatamente como antes, e o que a própria massa altera (bloco, presenças, ocupação da turma,
+> conflito) não entra — continua sendo lido a cada escrita.
+>
+> Medido, com o teto agora fixado em teste (`bulk_queries_test.exs`, que falha quando o invariante
+> voltar para dentro do laço):
+>
+> ```
+> 6 sessões individuais:  82 → 52 queries   (13,7 → 8,7 por sessão)
+>   clinics 6→1 · professionals 6→1 · clinic_hours 6→1 · professional_hours 6→1
+>   schedule_exceptions 12→2 · appointment_types/patients/packages: 1 cada
+> 4 sessões em turma:     98 queries (24,5/sessão) — o caminho caro (destaque + reinserção)
+> ```
+>
+> O warm de catálogo (tipo/paciente/pacote) só é montado quando **há** sessão em turma no lote:
+> numa massa toda individual ele custaria leitura para economizar zero.
+>
+> **Não feitos, e por quê.** O passo (2) — tirar o paper trail do caminho quente — trocaria custo
+> por **buraco na trilha**: as versões da massa são as linhas que respondem "quem remarcou as 40
+> sessões da Maria, e quando". `changes_only` e `store_action_inputs? false` já estão ligados; o
+> que sobra é deixar de registrar, e isso é o oposto do que a trilha existe para fazer. O passo (3)
+> — fatiar a transação ou empurrar para o Oban — trocaria os ~2,3 s de conexão presa pela perda do
+> **tudo-ou-nada**, que é uma garantia escrita e defendida no moduledoc do `Bulk`: *"massa aplicada
+> pela metade é pior que massa recusada — ninguém sabe onde parou, e o desfazer é manual, sessão
+> por sessão"*. As duas trocas são decisão de produto, não de auditoria; se a lentidão em pacote
+> grande incomodar em produção, a conversa começa por (3) — e aí o custo é desenhar o desfazer.
+>
+> Um efeito colateral do hoist: o `SyncSessionStartsAt` (§4) escreve o espelho com **um** `UPDATE`
+> por remarcação, em vez de `SELECT` + N ações + N linhas de versão. É o mesmo argumento do passo
+> (2) aplicado onde ele **não** custa trilha — o valor original já está registrado no bloco.
+
+O registro original do achado:
 
 Medido, `bulk_adjust` com `escopo: :todas`:
 
@@ -205,9 +281,26 @@ paciente, pacote) para fora do laço via contexto do changeset, como o `Material
 versão por clique); (3) fatiar a transação ou empurrar para o Oban, trocando 2,3 s de conexão presa
 por N transações curtas.
 
-### (b) A massa inunda a caixa do profissional — decisão de produto
+### (b) A massa inunda a caixa do profissional ✅ **FEITO (2026-07-25)**
 
-Não consertado, e re-sondado depois dos consertos:
+> **Decidido: notificação agregada, família nova.** `:package_bulk_adjusted` entra no
+> `NotificationKind` (e no `NotificationKind` do web, e na tabela do [doc 31 §3a](31-notificacoes.md)):
+> *"3 sessões do pacote Pilates 10 foram remarcadas"* — uma linha por profissional afetado, origem
+> **e** destino, com o autor suprimido como em todo o fan-out.
+>
+> As por-sessão são suprimidas **na origem**: a massa marca as escritas com `bulk_pacote: true` no
+> contexto do changeset e a primeira cláusula do `Api.Notifications.Notifier` as ignora. Só a
+> **caixa** é suprimida — o `AgendaNotifier` é outro notifier e continua recebendo tudo, sessão por
+> sessão, porque a agenda aberta na tela precisa de cada bloco que se moveu.
+>
+> Medido depois (o mesmo cenário de 3 sessões que media 3 avisos):
+>
+> ```
+> package_bulk_adjusted: 1 · appointment_scheduled: 0 (era 3) · appointment_rescheduled: 0
+> corpo: "3 sessões do pacote Pilates 3 foram remarcadas."
+> ```
+
+O registro original do achado:
 
 ```
 afetadas: 3 | antes: %{appointment_scheduled: 3, …} → depois: %{appointment_scheduled: 6, …}
@@ -219,7 +312,33 @@ um só ("o pacote da Maria mudou de horário") — e a sessão foi **movida**, n
 (um "N sessões do pacote X foram remarcadas") é família nova no `NotificationKind`, e o doc 31 §3a
 não a previu.
 
-### (c) Pausar um pacote esconde a turma dos colegas — estrutural
+### (c) Pausar um pacote esconde a turma dos colegas ✅ **FEITO (2026-07-25)**
+
+> **Feito: existe presença segurada.** `Attendance.pkg_hold`, com a preparation global
+> `HideHeldAttendances` (irmã da `HideHeld` do bloco, mesma porta `include_held` para o ciclo de
+> vida do pacote reler o que segurou). Pausar passa a seguir a **mesma decisão por presença** do
+> resto do pacote — a `Bulk.sozinho?/2`, agora pública porque é a pergunta que massa, cancelar e
+> pausar compartilham: **sozinho no bloco**, segura o bloco (é a sessão dele); **acompanhado**,
+> segura só a presença, e os colegas nem percebem.
+>
+> Cai junto um bug irmão que ninguém tinha visto: a **retomada** cancelava o bloco, então retomar
+> um pacote de turma teria cancelado a sessão dos colegas. Agora ela usa `Bulk.cancelar_sessao/2`,
+> a mesma decisão de sempre. E `RemoveParticipants` passou a abrir `include_held` — sem isso a
+> retomada não achava a própria presença segurada e abortava a transação com "participante não
+> encontrado neste agendamento".
+>
+> Medido, na turma de dois (o cenário do achado), e re-medido sob RLS como `movimento_app`:
+>
+> ```
+> pausar:  bloco.pkg_hold = false · participantes visíveis = [colega] · presença do pacote: pkg_hold = true
+> retomar: bloco.status = :agendado · participantes visíveis = [colega]   (a turma sobreviveu)
+> ```
+>
+> **O que ficou de fora, de propósito:** a massa (`bulk_adjust`) **pula** sessão segurada — não há
+> horário a remarcar no que está parado, e a retomada reprojeta tudo a partir de hoje de qualquer
+> forma. O cancelar continua alcançando as seguradas (RN-25), senão ficam órfãs.
+
+O registro original do achado:
 
 O `pkg_hold` é do **bloco**; não existe "presença segurada". Pausar o pacote de um paciente numa
 turma compartilhada tira o bloco da agenda de todos (RN-05):
@@ -260,7 +379,32 @@ Decidir: ou reimplementar as ações de bloco como cascata que escreve **presen�
 rollup como único autor de `Appointment.status`), ou retirar rotas/actions/BFF do eixo antigo. O
 estado atual — os dois vivos — é o que custa.
 
-### (e) Dívidas de DRY que já divergiram
+### (e) Dívidas de DRY que já divergiram ✅ **FEITAS (2026-07-25)**
+
+> Todas as seis, com o critério de "uma definição, e as cópias apontando para ela":
+>
+> * **`truthy`** → `Api.Params.truthy?/1` (e `truthy?/2` para ler a flag do mapa de params). Mora
+>   em `Api` e não em `ApiWeb.TenantScope` porque nem todo consumidor é controller — o `Bulk` lê as
+>   próprias flags. A regra de divisão ficou escrita: forma **HTTP** (escada de erro, janela de
+>   datas) na fronteira; **valor** que atravessa a camada, em `Api.Params`. O conjunto aceito é o da
+>   cópia mais permissiva (`true`/`"true"`/`"1"`/`1`): a consolidação **amplia** quem era estrito,
+>   então nenhum cliente que funcionava para de funcionar — e `forcar: 1` deixa de virar `false`
+>   calado;
+> * **"presença viva"** → `Attendance.viva?/1` (lista em memória) + `calculate :viva?` (filtro que
+>   desce para o SQL). As cinco cópias apontam para lá;
+> * **rótulo/tom da presença** → `attendanceSelo(status, falta_justificada)` em `$lib/agenda`. As
+>   duas telas o chamam, e a divergência foi resolvida para o **cinza**: falta justificada não conta
+>   no agregado `Patient.faltas` nem debita o pacote, então pintá-la de vermelho dizia o contrário
+>   do que o sistema faz com ela;
+> * **`ParticipantKind`** → a **lista** (`PARTICIPANT_KINDS`) é a fonte e o tipo é derivado dela; o
+>   BFF re-exporta. `AttendanceStatus` sai de `$lib/agenda` também no `server/patients.ts`;
+> * **`Attendance.set_package`** → removida (ação, code interface e o último chamador, que era um
+>   teste). O carimbo nasce com a presença desde a etapa 2 da A2;
+> * **`Ash.Generator`** → `Api.Generators`, importado pelo `DataCase`. As **doze** `setup_clinic`
+>   privadas viraram `clinica/1` + `profissional!/2` + `paciente!/2` + `tipo!/2` +
+>   `escopo_de_membro!/3` + `escopo_em/2`. Sozinho, isso apagou ~250 linhas de fábrica copiada.
+
+O registro original do achado:
 
 - **`truthy` em quatro versões**: `"1"`/`1` valem para `justificada` e não valem para
   `forcar`/`encaixe`/`aplicar_horario`. Um cliente que mande `forcar: 1` recebe `false` calado.
@@ -277,7 +421,22 @@ estado atual — os dois vivos — é o que custa.
 - **12 fábricas `setup_clinic` privadas em `test/`, zero `Ash.Generator`** — contra o que
   `.claude/rules/ash.md` manda. Os dois arquivos novos somam ~90 linhas de setup copiado.
 
-### (f) Índice redundante e trilha sem poda (pré-existentes, agravados)
+### (f) Índice redundante e trilha sem poda ✅ **FEITAS (2026-07-25)**
+
+> * **Índice:** `attendances_clinic_id_appointment_id_index` derrubado (migration com
+>   `DROP INDEX CONCURRENTLY`, pelas duas anotações que a regra do projeto exige). Era prefixo
+>   estrito do único `(clinic_id, appointment_id, patient_id)`, que na mesma janela tinha 684
+>   varreduras contra `idx_scan=0` dele. O comentário no recurso agora **diz que ele não existe e
+>   por quê** — senão o próximo a otimizar o recria;
+> * **Trilha:** `Api.Housekeeping.PruneTrail`, um job Oban com cron diário (03:00 UTC), varrendo
+>   **por clínica** dentro de `with_clinic` (as tabelas de versão têm a mesma RLS das tabelas base;
+>   sem GUC o `DELETE` apagaria zero linha para sempre — e passaria no `mix test`). Deleta em lotes
+>   de 5.000 até esgotar. A retenção é **decisão humana e mora na config**:
+>   `config :api, Api.Housekeeping.PruneTrail, reter_dias: 365` — um ano cobre o horizonte que a
+>   tela de auditoria serve. O cron voltou porque agora há trabalho real: o anterior (limpeza de
+>   `SlotHold`) fora removido por varrer uma tabela que deixara de existir.
+
+O registro original do achado:
 
 ```
 attendances_clinic_id_appointment_id_index | idx_scan=0 | 520 kB   ← prefixo estrito do índice único
@@ -288,7 +447,15 @@ O primeiro é custo de escrita puro, e a Onda 3 escreve mais nessa tabela (a mas
 insert por sessão). A trilha já é 3× a tabela base e o único cron de poda foi removido
 (`config/config.exs:87`).
 
-### (g) `bulkCancelPackage` não tem chamador
+### (g) `bulkCancelPackage` não tem chamador ✅ **FEITO (2026-07-25)**
+
+> **Decidido: sai do BFF**, com o motivo no lugar da função. Da ficha, cancelar em massa com escopo
+> `todas` é o que **`cancelPackage` já faz** (e ainda marca o pacote como cancelado); o que a massa
+> acrescenta são os escopos `esta`/`proximas`, que exigem uma sessão de **referência** — algo que só
+> a agenda sabe apontar. Quando esse botão for pedido, ele nasce no drawer da agenda, com a
+> referência em mãos. O endpoint do backend continua existindo e testado.
+
+O registro original do achado:
 
 O BFF (`web/src/lib/server/packages.ts:174`) expõe o cancelar em massa, mas nenhuma tela o chama e
 não há teste dele no web. O endpoint do backend tem teste; a ponta web parou no meio.
@@ -306,3 +473,56 @@ não há teste dele no web. O endpoint do backend tem teste; a ponta web parou n
   hipótese. Exigir o output colado no prompt do subagente é o que separa um do outro.
 - **A rodada 5 justificou-se sozinha**: ela achou que o conserto do histórico trocou uma curva de
   crescimento por outra. Sem ela, isso entraria como "resolvido".
+
+---
+
+## 7. O fechamento da fila (2026-07-25)
+
+Sessão seguinte à auditoria, para zerar §4 e §5. O que mudou de fato:
+
+| Item | Saída |
+| --- | --- |
+| §4 histórico | coluna `attendances.session_starts_at` + índice; aggregate removido; **291 → 48 buffers**, plano em Index Scan Backward, provado por `idx_scan` pela app |
+| §4 papel `profissional` | re-medido com membership criada no dev: mesmo índice, 8 sessões, ~15 ms — o nested loop sumiu |
+| §5a transação longa | `Api.Scheduling.Warm` (hoist do invariante): **82 → 52** queries em 6 sessões; teto fixado em teste. Trilha e fatiar: **decidido não fazer**, com o porquê escrito |
+| §5b notificações | família `:package_bulk_adjusted`; **3 avisos → 1**, com supressão só da caixa (tempo real intacto) |
+| §5c pausar em turma | `Attendance.pkg_hold` + `HideHeldAttendances`; pausar/retomar por presença. Cai junto o bug irmão da retomada cancelando a turma |
+| §5e DRY | `Api.Params.truthy?`, `Attendance.viva?` + calculate, `attendanceSelo`, `PARTICIPANT_KINDS` como fonte, `set_package` removida, `Api.Generators` no lugar de 12 fábricas |
+| §5f índice/trilha | índice redundante derrubado (`CONCURRENTLY`); `PruneTrail` com cron diário e retenção em config |
+| §5g BFF órfão | `bulkCancelPackage` removido, com o motivo no lugar da função |
+
+**Verde ao fim:** api **953/0** (91,3%), gate `:rls` **15/0** como `movimento_app` (três casos
+novos: warm + espelho do horário, presença segurada, poda da trilha), web **1266/1266** (91,4%
+stmts), `svelte-check` 0 erros.
+
+### O que ficou aberto, e com que gatilho
+
+Três itens saíram desta rodada sem código. A diferença entre "adiado" e "esquecido" é o gatilho
+estar escrito, então aqui estão:
+
+| Item | Estado | Gatilho para reabrir |
+| --- | --- | --- |
+| Tirar o paper trail do caminho quente | **Decidido não fazer** | Não reabre por tempo. Só se o requisito de auditoria mudar — hoje a trilha é a única resposta para "quem remarcou as 40 sessões da Maria, e quando", e ela custa 24% dos statements de uma operação rara |
+| Fatiar a massa (Oban) | **Adiado** | A instrumentação mostrar massa acima de ~100 sessões acontecendo de verdade, **ou** p95 da massa passar de 3 s em produção. O custo real não é o job: é desenhar o **desfazer**, porque sem transação única uma massa que falha na sessão 37 deixa 36 movidas e ninguém sabe onde parou |
+| Retenção da trilha (365 dias) | **Adiado por data** | **Julho/2027.** Hoje a versão mais antiga tem 6 dias e o cron não apaga nada; o número só tem efeito quando a trilha completar um ano. Antes disso, confirmar com quem responde por compliance — a poda é irreversível |
+
+O que **não** ficou aberto, porque foi fechado junto com a auditoria: o teto de `Package.total`
+(120 sessões). Era ele que fazia o Risco A ser ilimitado — `total` só tinha `min: 1`, então um
+`500` digitado no lugar de `50` projetava ~8.000 queries e ~15 s de transação única, tempo de
+estourar o request e de segurar os locks da exclusion constraint junto. Com o teto, o pior caso é
+~2.000 queries. E o espelho `session_starts_at` ganhou um **teste-guarda** estrutural: ação nova
+que aceite `starts_at` sem a change que sincroniza a presença falha na hora de ser escrita, em vez
+de aparecer meses depois como histórico fora de ordem na ficha.
+
+**Três lições desta rodada de conserto:**
+
+- **O gate `:rls` pegou o que a suíte não pegaria.** O `UPDATE` cru do espelho e a leitura da
+  presença segurada rodam sob a GUC; sob `postgres` (BYPASSRLS) passariam de qualquer jeito. Todo
+  caminho novo por-tenant entrou lá no mesmo commit — não depois.
+- **Denormalizar cobra a cascata no mesmo dia.** A coluna só é barata porque `ManageParticipants` e
+  `SyncSessionStartsAt` são os **dois únicos** lugares em que o par (presença, horário) nasce ou
+  muda, e `allow_nil? false` transforma "esqueci de manter" em erro alto em vez de dado errado
+  silencioso.
+- **Fechar item de backlog às vezes é decidir não fazer.** Dois dos oito saíram assim (paper trail
+  no caminho quente, fatiar a transação). O que fecha o item não é o código: é o motivo registrado —
+  senão o próximo a ler a lista refaz a mesma análise do zero.
