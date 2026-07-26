@@ -55,9 +55,35 @@ defmodule Api.Scheduling.Appointment.Changes.RemoveParticipants do
             )
           )
 
-          {:ok, %{appointment | attendances: restantes}}
+          {:ok,
+           %{segura_se_sobrou_so_segurada(appointment, restantes, cs) | attendances: restantes}}
       end
     end)
+  end
+
+  # Se o que sobrou no bloco está **todo segurado** por uma pausa de pacote, o bloco entra em hold
+  # junto — a invariante que a pausa já mantinha no caso individual: *bloco cuja única presença
+  # viva está segurada É bloco segurado*.
+  #
+  # Sem isto, tirar o colega de uma turma que tinha uma presença segurada deixava o bloco
+  # `:agendado` com **zero participantes visíveis**: um fantasma na grade, ocupando o slot pela
+  # exclusion constraint, sem ninguém dentro. Medido no bate-volta de 2026-07-26 — foi o guard do
+  # "último participante" passando a contar a segurada como remanescente (ela é participante; só
+  # não aparece).
+  #
+  # Cascata interna, como as irmãs: `authorize?: false`, porque quem autorizou foi a ação do bloco.
+  defp segura_se_sobrou_so_segurada(appointment, restantes, cs) do
+    if restantes != [] and Enum.all?(restantes, & &1.pkg_hold) and not appointment.pkg_hold do
+      {:ok, segurado} =
+        Api.Scheduling.set_appointment_pkg_hold(appointment, %{pkg_hold: true},
+          tenant: cs.tenant,
+          authorize?: false
+        )
+
+      segurado
+    else
+      appointment
+    end
   end
 
   # As presenças vivas do bloco. `authorize?: false` como a cascata irmã: quem autorizou foi a

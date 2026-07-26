@@ -308,6 +308,11 @@ defmodule Api.Scheduling.Appointment do
       accept [:starts_at, :professional_id]
       argument :encaixe, :boolean
 
+      # Remarcar ESCOLHE profissional (a ação aceita `professional_id`), então vale a mesma
+      # pergunta de `:schedule` — e só ela: o tipo vem do bloco que já existe, e checá-lo aqui
+      # quebraria o §7 ("existente continua válido"). Ver o moduledoc de `ReferencesActive`.
+      validate {Api.Scheduling.Appointment.Validations.ReferencesActive, only: [:profissional]}
+
       change Api.Scheduling.Appointment.Changes.SetEncaixeIfGiven
       change Api.Scheduling.Appointment.Changes.ShiftEndsAt
       change Api.Scheduling.Appointment.Changes.CheckAvailability

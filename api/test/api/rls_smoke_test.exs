@@ -488,6 +488,69 @@ defmodule Api.RlsSmokeTest do
       assert Enum.map(depois.attendances, & &1.patient_id) == [colega.id]
     end
 
+    test "sobrar só presença segurada põe o BLOCO em hold — a cascata escreve sob RLS" do
+      ctx = fixture()
+
+      turma =
+        Directory.create_appointment_type!(
+          %{
+            nome: "Turma fantasma RLS #{System.unique_integer([:positive])}",
+            duracao_minutos: 50,
+            cor: "#0FB5A6",
+            icon: "Users",
+            grupo: true,
+            capacidade: 4
+          },
+          tenant: ctx.clinic.id,
+          actor: ctx.owner
+        )
+
+      colega =
+        Records.create_patient!("Colega 2 RLS", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+
+      {:ok, pkg} =
+        Packages.create_package(
+          package_params(ctx, total: 2) |> Map.put(:appointment_type_id, turma.id),
+          scope: ctx.scope
+        )
+
+      {:ok, appt} =
+        Scheduling.schedule_appointment(
+          %{
+            starts_at: proxima_segunda("16:00"),
+            professional_id: ctx.prof.id,
+            appointment_type_id: turma.id,
+            patient_ids: [ctx.paciente.id],
+            package_id: pkg.id
+          },
+          scope: ctx.scope
+        )
+
+      {:ok, appt} =
+        Scheduling.add_appointment_participants(appt, %{patient_ids: [colega.id]},
+          scope: ctx.scope
+        )
+
+      {:ok, _} = Packages.pause_package(ctx.scope, pkg.id)
+
+      # Tirar o colega deixa só a presença segurada: o bloco tem de entrar em hold junto. A escrita
+      # é cascata dentro da ação (`set_appointment_pkg_hold`) — sem a GUC ela não atravessa o
+      # WITH CHECK da policy, e o bloco fantasma voltaria pela porta do servidor real.
+      :ok = sem_guc()
+
+      {:ok, _} =
+        Scheduling.remove_appointment_participants(appt, %{patient_ids: [colega.id]},
+          scope: ctx.scope
+        )
+
+      :ok = sem_guc()
+
+      assert {:ok, nil} =
+               Api.Tenancy.in_clinic(ctx.scope, fn ->
+                 Scheduling.get_appointment(appt.id, scope: ctx.scope, not_found_error?: false)
+               end)
+    end
+
     test "a poda da trilha varre cada clínica sob a própria GUC" do
       ctx = fixture()
 

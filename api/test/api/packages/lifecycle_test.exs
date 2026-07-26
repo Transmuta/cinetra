@@ -180,6 +180,59 @@ defmodule Api.Packages.LifecycleTest do
       assert hold == true
     end
 
+    # Achado adversarial do bate-volta de 2026-07-26: com a presença segurada dentro, tirar o
+    # COLEGA deixava o bloco `:agendado` com zero participantes visíveis — um bloco fantasma na
+    # grade, ocupando o slot pela exclusion constraint e sem ninguém dentro. O guard do "último
+    # participante" passou a contar a segurada como remanescente, e ela não aparece para ninguém.
+    #
+    # O conserto restaura a invariante que a pausa já tinha no caso individual: bloco cuja única
+    # presença viva está segurada **é** bloco segurado.
+    test "tirar o colega da turma faz o bloco entrar em hold junto — sem bloco fantasma" do
+      ctx = setup_clinic()
+      turma = tipo!(ctx, nome: "Turma #{unico()}", icon: "Users", grupo: true, capacidade: 4)
+      colega = paciente!(ctx, "Colega #{unico()}")
+
+      {:ok, pkg} =
+        Packages.create_package(params(ctx, %{appointment_type_id: turma.id}), scope: ctx.scope)
+
+      {:ok, dt} = Scheduling.LocalTime.to_utc(@segunda, "08:00", "America/Sao_Paulo")
+
+      {:ok, appt} =
+        Scheduling.schedule_appointment(
+          %{
+            starts_at: dt,
+            professional_id: ctx.prof.id,
+            appointment_type_id: turma.id,
+            patient_ids: [ctx.paciente.id],
+            package_id: pkg.id
+          },
+          scope: ctx.scope
+        )
+
+      {:ok, appt} =
+        Scheduling.add_appointment_participants(appt, %{patient_ids: [colega.id]},
+          scope: ctx.scope
+        )
+
+      {:ok, _} = Packages.pause_package(scope_before(ctx), pkg.id)
+
+      {:ok, _} =
+        Scheduling.remove_appointment_participants(appt, %{patient_ids: [colega.id]},
+          scope: ctx.scope
+        )
+
+      # o bloco some da agenda (é só do pacote pausado agora), em vez de virar fantasma
+      assert Scheduling.get_appointment(appt.id, scope: ctx.scope, not_found_error?: false) ==
+               {:ok, nil}
+
+      {:ok, %{rows: [[hold]]}} =
+        Api.Repo.query("SELECT pkg_hold FROM appointments WHERE id = $1", [
+          Ecto.UUID.dump!(appt.id)
+        ])
+
+      assert hold == true
+    end
+
     test "retomar tira a presença segurada da turma sem cancelar a sessão do colega" do
       ctx = setup_clinic()
       turma = tipo!(ctx, nome: "Turma #{unico()}", icon: "Users", grupo: true, capacidade: 4)

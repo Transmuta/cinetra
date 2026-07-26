@@ -13,7 +13,18 @@ defmodule Api.Repo.Migrations.DenormalizeSessionStartsAt do
       e as migrations rodam no `release_command` do deploy. O `DROP` do índice
       `(clinic_id, patient_id)` — agora prefixo estrito do novo — segue a mesma regra;
     * a ordem: cria o índice novo **antes** de derrubar o antigo, para não deixar janela sem índice
-      por paciente.
+      por paciente;
+    * **cada passo é idempotente**, porque com `@disable_ddl_transaction` cada statement commita
+      sozinho e a migration só é *registrada* no fim. Se o `CREATE INDEX CONCURRENTLY` falhar (é
+      onde falha: ele espera transações antigas e pode ser cancelado), a coluna já foi adicionada e
+      a re-execução do deploy morria em `column "session_starts_at" of relation "attendances"
+      already exists` — deploy travado pedindo mão humana. Medido no bate-volta de 2026-07-26.
+      Daí o `ADD COLUMN IF NOT EXISTS` no lugar do `alter table … add`.
+
+  > Um `CREATE INDEX CONCURRENTLY` interrompido deixa índice **inválido** para trás; o
+  > `IF NOT EXISTS` da re-execução o enxerga e não o refaz. Se o plano de query piorar depois de um
+  > deploy interrompido, é o primeiro lugar a olhar: `SELECT indexrelid::regclass FROM pg_index
+  > WHERE NOT indisvalid`.
 
   O `ALTER … SET NOT NULL` faz uma varredura da tabela sob `ACCESS EXCLUSIVE`. Em `attendances` no
   volume de hoje (10 mil linhas) é milissegundos; se um dia doer, o caminho é a dança do
@@ -26,9 +37,7 @@ defmodule Api.Repo.Migrations.DenormalizeSessionStartsAt do
   @disable_migration_lock true
 
   def up do
-    alter table(:attendances) do
-      add(:session_starts_at, :utc_datetime)
-    end
+    execute "ALTER TABLE attendances ADD COLUMN IF NOT EXISTS session_starts_at timestamp(0)"
 
     execute """
     UPDATE attendances a

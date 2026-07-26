@@ -172,6 +172,71 @@ defmodule Api.Packages.BulkTest do
     end
   end
 
+  describe "profissional inativo (bate-volta do fechamento, 2026-07-26)" do
+    # A sonda: `bulk_adjust` com `professional_id` de um profissional **inativo** devolvia
+    # `{:ok, %{afetadas: 1}}` e a sessão ia parar na coluna dele. De OUTRA clínica já era 422
+    # ("profissional não encontrado nesta clínica"); inativo passava.
+    #
+    # A causa é anterior à massa e vale para o remarcar do drawer também: `ReferencesActive` só
+    # estava em `:schedule`. `:reschedule` **aceita** `professional_id` e não validava — então
+    # `:schedule` e `:reschedule` respondiam diferente à mesma pergunta ("posso pôr sessão na
+    # coluna deste profissional?"), que é a forma que o `pkgOf` do protótipo tem de voltar.
+    test "a massa não move sessão para a coluna de um profissional inativo" do
+      ctx = setup_clinic()
+      dono = novo_paciente(ctx)
+      pkg = pacote(ctx, dono)
+      appt = sessao(ctx, pkg, dono, @segunda, "08:00")
+
+      {:ok, _} = Directory.deactivate_professional(ctx.outra_prof, %{}, scope: ctx.scope)
+
+      assert {:error, %Ash.Error.Invalid{} = erro} =
+               Packages.bulk_adjust(ctx.scope, pkg.id, %{
+                 escopo: :todas,
+                 aplicar_profissional: true,
+                 professional_id: ctx.outra_prof.id
+               })
+
+      assert Enum.any?(erro.errors, &(Map.get(&1, :field) == :professional_id))
+      # e nada se moveu: a massa é tudo-ou-nada
+      assert recarrega(ctx, appt.id).professional_id == ctx.prof.id
+    end
+
+    test "o remarcar do drawer também recusa — é a mesma pergunta, uma resposta só" do
+      ctx = setup_clinic()
+      dono = novo_paciente(ctx)
+      pkg = pacote(ctx, dono)
+      appt = sessao(ctx, pkg, dono, @segunda, "08:00")
+
+      {:ok, _} = Directory.deactivate_professional(ctx.outra_prof, %{}, scope: ctx.scope)
+
+      assert {:error, %Ash.Error.Invalid{} = erro} =
+               Scheduling.transition_appointment(ctx.scope, appt.id, :reschedule, %{
+                 professional_id: ctx.outra_prof.id
+               })
+
+      assert Enum.any?(erro.errors, &(Map.get(&1, :field) == :professional_id))
+    end
+
+    # A contraprova: TIPO arquivado não pode bloquear a remarcação — doc 25 §7 é literal
+    # ("existente continua válido"). Arquivar um tipo tira-o do catálogo dali para a frente; a
+    # sessão que já existe continua remarcável.
+    test "tipo arquivado NÃO impede remarcar o que já existe" do
+      ctx = setup_clinic()
+      dono = novo_paciente(ctx)
+      pkg = pacote(ctx, dono)
+      appt = sessao(ctx, pkg, dono, @segunda, "08:00")
+
+      {:ok, _} = Directory.archive_appointment_type(ctx.tipo, %{}, scope: ctx.scope)
+
+      assert {:ok, movido} =
+               Scheduling.transition_appointment(ctx.scope, appt.id, :reschedule, %{
+                 starts_at: at(@segunda, "10:00")
+               })
+
+      assert movido.starts_at == at(@segunda, "10:00")
+    end
+  end
+
   describe "pacote inexistente" do
     test "é 404, não sucesso silencioso com zero afetadas" do
       ctx = setup_clinic()
