@@ -22,10 +22,23 @@ Natureza do bloqueio: **[P]** decisão de produto · **[T]** técnico/arquitetur
 > Ondas 1 e 2 já haviam fechado, sobrando só o **D-S** (seed removido) e o **D-A**, que foi
 > resolvido pelo teto de 8h (ver "D-A: fechado pelo teto").
 >
-> Próximo passo: **Onda 5 — Frente 11 (endurecimento de produção)**: cookie `secure`, CSP/HSTS/
-> X-Frame, sign-out via POST (CSRF), hosts da CSP por ambiente, token do WS fora da query string e
-> a semântica de `ON DELETE` por relação. É a onda que o plano põe **antes do primeiro deploy
-> real**.
+> **A Onda 5 fechou (2026-07-26)** — Frente 11 inteira, registro em
+> [`46`](46-onda-5-producao.md). O levantamento mudou a onda: a maior parte do **H59** já estava
+> feita (CSP, X-Frame, nosniff, Referrer-Policy, sign-out POST, cookie `secure` pelo default do
+> SvelteKit — que falha fechado), e o que faltava era o **HSTS**, que o doc 17 e o `prod.exs`
+> davam como resolvido pela edge do Fly. Não era: `force_https` é redirect, não header. **S3**
+> (CSP por ambiente, via `API_PUBLIC_ORIGIN` no build), **S2** (token do WS no subprotocolo — o
+> Phoenix 1.8 já suportava de fábrica) e **H64** (4 FKs corrigidas + teste de contrato que exige
+> decisão explícita para FK nova) fechados.
+>
+> O levantamento achou ainda **dois erros que bloqueavam o primeiro deploy**: o
+> `GOOGLE_REDIRECT_URI` do doc 17 apontava para a API quando o callback do Google é rota do
+> **web**, e o `prod.exs` descrevia um proxy Caddy que não existe mais. Os dois corrigidos.
+>
+> Próximo passo: **Onda 6 — Frentes 8, 9, 12 e 13** (features soltas, auditoria e refactors).
+> Fica **um item aberto de decisão humana** antes dela, registrado no [`46` §6c](46-onda-5-producao.md):
+> `appointments.package_id` é coluna morta (0 de 10.212 linhas) desde que a A2 moveu o pacote para
+> a presença — e leva junto uma tarja de UI que nunca aparece e um índice mantido a cada escrita.
 >
 > A lição que a Onda 4 acrescentou: **a paginação era pré-requisito do índice, não o contrário.**
 > Entregar o #55 antes do #54 teria produzido um índice íntegro e nunca escolhido — o mesmo
@@ -154,10 +167,17 @@ Registro para não parecerem esquecidos — **não** entram nas ondas abaixo:
   porque o removido perde acesso à caixa daquela clínica), ~~#51~~ (os dois lembretes) e ~~#56~~
   (`/agenda?date=`, `/fila?prio=urgente`) **feitos na Onda 4**.
 
-### Frente 11 — Endurecimento de produção
-- **H59** — cookie `secure`, CSP/HSTS/X-Frame, sign-out via POST (CSRF).
-- **S3** — hosts da CSP por ambiente (tira `localhost:4010` de prod). **S2** — token no WS via
-  header/subprotocol. **H64** — semântica de `ON DELETE` por relação.
+### Frente 11 — Endurecimento de produção ✅ FEITA (2026-07-26, [doc 46](46-onda-5-producao.md))
+- ~~**H59**~~ — cookie `secure`, CSP/X-Frame e sign-out POST **já estavam feitos** (doc 13); o que
+  faltava era o **HSTS**, que ninguém emitia porque o doc 17 o dava como sendo da edge do Fly.
+- ~~**S3**~~ — `connect-src` derivado de `API_PUBLIC_ORIGIN` no build (`kit.csp` é build-time,
+  então entra por `[build.args]`, não pelo `[env]` do fly.toml).
+- ~~**S2**~~ — token no subprotocolo `Sec-WebSocket-Protocol` (`auth_token: true`), com a porta da
+  query string **fechada** (403). O interruptor é opção do **socket**: dentro de `websocket:` o
+  Phoenix o anula em silêncio, e a suíte não vê.
+- ~~**H64**~~ — `created_by_id` e os dois `*_versions.user_id` saíram de `NO ACTION` para
+  `SET NULL` (senão nenhum `User` seria apagável, que é o que a F8 precisa); `attendances.package_id`
+  ganhou a FK que nunca teve.
 
 ### Frente 12 — Auditoria (perf) *(gate #4)*
 - **D-Aud1** — corrigir o `COUNT(*)`. **D-Aud2** — índice quando a tela expuser o filtro por autor.
@@ -177,8 +197,8 @@ Registro para não parecerem esquecidos — **não** entram nas ondas abaixo:
 | **2 — Perf & tempo real** | 2, 3, 4 | 🟡 Frentes 3 e 4 feitas; Frente 2 parcial (**D-A revertido**, volta ao backlog) | Mensuráveis com a Onda 1; mesma trilha de código |
 | **3 — Valor central** | 5 → 6 → 7 | ✅ **feita (2026-07-25)** | Pacotes → Turma → Ficha, sequencial por dependência |
 | **4 — Notificações** | 10 | ✅ **feita (2026-07-26)** | Perf antes dos gatilhos — e a paginação acabou sendo pré-requisito do índice |
-| **5 — Produção** | 11 | pendente ← **próxima** | Antes do primeiro deploy real |
-| **6 — Soltas + limpeza** | 8, 9, 12, 13 | pendente | Features isoladas, auditoria e refactors por último |
+| **5 — Produção** | 11 | ✅ **feita (2026-07-26)** | Antes do primeiro deploy real — e achou dois erros que o bloqueavam |
+| **6 — Soltas + limpeza** | 8, 9, 12, 13 | pendente ← **próxima** | Features isoladas, auditoria e refactors por último |
 
 **Caminho crítico:** D-C → A1 (Pacotes) → A2 (Turma) → C13/#47. ✅ **percorrido inteiro.**
 
