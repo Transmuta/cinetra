@@ -16,7 +16,18 @@ defmodule ApiWeb.Endpoint do
   # O tempo real da agenda (ADR-004, Entrega 3). Autenticação pelo token efêmero, não pela
   # sessão — ver `ApiWeb.UserSocket`. Sem `longpoll`: o cliente é o pacote `phoenix` no
   # browser, e o fallback só acrescentaria superfície.
-  socket "/socket", ApiWeb.UserSocket, websocket: true, longpoll: false
+  #
+  # `auth_token: true` (S2, Onda 5) faz o token chegar pelo subprotocolo `Sec-WebSocket-Protocol`
+  # em vez da query string, onde vazava para log de proxy. É o mesmo interruptor dos dois lados:
+  # sem ele aqui, o `authToken:` do cliente é ignorado e ninguém conecta.
+  #
+  # **A opção é do SOCKET, não do `websocket:`.** Escrita como `websocket: [auth_token: true]` ela
+  # é silenciosamente anulada: o `put_auth_token/2` do Phoenix faz
+  # `Keyword.put(websocket, :auth_token, opts[:auth_token])`, e com a chave ausente aqui fora o
+  # `opts[:auth_token]` é `nil` — sobrescrevendo o `true` de dentro. O sintoma é 403 no handshake
+  # com tudo verde no `mix test`, porque o `Phoenix.ChannelTest` injeta `connect_info` direto e
+  # nunca passa pelo transporte. Achado ao vivo, no browser.
+  socket "/socket", ApiWeb.UserSocket, auth_token: true, websocket: true, longpoll: false
 
   # Serve at "/" the static files from "priv/static" directory.
   #

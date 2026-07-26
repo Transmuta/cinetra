@@ -8,6 +8,15 @@ defmodule ApiWeb.UserSocket do
   O socket guarda apenas `user_id` e `clinic_id`. Papel e vínculo são relidos no `join` do
   canal, a cada entrada: o token vive 15 minutos e um acesso revogado nesse intervalo
   continuaria com token válido na mão.
+
+  **Por onde o token entra (S2, Onda 5).** Pelo subprotocolo (`Sec-WebSocket-Protocol`), que o
+  Phoenix entrega em `connect_info.auth_token` — e **não** mais pela query string. O browser não
+  deixa pôr header em WebSocket, então a escolha real era entre query string e subprotocolo; a
+  query string aparece em log de proxy e em `Referer`, o subprotocolo não. Suporte de fábrica
+  desde o Phoenix 1.8 (`websocket: [auth_token: true]` no endpoint) e o `authToken:` do cliente.
+
+  A porta antiga foi **fechada**, não duplicada: enquanto o param valesse, um token colhido de
+  log seguiria conectando e a mudança não fecharia nada.
   """
   use Phoenix.Socket
 
@@ -21,7 +30,7 @@ defmodule ApiWeb.UserSocket do
   channel "notifications:*", ApiWeb.NotificationChannel
 
   @impl true
-  def connect(%{"token" => token}, socket, _connect_info) do
+  def connect(_params, socket, %{auth_token: token}) when is_binary(token) do
     case ApiWeb.RealtimeToken.verify(token) do
       {:ok, %{user_id: user_id, clinic_id: clinic_id}} ->
         {:ok, socket |> assign(:user_id, user_id) |> assign(:clinic_id, clinic_id)}

@@ -89,6 +89,39 @@ export function agendaTopics(clinicId: string, view: AgendaView, date: string): 
 	return [`clinic:${clinicId}:agenda:${date}`];
 }
 
+/**
+ * Abre o socket autenticado e liga a renovação de token. Os três clientes (agenda, fila e
+ * notificações) montavam este mesmo bloco copiado; agora o S2 entra num lugar só.
+ *
+ * **Por onde o token viaja (S2, Onda 5).** Pelo `authToken`, que o Phoenix 1.8 manda no
+ * subprotocolo `Sec-WebSocket-Protocol` — e não mais pelos `params`, que viram query string na
+ * URL do socket e aparecem em log de proxy. O browser não deixa pôr header em WebSocket, então
+ * a escolha real era entre esses dois. O servidor precisa do interruptor irmão
+ * (`websocket: [auth_token: true]` no endpoint.ex): sem ele, isto aqui é ignorado.
+ *
+ * O token vive 15 minutos e o socket vive enquanto a aba estiver aberta, então `authToken` é uma
+ * **função** — o Phoenix a reavalia a cada tentativa, e o `onError` troca o valor por um novo.
+ */
+function abrirSocket(config: RealtimeConfig, refreshToken: () => Promise<string | null>): Socket {
+	let token = config.token;
+
+	// O cast existe porque `@types/phoenix` (1.6.7) ainda tipa `authToken` como `string`, embora o
+	// runtime aceite função desde a 1.8 (`opts.authToken && closure(opts.authToken)`). Passar a
+	// string congelaria o token da primeira conexão e mataria a renovação que os testes cobrem.
+	const socket = new Socket(socketUrl(config.origin), {
+		authToken: (() => token) as unknown as string
+	});
+
+	socket.onError(() => {
+		void refreshToken().then((novo) => {
+			if (novo) token = novo;
+		});
+	});
+
+	socket.connect();
+	return socket;
+}
+
 /** Busca um token novo no BFF. Usado quando o socket cai e o token pode ter vencido. */
 async function buscarToken(): Promise<string | null> {
 	try {
@@ -117,17 +150,8 @@ export function connectAgenda(
 ): () => void {
 	const refreshToken = opts.refreshToken ?? buscarToken;
 	const mode = opts.mode ?? 'block';
-	let token = config.token;
 
-	const socket = new Socket(socketUrl(config.origin), { params: () => ({ token }) });
-
-	socket.onError(() => {
-		void refreshToken().then((novo) => {
-			if (novo) token = novo;
-		});
-	});
-
-	socket.connect();
+	const socket = abrirSocket(config, refreshToken);
 
 	const channels = topics.map((topic) => {
 		const channel = socket.channel(topic, { mode });
@@ -181,17 +205,8 @@ export function connectNotifications(
 	deps: { refreshToken?: () => Promise<string | null> } = {}
 ): () => void {
 	const refreshToken = deps.refreshToken ?? buscarToken;
-	let token = config.token;
 
-	const socket = new Socket(socketUrl(config.origin), { params: () => ({ token }) });
-
-	socket.onError(() => {
-		void refreshToken().then((novo) => {
-			if (novo) token = novo;
-		});
-	});
-
-	socket.connect();
+	const socket = abrirSocket(config, refreshToken);
 
 	const channel = socket.channel(`notifications:${config.clinic_id}`, {});
 	channel.on('notification_created', () => handlers.onNotification());
@@ -294,17 +309,8 @@ export function connectWaitlist(
 ): WaitlistConnection {
 	const refreshToken = deps.refreshToken ?? buscarToken;
 	const meuId = deps.userId ?? null;
-	let token = config.token;
 
-	const socket = new Socket(socketUrl(config.origin), { params: () => ({ token }) });
-
-	socket.onError(() => {
-		void refreshToken().then((novo) => {
-			if (novo) token = novo;
-		});
-	});
-
-	socket.connect();
+	const socket = abrirSocket(config, refreshToken);
 
 	const channel = socket.channel(`waitlist:${config.clinic_id}`, {});
 	channel.on('waitlist_changed', () => handlers.onChange());

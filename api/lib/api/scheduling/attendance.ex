@@ -55,6 +55,11 @@ defmodule Api.Scheduling.Attendance do
       reference :appointment, on_delete: :delete
       # Paciente com histórico não é apagável — por isso `Patient` arquiva.
       reference :patient, on_delete: :restrict
+
+      # H64: a sessão é do PACIENTE e sobrevive ao pacote; o que se perde é o vínculo. Por isso
+      # `nilify`, e não `restrict` (que faria um pacote apagado travar) nem `delete` (que
+      # apagaria histórico clínico junto com um registro comercial).
+      reference :package, on_delete: :nilify
     end
 
     custom_indexes do
@@ -70,7 +75,10 @@ defmodule Api.Scheduling.Attendance do
       # igualmente as duas primeiras, que só precisam do prefixo (a lição de §5f: prefixo estrito
       # não pede índice próprio).
       index [:clinic_id, :patient_id, :session_starts_at]
-      index [:package_id]
+      # `[:package_id]` saiu daqui na H64: virou `belongs_to :package`, e a relação já traz o
+      # índice `(clinic_id, package_id)`. Declarar nos dois lugares gerava a MESMA migration duas
+      # vezes — o codegen emitiu um `CREATE INDEX` de um índice que já existia, e a migration
+      # morreu com `42P07` na primeira execução.
     end
   end
 
@@ -82,7 +90,11 @@ defmodule Api.Scheduling.Attendance do
     store_action_inputs? false
     ignore_attributes [:inserted_at, :updated_at]
     attributes_as_attributes [:clinic_id, :appointment_id, :patient_id, :status]
-    belongs_to_actor :user, Api.Accounts.User, domain: Api.Accounts
+    # `on_delete: :nilify` (H64, Onda 5): o default do AshPaperTrail é `:nothing`, que faz a
+    # trilha **travar** o `DELETE` do usuário — a versão guarda quem mexeu, e é justamente o
+    # registro que a eliminação da LGPD (F8) precisará apagar. Perder o vínculo com o ator não
+    # apaga a versão: o diff continua lá, só sem o `belongs_to` resolvendo o nome.
+    belongs_to_actor :user, Api.Accounts.User, domain: Api.Accounts, on_delete: :nilify
 
     # O recurso de versão nasceria SEM authorizer — e `authorize?: true` sobre ele seria um
     # no-op, a porta dos fundos da A7. As duas opções abaixo são do DSL do AshPaperTrail:
@@ -231,8 +243,7 @@ defmodule Api.Scheduling.Attendance do
     # Entrega 4 (o bloco "Falta justificada" do drawer). Coluna agora, UI depois.
     attribute :falta_justificada, :boolean, allow_nil?: false, default: false, public?: true
 
-    # Gancho da Fatia 3, sem FK (precedente de `Patient.prefs`).
-    attribute :package_id, :uuid, public?: true
+    # `package_id` mudou de casa: virou `belongs_to :package` (H64, Onda 5) — ver `relationships`.
 
     # O instante da sessão, **denormalizado** do bloco (doc 43 §4). É por ele que o histórico da
     # ficha ordena e pagina.
@@ -257,6 +268,19 @@ defmodule Api.Scheduling.Attendance do
     belongs_to :clinic, Api.Accounts.Clinic, allow_nil?: false
     belongs_to :appointment, Api.Scheduling.Appointment, allow_nil?: false
     belongs_to :patient, Api.Records.Patient, allow_nil?: false
+
+    # O pacote que originou esta sessão (D11: pacote é por **participante**, não do bloco —
+    # não existe "pacote de turma"). Nulo = sessão avulsa.
+    #
+    # H64 (Onda 5): era `attribute :package_id, :uuid` **sem FK nenhuma** — "gancho da Fatia 3",
+    # escrito quando `Package` ainda não era tabela. Virou relação de verdade agora que é: o
+    # projeto já tratava a coluna como referência (a massa por pacote opera sobre presenças por
+    # ela), só sem o banco garantir nada. `attribute_writable?`/`public?` preservam a superfície
+    # anterior — `accept [:package_id]` nas ações continua valendo.
+    belongs_to :package, Api.Packages.Package do
+      attribute_writable? true
+      public? true
+    end
   end
 
   calculations do

@@ -1,9 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
 import { handle } from './hooks.server';
 
-function fakeEvent(themeCookie?: string) {
+function fakeEvent(themeCookie?: string, url = 'http://localhost:5173/') {
 	return {
-		cookies: { get: (n: string) => (n === 'mv-theme' ? themeCookie : undefined) }
+		cookies: { get: (n: string) => (n === 'mv-theme' ? themeCookie : undefined) },
+		url: new URL(url)
 	} as never;
 }
 
@@ -54,5 +55,29 @@ describe('handle (headers de segurança, auditoria doc 13)', () => {
 		expect(res.headers.get('X-Content-Type-Options')).toBe('nosniff');
 		expect(res.headers.get('X-Frame-Options')).toBe('DENY');
 		expect(res.headers.get('Referrer-Policy')).toBe('strict-origin-when-cross-origin');
+	});
+});
+
+// H59 (Onda 5). O `force_https` do Fly faz o REDIRECT http→https, mas o proxy dele não emite
+// HSTS — o header tem de sair da aplicação. A premissa contrária estava escrita no doc 17 e no
+// prod.exs, e teria ido para produção sem ninguém notar: o redirect esconde o sintoma.
+describe('handle (HSTS, H59)', () => {
+	async function headerEm(url: string) {
+		const { resolve } = fakeResolve();
+		const res = await handle({ event: fakeEvent(undefined, url), resolve } as never);
+		return res.headers.get('Strict-Transport-Security');
+	}
+
+	it('em https emite Strict-Transport-Security com 2 anos e includeSubDomains', async () => {
+		expect(await headerEm('https://movimento-web.fly.dev/agenda')).toBe(
+			'max-age=63072000; includeSubDomains'
+		);
+	});
+
+	// Sobre http o header é ignorado por especificação (RFC 6797 §8.1) — emiti-lo em dev só
+	// treinaria o olho a ver um header que não faz nada. É por isso que a regra é o protocolo do
+	// request, e não uma flag de ambiente: um deploy http acidental não ganha HSTS de mentira.
+	it('em http NÃO emite o header', async () => {
+		expect(await headerEm('http://localhost:5173/agenda')).toBeNull();
 	});
 });

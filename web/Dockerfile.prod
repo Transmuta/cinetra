@@ -10,6 +10,17 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 COPY . .
+
+# S3 (Onda 5) — a origem pública da API entra no `connect-src` da CSP, e a CSP é fixada no
+# BUILD (`kit.csp`), não em runtime. Por isso ela vem por `ARG` e não pelo `[env]` do fly.toml:
+# o `[env]` só existe quando o container sobe, tarde demais para o header.
+#
+# Consequência a saber: a imagem fica **atada ao ambiente**. Construir para produção e rodar em
+# staging serve o header errado, e o sintoma é o WebSocket bloqueado no console do browser —
+# não um erro de servidor. O default é o de desenvolvimento (src/lib/csp.js).
+ARG API_PUBLIC_ORIGIN
+ENV API_PUBLIC_ORIGIN=${API_PUBLIC_ORIGIN}
+
 RUN npm run build
 # Descarta devDeps para a imagem final.
 RUN npm prune --omit=dev

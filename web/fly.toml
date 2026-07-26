@@ -7,6 +7,12 @@ primary_region = "gru"
 [build]
   dockerfile = "Dockerfile.prod"
 
+  [build.args]
+    # A CSP é fixada no build (`kit.csp`), então esta origem precisa existir ANTES do runtime —
+    # o `API_PUBLIC_ORIGIN` do `[env]` abaixo chega tarde para o header. Os dois têm de bater:
+    # divergir aqui bloqueia o WebSocket da agenda com um erro só visível no console do browser.
+    API_PUBLIC_ORIGIN = "https://movimento-api.fly.dev"
+
 [env]
   PORT = "3000"
   # BFF → API pela rede privada 6PN do Fly (não passa pela edge, fica http interno).

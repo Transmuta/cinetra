@@ -52,6 +52,12 @@ defmodule Api.Scheduling.Appointment do
       # arquivam em vez de excluir (T2 / fatia Profissionais).
       reference :professional, on_delete: :restrict
       reference :appointment_type, on_delete: :restrict
+
+      # H64 (Onda 5): era `NO ACTION` por **omissão**, não por escolha — e omissão aqui significa
+      # "nenhum usuário que já criou um agendamento pode ser apagado", que é exatamente o que a
+      # eliminação da LGPD (F8) precisará fazer. `created_by` é autoria, não parte do dado: o
+      # bloco sobrevive sem ele, e quem criou continua na trilha do AshPaperTrail.
+      reference :created_by, on_delete: :nilify
     end
 
     # A duração positiva era invariante só de APLICAÇÃO: `ComputeEndsAt` deriva `ends_at` da
@@ -146,7 +152,11 @@ defmodule Api.Scheduling.Appointment do
     # fora do isolamento por clínica — com o histórico inteiro dentro (doc 25 §11.2).
     attributes_as_attributes [:clinic_id, :professional_id, :starts_at, :status]
 
-    belongs_to_actor :user, Api.Accounts.User, domain: Api.Accounts
+    # `on_delete: :nilify` (H64, Onda 5): o default do AshPaperTrail é `:nothing`, que faz a
+    # trilha **travar** o `DELETE` do usuário — a versão guarda quem mexeu, e é justamente o
+    # registro que a eliminação da LGPD (F8) precisará apagar. Perder o vínculo com o ator não
+    # apaga a versão: o diff continua lá, só sem o `belongs_to` resolvendo o nome.
+    belongs_to_actor :user, Api.Accounts.User, domain: Api.Accounts, on_delete: :nilify
 
     # O recurso de versão nasceria SEM authorizer — e `authorize?: true` sobre ele seria um
     # no-op, a porta dos fundos da A7. As duas opções abaixo são do DSL do AshPaperTrail:

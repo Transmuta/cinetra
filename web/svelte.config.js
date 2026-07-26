@@ -1,4 +1,5 @@
 import adapter from '@sveltejs/adapter-node';
+import { connectSrc } from './src/lib/csp.js';
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
@@ -23,16 +24,12 @@ const config = {
 				'img-src': ['self', 'data:'],
 				'font-src': ['self'],
 				// O WebSocket da agenda (Entrega 3) é a única conexão do browser que NÃO passa pelo
-				// BFF: ele vai direto ao Phoenix (ADR-004/005), então `self` não basta. Os hosts
-				// são fixos por ambiente e ficam explícitos aqui — `ws:`/`wss:` genéricos
-				// liberariam qualquer destino, que é o que a CSP existe para impedir.
-				'connect-src': [
-					'self',
-					'http://localhost:4010',
-					'ws://localhost:4010',
-					'https://movimento-api.fly.dev',
-					'wss://movimento-api.fly.dev'
-				],
+				// BFF: ele vai direto ao Phoenix (ADR-004/005), então `self` não basta.
+				//
+				// S3 (Onda 5): a lista era fixa e carregava os DOIS ambientes — o build de produção
+				// levava `localhost:4010` junto. Agora sai da origem pública da API, uma só por
+				// build. Ver `src/lib/csp.js` (e por que isto é build-time).
+				'connect-src': connectSrc(process.env.API_PUBLIC_ORIGIN),
 				'base-uri': ['self'],
 				'form-action': ['self'],
 				'frame-ancestors': ['none'],

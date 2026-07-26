@@ -63,6 +63,10 @@ services:
     build:
       context: ./web
       dockerfile: Dockerfile.prod
+      args:
+        # A CSP é build-time (ver web/Dockerfile.prod). Tem de bater com o API_PUBLIC_ORIGIN
+        # do runtime abaixo, senão o smoke sobe com o WebSocket bloqueado pela própria CSP.
+        API_PUBLIC_ORIGIN: "http://localhost:4020"
     depends_on:
       - api
     environment:

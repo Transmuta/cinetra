@@ -57,7 +57,9 @@ const fake = vi.hoisted(() => {
 
 		constructor(
 			public url: string,
-			public opts: { params: () => { token: string } }
+			// S2 (Onda 5): o token entra por `authToken` (subprotocolo), não por `params` (query
+			// string). O tipo é o contrato — `params` some daqui de propósito.
+			public opts: { authToken: () => string; params?: () => Record<string, unknown> }
 		) {
 			FakeSocket.last = this;
 		}
@@ -175,9 +177,17 @@ describe('connectAgenda', () => {
 		expect(socket.channels.map((c) => c.topic)).toEqual(['clinic:c1:agenda:2026-07-20']);
 	});
 
-	it('manda o token nos params', () => {
+	it('manda o token pelo authToken (subprotocolo), não pela query string', () => {
 		connectAgenda(config, ['t'], handlers());
-		expect(fake.FakeSocket.last!.opts.params()).toEqual({ token: 'tok-1' });
+		expect(fake.FakeSocket.last!.opts.authToken()).toBe('tok-1');
+	});
+
+	// O S2 só fecha se a porta antiga fechar junto: enquanto o token seguisse nos `params`, ele
+	// continuaria na URL do socket — e é a URL que aparece em log de proxy.
+	it('NÃO manda o token nos params — é o que o S2 fecha', () => {
+		connectAgenda(config, ['t'], handlers());
+		const params = fake.FakeSocket.last!.opts.params?.();
+		expect(JSON.stringify(params ?? {})).not.toContain('tok-1');
 	});
 
 	// D-G/D-H: o modo do join é o que evita o servidor reler o bloco para quem só desenha
@@ -262,13 +272,13 @@ describe('connectAgenda', () => {
 		expect(refreshToken).toHaveBeenCalled();
 	});
 
-	it('token novo entra nos params da próxima tentativa', async () => {
+	it('token novo entra no authToken da próxima tentativa', async () => {
 		const refreshToken = vi.fn().mockResolvedValue('tok-2');
 		connectAgenda(config, ['t'], handlers(), { refreshToken });
 
 		const socket = fake.FakeSocket.last!;
 		socket.errorHandler!();
-		await vi.waitFor(() => expect(socket.opts.params()).toEqual({ token: 'tok-2' }));
+		await vi.waitFor(() => expect(socket.opts.authToken()).toBe('tok-2'));
 	});
 
 	it('token que não renova mantém o antigo, em vez de mandar vazio', async () => {
@@ -279,7 +289,7 @@ describe('connectAgenda', () => {
 		socket.errorHandler!();
 		await vi.waitFor(() => expect(refreshToken).toHaveBeenCalled());
 
-		expect(socket.opts.params()).toEqual({ token: 'tok-1' });
+		expect(socket.opts.authToken()).toBe('tok-1');
 	});
 
 	it('a função de desligar sai dos canais e fecha o socket', () => {
@@ -329,7 +339,7 @@ describe('connectWaitlist', () => {
 
 		const socket = fake.FakeSocket.last!;
 		socket.errorHandler!();
-		await vi.waitFor(() => expect(socket.opts.params()).toEqual({ token: 'tok-2' }));
+		await vi.waitFor(() => expect(socket.opts.authToken()).toBe('tok-2'));
 	});
 
 	it('close() sai do canal e fecha o socket', () => {
@@ -433,7 +443,7 @@ describe('connectNotifications', () => {
 
 		const socket = fake.FakeSocket.last!;
 		socket.errorHandler!();
-		await vi.waitFor(() => expect(socket.opts.params()).toEqual({ token: 'tok-2' }));
+		await vi.waitFor(() => expect(socket.opts.authToken()).toBe('tok-2'));
 	});
 
 	it('a função de desligar sai do canal e fecha o socket', () => {
