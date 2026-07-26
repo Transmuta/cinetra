@@ -35,6 +35,13 @@ Natureza do bloqueio: **[P]** decisão de produto · **[T]** técnico/arquitetur
 > `GOOGLE_REDIRECT_URI` do doc 17 apontava para a API quando o callback do Google é rota do
 > **web**, e o `prod.exs` descrevia um proxy Caddy que não existe mais. Os dois corrigidos.
 >
+> Auditada em [`47`](47-bate-volta-onda-5.md): **zero achados de segurança**, três causas
+> corrigidas — os índices que faltavam à checagem de FK das relações que a H64 criou (as duas
+> tabelas de trilha estavam em **Seq Scan**), a regra `http→ws` que estava escrita duas vezes, e
+> um comentário que prometia uma garantia de HSTS que o código não dá. Ficaram três itens de
+> decisão humana no §4 daquele doc, entre eles quatro FKs **anteriores** sem índice liderando —
+> candidatas naturais à Frente 13.
+>
 > O único item que ficou aberto foi **decidido e executado na mesma sessão**:
 > `appointments.package_id` era coluna morta (0 de 10.212 linhas) desde que a A2 moveu o pacote
 > para a presença, e foi **removida** com o índice, o campo do JSON e as duas marcas de UI que

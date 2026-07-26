@@ -25,10 +25,14 @@ export const handle: Handle = async ({ event, resolve }) => {
 	// domínio próprio). Sem esta linha, o primeiro acesso de cada browser continua passível de
 	// downgrade, e o redirect esconde o sintoma.
 	//
-	// A condição é o **protocolo do request**, não o ambiente: sobre http o header é ignorado por
-	// especificação (RFC 6797 §8.1), então uma flag de ambiente só criaria a ilusão de proteção
-	// num deploy http acidental. `max-age` de 2 anos é o valor que o preload list exige; sem
-	// `preload` de propósito — entrar na lista é decisão humana e difícil de desfazer.
+	// A condição é o protocolo de `event.url`, que sob adapter-node vem do **`ORIGIN`** (setado no
+	// `web/fly.toml`) — não do protocolo do fio, que atrás da edge do Fly é http interno. Medido
+	// no bate-volta: sem `ORIGIN`, o adapter-node assume `https` e o header sai até sobre http
+	// puro. Isso é inofensivo para o browser (RFC 6797 §8.1 manda ignorar HSTS fora de HTTPS),
+	// mas significa que **quem garante a verdade aqui é o `ORIGIN`**, e não esta condição.
+	//
+	// `max-age` de 2 anos é o valor que a preload list exige; sem `preload` de propósito — entrar
+	// na lista é decisão humana e difícil de desfazer.
 	if (event.url.protocol === 'https:') {
 		response.headers.set('Strict-Transport-Security', 'max-age=63072000; includeSubDomains');
 	}

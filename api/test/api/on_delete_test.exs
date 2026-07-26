@@ -101,4 +101,66 @@ defmodule Api.OnDeleteTest do
     assert faltando == [],
            "FKs sem semântica declarada em @esperado: #{inspect(faltando)}"
   end
+
+  # ---------------------------------------------------------------------------
+  # O CUSTO da FK (bate-volta da Onda 5)
+  # ---------------------------------------------------------------------------
+  #
+  # Semântica e custo são o mesmo assunto visto de dois lados: escolher `CASCADE`/`SET NULL`
+  # decide **o que** o Postgres faz ao apagar o pai; ter índice decide **quanto custa**. A
+  # checagem que ele emite é `WHERE <coluna_fk> = $1` — sem `clinic_id`, porque o Postgres não
+  # tem noção de tenant. Um índice `(clinic_id, coluna)` **não** serve: a coluna não lidera, e o
+  # plano vira varredura do índice inteiro (ou seq scan, quando não há índice algum).
+  #
+  # É a classe de achado que este projeto já pegou três vezes — doc 26 achado (h), D-E e D-F do
+  # doc 30 —, e é por isso que `appointments` declara `index [..], all_tenants?: true`.
+
+  # As quatro FKs **anteriores a esta onda** que ainda não têm índice liderando. Estão aqui como
+  # dívida declarada, não como permissão: cada uma tem um índice composto que cobre parcialmente
+  # (a coluna aparece, mas não lidera), então o plano é varredura de índice, não seq scan. Sair
+  # desta lista é trabalho de outra frente — entrar nela sem querer é o que o teste impede.
+  @sem_indice_liderando_conhecidas [
+    {"attendances", "appointment_id"},
+    {"attendances", "patient_id"},
+    {"packages", "patient_id"},
+    {"package_schedules", "package_id"}
+  ]
+
+  defp fks_com_indice_liderando do
+    %{rows: rows} =
+      Api.Repo.query!("""
+      WITH fk AS (
+        SELECT c.conrelid::regclass::text AS tabela, a.attname AS coluna
+        FROM pg_constraint c
+        JOIN unnest(c.conkey) k(attnum) ON true
+        JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.attnum
+        WHERE c.contype = 'f' AND c.connamespace = 'public'::regnamespace
+      ),
+      lidera AS (
+        SELECT t.relname AS tabela, a.attname AS coluna
+        FROM pg_index i
+        JOIN pg_class t ON t.oid = i.indrelid
+        JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = i.indkey[0]
+        WHERE t.relnamespace = 'public'::regnamespace
+      )
+      SELECT fk.tabela, fk.coluna,
+             EXISTS (SELECT 1 FROM lidera l WHERE l.tabela = fk.tabela AND l.coluna = fk.coluna)
+      FROM fk
+      """)
+
+    Map.new(rows, fn [tabela, coluna, tem?] -> {{tabela, coluna}, tem?} end)
+  end
+
+  test "toda FK tem índice que serve à checagem do DELETE (WHERE fk = $1)" do
+    sem_indice =
+      fks_com_indice_liderando()
+      |> Enum.reject(fn {_chave, tem?} -> tem? end)
+      |> Enum.map(&elem(&1, 0))
+      |> Enum.sort()
+
+    novas = sem_indice -- @sem_indice_liderando_conhecidas
+
+    assert novas == [],
+           "FK sem índice liderando (o DELETE do pai varre o filho): #{inspect(novas)}"
+  end
 end

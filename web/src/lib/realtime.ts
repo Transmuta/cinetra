@@ -5,6 +5,7 @@
 // a origem pública da API precisa descer até aqui, e por isso o `connect-src` da CSP tem de
 // permiti-la (svelte.config.js).
 import { Socket } from 'phoenix';
+import { wsOrigin } from './csp.js';
 import { weekDays, type AgendaView } from './agenda-views';
 import type { Appointment, AgendaPatient } from './agenda';
 
@@ -67,9 +68,15 @@ const EVENTOS_DE_BLOCO = [
 	'appointment_canceled'
 ];
 
-/** `http://x` → `ws://x/socket`; `https://x` → `wss://x/socket`. */
+/**
+ * `http://x` → `ws://x/socket`; `https://x` → `wss://x/socket`.
+ *
+ * A tradução de esquema vem de `wsOrigin` (csp.js), que é a **mesma** que a CSP usa para montar o
+ * `connect-src`. Estavam escritas duas vezes: divergir aqui faz o browser bloquear o socket por um
+ * header que só acusa no console.
+ */
 export function socketUrl(origin: string): string {
-	return `${origin.replace(/\/+$/, '').replace(/^http/, 'ws')}/socket`;
+	return `${wsOrigin(origin)}/socket`;
 }
 
 /**
@@ -138,9 +145,8 @@ async function buscarToken(): Promise<string | null> {
  * Abre o socket, entra nos tópicos e devolve a função de desligar.
  *
  * O token vive 15 minutos, mas o socket vive enquanto a aba estiver aberta. Uma aba parada a
- * tarde inteira reconecta com um token vencido e ficaria fora do ar em silêncio — por isso o
- * `params` é uma **função** (o Phoenix a reavalia a cada tentativa) e o `onError` busca um
- * token novo. É o único caminho de renovação: nada aqui renova por timer.
+ * tarde inteira reconecta com um token vencido e ficaria fora do ar em silêncio — a renovação
+ * está em `abrirSocket`, e é o único caminho: nada aqui renova por timer.
  */
 export function connectAgenda(
 	config: RealtimeConfig,

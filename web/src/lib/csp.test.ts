@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { connectSrc, DEV_API_ORIGIN } from './csp';
+import { connectSrc, DEV_API_ORIGIN, wsOrigin } from './csp';
+import { socketUrl } from './realtime';
 
 // S3 (Onda 5). O `connect-src` listava `localhost:4010` **e** o host de produção, fixos: o build
 // de prod carregava origem de dev. Inexplorável (ninguém serve localhost do browser do usuário),
@@ -46,5 +47,26 @@ describe('connectSrc (hosts da CSP por ambiente)', () => {
 	// O ponto do S3: o host de dev NÃO pode sobrar no build de produção.
 	it('build de produção não carrega o host de dev', () => {
 		expect(connectSrc('https://movimento-api.fly.dev').join(' ')).not.toContain('localhost');
+	});
+});
+
+// Bate-volta da Onda 5: a regra de esquema estava escrita DUAS vezes — aqui e no `socketUrl` —,
+// cada uma com um comentário mandando concordar com a outra. Agora há uma fonte (`wsOrigin`), e
+// este teste é o que prova que as duas pontas continuam de acordo: se divergirem, o browser
+// bloqueia o socket por um header que só acusa no console.
+describe('wsOrigin — a fonte única da regra de esquema', () => {
+	it.each([
+		['http://localhost:4010', 'ws://localhost:4010'],
+		['https://movimento-api.fly.dev', 'wss://movimento-api.fly.dev'],
+		['https://api.exemplo.com/', 'wss://api.exemplo.com']
+	])('%s → %s', (origem, esperado) => {
+		expect(wsOrigin(origem)).toBe(esperado);
+	});
+
+	it('a URL do socket e o connect-src da CSP apontam para a MESMA origem', () => {
+		for (const origem of ['http://localhost:4010', 'https://movimento-api.fly.dev']) {
+			const autorizada = connectSrc(origem).find((o) => o.startsWith('ws'));
+			expect(socketUrl(origem)).toBe(`${autorizada}/socket`);
+		}
 	});
 });

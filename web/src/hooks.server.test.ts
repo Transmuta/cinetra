@@ -75,9 +75,28 @@ describe('handle (HSTS, H59)', () => {
 	});
 
 	// Sobre http o header é ignorado por especificação (RFC 6797 §8.1) — emiti-lo em dev só
-	// treinaria o olho a ver um header que não faz nada. É por isso que a regra é o protocolo do
-	// request, e não uma flag de ambiente: um deploy http acidental não ganha HSTS de mentira.
+	// treinaria o olho a ver um header que não faz nada.
 	it('em http NÃO emite o header', async () => {
 		expect(await headerEm('http://localhost:5173/agenda')).toBeNull();
+	});
+});
+
+// Bate-volta da Onda 5. O comentário do `handle` afirmava que a regra do protocolo protegia
+// contra "HSTS de mentira num deploy http acidental". A sonda mostrou que NÃO: rodando a imagem
+// de produção **sem `ORIGIN`**, o adapter-node assume `https` e o header saía sobre http puro.
+// O que de fato decide é o `ORIGIN` estar setado e correto — então é ISSO que precisa de guarda,
+// e é o que estes testes fixam.
+describe('handle (o que decide o HSTS é o ORIGIN, não o fio)', () => {
+	it('a origem reportada pelo SvelteKit é a fonte — é ela que o ORIGIN define', async () => {
+		const { resolve } = fakeResolve();
+		// Mesmo cenário do adapter-node atrás da edge do Fly: request http interno, ORIGIN https.
+		const res = await handle({
+			event: fakeEvent(undefined, 'https://movimento-web.fly.dev/agenda'),
+			resolve
+		} as never);
+
+		expect(res.headers.get('Strict-Transport-Security')).toBe(
+			'max-age=63072000; includeSubDomains'
+		);
 	});
 });

@@ -13,6 +13,22 @@
 export const DEV_API_ORIGIN = 'http://localhost:4010';
 
 /**
+ * `http://x` → `ws://x`; `https://x` → `wss://x`, sem barra no fim.
+ *
+ * **Fonte única da regra de esquema.** Quem monta a URL do socket (`socketUrl`, realtime.ts) e
+ * quem a autoriza na CSP (`connectSrc`, aqui) têm de concordar — se divergirem, o browser bloqueia
+ * a conexão por um header que ninguém lê até aparecer erro no console. Estavam escritas duas
+ * vezes, cada uma com um comentário mandando concordar com a outra: é a duplicação que dói, a que
+ * diverge calada.
+ *
+ * @param {string} origin
+ * @returns {string}
+ */
+export function wsOrigin(origin) {
+	return origin.replace(/\/+$/, '').replace(/^http/, 'ws');
+}
+
+/**
  * `connect-src` da CSP: `self` mais o par http(s)/ws(s) da API.
  *
  * O WebSocket da agenda é a única conexão do browser que NÃO passa pelo BFF (ADR-004/005), então
@@ -25,5 +41,5 @@ export const DEV_API_ORIGIN = 'http://localhost:4010';
  */
 export function connectSrc(apiPublicOrigin) {
 	const origin = (apiPublicOrigin || DEV_API_ORIGIN).replace(/\/+$/, '');
-	return ['self', origin, origin.replace(/^http/, 'ws')];
+	return ['self', origin, wsOrigin(origin)];
 }

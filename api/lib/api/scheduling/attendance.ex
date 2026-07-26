@@ -75,10 +75,18 @@ defmodule Api.Scheduling.Attendance do
       # igualmente as duas primeiras, que só precisam do prefixo (a lição de §5f: prefixo estrito
       # não pede índice próprio).
       index [:clinic_id, :patient_id, :session_starts_at]
-      # `[:package_id]` saiu daqui na H64: virou `belongs_to :package`, e a relação já traz o
-      # índice `(clinic_id, package_id)`. Declarar nos dois lugares gerava a MESMA migration duas
-      # vezes — o codegen emitiu um `CREATE INDEX` de um índice que já existia, e a migration
-      # morreu com `42P07` na primeira execução.
+
+      # O índice `(clinic_id, package_id)` vem da relação `belongs_to :package` (H64) e serve as
+      # buscas da aplicação, que sempre têm o tenant. Este aqui serve outra coisa: a **checagem
+      # de FK** que o Postgres emite ao apagar um `Package` — `WHERE package_id = $1`, sem
+      # `clinic_id`, porque ele não tem noção de tenant. Sem `all_tenants? true` o ADR-017
+      # prefixaria `clinic_id` e o índice não serviria a essa forma.
+      #
+      # Medido no bate-volta da Onda 5, com 10.219 linhas: pelo composto o plano é *Index Only
+      # Scan* varrendo o índice inteiro (13 buffers, custo 197); com o dedicado, 2 buffers e
+      # custo 13 — a mesma diferença que `appointments.created_by_id` já registrava (doc 26,
+      # achado (h)).
+      index [:package_id], all_tenants?: true
     end
   end
 
