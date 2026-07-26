@@ -9,54 +9,11 @@ defmodule Api.Scheduling.AuditLogTest do
   """
   use Api.DataCase, async: false
 
-  alias Api.Accounts
-  alias Api.Directory
-  alias Api.Records
   alias Api.Scheduling
 
   @segunda ~D[2026-07-20]
 
-  defp email, do: "audit-#{System.unique_integer([:positive])}@example.com"
-
-  defp setup_clinic do
-    owner = Accounts.register_user!("Dona Ana", email(), authorize?: false)
-
-    clinic =
-      Accounts.onboard_clinic!("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
-
-    scope = scope_for(owner, clinic)
-    prof = Directory.create_professional!("Dra. Bea", %{}, tenant: clinic.id, actor: owner)
-
-    tipo =
-      Directory.create_appointment_type!(
-        %{
-          nome: "Sessão #{System.unique_integer([:positive])}",
-          duracao_minutos: 50,
-          cor: "#0FB5A6",
-          icon: "Activity"
-        },
-        tenant: clinic.id,
-        actor: owner
-      )
-
-    paciente = Records.create_patient!("Caio Paciente", %{}, tenant: clinic.id, actor: owner)
-
-    %{owner: owner, clinic: clinic, scope: scope, prof: prof, tipo: tipo, paciente: paciente}
-  end
-
-  defp member_with_role(clinic, papel, professional_id \\ nil) do
-    user = Accounts.register_user!("Membro #{papel}", email(), authorize?: false)
-    attrs = %{papel: papel, user_id: user.id, clinic_id: clinic.id}
-    attrs = if professional_id, do: Map.put(attrs, :professional_id, professional_id), else: attrs
-    {:ok, m} = Accounts.invite_member(attrs, authorize?: false)
-    {:ok, _} = Accounts.accept_invite(m, authorize?: false)
-    user
-  end
-
-  defp scope_for(user, clinic) do
-    membership = Accounts.get_active_membership!(user.id, clinic.id, authorize?: false)
-    Api.Scope.with_membership(user, membership)
-  end
+  defp setup_clinic, do: clinica(dono: "Dona Ana", prof: "Dra. Bea", paciente: "Caio Paciente")
 
   defp at(hhmm) do
     {:ok, dt} = Scheduling.LocalTime.to_utc(@segunda, hhmm, "America/Sao_Paulo")
@@ -237,17 +194,16 @@ defmodule Api.Scheduling.AuditLogTest do
       ctx = setup_clinic()
       appt = schedule(ctx)
 
-      admin = member_with_role(ctx.clinic, :admin)
-      admin_scope = scope_for(admin, ctx.clinic)
+      admin_scope = escopo_de_membro!(ctx, :admin)
 
       {:ok, _} =
         Scheduling.transition_appointment(admin_scope, appt.id, :reschedule, %{
           starts_at: at("09:00")
         })
 
-      %{entries: only_admin} = Scheduling.list_audit_log(ctx.scope, user_id: admin.id)
+      %{entries: only_admin} = Scheduling.list_audit_log(ctx.scope, user_id: admin_scope.user.id)
       assert actions(only_admin) == [:reschedule]
-      assert Enum.all?(only_admin, &(&1.actor.id == admin.id))
+      assert Enum.all?(only_admin, &(&1.actor.id == admin_scope.user.id))
     end
 
     test "por janela (from/to) sobre version_inserted_at" do
@@ -294,21 +250,21 @@ defmodule Api.Scheduling.AuditLogTest do
       ctx = setup_clinic()
       appt_with_history(ctx)
 
-      prof_user = member_with_role(ctx.clinic, :profissional, ctx.prof.id)
-      recep_user = member_with_role(ctx.clinic, :recepcao)
+      prof_scope = escopo_de_membro!(ctx, :profissional, ctx.prof.id)
+      recep_scope = escopo_de_membro!(ctx, :recepcao)
 
-      assert %{entries: []} = Scheduling.list_audit_log(scope_for(prof_user, ctx.clinic))
-      assert %{entries: []} = Scheduling.list_audit_log(scope_for(recep_user, ctx.clinic))
+      assert %{entries: []} = Scheduling.list_audit_log(prof_scope)
+      assert %{entries: []} = Scheduling.list_audit_log(recep_scope)
     end
 
     test "owner e admin leem a trilha" do
       ctx = setup_clinic()
       appt_with_history(ctx)
 
-      admin = member_with_role(ctx.clinic, :admin)
+      admin_scope = escopo_de_membro!(ctx, :admin)
 
       assert %{entries: [_ | _]} = Scheduling.list_audit_log(ctx.scope)
-      assert %{entries: [_ | _]} = Scheduling.list_audit_log(scope_for(admin, ctx.clinic))
+      assert %{entries: [_ | _]} = Scheduling.list_audit_log(admin_scope)
     end
   end
 end

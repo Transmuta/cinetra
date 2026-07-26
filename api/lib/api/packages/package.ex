@@ -57,6 +57,13 @@ defmodule Api.Packages.Package do
         name: "packages_total_positive",
         check: "total > 0",
         message: "O total de sessões precisa ser positivo."
+
+      # O teto também no banco, como o piso: a constraint do atributo protege a entrada da API, e
+      # esta protege o dado de qualquer caminho (`Ash.Seed`, script, psql). Ver a nota do atributo.
+      check_constraint :total,
+        name: "packages_total_max",
+        check: "total <= 120",
+        message: "O total de sessões passa do máximo (120)."
     end
 
     custom_indexes do
@@ -144,7 +151,22 @@ defmodule Api.Packages.Package do
       constraints: [max_length: 120, trim?: true]
 
     # Total de sessões ÚTEIS (não conta feriado pulado). Editável (+/−) depois, no mesmo registro.
-    attribute :total, :integer, allow_nil?: false, public?: true, constraints: [min: 1]
+    #
+    # O **teto** não é estético: `total` é o que dimensiona as duas operações mais pesadas do
+    # sistema — a materialização (N agendamentos criados pelo job) e a massa por pacote (N escritas
+    # numa transação única, segurando conexão do pool e os locks da exclusion constraint). Medido
+    # depois do hoist do invariante (doc 43 §5a): **16,6 queries por sessão** no caminho de turma.
+    # Sem teto, um `500` digitado no lugar de `50` viraria ~8.000 queries e ~15 s de transação —
+    # tempo suficiente para estourar o request E fazer quem tentasse agendar aquele profissional
+    # esperar na fila. Com 120, o pior caso fica em ~2.000 queries (~2 s local).
+    #
+    # 120 é decisão de produto, não limite técnico: são 2×/semana por 14 meses. Acima disso, na
+    # clínica que este sistema atende, é erro de digitação — e é melhor recusar na entrada do que
+    # descobrir no lock.
+    attribute :total, :integer,
+      allow_nil?: false,
+      public?: true,
+      constraints: [min: 1, max: 120]
 
     # A punição é do pacote e obrigatória — ver o moduledoc.
     attribute :falta_punitiva, :boolean, allow_nil?: false, public?: true

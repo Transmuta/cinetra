@@ -210,7 +210,7 @@ defmodule Api.Packages.Preview do
         ends_at: appt.ends_at,
         status: appt.status,
         appointment_type_id: appt.appointment_type_id,
-        participantes: Enum.count(appt.attendances, &(&1.status != :cancelada))
+        participantes: Enum.count(appt.attendances, &Api.Scheduling.Attendance.viva?/1)
       }
     end)
   end

@@ -127,7 +127,14 @@ defmodule ApiWeb.AppointmentsController do
   # POST /api/appointments/:id/participants/:patient_id/justify
   def participant_justify(conn, %{"id" => id, "patient_id" => pid} = params),
     do:
-      participant(conn, id, pid, :justify, %{justificada: truthy(params["justificada"])}, params)
+      participant(
+        conn,
+        id,
+        pid,
+        :justify,
+        %{justificada: Api.Params.truthy?(params["justificada"])},
+        params
+      )
 
   defp participant(conn, id, patient_id, kind, input, params) do
     with_member_scope(conn, fn scope ->
@@ -192,8 +199,6 @@ defmodule ApiWeb.AppointmentsController do
   end
 
   defp expected_version(_params), do: nil
-
-  defp truthy(v), do: v in [true, "true", "1", 1]
 
   # GET /api/appointments/counts?from=YYYY-MM-DD&to=YYYY-MM-DD
   #

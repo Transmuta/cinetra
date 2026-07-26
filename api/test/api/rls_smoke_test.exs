@@ -74,6 +74,24 @@ defmodule Api.RlsSmokeTest do
     %{owner: owner, clinic: clinic, scope: scope, prof: prof, tipo: tipo, paciente: paciente}
   end
 
+  # O bloco com as presenças, pela porta que a aplicação usa (`in_clinic`): a code interface crua
+  # roda fora da GUC e devolveria `nil` sob RLS — que é o próprio ponto deste arquivo.
+  defp bloco(ctx, appointment_id) do
+    Api.Tenancy.in_clinic(ctx.scope, fn ->
+      Scheduling.get_appointment!(appointment_id, scope: ctx.scope, load: [:attendances])
+    end)
+  end
+
+  # A próxima segunda-feira — dia de expediente (o seed abre seg–sex) e no **futuro**, que é o
+  # recorte que pausar/cancelar pacote exige ("hoje ou depois"). Calculada, não fixa: a data
+  # literal do resto do arquivo envelhece para o passado conforme a suíte roda.
+  defp proxima_segunda(hhmm) do
+    hoje = Date.utc_today()
+    data = Date.add(hoje, 8 - Date.day_of_week(hoje))
+    {:ok, dt} = Scheduling.LocalTime.to_utc(data, hhmm, "America/Sao_Paulo")
+    dt
+  end
+
   defp at(hhmm) do
     {:ok, dt} = Scheduling.LocalTime.to_utc(@segunda, hhmm, "America/Sao_Paulo")
     dt
@@ -374,6 +392,124 @@ defmodule Api.RlsSmokeTest do
                Packages.bulk_cancel(ctx.scope, pkg.id, %{escopo: :todas})
 
       assert afetadas > 0, "a massa não achou as sessões do pacote (GUC faltando?)"
+    end
+
+    test "bulk_adjust: o warm e o espelho do horário atravessam a RLS" do
+      ctx = fixture()
+
+      {:ok, pkg} = Packages.create_series(ctx.scope, package_params(ctx, total: 2), forcar: false)
+      assert %{success: 1, failure: 0} = Oban.drain_queue(queue: :housekeeping)
+
+      # Duas coisas novas no caminho (doc 43): o **warm** do lote, que lê clínica/expediente numa
+      # transação própria (`Api.Scheduling.Warm.build/2` → `with_clinic`), e o `UPDATE` cru do
+      # espelho `session_starts_at` (`SyncSessionStartsAt`), que roda dentro da transação da ação.
+      # Warm vazio faria a massa cair no caminho antigo (lenta, mas correta); o `UPDATE` sem GUC
+      # atualizaria **zero** linhas em silêncio, e o histórico da ficha passaria a ordenar pelo
+      # horário velho. Nenhum dos dois aparece no `mix test`.
+      :ok = sem_guc()
+
+      assert {:ok, %{afetadas: afetadas}} =
+               Packages.bulk_adjust(ctx.scope, pkg.id, %{
+                 escopo: :todas,
+                 aplicar_horario: true,
+                 hhmm: "10:00"
+               })
+
+      assert afetadas > 0, "a massa não achou as sessões do pacote (GUC faltando?)"
+
+      :ok = sem_guc()
+      %{sessions: sessoes} = Scheduling.list_patient_history(ctx.scope, ctx.paciente.id)
+      refute Enum.empty?(sessoes), "histórico vazio: a GUC não chegou"
+
+      for sessao <- sessoes do
+        assert sessao.session_starts_at == sessao.appointment.starts_at,
+               "o espelho `session_starts_at` não acompanhou a remarcação (UPDATE sem GUC?)"
+      end
+    end
+
+    test "pausar/retomar em turma: a presença segurada é escrita e relida sob RLS" do
+      ctx = fixture()
+
+      turma =
+        Directory.create_appointment_type!(
+          %{
+            nome: "Turma hold RLS #{System.unique_integer([:positive])}",
+            duracao_minutos: 50,
+            cor: "#0FB5A6",
+            icon: "Users",
+            grupo: true,
+            capacidade: 4
+          },
+          tenant: ctx.clinic.id,
+          actor: ctx.owner
+        )
+
+      colega = Records.create_patient!("Colega RLS", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+
+      {:ok, pkg} =
+        Packages.create_package(
+          package_params(ctx, total: 2) |> Map.put(:appointment_type_id, turma.id),
+          scope: ctx.scope
+        )
+
+      {:ok, appt} =
+        Scheduling.schedule_appointment(
+          %{
+            starts_at: proxima_segunda("14:00"),
+            professional_id: ctx.prof.id,
+            appointment_type_id: turma.id,
+            patient_ids: [ctx.paciente.id],
+            package_id: pkg.id
+          },
+          scope: ctx.scope
+        )
+
+      {:ok, _} =
+        Scheduling.add_appointment_participants(appt, %{patient_ids: [colega.id]},
+          scope: ctx.scope
+        )
+
+      :ok = sem_guc()
+      assert {:ok, %{status: :pausado}} = Packages.pause_package(ctx.scope, pkg.id)
+
+      # O bloco continua visível (é do colega também) e a presença segurada some da leitura.
+      :ok = sem_guc()
+      visivel = bloco(ctx, appt.id)
+      assert Enum.map(visivel.attendances, & &1.patient_id) == [colega.id]
+
+      # A retomada precisa REACHAR a presença segurada (porta `include_held`) — 0 aqui significa
+      # que o pacote se escondeu de si mesmo sob RLS.
+      :ok = sem_guc()
+      assert {:ok, %{status: :ativo}} = Packages.resume_package(ctx.scope, pkg.id)
+
+      :ok = sem_guc()
+      depois = bloco(ctx, appt.id)
+      assert depois.status == :agendado
+      assert Enum.map(depois.attendances, & &1.patient_id) == [colega.id]
+    end
+
+    test "a poda da trilha varre cada clínica sob a própria GUC" do
+      ctx = fixture()
+
+      {:ok, _} =
+        Scheduling.schedule_appointment(
+          %{
+            starts_at: at("15:00"),
+            professional_id: ctx.prof.id,
+            appointment_type_id: ctx.tipo.id,
+            patient_ids: [ctx.paciente.id]
+          },
+          scope: ctx.scope
+        )
+
+      # O job roda fora de request: se o `DELETE` não estivesse dentro de `with_clinic`, a RLS o
+      # faria apagar **zero** linha para sempre — e o `mix test` (postgres) nunca contaria.
+      :ok = sem_guc()
+
+      assert {:ok, %{apagadas: apagadas}} =
+               Api.Housekeeping.PruneTrail.perform(%Oban.Job{args: %{"reter_dias" => 0}})
+
+      assert apagadas > 0, "a poda não alcançou linha nenhuma (GUC faltando no job?)"
     end
 
     test "o histórico da ficha lê as presenças sob RLS" do

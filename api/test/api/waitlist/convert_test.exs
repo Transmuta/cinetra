@@ -9,66 +9,16 @@ defmodule Api.Waitlist.ConvertTest do
   """
   use Api.DataCase, async: false
 
-  alias Api.Accounts
-  alias Api.Directory
   alias Api.Records
   alias Api.Scheduling
   alias Api.Waitlist
 
   @segunda ~D[2026-07-20]
 
-  defp email, do: "oc-#{System.unique_integer([:positive])}@example.com"
-
   defp setup_clinic do
-    owner = Accounts.register_user!("Dono", email(), authorize?: false)
-
-    clinic =
-      Accounts.onboard_clinic!("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
-
-    scope = scope_for(owner, clinic)
-    prof = Directory.create_professional!("Dra. X", %{}, tenant: clinic.id, actor: owner)
-
-    tipo =
-      Directory.create_appointment_type!(
-        %{
-          nome: "Sessão #{System.unique_integer([:positive])}",
-          duracao_minutos: 50,
-          cor: "#0FB5A6",
-          icon: "Activity"
-        },
-        tenant: clinic.id,
-        actor: owner
-      )
-
-    p = Records.create_patient!("Paciente", %{}, tenant: clinic.id, actor: owner)
-    {:ok, entry} = Waitlist.enqueue_entry(scope, %{patient_id: p.id})
-
-    %{
-      owner: owner,
-      clinic: clinic,
-      scope: scope,
-      prof: prof,
-      tipo: tipo,
-      patient: p,
-      entry: entry
-    }
-  end
-
-  defp scope_for(user, clinic) do
-    membership = Accounts.get_active_membership!(user.id, clinic.id, authorize?: false)
-    Api.Scope.with_membership(user, membership)
-  end
-
-  defp member_scope(clinic, papel) do
-    user = Accounts.register_user!("Membro #{papel}", email(), authorize?: false)
-
-    {:ok, m} =
-      Accounts.invite_member(%{papel: papel, user_id: user.id, clinic_id: clinic.id},
-        authorize?: false
-      )
-
-    {:ok, _} = Accounts.accept_invite(m, authorize?: false)
-    scope_for(user, clinic)
+    ctx = clinica()
+    {:ok, entry} = Waitlist.enqueue_entry(ctx.scope, %{patient_id: ctx.paciente.id})
+    Map.merge(ctx, %{patient: ctx.paciente, entry: entry})
   end
 
   defp at(hhmm) do

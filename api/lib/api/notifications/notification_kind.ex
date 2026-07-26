@@ -18,6 +18,14 @@ defmodule Api.Notifications.NotificationKind do
       recepção marca a falta na agenda do profissional;
     * `:participant_added`      — alguém entrou numa turma da coluna do profissional.
 
+  O bate-volta da Onda 3 (doc 43 §5b) acrescenta a sexta, que é de **lote**:
+
+    * `:package_bulk_adjusted` — N sessões de um pacote foram remarcadas de uma vez. Existe porque
+      a massa por pacote gerava um `:appointment_scheduled` **por sessão** ("Novo agendamento na
+      sua agenda", ×40 num pacote de 40) para o que é um evento só — e as sessões foram *movidas*,
+      não criadas. Uma linha na caixa, com o número: *"3 sessões do pacote Pilates 10 foram
+      remarcadas"*.
+
   Deixados de fora da v1 (ruído ou dependência aberta, doc 31 §3): mudança de status feita pelo
   próprio autor, "paciente não confirmou" (depende da F7), lembretes por tempo.
   """
@@ -28,6 +36,7 @@ defmodule Api.Notifications.NotificationKind do
       :appointment_canceled,
       :appointment_missed,
       :participant_added,
+      :package_bulk_adjusted,
       :slot_opened,
       :member_joined
     ]

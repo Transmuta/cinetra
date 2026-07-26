@@ -34,18 +34,28 @@ defmodule Api.Scheduling.Appointment.Validations.PackageBelongsToPatient do
     ids = changeset |> Ash.Changeset.get_argument(:patient_ids) |> List.wrap()
 
     case ids do
-      [patient_id] -> check(package_id, patient_id, changeset.tenant)
+      [patient_id] -> check(changeset, package_id, patient_id, changeset.tenant)
       _ -> {:error, field: :package_id, message: "o pacote é de um participante só"}
     end
   end
 
-  defp check(package_id, patient_id, tenant) when not is_nil(tenant) do
-    if Api.Packages.package_of_patient?(package_id, patient_id, to_string(tenant)),
+  defp check(changeset, package_id, patient_id, tenant) when not is_nil(tenant) do
+    clinic_id = to_string(tenant)
+
+    case Api.Scheduling.Warm.pacote_do_paciente?(changeset, clinic_id, package_id, patient_id) do
+      :ok -> :ok
+      :nao -> nao_encontrado()
+      :miss -> se_do_paciente(package_id, patient_id, clinic_id)
+    end
+  end
+
+  defp check(_changeset, _package_id, _patient_id, _tenant), do: nao_encontrado()
+
+  defp se_do_paciente(package_id, patient_id, clinic_id) do
+    if Api.Packages.package_of_patient?(package_id, patient_id, clinic_id),
       do: :ok,
       else: nao_encontrado()
   end
-
-  defp check(_package_id, _patient_id, _tenant), do: nao_encontrado()
 
   defp nao_encontrado,
     do: {:error, field: :package_id, message: "pacote não encontrado para este paciente"}

@@ -16,6 +16,7 @@
 		DOW_LABELS,
 		PACKAGE_COLORS,
 		NEW_PACKAGE_DEFAULTS,
+		PACKAGE_MAX_TOTAL,
 		issueLabel,
 		hasHardBlock,
 		type PreviewResult,
@@ -87,6 +88,7 @@
 			!!typeId &&
 			!!profId &&
 			total >= 1 &&
+			total <= PACKAGE_MAX_TOTAL &&
 			!!dataInicio &&
 			dows.length > 0 &&
 			dows.every((d) => !!horarios[d])
@@ -282,7 +284,7 @@
 					<input
 						type="number"
 						min="1"
-						max="60"
+						max={PACKAGE_MAX_TOTAL}
 						value={total}
 						oninput={(e) => (total = Number(e.currentTarget.value))}
 						class="h-[38px] w-full {CONTROL_CLASS} {CONTROL_PX} font-mono"

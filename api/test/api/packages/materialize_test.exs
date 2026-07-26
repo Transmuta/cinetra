@@ -10,45 +10,12 @@ defmodule Api.Packages.MaterializeTest do
   use Api.DataCase, async: false
   use Oban.Testing, repo: Api.Repo
 
-  alias Api.Accounts
-  alias Api.Directory
   alias Api.Packages
-  alias Api.Records
   alias Api.Scheduling
 
   @segunda ~D[2026-07-20]
 
-  defp email, do: "mat-#{System.unique_integer([:positive])}@example.com"
-
-  defp setup_clinic do
-    owner = Accounts.register_user!("Dono", email(), authorize?: false)
-
-    clinic =
-      Accounts.onboard_clinic!("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
-
-    scope = scope_for(owner, clinic)
-    prof = Directory.create_professional!("Dra. X", %{}, tenant: clinic.id, actor: owner)
-
-    tipo =
-      Directory.create_appointment_type!(
-        %{
-          nome: "Pilates #{System.unique_integer([:positive])}",
-          duracao_minutos: 50,
-          cor: "#0FB5A6",
-          icon: "Activity"
-        },
-        tenant: clinic.id,
-        actor: owner
-      )
-
-    paciente = Records.create_patient!("Paciente", %{}, tenant: clinic.id, actor: owner)
-    %{owner: owner, clinic: clinic, scope: scope, prof: prof, tipo: tipo, paciente: paciente}
-  end
-
-  defp scope_for(user, clinic) do
-    membership = Accounts.get_active_membership!(user.id, clinic.id, authorize?: false)
-    Api.Scope.with_membership(user, membership)
-  end
+  defp setup_clinic, do: clinica(tipo: [nome: "Pilates #{unico()}"])
 
   defp params(ctx, attrs \\ %{}) do
     Map.merge(

@@ -103,6 +103,23 @@ describe('PackageCreateModal', () => {
 		expect(screen.getByDisplayValue('Pilates 10')).toBeInTheDocument();
 	});
 
+	// O servidor tem teto próprio (120) e recusaria com a mensagem do Ash, em inglês. A tela recusa
+	// antes, na faixa do produto — ver `PACKAGE_MAX_TOTAL` (doc 43 §7).
+	it('total acima do teto desabilita criar, em vez de deixar o 422 do servidor aparecer', async () => {
+		const user = userEvent.setup();
+		open();
+		await marcaSegunda(user);
+		await waitFor(() => expect(screen.getByRole('button', { name: 'Criar pacote' })).toBeEnabled());
+
+		const total = screen.getByDisplayValue('10');
+		await user.clear(total);
+		await user.type(total, '500');
+
+		await waitFor(() =>
+			expect(screen.getByRole('button', { name: 'Criar pacote' })).toBeDisabled()
+		);
+	});
+
 	it('marcar um dia dispara a prévia ao vivo e habilita criar', async () => {
 		const user = userEvent.setup();
 		open();

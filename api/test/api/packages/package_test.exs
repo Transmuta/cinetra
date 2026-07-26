@@ -11,7 +11,6 @@ defmodule Api.Packages.PackageTest do
 
   require Ash.Query
 
-  alias Api.Accounts
   alias Api.Directory
   alias Api.Packages
   alias Api.Records
@@ -19,37 +18,7 @@ defmodule Api.Packages.PackageTest do
 
   @segunda ~D[2026-07-20]
 
-  defp email, do: "pkg-#{System.unique_integer([:positive])}@example.com"
-
-  defp setup_clinic do
-    owner = Accounts.register_user!("Dono", email(), authorize?: false)
-
-    clinic =
-      Accounts.onboard_clinic!("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
-
-    scope = scope_for(owner, clinic)
-    prof = Directory.create_professional!("Dra. X", %{}, tenant: clinic.id, actor: owner)
-
-    tipo =
-      Directory.create_appointment_type!(
-        %{
-          nome: "Pilates #{System.unique_integer([:positive])}",
-          duracao_minutos: 50,
-          cor: "#0FB5A6",
-          icon: "Activity"
-        },
-        tenant: clinic.id,
-        actor: owner
-      )
-
-    paciente = Records.create_patient!("Paciente", %{}, tenant: clinic.id, actor: owner)
-    %{owner: owner, clinic: clinic, scope: scope, prof: prof, tipo: tipo, paciente: paciente}
-  end
-
-  defp scope_for(user, clinic) do
-    membership = Accounts.get_active_membership!(user.id, clinic.id, authorize?: false)
-    Api.Scope.with_membership(user, membership)
-  end
+  defp setup_clinic, do: clinica(tipo: [nome: "Pilates #{unico()}"])
 
   defp create_package(ctx, attrs \\ %{}) do
     base = %{
@@ -82,7 +51,9 @@ defmodule Api.Packages.PackageTest do
           patient_id: patient_id,
           package_id: package_id,
           status: status,
-          falta_justificada: justificada
+          falta_justificada: justificada,
+          # espelho do horário do bloco (doc 43 §4) — `Ash.Seed` não passa pela ação que o preenche
+          session_starts_at: appt.starts_at
         },
         tenant: ctx.clinic.id
       )
@@ -138,6 +109,38 @@ defmodule Api.Packages.PackageTest do
     test "total precisa ser positivo" do
       ctx = setup_clinic()
       assert {:error, %Ash.Error.Invalid{}} = create_package(ctx, %{total: 0})
+    end
+
+    # O teto não é estético: `total` dimensiona a materialização (N blocos criados pelo job) e a
+    # massa por pacote (N escritas numa transação única, segurando conexão do pool e os locks da
+    # exclusion constraint). Medido em 16,6 queries/sessão no caminho de turma (doc 43 §7): sem
+    # teto, um `500` digitado no lugar de `50` projeta ~8.000 queries e ~15 s de transação.
+    test "total tem teto de 120 sessões — o que dimensiona a massa e a materialização" do
+      ctx = setup_clinic()
+
+      assert {:ok, %{total: 120}} = create_package(ctx, %{total: 120})
+      assert {:error, %Ash.Error.Invalid{} = erro} = create_package(ctx, %{total: 121})
+      assert Enum.any?(erro.errors, &(Map.get(&1, :field) == :total))
+    end
+
+    # A constraint do atributo recusa na entrada da API; a do BANCO protege o dado de qualquer
+    # outro caminho (`Ash.Seed`, script, `psql`) — como o piso faz desde o começo.
+    test "o teto vale no banco também, não só na fronteira do Ash" do
+      ctx = setup_clinic()
+
+      assert_raise Postgrex.Error, ~r/packages_total_max/, fn ->
+        Api.Repo.query!(
+          "INSERT INTO packages (id, clinic_id, patient_id, appointment_type_id, nome, total, " <>
+            "falta_punitiva, cor, data_inicio, status, inserted_at, updated_at) VALUES " <>
+            "($1, $2, $3, $4, 'Furão', 500, true, '#0FB5A6', '2027-03-01', 'ativo', now(), now())",
+          [
+            Ecto.UUID.dump!(Ash.UUID.generate()),
+            Ecto.UUID.dump!(ctx.clinic.id),
+            Ecto.UUID.dump!(ctx.paciente.id),
+            Ecto.UUID.dump!(ctx.tipo.id)
+          ]
+        )
+      end
     end
   end
 

@@ -24,6 +24,10 @@ defmodule Api.DataCase do
       import Ecto.Changeset
       import Ecto.Query
       import Api.DataCase
+
+      # As fábricas compartilhadas (`clinica/1`, `paciente!/2`, `escopo_de_membro!/3`…). Estavam
+      # copiadas em doze `defp setup_clinic` privadas até o bate-volta da Onda 3 (doc 43 §5e).
+      import Api.Generators
     end
   end
 

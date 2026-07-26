@@ -26,10 +26,20 @@ defmodule Api.Scheduling.Appointment.Validations.PatientsInClinic do
     with ids when is_list(ids) and ids != [] <-
            Ash.Changeset.get_argument(changeset, :patient_ids),
          clinic_id when not is_nil(clinic_id) <- changeset.tenant,
-         [_ | _] <- Api.Records.patients_outside_clinic(ids, to_string(clinic_id)) do
+         [_ | _] <- de_fora(changeset, ids, to_string(clinic_id)) do
       {:error, field: :patient_ids, message: "paciente não encontrado nesta clínica"}
     else
       _ -> :ok
+    end
+  end
+
+  # Num LOTE os pacientes vêm aquecidos (`Api.Scheduling.Warm`): estar no warm **é** estar na
+  # clínica, porque a leitura que o montou já foi escopada por tenant. `:miss` (algum id fora do
+  # warm) cai na consulta de sempre — o warm nunca aprova o que não viu.
+  defp de_fora(changeset, ids, clinic_id) do
+    case Api.Scheduling.Warm.pacientes(changeset, clinic_id, ids) do
+      {:ok, _todos} -> []
+      :miss -> Api.Records.patients_outside_clinic(ids, clinic_id)
     end
   end
 end

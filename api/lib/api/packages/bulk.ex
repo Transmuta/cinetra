@@ -39,10 +39,13 @@ defmodule Api.Packages.Bulk do
   isso a fronteira devolveria **400** para o que é um 422 de conflito.
   """
 
+  import Api.Params, only: [get: 2, truthy?: 2]
   import Api.Tenancy, only: [in_clinic: 2]
 
   alias Api.Scheduling
+  alias Api.Scheduling.Attendance
   alias Api.Scheduling.LocalTime
+  alias Api.Scheduling.Warm
 
   @escopos ~w(esta proximas todas)a
   @vivas [:agendado, :confirmado]
@@ -57,7 +60,7 @@ defmodule Api.Packages.Bulk do
   """
   def cancel(%Api.Scope{} = scope, package_id, params) do
     with {:ok, alvos, _tz} <- targets(scope, package_id, params) do
-      run(scope, alvos, &cancel_one(scope, &1))
+      run(scope, alvos, &cancel_one(scope, &1, nil))
     end
   end
 
@@ -72,10 +75,95 @@ defmodule Api.Packages.Bulk do
   """
   def adjust(%Api.Scope{} = scope, package_id, params) do
     with {:ok, plano} <- plan(params),
-         {:ok, alvos, tz} <- targets(scope, package_id, params) do
-      run(scope, alvos, &adjust_one(scope, &1, plano, tz, package_id))
+         {:ok, todos, tz} <- targets(scope, package_id, params) do
+      # Sessão **segurada** por uma pausa fica de fora do ajuste (doc 43 §5c): não há horário a
+      # remarcar no que está parado, e a retomada reprojeta tudo a partir de hoje de qualquer
+      # forma. Diferente do cancelar, que precisa alcançá-las (senão ficam órfãs, RN-25).
+      alvos = Enum.reject(todos, &segurado?/1)
+      warm = warm(scope, alvos, plano, tz, package_id)
+
+      case run(scope, alvos, &adjust_one(scope, &1, plano, tz, package_id, warm)) do
+        {:ok, %{afetadas: afetadas} = resultado} ->
+          avisa_uma_vez(scope, package_id, alvos, plano, afetadas)
+          {:ok, resultado}
+
+        erro ->
+          erro
+      end
     end
   end
+
+  # UMA notificação de caixa por massa, em vez de uma por sessão (doc 43 §5b). As por-sessão são
+  # suprimidas na origem pela marca `bulk_pacote` no contexto (ver `opts/2` e
+  # `Api.Notifications.Notifier`); esta as substitui, com o número que o usuário quer ler.
+  #
+  # Roda **depois** do commit da massa, como todo fan-out (doc 31): notificação de escrita que a
+  # transação ainda pode desfazer é notificação errada.
+  defp avisa_uma_vez(_scope, _package_id, _alvos, _plano, 0), do: :ok
+
+  defp avisa_uma_vez(scope, package_id, alvos, plano, afetadas) do
+    colunas =
+      alvos
+      |> Enum.map(fn {appt, _att} -> appt.professional_id end)
+      |> then(&if(plano.professional_id, do: [plano.professional_id | &1], else: &1))
+
+    Api.Notifications.Fanout.package_bulk_adjusted(
+      scope.clinic_id,
+      colunas,
+      nome_do_pacote(scope, package_id),
+      afetadas,
+      scope.user
+    )
+  end
+
+  defp nome_do_pacote(scope, package_id) do
+    case in_clinic(scope, fn ->
+           Api.Packages.get_package(package_id, scope: scope, not_found_error?: false)
+         end) do
+      {:ok, %{nome: nome}} -> nome
+      _ -> "pacote"
+    end
+  end
+
+  # O invariante do lote — clínica e expediente dos profissionais envolvidos na janela de datas que
+  # a massa toca — lido **uma vez**, não uma vez por sessão (doc 43 §5a). Ver `Api.Scheduling.Warm`
+  # para o que entra e por que é seguro. As datas não mudam num ajuste (só a hora), então a janela é
+  # exatamente a das sessões alvo.
+  defp warm(scope, alvos, plano, tz, package_id) do
+    datas =
+      Enum.map(alvos, fn {appt, _att} -> LocalTime.to_local_date(appt.starts_at, tz) end)
+
+    profissionais =
+      alvos
+      |> Enum.map(fn {appt, _att} -> appt.professional_id end)
+      |> then(&if(plano.professional_id, do: [plano.professional_id | &1], else: &1))
+
+    Warm.build(
+      scope.clinic_id,
+      [
+        profissionais: profissionais,
+        de: Enum.min(datas, Date),
+        ate: Enum.max(datas, Date)
+      ] ++ catalogo(alvos, package_id)
+    )
+  end
+
+  # Tipo, paciente e dono do pacote só interessam ao caminho da TURMA (`destaca_e_reinsere`, que
+  # cria bloco e por isso valida entrada). Numa massa em que toda sessão é individual, a remarcação
+  # não lê nenhum dos três — aquecê-los seria pagar leitura para economizar zero.
+  defp catalogo(alvos, package_id) do
+    if Enum.any?(alvos, fn {appt, att} -> not sozinho?(appt, att) end) do
+      [
+        tipos: Enum.map(alvos, fn {appt, _att} -> appt.appointment_type_id end),
+        pacientes: Enum.map(alvos, fn {_appt, att} -> att.patient_id end),
+        pacotes: Map.new(alvos, fn {_appt, att} -> {package_id, att.patient_id} end)
+      ]
+    else
+      []
+    end
+  end
+
+  defp segurado?({appt, att}), do: appt.pkg_hold or att.pkg_hold
 
   # ---- alvos ----
 
@@ -87,7 +175,7 @@ defmodule Api.Packages.Bulk do
       by_appointment =
         scope
         |> attendances(package_id)
-        |> Enum.reject(&(&1.status == :cancelada))
+        |> Enum.filter(&Attendance.viva?/1)
         |> Map.new(&{&1.appointment_id, &1})
 
       sessoes =
@@ -121,11 +209,8 @@ defmodule Api.Packages.Bulk do
   defp uuid?(value) when is_binary(value), do: match?({:ok, _}, Ecto.UUID.cast(value))
   defp uuid?(_value), do: false
 
-  defp attendances(scope, package_id) do
-    in_clinic(scope, fn ->
-      Scheduling.list_attendances!(scope: scope, query: [filter: [package_id: package_id]])
-    end)
-  end
+  defp attendances(scope, package_id),
+    do: Scheduling.list_package_attendances(scope, package_id)
 
   defp futura_nao_resolvida?(appt, today, tz) do
     appt.status in @vivas and
@@ -211,7 +296,8 @@ defmodule Api.Packages.Bulk do
   massa já o havia corrigido). Duas regras opostas para "as sessões deste pacote", no mesmo
   domínio — agora é uma.
   """
-  def cancelar_sessao(%Api.Scope{} = scope, {_appt, _att} = alvo), do: cancel_one(scope, alvo)
+  def cancelar_sessao(%Api.Scope{} = scope, {_appt, _att} = alvo),
+    do: cancel_one(scope, alvo, nil)
 
   @doc """
   Os alvos (`[{appointment, attendance}]`) do escopo pedido — a resolução única de "as sessões
@@ -219,23 +305,23 @@ defmodule Api.Packages.Bulk do
   """
   def alvos(%Api.Scope{} = scope, package_id, params), do: targets(scope, package_id, params)
 
-  defp cancel_one(scope, {appt, att}) do
+  defp cancel_one(scope, {appt, att}, warm) do
     if sozinho?(appt, att) do
       write(fn ->
-        Scheduling.cancel_appointment_slot(appt, %{}, opts(scope))
+        Scheduling.cancel_appointment_slot(appt, %{}, opts(scope, warm))
       end)
     else
       write(fn ->
         Scheduling.remove_appointment_participants(
           appt,
           %{patient_ids: [att.patient_id]},
-          opts(scope)
+          opts(scope, warm)
         )
       end)
     end
   end
 
-  defp adjust_one(scope, {appt, att}, plano, tz, package_id) do
+  defp adjust_one(scope, {appt, att}, plano, tz, package_id, warm) do
     starts_at = novo_starts_at(appt, plano, tz)
     professional_id = plano.professional_id || appt.professional_id
 
@@ -246,21 +332,21 @@ defmodule Api.Packages.Bulk do
           # `encaixe` só entra quando `forcar`: mandar `false` **reclassificaria** um bloco que já
           # era encaixe (o argumento nulo é que preserva — ver `SetEncaixeIfGiven`).
           remarcacao(starts_at, professional_id, plano.forcar),
-          opts(scope)
+          opts(scope, warm)
         )
       end)
     else
-      destaca_e_reinsere(scope, appt, att, starts_at, professional_id, plano, package_id)
+      destaca_e_reinsere(scope, appt, att, starts_at, professional_id, plano, package_id, warm)
     end
   end
 
-  defp destaca_e_reinsere(scope, appt, att, starts_at, professional_id, plano, package_id) do
+  defp destaca_e_reinsere(scope, appt, att, starts_at, professional_id, plano, package_id, warm) do
     with {:ok, saida} <-
            write(fn ->
              Scheduling.remove_appointment_participants(
                appt,
                %{patient_ids: [att.patient_id]},
-               opts(scope)
+               opts(scope, warm)
              )
            end),
          {:ok, entrada} <-
@@ -278,7 +364,7 @@ defmodule Api.Packages.Bulk do
                  duration_minutos: DateTime.diff(appt.ends_at, appt.starts_at, :minute),
                  encaixe: plano.forcar or appt.encaixe
                },
-               opts(scope)
+               opts(scope, warm)
              )
            end) do
       {:ok, saida ++ entrada}
@@ -291,10 +377,16 @@ defmodule Api.Packages.Bulk do
   defp remarcacao(starts_at, professional_id, _forcar),
     do: %{starts_at: starts_at, professional_id: professional_id}
 
-  # O bloco é só desta presença? Então mexer no bloco é mexer na sessão dela — e nada mais.
-  defp sozinho?(%{attendances: attendances}, att) when is_list(attendances) do
+  @doc """
+  O bloco é só desta presença? Então mexer no bloco é mexer na sessão dela — e nada mais.
+
+  Pública porque é a **decisão** que a massa e o ciclo de vida do pacote compartilham: cancelar
+  (`cancel_package`), segurar (`pause_package`, doc 43 §5c) e ajustar respondem todos a esta mesma
+  pergunta, e responder diferente em cada lugar é exatamente o bug do `pkgOf` do protótipo.
+  """
+  def sozinho?(%{attendances: attendances}, att) when is_list(attendances) do
     attendances
-    |> Enum.reject(&(&1.status == :cancelada))
+    |> Enum.filter(&Attendance.viva?/1)
     |> Enum.all?(&(&1.id == att.id))
   end
 
@@ -315,7 +407,15 @@ defmodule Api.Packages.Bulk do
   # exclusion constraint) — as duas coisas que o `Ash.can?` nega no caminho normal.
   #
   # A regra continua morando na policy: em vez de copiá-la aqui, a massa deixa de ser porta lateral.
-  defp opts(scope), do: [scope: scope, return_notifications?: true]
+  # `warm` (quando há) viaja no CONTEXTO da ação: é o invariante do lote já lido, e quem o consome
+  # é `CheckAvailability`. Ver `Api.Scheduling.Warm`.
+  # `bulk_pacote` marca as escritas como parte de um LOTE: o notifier da caixa as ignora, porque a
+  # massa emite uma notificação agregada no fim (doc 43 §5b). O tempo real não é afetado — é outro
+  # notifier, e a agenda aberta precisa de cada bloco.
+  defp opts(scope, warm) do
+    [scope: scope, return_notifications?: true, context: %{bulk_pacote: true}]
+    |> Warm.opts(warm)
+  end
 
   # Normaliza o retorno das escritas para `{:ok, notificações}` — o que o `run/3` acumula.
   defp write(fun) do
@@ -344,22 +444,17 @@ defmodule Api.Packages.Bulk do
          %{
            professional_id: professional_id,
            hhmm: hhmm,
-           forcar: truthy?(get(params, :forcar))
+           forcar: truthy?(params, :forcar)
          }}
     end
   end
 
   defp quando(params, flag, campo) do
-    if truthy?(get(params, flag)), do: get(params, campo)
+    if truthy?(params, flag), do: get(params, campo)
   end
 
   defp hhmm?(valor) when is_binary(valor),
     do: match?({:ok, _}, Time.from_iso8601(valor <> ":00"))
 
   defp hhmm?(_valor), do: false
-
-  defp truthy?(valor), do: valor in [true, "true"]
-
-  defp get(params, key),
-    do: Map.get(params, key, Map.get(params, Atom.to_string(key)))
 end

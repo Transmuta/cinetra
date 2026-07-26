@@ -41,18 +41,34 @@ defmodule Api.Scheduling.Appointment.Validations.ReferencesActive do
     professional_id = Ash.Changeset.get_attribute(changeset, :professional_id)
 
     cond do
-      Api.Directory.appointment_type_archived?(type_id, clinic_id) ->
+      tipo_arquivado?(changeset, clinic_id, type_id) ->
         {:error,
          CodedError.invalid_attribute(
            :appointment_type_id,
            "este tipo de atendimento está arquivado"
          )}
 
-      Api.Directory.professional_inactive?(professional_id, clinic_id) ->
+      profissional_inativo?(changeset, clinic_id, professional_id) ->
         {:error, CodedError.invalid_attribute(:professional_id, "este profissional está inativo")}
 
       true ->
         :ok
+    end
+  end
+
+  # Num LOTE, tipo e profissional vêm aquecidos (`Api.Scheduling.Warm`) — são os mesmos para as N
+  # sessões da massa. `:miss` cai na leitura de sempre.
+  defp tipo_arquivado?(changeset, clinic_id, type_id) do
+    case Api.Scheduling.Warm.tipo(changeset, clinic_id, type_id) do
+      {:ok, tipo} -> not tipo.ativo
+      :miss -> Api.Directory.appointment_type_archived?(type_id, clinic_id)
+    end
+  end
+
+  defp profissional_inativo?(changeset, clinic_id, professional_id) do
+    case Api.Scheduling.Warm.profissional(changeset, clinic_id, professional_id) do
+      {:ok, prof} -> not prof.ativo
+      :miss -> Api.Directory.professional_inactive?(professional_id, clinic_id)
     end
   end
 end

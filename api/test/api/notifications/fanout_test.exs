@@ -22,29 +22,7 @@ defmodule Api.Notifications.FanoutTest do
 
   defp email, do: "fan-#{System.unique_integer([:positive])}@example.com"
 
-  defp setup_clinic do
-    owner = Accounts.register_user!("Dono", email(), authorize?: false)
-
-    clinic =
-      Accounts.onboard_clinic!("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
-
-    prof = Directory.create_professional!("Dra. X", %{}, tenant: clinic.id, actor: owner)
-
-    tipo =
-      Directory.create_appointment_type!(
-        %{
-          nome: "Sessão #{System.unique_integer([:positive])}",
-          duracao_minutos: 50,
-          cor: "#0FB5A6",
-          icon: "Activity"
-        },
-        tenant: clinic.id,
-        actor: owner
-      )
-
-    paciente = Records.create_patient!("Paciente", %{}, tenant: clinic.id, actor: owner)
-    %{owner: owner, clinic: clinic, prof: prof, tipo: tipo, paciente: paciente}
-  end
+  defp setup_clinic, do: clinica()
 
   defp member(clinic, papel, professional_id \\ nil) do
     user = Accounts.register_user!("Membro #{papel}", email(), authorize?: false)
@@ -326,6 +304,76 @@ defmodule Api.Notifications.FanoutTest do
       {:ok, _} = Scheduling.transition_appointment(owner_scope, appt.id, :cancel)
 
       refute :slot_opened in kinds(recep, ctx.clinic)
+    end
+  end
+
+  describe "massa por pacote → UMA notificação, não N (doc 43 §5b)" do
+    test "remarcar 3 sessões manda uma linha com o número, não três \"novo agendamento\"" do
+      ctx = setup_clinic()
+      # O dono da coluna é quem recebe; quem opera é a recepção (senão o autor se suprime).
+      prof_user = member(ctx.clinic, :profissional, ctx.prof.id)
+      recep = member(ctx.clinic, :recepcao)
+      recep_scope = scope_for(recep, ctx.clinic)
+
+      paciente =
+        Records.create_patient!("Massa #{System.unique_integer([:positive])}", %{},
+          tenant: ctx.clinic.id,
+          actor: ctx.owner
+        )
+
+      {:ok, pkg} =
+        Api.Packages.create_package(
+          %{
+            nome: "Pilates 3",
+            total: 3,
+            falta_punitiva: true,
+            cor: "#0FB5A6",
+            data_inicio: Date.add(@segunda, 364),
+            patient_id: paciente.id,
+            appointment_type_id: ctx.tipo.id,
+            grade: %{dows: [1], horarios: %{"1" => "08:00"}, professional_id: ctx.prof.id}
+          },
+          scope: recep_scope
+        )
+
+      for i <- 0..2 do
+        data = Date.add(@segunda, 364 + 7 * i)
+        {:ok, dt} = Scheduling.LocalTime.to_utc(data, "08:00", "America/Sao_Paulo")
+
+        {:ok, _} =
+          Scheduling.schedule_appointment(
+            %{
+              starts_at: dt,
+              professional_id: ctx.prof.id,
+              appointment_type_id: ctx.tipo.id,
+              patient_ids: [paciente.id],
+              package_id: pkg.id
+            },
+            scope: recep_scope
+          )
+      end
+
+      antes = Enum.frequencies(kinds(prof_user, ctx.clinic))
+
+      assert {:ok, %{afetadas: 3}} =
+               Api.Packages.bulk_adjust(recep_scope, pkg.id, %{
+                 escopo: :todas,
+                 aplicar_horario: true,
+                 hhmm: "09:00"
+               })
+
+      depois = Enum.frequencies(kinds(prof_user, ctx.clinic))
+
+      # Uma linha agregada…
+      assert Map.get(depois, :package_bulk_adjusted, 0) == 1
+      # …e NENHUMA por sessão (era 3× "Novo agendamento na sua agenda").
+      for kind <- [:appointment_scheduled, :appointment_rescheduled] do
+        assert Map.get(depois, kind, 0) == Map.get(antes, kind, 0)
+      end
+
+      texto = inbox(prof_user, ctx.clinic) |> Enum.find(&(&1.kind == :package_bulk_adjusted))
+      assert texto.body =~ "3 sessões"
+      assert texto.body =~ "Pilates 3"
     end
   end
 

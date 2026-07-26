@@ -7,7 +7,7 @@
 	// contaria uma sessão que ele não fez. O selo, portanto, sai do status da presença.
 	import History from '@lucide/svelte/icons/history';
 	import Package from '@lucide/svelte/icons/package';
-	import { ATTENDANCE_META, zonedParts, m2t, type AttendanceStatus } from '$lib/agenda';
+	import { attendanceSelo, zonedParts, m2t } from '$lib/agenda';
 	import type { HistorySession } from '$lib/server/patients';
 
 	let {
@@ -27,13 +27,7 @@
 		return `${dia}/${mes}/${ano} · ${m2t(minutes)}`;
 	}
 
-	function selo(s: HistorySession): { label: string; tone?: string } {
-		const meta = ATTENDANCE_META[s.status as AttendanceStatus];
-		if (s.status === 'faltou' && s.falta_justificada) {
-			return { label: 'Faltou · justificada', tone: undefined };
-		}
-		return meta;
-	}
+	const selo = (s: HistorySession) => attendanceSelo(s.status, s.falta_justificada);
 </script>
 
 <section class="mt-4 rounded-[14px] border border-edge bg-surface p-4.5">

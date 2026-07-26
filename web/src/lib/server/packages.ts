@@ -171,13 +171,13 @@ export function bulkAdjustPackage(
 	return bulk(event, `${path(id)}/bulk_adjust`, input);
 }
 
-export function bulkCancelPackage(
-	event: RequestEvent,
-	id: string,
-	input: BulkInput
-): Promise<BulkResult> {
-	return bulk(event, `${path(id)}/bulk_cancel`, input);
-}
+// Não há `bulkCancelPackage` aqui, e é decisão (doc 43 §5g). O BFF expunha
+// `POST /packages/:id/bulk_cancel` sem nenhuma tela que o chamasse nem teste no web — ponta parada
+// no meio. Da ficha, cancelar em massa com escopo `todas` é o que **`cancelPackage` já faz** (e
+// ainda marca o pacote como cancelado); o que a massa acrescenta são os escopos `esta`/`proximas`,
+// que exigem uma sessão de REFERÊNCIA — algo que só a agenda sabe apontar. Quando esse botão for
+// pedido, ele nasce no drawer da agenda, com a referência em mãos. O endpoint do backend continua
+// existindo e testado.
 
 async function bulk(event: RequestEvent, url: string, input: BulkInput): Promise<BulkResult> {
 	try {

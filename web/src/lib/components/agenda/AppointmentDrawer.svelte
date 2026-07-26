@@ -24,7 +24,7 @@
 	import Drawer from '$lib/components/Drawer.svelte';
 	import {
 		STATUS_META,
-		ATTENDANCE_META,
+		attendanceSelo,
 		statusActions,
 		participantActions,
 		resolvedCount,
@@ -275,7 +275,7 @@
 		{/snippet}
 
 		{#snippet selo(presenca: Participant)}
-			{@const attMeta = ATTENDANCE_META[presenca.status]}
+			{@const attMeta = attendanceSelo(presenca.status, presenca.falta_justificada)}
 			{#if presenca.status !== 'prevista'}
 				<span
 					class="rounded-full px-2 py-0.5 text-[11px] font-semibold"
@@ -285,7 +285,7 @@
 						? `var(--color-${attMeta.tone})`
 						: 'var(--color-muted)'}"
 				>
-					{attMeta.label}{presenca.falta_justificada ? ' · justificada' : ''}
+					{attMeta.label}
 				</span>
 			{/if}
 		{/snippet}

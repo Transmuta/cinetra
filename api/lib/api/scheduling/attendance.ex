@@ -25,6 +25,26 @@ defmodule Api.Scheduling.Attendance do
     # duas vezes (a presença muda e o rollup escreve o bloco). Ver o moduledoc do `Appointment`.
     notifiers: [Api.Notifications.Notifier]
 
+  # "Presença viva" — o predicado que decide se esta presença ainda conta como sessão de alguém.
+  # Estava escrito em cinco lugares (`bulk.ex` ×2, `remove_participants.ex`, `rollup.ex`,
+  # `preview.ex`) quando o bate-volta da Onda 3 o mediu; a sexta cópia seria a que divergiria.
+  # Mora aqui, ao lado do enum que define os status, e sai por `viva?/1` (lista em memória) e pela
+  # calculate `:viva?` (filtro que desce para o SQL).
+  @mortas [:cancelada]
+
+  @doc """
+  Esta presença ainda está de pé? Cancelada é quem **saiu** do bloco — não é participante, não
+  ocupa vaga na turma (o teto que o bate-volta viu contar quem saiu), não é alvo de massa e não
+  entra no rollup do desfecho.
+
+  Aceita a presença ou só o status, porque metade dos chamadores tem o registro e a outra metade
+  tem só o átomo (o rollup recebe uma lista de status). O padrão é `%{status: …}` e não
+  `%__MODULE__{}` porque o struct do recurso só existe **depois** do DSL — casar com ele aqui é
+  erro de compilação ("cyclic module usage").
+  """
+  def viva?(status) when is_atom(status), do: status not in @mortas
+  def viva?(%{status: status}), do: viva?(status)
+
   postgres do
     table "attendances"
     repo Api.Repo
@@ -38,10 +58,18 @@ defmodule Api.Scheduling.Attendance do
     end
 
     custom_indexes do
-      index [:clinic_id, :appointment_id]
-      # A-D5 (avisar sobre paciente em dois lugares) e o agregado `Patient.faltas` leem por
-      # paciente; sem este índice as duas viram seq scan.
-      index [:clinic_id, :patient_id]
+      # **Não** existe índice `(clinic_id, appointment_id)` aqui: ele é prefixo estrito do único
+      # `one_per_patient_per_appt` — `(clinic_id, appointment_id, patient_id)` —, que serve as
+      # mesmas buscas. Medido no bate-volta da Onda 3 (doc 43 §5f): `idx_scan=0` e 520 kB contra
+      # 684 varreduras do único, ou seja, custo de escrita puro numa tabela que a massa reescreve
+      # (destroy + insert por sessão).
+      #
+      # A-D5 (avisar sobre paciente em dois lugares), o agregado `Patient.faltas` e o histórico da
+      # ficha leem por paciente. A terceira coluna é o que faz o `ORDER BY session_starts_at DESC
+      # LIMIT 50` do histórico sair do índice, sem varrer nem ordenar (doc 43 §4) — e serve
+      # igualmente as duas primeiras, que só precisam do prefixo (a lição de §5f: prefixo estrito
+      # não pede índice próprio).
+      index [:clinic_id, :patient_id, :session_starts_at]
       index [:package_id]
     end
   end
@@ -78,7 +106,7 @@ defmodule Api.Scheduling.Attendance do
       # `package_id` entra aqui (doc 41 etapa 2) porque quem cria a presença é o
       # `manage_relationship` do bloco (`Changes.ManageParticipants`): o vínculo com o pacote nasce
       # com ela, em vez de um `set_package` numa segunda escrita.
-      accept [:patient_id, :appointment_id, :package_id]
+      accept [:patient_id, :appointment_id, :package_id, :session_starts_at]
     end
 
     # A presença acompanha o ciclo de vida do bloco (Entrega 4). Só é chamada **em cascata**,
@@ -132,15 +160,19 @@ defmodule Api.Scheduling.Attendance do
       change Api.Scheduling.Attendance.Changes.RollupBlockStatus
     end
 
-    # Vincula a presença ao pacote (Fatia 3). Chamada pela materialização da série
-    # (`Api.Packages.Materializer`) logo após criar a sessão: `package_id` é o vínculo por
-    # participante (D11) que o contador `usadas` do pacote conta. Separada da `:create` porque a
-    # criação da presença vem da cascata do `Appointment` (que não conhece pacote); o pacote a
-    # carimba depois. `require_atomic?` false pelo `SetTenantGuc` (before_action), como as demais.
-    update :set_package do
+    # Segura/solta a presença numa pausa de pacote (RN-23 em turma, doc 43 §5c). Cascata interna do
+    # ciclo de vida do pacote, com `authorize?: false` — quem autorizou foi a ação do pacote, e esta
+    # escrita não carrega nada do corpo do request. Espelha o `set_pkg_hold` do bloco.
+    update :set_pkg_hold do
       require_atomic? false
-      accept [:package_id]
+      accept [:pkg_hold]
     end
+
+    # Não existe ação de "carimbar o pacote depois". O vínculo participante↔pacote nasce **com** a
+    # presença, na mesma escrita (`Changes.ManageParticipants`, via o argumento `package_id` de
+    # `:schedule`/`:add_participant`). O `set_package` que existia aqui perdeu o último chamador de
+    # produção na etapa 2 da A2 e ficou como superfície de escrita sem porta — saiu no bate-volta da
+    # Onda 3 (doc 43 §5e). Se um dia precisar voltar, volta com chamador.
 
     # Sair da turma (doc 41 etapa 3). Chamada **em cascata**, de dentro da ação do bloco
     # (`Appointment.Changes.RemoveParticipants`), com `authorize?: false` — quem autoriza é o
@@ -170,6 +202,9 @@ defmodule Api.Scheduling.Attendance do
     # (appointment_id, patient_id) da clínica toda por aqui. `via: :appointment` porque o
     # `professional_id` mora no bloco, não no participante.
     prepare {Api.Scheduling.Preparations.OwnAgendaOnly, via: :appointment}
+
+    # Presença segurada por pausa de pacote não é participante de nada até a retomada (doc 43 §5c).
+    prepare Api.Scheduling.Preparations.HideHeldAttendances
   end
 
   changes do
@@ -189,11 +224,31 @@ defmodule Api.Scheduling.Attendance do
       default: :prevista,
       public?: true
 
+    # Segurada por uma pausa de pacote (RN-23), quando o bloco é compartilhado — ver
+    # `Preparations.HideHeldAttendances`. No bloco de um só, quem segura é o `Appointment.pkg_hold`.
+    attribute :pkg_hold, :boolean, allow_nil?: false, default: false, public?: true
+
     # Entrega 4 (o bloco "Falta justificada" do drawer). Coluna agora, UI depois.
     attribute :falta_justificada, :boolean, allow_nil?: false, default: false, public?: true
 
     # Gancho da Fatia 3, sem FK (precedente de `Patient.prefs`).
     attribute :package_id, :uuid, public?: true
+
+    # O instante da sessão, **denormalizado** do bloco (doc 43 §4). É por ele que o histórico da
+    # ficha ordena e pagina.
+    #
+    # Era um aggregate (`first :session_starts_at, :appointment, :starts_at`), e o `ORDER BY …
+    # LIMIT` até descia para o SQL — mas a subquery do aggregate **não é correlacionada**: o
+    # planner varria os agendamentos da clínica inteira para o hash join (medido: `rows=51`
+    # estimadas contra 10.185 reais, 291 buffers). O custo saía de "cresce com o paciente" para
+    # "cresce com a clínica". Coluna + índice `(clinic_id, patient_id, session_starts_at)` deixa as
+    # duas curvas planas.
+    #
+    # Quem a mantém: `ManageParticipants` na criação e `SyncSessionStartsAt` na remarcação do bloco
+    # — os dois únicos caminhos em que o par (presença, horário) nasce ou muda. `allow_nil? false`
+    # é deliberado: um caminho novo que esqueça de preenchê-la falha **alto**, em vez de sumir em
+    # silêncio do histórico do paciente.
+    attribute :session_starts_at, :utc_datetime, allow_nil?: false, public?: true
 
     timestamps()
   end
@@ -204,12 +259,10 @@ defmodule Api.Scheduling.Attendance do
     belongs_to :patient, Api.Records.Patient, allow_nil?: false
   end
 
-  aggregates do
-    # O instante da sessão, trazido do bloco para a própria presença — é por ele que o histórico
-    # da ficha ordena (C13). Existe como **aggregate** porque `sort` por campo de relação não
-    # desce para o SQL: sem ele, ordenar exigia carregar o histórico inteiro e usar `Enum.sort_by`,
-    # que foi o que o bate-volta da Onda 3 mediu em 4.003 linhas para devolver 50.
-    first :session_starts_at, :appointment, :starts_at
+  calculations do
+    # O mesmo predicado do `viva?/1`, para quem pergunta ao **banco** (`filter: [viva?: true]`) em
+    # vez de a uma lista já carregada. `expr` desce para o SQL.
+    calculate :viva?, :boolean, expr(status not in ^@mortas)
   end
 
   identities do

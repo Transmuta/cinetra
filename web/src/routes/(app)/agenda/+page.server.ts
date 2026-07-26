@@ -9,15 +9,16 @@ import {
 	cancelAppointment,
 	reopenAppointment,
 	excludeAppointment,
-	transitionParticipant,
-	type ParticipantKind
+	transitionParticipant
 } from '$lib/server/appointments';
 import type { MutationResult } from '$lib/server/mutate';
 import {
 	parseDateParam,
 	parseHiddenProfs,
 	todayInZone,
-	type ColumnAvailability
+	PARTICIPANT_KINDS,
+	type ColumnAvailability,
+	type ParticipantKind
 } from '$lib/agenda';
 import {
 	parseView,
@@ -300,8 +301,6 @@ export const actions: Actions = {
 		);
 	}
 };
-
-const PARTICIPANT_KINDS: readonly ParticipantKind[] = ['complete', 'no_show', 'reopen', 'justify'];
 
 // Lê o corpo e exige o `id` do agendamento — o preâmbulo que as quatro actions de ciclo de
 // vida com corpo próprio repetiam. Devolve `{form, id}` OU o `fail(400)` pronto (o chamador

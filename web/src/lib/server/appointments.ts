@@ -214,8 +214,13 @@ export function excludeAppointment(event: RequestEvent, id: string, expected_ver
 // BLOCO (a versão vive lá), então o guard de 409 é o mesmo das ações de bloco.
 // ---------------------------------------------------------------------------
 
-/** `complete` | `no_show` | `reopen` | `justify` — os verbos das sub-rotas. */
-export type ParticipantKind = 'complete' | 'no_show' | 'reopen' | 'justify';
+/**
+ * `complete` | `no_show` | `reopen` | `justify` — os verbos das sub-rotas. A declaração é uma só,
+ * em `$lib/agenda` (onde mora a lista de runtime que a action valida); aqui é re-exportada para
+ * quem já importa o BFF não ter de importar dois módulos.
+ */
+export type { ParticipantKind } from '$lib/agenda';
+import type { ParticipantKind } from '$lib/agenda';
 
 export function transitionParticipant(
 	event: RequestEvent,

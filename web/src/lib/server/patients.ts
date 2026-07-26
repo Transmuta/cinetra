@@ -2,6 +2,7 @@ import type { RequestEvent } from '@sveltejs/kit';
 import { apiFetch } from './api';
 import { mutate, errorMessage, type MutationResult } from './mutate';
 import type { Patient, PatientsData } from '$lib/patients';
+import type { AttendanceStatus } from '$lib/agenda';
 
 // BFF da tela de Pacientes (fatia Pacientes / ADR-005): fala com `/api/patients`
 // server-to-server, repassando o cookie de sessão. O `clinic_id` e o RBAC vivem no escopo da
@@ -76,7 +77,8 @@ export async function fetchPatient(event: RequestEvent, id: string): Promise<Pat
 // cai por causa da seção de baixo.
 export interface HistorySession {
 	id: string;
-	status: 'prevista' | 'concluida' | 'faltou' | 'cancelada';
+	/** O `AttendanceStatus` — declarado uma vez só, em `$lib/agenda` (doc 43 §5e). */
+	status: AttendanceStatus;
 	falta_justificada: boolean;
 	package_id: string | null;
 	appointment_id: string;

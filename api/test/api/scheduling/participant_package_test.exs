@@ -11,49 +11,16 @@ defmodule Api.Scheduling.ParticipantPackageTest do
   """
   use Api.DataCase, async: false
 
-  alias Api.Accounts
   alias Api.Directory
   alias Api.Packages
-  alias Api.Records
   alias Api.Scheduling
 
   @segunda ~D[2026-07-20]
 
-  defp email, do: "pkgpart-#{System.unique_integer([:positive])}@example.com"
+  defp setup_clinic,
+    do: clinica(tipo: [nome: "Turma #{unico()}", icon: "Users", grupo: true, capacidade: 4])
 
-  defp setup_clinic do
-    owner = Accounts.register_user!("Dono", email(), authorize?: false)
-
-    clinic =
-      Accounts.onboard_clinic!("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
-
-    membership = Accounts.get_active_membership!(owner.id, clinic.id, authorize?: false)
-    scope = Api.Scope.with_membership(owner, membership)
-    prof = Directory.create_professional!("Dra. X", %{}, tenant: clinic.id, actor: owner)
-
-    tipo =
-      Directory.create_appointment_type!(
-        %{
-          nome: "Turma #{System.unique_integer([:positive])}",
-          duracao_minutos: 50,
-          cor: "#0FB5A6",
-          icon: "Users",
-          grupo: true,
-          capacidade: 4
-        },
-        tenant: clinic.id,
-        actor: owner
-      )
-
-    %{owner: owner, clinic: clinic, scope: scope, prof: prof, tipo: tipo}
-  end
-
-  defp novo_paciente(ctx),
-    do:
-      Records.create_patient!("Paciente #{System.unique_integer([:positive])}", %{},
-        tenant: ctx.clinic.id,
-        actor: ctx.owner
-      )
+  defp novo_paciente(ctx), do: paciente!(ctx, "Paciente #{unico()}")
 
   defp pacote(ctx, paciente) do
     Packages.create_package!(

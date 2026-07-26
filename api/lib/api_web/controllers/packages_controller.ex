@@ -45,7 +45,7 @@ defmodule ApiWeb.PackagesController do
   # POST /api/packages
   def create(conn, params) do
     with_member_scope(conn, fn scope ->
-      forcar = params["forcar"] in [true, "true"]
+      forcar = Api.Params.truthy?(params["forcar"])
 
       with {:ok, attrs} <- series_params(params),
            {:ok, pkg} <- Packages.create_series(scope, attrs, forcar: forcar) do

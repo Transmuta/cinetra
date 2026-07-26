@@ -17,6 +17,18 @@ defmodule Api.Notifications.Notifier do
 
   alias Api.Notifications.Fanout
 
+  # Escrita de LOTE (a massa por pacote): a caixa recebe **uma** notificação agregada, emitida pelo
+  # próprio lote quando ele fecha — não N "novo agendamento na sua agenda" (doc 43 §5b). A marca
+  # viaja no contexto do changeset, posta por `Api.Packages.Bulk`.
+  #
+  # Vem **antes** de todas as outras cláusulas, e é o mesmo cuidado de ordem que o moduledoc
+  # descreve: uma cláusula específica atrás de uma geral nunca roda.
+  #
+  # Só a CAIXA é suprimida. O `AgendaNotifier` (tempo real) é outro notifier e continua recebendo
+  # tudo, sessão por sessão — a agenda aberta na tela precisa de cada bloco que se moveu.
+  @impl true
+  def notify(%Ash.Notifier.Notification{changeset: %{context: %{bulk_pacote: true}}}), do: :ok
+
   # #47 (doc 31 §3a): alguém entrou numa turma da coluna do profissional. Cláusula própria porque
   # o texto é outro — `appointment_touched` fala de "um agendamento", e aqui o bloco já existia.
   @impl true

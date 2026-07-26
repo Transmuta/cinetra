@@ -6,55 +6,22 @@ defmodule Api.Scheduling.ParticipantTransitionTest do
   """
   use Api.DataCase, async: false
 
-  alias Api.Accounts
-  alias Api.Directory
   alias Api.Packages
-  alias Api.Records
   alias Api.Scheduling
 
   @segunda ~D[2026-07-20]
 
-  defp email, do: "part-#{System.unique_integer([:positive])}@example.com"
-
-  defp setup_clinic do
-    owner = Accounts.register_user!("Dono", email(), authorize?: false)
-
-    clinic =
-      Accounts.onboard_clinic!("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
-
-    membership = Accounts.get_active_membership!(owner.id, clinic.id, authorize?: false)
-    scope = Api.Scope.with_membership(owner, membership)
-    prof = Directory.create_professional!("Dra. X", %{}, tenant: clinic.id, actor: owner)
-    paciente = Records.create_patient!("Paciente", %{}, tenant: clinic.id, actor: owner)
-    %{owner: owner, clinic: clinic, scope: scope, prof: prof, paciente: paciente}
-  end
+  defp setup_clinic, do: clinica()
 
   defp at(hhmm) do
     {:ok, dt} = Scheduling.LocalTime.to_utc(@segunda, hhmm, "America/Sao_Paulo")
     dt
   end
 
-  defp turma_tipo(ctx) do
-    Directory.create_appointment_type!(
-      %{
-        nome: "Turma #{System.unique_integer([:positive])}",
-        duracao_minutos: 50,
-        cor: "#0FB5A6",
-        icon: "Users",
-        grupo: true,
-        capacidade: 4
-      },
-      tenant: ctx.clinic.id,
-      actor: ctx.owner
-    )
-  end
+  defp turma_tipo(ctx),
+    do: tipo!(ctx, nome: "Turma #{unico()}", icon: "Users", grupo: true, capacidade: 4)
 
-  defp novo_paciente(ctx) do
-    Records.create_patient!("Paciente #{System.unique_integer([:positive])}", %{},
-      tenant: ctx.clinic.id,
-      actor: ctx.owner
-    )
-  end
+  defp novo_paciente(ctx), do: paciente!(ctx, "Paciente #{unico()}")
 
   # Uma turma com dois participantes; devolve {appt, segundo_paciente}.
   defp turma_com_dois(ctx) do
@@ -267,8 +234,7 @@ defmodule Api.Scheduling.ParticipantTransitionTest do
       ctx = setup_clinic()
       {appt, _p2} = turma_com_dois(ctx)
       # relógio ANTES do início (07:00 < 08:00)
-      membership = Accounts.get_active_membership!(ctx.owner.id, ctx.clinic.id, authorize?: false)
-      antes = Api.Scope.with_membership(ctx.owner, membership, now: at("07:00"))
+      antes = escopo_em(ctx, at("07:00"))
 
       assert {:error, :session_not_started} =
                Scheduling.transition_participant(
@@ -295,8 +261,7 @@ defmodule Api.Scheduling.ParticipantTransitionTest do
           appt.version
         )
 
-      membership = Accounts.get_active_membership!(ctx.owner.id, ctx.clinic.id, authorize?: false)
-      antes = Api.Scope.with_membership(ctx.owner, membership, now: at("07:00"))
+      antes = escopo_em(ctx, at("07:00"))
 
       assert {:ok, _} =
                Scheduling.transition_participant(
@@ -313,7 +278,8 @@ defmodule Api.Scheduling.ParticipantTransitionTest do
   describe "débito por participante" do
     test "concluir uma presença de pacote debita SÓ aquele pacote" do
       ctx = setup_clinic()
-      {appt, _p2} = turma_com_dois(ctx)
+      turma = turma_tipo(ctx)
+      p2 = novo_paciente(ctx)
 
       # ctx.paciente tem pacote; p2 é avulso na turma.
       {:ok, pkg} =
@@ -325,14 +291,32 @@ defmodule Api.Scheduling.ParticipantTransitionTest do
             cor: "#0FB5A6",
             data_inicio: @segunda,
             patient_id: ctx.paciente.id,
-            appointment_type_id: appt.appointment_type_id,
+            appointment_type_id: turma.id,
             grade: %{dows: [1], horarios: %{"1" => "08:00"}, professional_id: ctx.prof.id}
           },
           scope: ctx.scope
         )
 
-      att = Enum.find(appt.attendances, &(&1.patient_id == ctx.paciente.id))
-      Scheduling.set_attendance_package(att, %{package_id: pkg.id}, scope: ctx.scope)
+      {:ok, appt} =
+        Scheduling.schedule_appointment(
+          %{
+            starts_at: at("08:00"),
+            professional_id: ctx.prof.id,
+            appointment_type_id: turma.id,
+            patient_ids: [p2.id]
+          },
+          scope: ctx.scope
+        )
+
+      # O vínculo entra pela porta que a produção usa — `add_participant` com `package_id`, que
+      # carimba só a presença que entrou. Era aqui que este teste chamava `set_package`, a última
+      # referência a uma ação sem chamador de produção desde a etapa 2 da A2 (bate-volta da Onda 3).
+      {:ok, appt} =
+        Scheduling.add_appointment_participants(
+          appt,
+          %{patient_ids: [ctx.paciente.id], package_id: pkg.id},
+          scope: ctx.scope
+        )
 
       {:ok, _} =
         Scheduling.transition_participant(

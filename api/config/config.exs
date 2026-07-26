@@ -84,11 +84,20 @@ config :api,
   ],
   ash_authentication: [return_error_on_invalid_magic_link_token?: true]
 
-# Oban — a fila `housekeeping` fica de pé, **sem cron**. O único cron que existia limpava os
-# `SlotHold` vencidos, e a reserva de vaga foi removida (doc 39): sem tabela para varrer, o cron
-# era custo por-clínica a cada 5 min sem nada a fazer. A fila permanece porque a Fatia 3
-# (Pacotes) já tem trabalho assíncrono previsto para ela.
-config :api, Oban, repo: Api.Repo, queues: [housekeeping: 2], plugins: []
+# Oban — a fila `housekeeping` roda a materialização de série (Fatia 3) e a **poda da trilha**.
+#
+# O cron voltou com um trabalho que de fato existe: `PruneTrail` uma vez por dia, às 03:00 UTC. O
+# cron anterior (limpeza de `SlotHold`) foi removido porque varria por clínica a cada 5 min uma
+# tabela que deixara de existir (doc 39) — o critério é esse, não "cron é ruim". A trilha, medida
+# em 3× a tabela base sem nada que a diminuísse (doc 43 §5f), é o oposto: trabalho real, diário.
+config :api, Oban,
+  repo: Api.Repo,
+  queues: [housekeeping: 2],
+  plugins: [{Oban.Plugins.Cron, crontab: [{"0 3 * * *", Api.Housekeeping.PruneTrail}]}]
+
+# Quanto tempo a trilha de auditoria fica. Decisão humana (doc 43 §5f): um ano cobre o horizonte
+# que a tela `/configuracoes/auditoria` serve. Aumentar é trocar este número.
+config :api, Api.Housekeeping.PruneTrail, reter_dias: 365
 
 # Magic link sem página de interação: o callback GET assina a sessão direto (09 §8).
 config :ash_authentication, bypass_require_interaction_for_magic_link?: true

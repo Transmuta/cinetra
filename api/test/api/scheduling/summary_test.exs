@@ -9,9 +9,6 @@ defmodule Api.Scheduling.SummaryTest do
   """
   use Api.DataCase, async: false
 
-  alias Api.Accounts
-  alias Api.Directory
-  alias Api.Records
   alias Api.Scheduling
 
   # Segunda e terça de uma semana comum (clínica aberta 08–12 / 13–18 = 540 min/dia no seed).
@@ -19,49 +16,14 @@ defmodule Api.Scheduling.SummaryTest do
   @terca ~D[2026-07-21]
   @tz "America/Sao_Paulo"
 
-  defp email, do: "summary-#{System.unique_integer([:positive])}@example.com"
-
-  defp setup_clinic do
-    owner = Accounts.register_user!("Dona Ana", email(), authorize?: false)
-
-    clinic =
-      Accounts.onboard_clinic!("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
-
-    scope = scope_for(owner, clinic)
-    prof = Directory.create_professional!("Dra. Bea", %{}, tenant: clinic.id, actor: owner)
-    tipo = create_tipo(clinic, owner, "Fisio")
-    paciente = Records.create_patient!("Caio Paciente", %{}, tenant: clinic.id, actor: owner)
-
-    %{owner: owner, clinic: clinic, scope: scope, prof: prof, tipo: tipo, paciente: paciente}
-  end
-
-  defp create_tipo(clinic, owner, nome) do
-    Directory.create_appointment_type!(
-      %{
-        nome: "#{nome} #{System.unique_integer([:positive])}",
-        duracao_minutos: 50,
-        cor: "#0FB5A6",
-        icon: "Activity"
-      },
-      tenant: clinic.id,
-      actor: owner
-    )
-  end
-
-  defp scope_for(user, clinic) do
-    membership = Accounts.get_active_membership!(user.id, clinic.id, authorize?: false)
-    Api.Scope.with_membership(user, membership)
-  end
-
-  # Um membro `profissional` vinculado (ou não) a um professional_id, e o escopo dele.
-  defp profissional_scope(clinic, professional_id) do
-    user = Accounts.register_user!("Membro prof", email(), authorize?: false)
-    attrs = %{papel: :profissional, user_id: user.id, clinic_id: clinic.id}
-    attrs = if professional_id, do: Map.put(attrs, :professional_id, professional_id), else: attrs
-    {:ok, m} = Accounts.invite_member(attrs, authorize?: false)
-    {:ok, _} = Accounts.accept_invite(m, authorize?: false)
-    scope_for(user, clinic)
-  end
+  defp setup_clinic,
+    do:
+      clinica(
+        dono: "Dona Ana",
+        prof: "Dra. Bea",
+        paciente: "Caio Paciente",
+        tipo: [nome: "Fisio #{unico()}"]
+      )
 
   defp at(date, hhmm) do
     {:ok, dt} = Scheduling.LocalTime.to_utc(date, hhmm, @tz)
@@ -169,7 +131,7 @@ defmodule Api.Scheduling.SummaryTest do
 
     test "por_tipo conta os ativos por tipo, em ordem decrescente" do
       ctx = setup_clinic()
-      outro = create_tipo(ctx.clinic, ctx.owner, "Pilates")
+      outro = tipo!(ctx, nome: "Pilates #{unico()}")
 
       schedule(ctx, @segunda, "08:00")
       schedule(ctx, @segunda, "09:00")
@@ -188,7 +150,7 @@ defmodule Api.Scheduling.SummaryTest do
       ctx = setup_clinic()
 
       bruno =
-        Directory.create_professional!("Dr. Bruno", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+        profissional!(ctx, "Dr. Bruno")
 
       transition(ctx, schedule(ctx, @segunda, "08:00"), :complete)
       transition(ctx, schedule(ctx, @segunda, "09:00"), :no_show)
@@ -210,13 +172,13 @@ defmodule Api.Scheduling.SummaryTest do
       ctx = setup_clinic()
 
       bruno =
-        Directory.create_professional!("Dr. Bruno", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+        profissional!(ctx, "Dr. Bruno")
 
       schedule(ctx, @segunda, "08:00")
       schedule(ctx, @segunda, "09:00")
       schedule(ctx, @segunda, "10:00", %{professional_id: bruno.id})
 
-      escopo = profissional_scope(ctx.clinic, ctx.prof.id)
+      escopo = escopo_de_membro!(ctx, :profissional, ctx.prof.id)
       r = summary(ctx, @segunda, @segunda, nil, escopo)
 
       # Só os dois da Bea; o de Bruno some, e a quebra tem uma linha só.
@@ -229,7 +191,7 @@ defmodule Api.Scheduling.SummaryTest do
       ctx = setup_clinic()
 
       bruno =
-        Directory.create_professional!("Dr. Bruno", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+        profissional!(ctx, "Dr. Bruno")
 
       schedule(ctx, @segunda, "08:00")
       schedule(ctx, @segunda, "10:00", %{professional_id: bruno.id})
@@ -244,7 +206,7 @@ defmodule Api.Scheduling.SummaryTest do
       ctx = setup_clinic()
       schedule(ctx, @segunda, "08:00")
 
-      escopo = profissional_scope(ctx.clinic, nil)
+      escopo = escopo_de_membro!(ctx, :profissional, nil)
       r = summary(ctx, @segunda, @segunda, nil, escopo)
 
       assert r.totais.atendimentos == 0

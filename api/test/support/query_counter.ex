@@ -31,11 +31,42 @@ defmodule Api.QueryCounter do
     {result, drain(ref, 0)}
   end
 
+  @doc """
+  Roda `fun` e devolve `{resultado, %{tabela => n}}` — a **repartição** por tabela.
+
+  É o que separa "a massa faz 406 queries" de "a massa relê o mesmo tipo de atendimento 40 vezes":
+  o total diz que há um problema, a repartição diz onde. Foi assim que o bate-volta da Onda 3
+  achou o invariante relido por sessão (doc 43 §5a).
+  """
+  @spec tally((-> result)) :: {result, %{String.t() => pos_integer()}} when result: term()
+  def tally(fun) when is_function(fun, 0) do
+    parent = self()
+    ref = make_ref()
+
+    handler = fn _event, _measurements, metadata, _config ->
+      send(parent, {ref, :query, metadata[:source] || "(sem tabela)"})
+    end
+
+    :telemetry.attach({__MODULE__, ref}, [:api, :repo, :query], handler, nil)
+    result = fun.()
+    :telemetry.detach({__MODULE__, ref})
+
+    {result, drain_tally(ref, %{})}
+  end
+
   # A telemetria chega por mensagem, então a contagem só fecha depois de drenar a caixa. O
   # `after` é o que separa "acabou" de "ainda vindo" — sem ele a contagem sairia por baixo.
   defp drain(ref, acc) do
     receive do
       {^ref, :query} -> drain(ref, acc + 1)
+    after
+      50 -> acc
+    end
+  end
+
+  defp drain_tally(ref, acc) do
+    receive do
+      {^ref, :query, source} -> drain_tally(ref, Map.update(acc, source, 1, &(&1 + 1)))
     after
       50 -> acc
     end

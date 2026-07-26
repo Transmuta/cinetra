@@ -87,6 +87,15 @@ export const PACKAGE_COLORS = [
 
 // Defaults do "Novo pacote". `falta_punitiva` nasce marcada — é a combinação comercial mais
 // comum (a falta desconta a sessão) e é obrigatória na criação (imutável depois).
+/**
+ * Teto de sessões que a tela oferece. O servidor tem um teto **próprio e maior** (120,
+ * `Package.total`): o dele existe para barrar absurdo vindo de qualquer cliente — `total` dimensiona
+ * a materialização e a massa, e sem teto um `500` no lugar de `50` vira ~15 s de transação única
+ * (doc 43 §7). Este aqui é a faixa confortável do produto, e é o que evita o usuário receber o 422
+ * do servidor (cuja mensagem vem do Ash, em inglês) por algo que a tela já sabia recusar.
+ */
+export const PACKAGE_MAX_TOTAL = 60;
+
 export const NEW_PACKAGE_DEFAULTS = {
 	total: 10,
 	cor: PACKAGE_COLORS[0],

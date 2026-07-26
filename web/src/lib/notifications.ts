@@ -9,6 +9,8 @@ export type NotificationKind =
 	// deixou para "depois" porque esperavam a fatia de turma/pacote.
 	| 'appointment_missed'
 	| 'participant_added'
+	// Bate-volta da Onda 3 (doc 43 §5b): a massa por pacote é UM evento, não N.
+	| 'package_bulk_adjusted'
 	| 'slot_opened'
 	| 'member_joined';
 
@@ -51,6 +53,7 @@ export function notificationHref(kind: NotificationKind): string | null {
 		case 'appointment_canceled':
 		case 'appointment_missed':
 		case 'participant_added':
+		case 'package_bulk_adjusted':
 			return '/agenda';
 		case 'slot_opened':
 			return '/fila';

@@ -334,10 +334,18 @@ defmodule ApiWeb.PatientsControllerTest do
   # C13 / Frente 7: o histórico é a lista de PRESENÇAS do paciente, não de blocos — numa turma o
   # bloco pode estar concluído com a presença dele faltando.
   describe "GET /api/patients/:patient_id/history" do
+    # `n` dias atrás, **recuando até cair em dia útil**. Sem o recuo isto é uma bomba-relógio de
+    # calendário: `dias_atras/2` sempre cai no mesmo dia-da-semana de hoje, então a suíte inteira
+    # ficava vermelha aos domingos com "A clínica não atende neste dia" — o seed do onboard abre
+    # seg–sáb. Explodiu de verdade em 2026-07-26 (um domingo); passou verde no sábado anterior.
     defp dias_atras(n, hhmm) do
-      hoje = Date.utc_today()
-      {:ok, dt} = Api.Scheduling.LocalTime.to_utc(Date.add(hoje, -n), hhmm, "America/Sao_Paulo")
+      data = Date.utc_today() |> Date.add(-n) |> recua_para_util()
+      {:ok, dt} = Api.Scheduling.LocalTime.to_utc(data, hhmm, "America/Sao_Paulo")
       dt
+    end
+
+    defp recua_para_util(data) do
+      if Date.day_of_week(data) == 7, do: Date.add(data, -1), else: data
     end
 
     defp sessao_para(clinic, owner, paciente, starts_at) do
@@ -502,7 +510,8 @@ defmodule ApiWeb.PatientsControllerTest do
             appointment_id: appt.id,
             patient_id: paciente.id,
             status: :concluida,
-            clinic_id: clinic.id
+            clinic_id: clinic.id,
+            session_starts_at: appt.starts_at
           },
           tenant: clinic.id
         )

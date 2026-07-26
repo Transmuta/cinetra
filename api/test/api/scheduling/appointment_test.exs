@@ -19,49 +19,7 @@ defmodule Api.Scheduling.AppointmentTest do
   # São Paulo é UTC-3, então 08:00 local = 11:00Z.
   @segunda ~D[2026-07-20]
 
-  defp email, do: "agenda-#{System.unique_integer([:positive])}@example.com"
-
-  defp setup_clinic do
-    owner = Accounts.register_user!("Dono", email(), authorize?: false)
-
-    clinic =
-      Accounts.onboard_clinic!("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
-
-    scope = scope_for(owner, clinic)
-    prof = Directory.create_professional!("Dra. X", %{}, tenant: clinic.id, actor: owner)
-
-    tipo =
-      Directory.create_appointment_type!(
-        %{
-          nome: "Sessão #{System.unique_integer([:positive])}",
-          duracao_minutos: 50,
-          cor: "#0FB5A6",
-          icon: "Activity"
-        },
-        tenant: clinic.id,
-        actor: owner
-      )
-
-    paciente = Records.create_patient!("Paciente", %{}, tenant: clinic.id, actor: owner)
-
-    %{owner: owner, clinic: clinic, scope: scope, prof: prof, tipo: tipo, paciente: paciente}
-  end
-
-  defp member_with_role(clinic, papel, professional_id \\ nil) do
-    user = Accounts.register_user!("Membro #{papel}", email(), authorize?: false)
-
-    attrs = %{papel: papel, user_id: user.id, clinic_id: clinic.id}
-    attrs = if professional_id, do: Map.put(attrs, :professional_id, professional_id), else: attrs
-
-    {:ok, m} = Accounts.invite_member(attrs, authorize?: false)
-    {:ok, _} = Accounts.accept_invite(m, authorize?: false)
-    user
-  end
-
-  defp scope_for(user, clinic) do
-    membership = Accounts.get_active_membership!(user.id, clinic.id, authorize?: false)
-    Api.Scope.with_membership(user, membership)
-  end
+  defp setup_clinic, do: clinica()
 
   # "HH:MM" local (São Paulo) → DateTime UTC, na segunda de referência.
   defp at(hhmm) do
@@ -69,27 +27,10 @@ defmodule Api.Scheduling.AppointmentTest do
     dt
   end
 
-  defp grupo_tipo(ctx, capacidade) do
-    Directory.create_appointment_type!(
-      %{
-        nome: "Turma #{System.unique_integer([:positive])}",
-        duracao_minutos: 50,
-        cor: "#0FB5A6",
-        icon: "Users",
-        grupo: true,
-        capacidade: capacidade
-      },
-      tenant: ctx.clinic.id,
-      actor: ctx.owner
-    )
-  end
+  defp grupo_tipo(ctx, capacidade),
+    do: tipo!(ctx, nome: "Turma #{unico()}", icon: "Users", grupo: true, capacidade: capacidade)
 
-  defp novo_paciente(ctx) do
-    Records.create_patient!("Paciente #{System.unique_integer([:positive])}", %{},
-      tenant: ctx.clinic.id,
-      actor: ctx.owner
-    )
-  end
+  defp novo_paciente(ctx), do: paciente!(ctx, "Paciente #{unico()}")
 
   # Os `code`s estáveis do contrato (doc 25 §5) viajam em `vars[:code]` — é assim que a
   # fronteira HTTP os promove ao topo do 422. Afirmar o código, e não a mensagem, é o que
@@ -257,8 +198,7 @@ defmodule Api.Scheduling.AppointmentTest do
       {:ok, _} = schedule(ctx, %{professional_id: outro.id, starts_at: at("10:00")})
 
       # Membro ligado ao profissional `outro`.
-      user = member_with_role(ctx.clinic, :profissional, outro.id)
-      scope = scope_for(user, ctx.clinic)
+      scope = escopo_de_membro!(ctx, :profissional, outro.id)
 
       assert [appt] = Scheduling.list_appointments!(at("00:00"), at("23:00"), scope: scope)
       assert appt.professional_id == outro.id
@@ -269,8 +209,7 @@ defmodule Api.Scheduling.AppointmentTest do
       {:ok, _} = schedule(ctx, %{})
 
       # `Membership.professional_id` é allow_nil? true — o "UUID mole". Este membro existe.
-      user = member_with_role(ctx.clinic, :profissional, nil)
-      scope = scope_for(user, ctx.clinic)
+      scope = escopo_de_membro!(ctx, :profissional, nil)
       assert scope.professional_id == nil
 
       # Não pode degradar para "sem filtro" e mostrar a clínica inteira.
@@ -281,8 +220,7 @@ defmodule Api.Scheduling.AppointmentTest do
       ctx = setup_clinic()
       {:ok, _} = schedule(ctx, %{})
 
-      user = member_with_role(ctx.clinic, :recepcao)
-      scope = scope_for(user, ctx.clinic)
+      scope = escopo_de_membro!(ctx, :recepcao)
 
       assert [_] = Scheduling.list_appointments!(at("00:00"), at("23:00"), scope: scope)
     end
@@ -291,16 +229,14 @@ defmodule Api.Scheduling.AppointmentTest do
   describe "A8 — quem pode agendar" do
     test "recepção agenda" do
       ctx = setup_clinic()
-      user = member_with_role(ctx.clinic, :recepcao)
-      scope = scope_for(user, ctx.clinic)
+      scope = escopo_de_membro!(ctx, :recepcao)
 
       assert {:ok, _} = schedule(%{ctx | scope: scope}, %{})
     end
 
     test "profissional agenda na PRÓPRIA coluna" do
       ctx = setup_clinic()
-      user = member_with_role(ctx.clinic, :profissional, ctx.prof.id)
-      scope = scope_for(user, ctx.clinic)
+      scope = escopo_de_membro!(ctx, :profissional, ctx.prof.id)
 
       assert {:ok, appt} = schedule(%{ctx | scope: scope}, %{})
       assert appt.professional_id == ctx.prof.id
@@ -312,8 +248,7 @@ defmodule Api.Scheduling.AppointmentTest do
       colega =
         Directory.create_professional!("Dr. Y", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
 
-      user = member_with_role(ctx.clinic, :profissional, ctx.prof.id)
-      scope = scope_for(user, ctx.clinic)
+      scope = escopo_de_membro!(ctx, :profissional, ctx.prof.id)
 
       assert {:error, %Ash.Error.Forbidden{}} =
                schedule(%{ctx | scope: scope}, %{professional_id: colega.id})
@@ -321,8 +256,7 @@ defmodule Api.Scheduling.AppointmentTest do
 
     test "FAIL-CLOSED: profissional SEM professional_id não agenda em coluna nenhuma" do
       ctx = setup_clinic()
-      user = member_with_role(ctx.clinic, :profissional, nil)
-      scope = scope_for(user, ctx.clinic)
+      scope = escopo_de_membro!(ctx, :profissional, nil)
 
       assert {:error, %Ash.Error.Forbidden{}} = schedule(%{ctx | scope: scope}, %{})
     end
@@ -331,8 +265,7 @@ defmodule Api.Scheduling.AppointmentTest do
   describe "A9 — só recepção para cima cria encaixe" do
     test "profissional NÃO cria encaixe" do
       ctx = setup_clinic()
-      user = member_with_role(ctx.clinic, :profissional, ctx.prof.id)
-      scope = scope_for(user, ctx.clinic)
+      scope = escopo_de_membro!(ctx, :profissional, ctx.prof.id)
 
       # `encaixe = true` é o predicado que ISENTA a linha da exclusion constraint. O papel
       # menos privilegiado não desliga a proteção contra dupla-marcação.
@@ -342,16 +275,14 @@ defmodule Api.Scheduling.AppointmentTest do
 
     test "profissional continua agendando SEM encaixe" do
       ctx = setup_clinic()
-      user = member_with_role(ctx.clinic, :profissional, ctx.prof.id)
-      scope = scope_for(user, ctx.clinic)
+      scope = escopo_de_membro!(ctx, :profissional, ctx.prof.id)
 
       assert {:ok, %{encaixe: false}} = schedule(%{ctx | scope: scope}, %{encaixe: false})
     end
 
     test "recepção cria encaixe" do
       ctx = setup_clinic()
-      user = member_with_role(ctx.clinic, :recepcao)
-      scope = scope_for(user, ctx.clinic)
+      scope = escopo_de_membro!(ctx, :recepcao)
 
       assert {:ok, %{encaixe: true}} = schedule(%{ctx | scope: scope}, %{encaixe: true})
     end
@@ -372,8 +303,7 @@ defmodule Api.Scheduling.AppointmentTest do
 
       {:ok, _} = schedule(ctx, %{professional_id: colega.id, starts_at: at("10:00")})
 
-      user = member_with_role(ctx.clinic, :profissional, colega.id)
-      scope = scope_for(user, ctx.clinic)
+      scope = escopo_de_membro!(ctx, :profissional, colega.id)
 
       assert [attendance] = Scheduling.list_attendances!(scope: scope)
       assert [_, _] = Scheduling.list_attendances!(scope: ctx.scope)
@@ -386,8 +316,7 @@ defmodule Api.Scheduling.AppointmentTest do
       ctx = setup_clinic()
       {:ok, _} = schedule(ctx, %{})
 
-      user = member_with_role(ctx.clinic, :profissional, nil)
-      scope = scope_for(user, ctx.clinic)
+      scope = escopo_de_membro!(ctx, :profissional, nil)
 
       assert [] == Scheduling.list_attendances!(scope: scope)
     end
@@ -413,8 +342,7 @@ defmodule Api.Scheduling.AppointmentTest do
 
       {:ok, _} = schedule(ctx, %{professional_id: colega.id, starts_at: at("10:00")})
 
-      user = member_with_role(ctx.clinic, :profissional, colega.id)
-      scope = scope_for(user, ctx.clinic)
+      scope = escopo_de_membro!(ctx, :profissional, colega.id)
 
       appointments =
         Scheduling.list_appointments!(at("00:00"), at("23:00"),
@@ -821,7 +749,7 @@ defmodule Api.Scheduling.AppointmentTest do
       ctx = setup_clinic()
       {:ok, _appt} = schedule(ctx, %{})
 
-      user = member_with_role(ctx.clinic, :profissional, ctx.prof.id)
+      user = escopo_de_membro!(ctx, :profissional, ctx.prof.id).user
 
       for ler <- [
             &Scheduling.list_appointment_versions/1,
@@ -835,7 +763,7 @@ defmodule Api.Scheduling.AppointmentTest do
       ctx = setup_clinic()
       {:ok, _appt} = schedule(ctx, %{})
 
-      user = member_with_role(ctx.clinic, :recepcao)
+      user = escopo_de_membro!(ctx, :recepcao).user
 
       assert {:ok, []} =
                Scheduling.list_appointment_versions(
@@ -1224,8 +1152,7 @@ defmodule Api.Scheduling.AppointmentTest do
       ctx = setup_clinic()
       appt = agendado(ctx)
 
-      user = member_with_role(ctx.clinic, :recepcao)
-      scope = scope_for(user, ctx.clinic)
+      scope = escopo_de_membro!(ctx, :recepcao)
 
       assert {:ok, excluido} = Scheduling.transition_appointment(scope, appt.id, :exclude)
       assert excluido.excluded_at != nil
@@ -1277,8 +1204,7 @@ defmodule Api.Scheduling.AppointmentTest do
 
       appt = agendado(ctx)
 
-      user = member_with_role(ctx.clinic, :profissional, ctx.prof.id)
-      scope = scope_for(user, ctx.clinic)
+      scope = escopo_de_membro!(ctx, :profissional, ctx.prof.id)
 
       assert {:error, %Ash.Error.Forbidden{}} =
                Scheduling.transition_appointment(scope, appt.id, :reschedule, %{

@@ -24,11 +24,20 @@ defmodule Api.Scheduling.Appointment.Validations.PatientsActive do
     with ids when is_list(ids) and ids != [] <-
            Ash.Changeset.get_argument(changeset, :patient_ids),
          clinic_id when not is_nil(clinic_id) <- changeset.tenant,
-         [_ | _] <- Api.Records.inactive_patients(ids, to_string(clinic_id)) do
+         [_ | _] <- arquivados(changeset, ids, to_string(clinic_id)) do
       {:error,
        CodedError.invalid_attribute(:patient_ids, "paciente arquivado não pode ser agendado")}
     else
       _ -> :ok
+    end
+  end
+
+  # Num LOTE os pacientes vêm aquecidos (`Api.Scheduling.Warm`) — o mesmo paciente para as N
+  # sessões da massa —, e o `ativo` sai do registro que já está em memória.
+  defp arquivados(changeset, ids, clinic_id) do
+    case Api.Scheduling.Warm.pacientes(changeset, clinic_id, ids) do
+      {:ok, pacientes} -> pacientes |> Enum.reject(& &1.ativo) |> Enum.map(& &1.id)
+      :miss -> Api.Records.inactive_patients(ids, clinic_id)
     end
   end
 end

@@ -90,7 +90,15 @@ defmodule Api.Packages do
     # cascata interna, como `CascadeToAttendances`. `tenant` mantém a GUC.
     # `set_pkg_hold` segue como cascata interna (`authorize?: false`): não é ação de `@write_actions`
     # (não tem policy própria) e não carrega nada do corpo do request — não há o que escalar.
-    lifecycle(scope, package_id, [:agendado, :confirmado], :mark_paused, fn {appt, _att} ->
+    lifecycle(scope, package_id, [:agendado, :confirmado], :mark_paused, &segura(scope, &1))
+  end
+
+  # Segurar segue a regra por-presença de todo o resto do pacote (doc 43 §5c): **sozinho no bloco**,
+  # segura o bloco (é a sessão dele); **acompanhado**, segura só a presença — pausar o pacote da
+  # Maria não pode fazer o Pilates das terças sumir da agenda do João e da Ana, que foi o que o
+  # bate-volta mediu (`bloco_visivel_depois: 0` com `participantes_do_bloco: 2`).
+  defp segura(scope, {appt, att}) do
+    if Api.Packages.Bulk.sozinho?(appt, att) do
       {:ok, _held, notes} =
         Api.Scheduling.set_appointment_pkg_hold(appt, %{pkg_hold: true},
           tenant: scope.clinic_id,
@@ -99,7 +107,16 @@ defmodule Api.Packages do
         )
 
       notes
-    end)
+    else
+      {:ok, _held, notes} =
+        Api.Scheduling.set_attendance_pkg_hold(att, %{pkg_hold: true},
+          tenant: scope.clinic_id,
+          authorize?: false,
+          return_notifications?: true
+        )
+
+      notes
+    end
   end
 
   @doc """
@@ -142,17 +159,15 @@ defmodule Api.Packages do
       in_clinic(scope, fn ->
         Api.Repo.transaction(fn ->
           pkg = get_package!(package_id, scope: scope)
-          held = held_sessions(scope, clinic_id, package_id)
+          held = held_targets(scope, package_id)
 
+          # Cancelar pela MESMA decisão por-presença da massa: numa turma compartilhada, a sessão
+          # que volta para a fila de reprojeção é a **dele** — o colega fica. Antes daqui a
+          # retomada cancelava o bloco, o que arrastaria a turma junto (a irmã do achado de
+          # `cancel_package`, doc 43 §5c).
           cancel_notes =
-            Enum.flat_map(held, fn appt ->
-              {:ok, _c, notes} =
-                Api.Scheduling.cancel_appointment_slot(appt, %{},
-                  tenant: clinic_id,
-                  authorize?: false,
-                  return_notifications?: true
-                )
-
+            Enum.flat_map(held, fn alvo ->
+              {:ok, notes} = Api.Packages.Bulk.cancelar_sessao(scope, alvo)
               notes
             end)
 
@@ -189,20 +204,26 @@ defmodule Api.Packages do
     |> Oban.insert!()
   end
 
-  # As sessões seguradas do pacote — via `list_held_sessions`, que abre a porta `include_held` do
-  # `HideHeld` (a preparation global as esconderia de qualquer leitura normal).
+  # Os pares `{appointment, attendance}` **segurados** do pacote — o bloco segurado (sessão de um
+  # só) ou a presença segurada (turma compartilhada, doc 43 §5c). Abre a porta `include_held` das
+  # duas preparations, senão o pacote se esconde do que ele mesmo segurou.
   #
   # **Cancelada fica de fora**: uma segurada que já foi cancelada (pela massa, ou por um
   # `cancel_package` anterior) não tem o que reprojetar, e tentar cancelá-la de novo fazia o
   # `resume_package` estourar com "transição indisponível a partir de cancelado" — 500 no botão
   # Retomar que a ficha oferece (bate-volta da Onda 3).
-  defp held_sessions(scope, clinic_id, package_id) do
-    ids =
+  defp held_targets(scope, package_id) do
+    por_bloco =
       list_attendances_for_package(scope, package_id)
-      |> Enum.map(& &1.appointment_id)
+      |> Enum.filter(&Api.Scheduling.Attendance.viva?/1)
+      |> Map.new(&{&1.appointment_id, &1})
 
-    Api.Scheduling.list_held_sessions(clinic_id, ids)
+    Api.Scheduling.list_sessions_including_held(scope.clinic_id, Map.keys(por_bloco),
+      load: [:attendances]
+    )
     |> Enum.reject(&(&1.status == :cancelado))
+    |> Enum.map(&{&1, Map.fetch!(por_bloco, &1.id)})
+    |> Enum.filter(fn {appt, att} -> appt.pkg_hold or att.pkg_hold end)
   end
 
   # Roda `fun` sobre cada sessão futura não-resolvida do pacote e vira o status do pacote, **tudo
@@ -257,7 +278,7 @@ defmodule Api.Packages do
 
     por_bloco =
       list_attendances_for_package(scope, package_id)
-      |> Enum.reject(&(&1.status == :cancelada))
+      |> Enum.filter(&Api.Scheduling.Attendance.viva?/1)
       |> Map.new(&{&1.appointment_id, &1})
 
     Api.Scheduling.list_sessions_including_held(scope.clinic_id, Map.keys(por_bloco),
@@ -270,13 +291,8 @@ defmodule Api.Packages do
     |> Enum.map(&{&1, Map.fetch!(por_bloco, &1.id)})
   end
 
-  defp list_attendances_for_package(scope, package_id) do
-    Api.Scheduling.list_attendances!(
-      scope: scope,
-      query: [filter: [package_id: package_id]],
-      load: [:appointment]
-    )
-  end
+  defp list_attendances_for_package(scope, package_id),
+    do: Api.Scheduling.list_package_attendances(scope, package_id, load: [:appointment])
 
   @doc """
   Ajuste em massa das sessões do pacote (doc 41 etapa 3). Delega a `Api.Packages.Bulk` — ver lá a

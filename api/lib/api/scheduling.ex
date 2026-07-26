@@ -56,9 +56,8 @@ defmodule Api.Scheduling do
     resource Api.Scheduling.Attendance do
       define :list_attendances, action: :read
 
-      # A materialização do pacote (Fatia 3) carimba o `package_id` na presença logo após criar a
-      # sessão. Recebe o registro e o novo pacote como argumento extra (mapa antes das opções).
-      define :set_attendance_package, action: :set_package
+      # Segura/solta a presença na pausa do pacote (doc 43 §5c) — cascata interna de `Api.Packages`.
+      define :set_attendance_pkg_hold, action: :set_pkg_hold
 
       # Transições de presença POR PARTICIPANTE (Frente 6/A2). Cruas: quem chama de fora usa
       # `transition_participant/6`, que faz o fetch-then-update com o guard de `version` (409) e o
@@ -164,7 +163,7 @@ defmodule Api.Scheduling do
     with clinic_id when is_binary(clinic_id) <- clinic_id_from(opts),
          type_id when is_binary(type_id) <- fetch(attrs, :appointment_type_id),
          professional_id when is_binary(professional_id) <- fetch(attrs, :professional_id),
-         {:ok, _capacidade} <- Api.Directory.appointment_type_capacity(type_id, clinic_id),
+         {:ok, _capacidade} <- capacidade_do_tipo(opts, clinic_id, type_id),
          {:ok, starts_at} <- cast_starts_at(fetch(attrs, :starts_at)) do
       query =
         Ash.Query.filter(
@@ -184,6 +183,17 @@ defmodule Api.Scheduling do
       end
     else
       _ -> nil
+    end
+  end
+
+  # "É turma, e de que tamanho?" — a pergunta que decide se esta sessão funde numa existente. Num
+  # LOTE o tipo vem aquecido nas opções (`Api.Scheduling.Warm`), e era esta a última leitura de
+  # `appointment_types` que sobrava por sessão na massa em turma (doc 43 §5a).
+  defp capacidade_do_tipo(opts, clinic_id, type_id) do
+    case Api.Scheduling.Warm.tipo(opts, clinic_id, type_id) do
+      {:ok, %{grupo: true, capacidade: capacidade}} -> {:ok, capacidade}
+      {:ok, _individual} -> :individual
+      :miss -> Api.Directory.appointment_type_capacity(type_id, clinic_id)
     end
   end
 
@@ -259,7 +269,7 @@ defmodule Api.Scheduling do
         list_attendances!(
           tenant: clinic_id,
           authorize?: false,
-          query: [filter: [appointment_id: appointment_id, status: [not_eq: :cancelada]]]
+          query: [filter: [appointment_id: appointment_id, viva?: true]]
         )
       end)
 
@@ -470,9 +480,11 @@ defmodule Api.Scheduling do
             scope: scope,
             query: [
               filter: [patient_id: patient_id],
-              # Ordena pelo instante da sessão via o aggregate `session_starts_at` (o `starts_at`
-              # do bloco trazido para a presença): `sort` por campo de relação não desce para o
-              # SQL, o aggregate desce.
+              # Ordena pela **coluna** `session_starts_at` (cópia do `starts_at` do bloco, mantida
+              # por `ManageParticipants`/`SyncSessionStartsAt`). Era um aggregate: o `ORDER BY …
+              # LIMIT` descia igual, mas a subquery não-correlacionada varria a agenda da clínica
+              # inteira no hash join (doc 43 §4). Com a coluna, o índice
+              # `(clinic_id, patient_id, session_starts_at)` responde sem varrer nem ordenar.
               sort: [session_starts_at: :desc],
               # +1 é o que separa "tem mais" de "acabou" sem uma segunda query nem um `COUNT`.
               limit: limit + 1
@@ -1440,6 +1452,26 @@ defmodule Api.Scheduling do
 
     in_clinic(clinic_id, fn ->
       find_appointments!(query: query, tenant: clinic_id, authorize?: false)
+    end)
+  end
+
+  @doc """
+  As presenças de um pacote **incluindo as seguradas** (`pkg_hold` da presença, doc 43 §5c).
+
+  Ponto único: a massa (`Api.Packages.Bulk`) e o ciclo de vida (`Api.Packages`) liam isto cada um
+  por si, e a partir do momento em que a presença pode estar segurada as duas cópias teriam de
+  abrir a mesma porta — a que a preparation `HideHeldAttendances` fecha para todo mundo. Uma
+  esquecer é o pacote se esconder de si mesmo, que é exatamente o bug das órfãs (bate-volta
+  2026-07-24) numa roupa nova.
+  """
+  def list_package_attendances(%Api.Scope{} = scope, package_id, opts \\ []) do
+    query =
+      Api.Scheduling.Attendance
+      |> Ash.Query.set_context(%{include_held: true})
+      |> Ash.Query.filter(package_id == ^package_id)
+
+    in_clinic(scope, fn ->
+      list_attendances!([scope: scope, query: query] ++ Keyword.take(opts, [:load]))
     end)
   end
 

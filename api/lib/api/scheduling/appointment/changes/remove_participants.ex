@@ -62,9 +62,15 @@ defmodule Api.Scheduling.Appointment.Changes.RemoveParticipants do
 
   # As presenças vivas do bloco. `authorize?: false` como a cascata irmã: quem autorizou foi a
   # ação do bloco, e o recorte A7 aqui esconderia participante do próprio bloco que já se leu.
+  #
+  # `include_held` porque presença **segurada** por uma pausa de pacote (doc 43 §5c) continua sendo
+  # participante do bloco — só está escondida da leitura normal. Sem a porta, a retomada não
+  # conseguia tirá-la da turma: `alvos == []` e o 422 "participante não encontrado neste
+  # agendamento" abortava a transação inteira do `resume_package`.
   defp live_attendances(appointment_id, tenant) do
     Api.Scheduling.Attendance
-    |> Ash.Query.filter(appointment_id == ^appointment_id and status != :cancelada)
+    |> Ash.Query.set_context(%{include_held: true})
+    |> Ash.Query.filter(appointment_id == ^appointment_id and viva? == true)
     |> Ash.read!(authorize?: false, tenant: tenant)
   end
 end

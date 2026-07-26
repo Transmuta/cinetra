@@ -17,7 +17,7 @@ defmodule ApiWeb.NotificationsController do
   # GET /api/notifications  — a caixa + o contador do badge.
   def index(conn, params) do
     with_member_scope(conn, fn scope ->
-      only_unread = params["unread"] in ["1", "true"]
+      only_unread = Api.Params.truthy?(params["unread"])
       notifications = Notifications.list_inbox(scope, only_unread: only_unread)
 
       # No caminho do badge (`?unread=1`, o que o layout do web chama em toda navegação) a lista

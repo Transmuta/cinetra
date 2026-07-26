@@ -411,8 +411,16 @@ export const DRAWER_ACTIONS = [
 // Presença por participante (A2, doc 41)
 // ---------------------------------------------------------------------------
 
-/** Os verbos das sub-rotas `/participants/:patient_id/…`. */
-export type ParticipantKind = 'complete' | 'no_show' | 'reopen' | 'justify';
+/**
+ * Os verbos das sub-rotas `/participants/:patient_id/…`.
+ *
+ * A **lista** é a fonte: o tipo é derivado dela, e não o contrário. Antes eram três declarações
+ * independentes — o tipo aqui, o mesmo tipo em `server/appointments.ts` e a lista de runtime que
+ * a action usa para validar; três lugares para lembrar quando um verbo novo nascer (doc 43 §5e).
+ */
+export const PARTICIPANT_KINDS = ['complete', 'no_show', 'reopen', 'justify'] as const;
+
+export type ParticipantKind = (typeof PARTICIPANT_KINDS)[number];
 
 export interface ParticipantAction {
 	kind: ParticipantKind;
@@ -471,6 +479,28 @@ export const ATTENDANCE_META: Record<AttendanceStatus, { label: string; tone?: s
 	faltou: { label: 'Faltou', tone: 'danger' },
 	cancelada: { label: 'Cancelada' }
 };
+
+/**
+ * O selo de UMA presença — rótulo e tom, **com** a justificativa aplicada.
+ *
+ * Existe porque `ATTENDANCE_META` sozinho não decide o caso que importa: falta **justificada**.
+ * O drawer e o histórico da ficha resolviam isso cada um do seu jeito e já divergiam (doc 43
+ * §5e): vermelho num, cinza no outro, para o mesmo fato. Aqui vale o cinza — falta justificada
+ * não conta no agregado `Patient.faltas` e não debita o pacote, então pintá-la de vermelho diz o
+ * contrário do que o sistema faz com ela.
+ */
+export function attendanceSelo(
+	status: AttendanceStatus,
+	faltaJustificada = false
+): { label: string; tone?: string } {
+	const meta = ATTENDANCE_META[status] ?? { label: status };
+
+	if (status === 'faltou' && faltaJustificada) {
+		return { label: `${meta.label} · justificada` };
+	}
+
+	return meta;
+}
 
 /** Quantas presenças já foram resolvidas — o "2/4" do cabeçalho da turma. */
 export function resolvedCount(participants: Participant[]): number {

@@ -122,6 +122,52 @@ defmodule Api.Notifications.Fanout do
     :ok
   end
 
+  @doc """
+  A massa por pacote em **uma** notificação por profissional afetado (doc 43 §5b).
+
+  A massa remarca N sessões numa transação só. Sem isto, cada sessão reinserida disparava um
+  `:appointment_scheduled` — *"Novo agendamento na sua agenda"* ×40 num pacote de 40, para o que é
+  um evento só, e dizendo "novo" sobre sessão que foi **movida**. As notificações por sessão são
+  suprimidas na origem (o `Api.Notifications.Notifier` reconhece a marca de lote no contexto do
+  changeset); esta as substitui.
+
+  `professional_ids` são as colunas tocadas — antes e depois, porque mudar de profissional mexe na
+  agenda dos dois. Cada dono de coluna recebe uma linha; o autor segue suprimido, como em todo o
+  fan-out.
+  """
+  def package_bulk_adjusted(clinic_id, professional_ids, pacote_nome, afetadas, actor)
+      when is_integer(afetadas) and afetadas > 0 do
+    donos = professional_users(clinic_id)
+
+    recipients =
+      professional_ids
+      |> Enum.uniq()
+      |> Enum.map(&Map.get(donos, &1))
+      |> Enum.filter(&deliver?(&1, actor))
+      |> Enum.uniq()
+
+    for recipient_id <- recipients do
+      notify(
+        clinic_id,
+        recipient_id,
+        :package_bulk_adjusted,
+        "Sessões de pacote remarcadas",
+        "#{afetadas} #{sessoes(afetadas)} do pacote #{pacote_nome} #{foram(afetadas)} remarcadas.",
+        %{afetadas: afetadas, pacote: pacote_nome, actor: actor_payload(actor)}
+      )
+    end
+
+    :ok
+  end
+
+  def package_bulk_adjusted(_clinic_id, _ids, _nome, _afetadas, _actor), do: :ok
+
+  defp sessoes(1), do: "sessão"
+  defp sessoes(_), do: "sessões"
+
+  defp foram(1), do: "foi"
+  defp foram(_), do: "foram"
+
   # ---- Falta/cancelamento que abre vaga com fila casando → recepção/admin/owner ----
 
   @doc """

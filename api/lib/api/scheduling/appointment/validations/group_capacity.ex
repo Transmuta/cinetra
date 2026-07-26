@@ -38,13 +38,39 @@ defmodule Api.Scheduling.Appointment.Validations.GroupCapacity do
          clinic_id when not is_nil(clinic_id) <- changeset.tenant,
          type_id when is_binary(type_id) <-
            Ash.Changeset.get_attribute(changeset, :appointment_type_id),
-         {:ok, capacidade} <-
-           Api.Scheduling.group_capacity(to_string(clinic_id), type_id) do
+         {:ok, capacidade} <- capacidade(changeset, to_string(clinic_id), type_id) do
       check(changeset, to_string(clinic_id), Enum.count(Enum.uniq(ids)), capacidade)
     else
       # Tipo individual, tipo inexistente, sem tenant, encaixe: nenhum desses é assunto daqui.
       # Quem recusa tipo inválido é `ComputeEndsAt`/`TypeAndProfessionalActive`.
       _ -> :ok
+    end
+  end
+
+  # Num LOTE o tipo vem aquecido (`Api.Scheduling.Warm`): a capacidade da turma é a mesma para as
+  # N sessões da massa. Fora do lote, `:miss` e a leitura de sempre.
+  defp capacidade(changeset, clinic_id, type_id) do
+    case Api.Scheduling.Warm.tipo(changeset, clinic_id, type_id) do
+      {:ok, %{grupo: true, capacidade: capacidade}} when is_integer(capacidade) ->
+        {:ok, capacidade}
+
+      # Turma sem teto próprio cai no padrão da clínica — a mesma regra de
+      # `Api.Scheduling.group_capacity/2`, e a clínica também está aquecida.
+      {:ok, %{grupo: true}} ->
+        {:ok, clinic_cap(changeset, clinic_id)}
+
+      {:ok, _individual} ->
+        :individual
+
+      :miss ->
+        Api.Scheduling.group_capacity(clinic_id, type_id)
+    end
+  end
+
+  defp clinic_cap(changeset, clinic_id) do
+    case Api.Scheduling.Warm.clinic(changeset, clinic_id) do
+      {:ok, clinic} -> clinic.cap_turma_padrao
+      :miss -> Api.Scheduling.load_clinic(clinic_id).cap_turma_padrao
     end
   end
 

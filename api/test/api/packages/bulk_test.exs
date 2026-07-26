@@ -11,82 +11,26 @@ defmodule Api.Packages.BulkTest do
   """
   use Api.DataCase, async: false
 
-  alias Api.Accounts
   alias Api.Directory
   alias Api.Packages
-  alias Api.Records
   alias Api.Scheduling
 
   # Uma segunda-feira bem no futuro: a massa só alcança sessões de hoje em diante.
   @segunda ~D[2027-03-01]
 
-  defp email, do: "bulk-#{System.unique_integer([:positive])}@example.com"
-
+  # A fábrica é a compartilhada (`Api.Generators`, importada pelo `DataCase`); aqui só o que é
+  # deste teste: a turma no lugar do individual e um segundo profissional para a massa mover.
   defp setup_clinic do
-    owner = Accounts.register_user!("Dono", email(), authorize?: false)
-
-    clinic =
-      Accounts.onboard_clinic!("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
-
-    membership = Accounts.get_active_membership!(owner.id, clinic.id, authorize?: false)
-    scope = Api.Scope.with_membership(owner, membership)
-    prof = Directory.create_professional!("Dra. X", %{}, tenant: clinic.id, actor: owner)
-    outra_prof = Directory.create_professional!("Dr. Y", %{}, tenant: clinic.id, actor: owner)
-
-    turma =
-      Directory.create_appointment_type!(
-        %{
-          nome: "Pilates #{System.unique_integer([:positive])}",
-          duracao_minutos: 50,
-          cor: "#0FB5A6",
-          icon: "Users",
-          grupo: true,
-          capacidade: 4
-        },
-        tenant: clinic.id,
-        actor: owner
-      )
-
-    %{
-      owner: owner,
-      clinic: clinic,
-      scope: scope,
-      prof: prof,
-      outra_prof: outra_prof,
-      tipo: turma
-    }
+    ctx = clinica(tipo: [nome: "Pilates #{unico()}", icon: "Users", grupo: true, capacidade: 4])
+    Map.put(ctx, :outra_prof, profissional!(ctx, "Dr. Y"))
   end
 
   # Um usuário com papel `profissional` vinculado a `professional_id` — o papel menos privilegiado
   # com acesso à agenda, e o que as policies A7/A9 recortam.
-  defp scope_profissional(ctx, professional_id) do
-    user = Accounts.register_user!("Prof", email(), authorize?: false)
+  defp scope_profissional(ctx, professional_id),
+    do: escopo_de_membro!(ctx, :profissional, professional_id)
 
-    {:ok, m} =
-      Accounts.invite_member(
-        %{
-          papel: :profissional,
-          user_id: user.id,
-          clinic_id: ctx.clinic.id,
-          professional_id: professional_id
-        },
-        authorize?: false
-      )
-
-    {:ok, _} = Accounts.accept_invite(m, authorize?: false)
-
-    Api.Scope.with_membership(
-      user,
-      Accounts.get_active_membership!(user.id, ctx.clinic.id, authorize?: false)
-    )
-  end
-
-  defp novo_paciente(ctx),
-    do:
-      Records.create_patient!("Paciente #{System.unique_integer([:positive])}", %{},
-        tenant: ctx.clinic.id,
-        actor: ctx.owner
-      )
+  defp novo_paciente(ctx), do: paciente!(ctx, "Paciente #{unico()}")
 
   defp pacote(ctx, paciente) do
     Packages.create_package!(
@@ -459,7 +403,8 @@ defmodule Api.Packages.BulkTest do
           patient_id: dono.id,
           package_id: pkg.id,
           status: :prevista,
-          clinic_id: ctx.clinic.id
+          clinic_id: ctx.clinic.id,
+          session_starts_at: passada.starts_at
         },
         tenant: ctx.clinic.id
       )

@@ -22,7 +22,7 @@ defmodule Api.Scheduling.Appointment.Changes.CheckAvailability do
   """
   use Ash.Resource.Change
 
-  alias Api.Scheduling.{Availability, CodedError, LocalTime}
+  alias Api.Scheduling.{Availability, CodedError, LocalTime, Warm}
 
   @impl true
   def change(changeset, _opts, _context) do
@@ -43,15 +43,35 @@ defmodule Api.Scheduling.Appointment.Changes.CheckAvailability do
   end
 
   defp verify(changeset, clinic_id, professional_id, starts_at, ends_at) do
-    %{timezone: timezone} = clinic = Api.Scheduling.load_clinic(clinic_id)
+    %{timezone: timezone} = clinic = clinic(changeset, clinic_id)
     date = LocalTime.to_local_date(starts_at, timezone)
 
-    case Api.Scheduling.load_availability_sources(clinic_id, professional_id, date) do
+    case sources(changeset, clinic_id, professional_id, date) do
       {:error, :professional_not_found} ->
         error(changeset, :professional_id, "profissional não encontrado nesta clínica")
 
       {:ok, professional, sources} ->
         evaluate(changeset, professional, sources, date, {starts_at, ends_at}, timezone, clinic)
+    end
+  end
+
+  # Num LOTE (a massa por pacote), a clínica e as fontes de expediente são as mesmas para todas as
+  # sessões e vêm prontas no contexto — ver `Api.Scheduling.Warm`. Fora do lote, `:miss`, e é a
+  # leitura de sempre: o warm é atalho, não autoridade.
+  defp clinic(changeset, clinic_id) do
+    case Warm.clinic(changeset, clinic_id) do
+      {:ok, clinic} -> clinic
+      :miss -> Api.Scheduling.load_clinic(clinic_id)
+    end
+  end
+
+  defp sources(changeset, clinic_id, professional_id, date) do
+    case Warm.sources(changeset, clinic_id, professional_id, date) do
+      {:ok, professional, sources} ->
+        {:ok, professional, sources}
+
+      :miss ->
+        Api.Scheduling.load_availability_sources(clinic_id, professional_id, date)
     end
   end
 

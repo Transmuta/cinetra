@@ -8,44 +8,12 @@ defmodule Api.Packages.LifecycleTest do
   use Oban.Testing, repo: Api.Repo
 
   alias Api.Accounts
-  alias Api.Directory
   alias Api.Packages
-  alias Api.Records
   alias Api.Scheduling
 
   @segunda ~D[2026-07-20]
 
-  defp email, do: "life-#{System.unique_integer([:positive])}@example.com"
-
-  defp setup_clinic do
-    owner = Accounts.register_user!("Dono", email(), authorize?: false)
-
-    clinic =
-      Accounts.onboard_clinic!("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
-
-    scope = scope_for(owner, clinic)
-    prof = Directory.create_professional!("Dra. X", %{}, tenant: clinic.id, actor: owner)
-
-    tipo =
-      Directory.create_appointment_type!(
-        %{
-          nome: "Pilates #{System.unique_integer([:positive])}",
-          duracao_minutos: 50,
-          cor: "#0FB5A6",
-          icon: "Activity"
-        },
-        tenant: clinic.id,
-        actor: owner
-      )
-
-    paciente = Records.create_patient!("Paciente", %{}, tenant: clinic.id, actor: owner)
-    %{owner: owner, clinic: clinic, scope: scope, prof: prof, tipo: tipo, paciente: paciente}
-  end
-
-  defp scope_for(user, clinic) do
-    membership = Accounts.get_active_membership!(user.id, clinic.id, authorize?: false)
-    Api.Scope.with_membership(user, membership)
-  end
+  defp setup_clinic, do: clinica(tipo: [nome: "Pilates #{unico()}"])
 
   # `now` fixo bem antes da série (segunda 2026-07-20): todas as sessões são "futuras".
   defp scope_before(ctx) do
@@ -158,6 +126,97 @@ defmodule Api.Packages.LifecycleTest do
       {:ok, _} = Packages.pause_package(scope_before(ctx), pkg.id)
 
       assert Packages.get_package!(pkg.id, scope: ctx.scope, load: [:usadas]).usadas == 0
+    end
+  end
+
+  describe "pausar numa TURMA não esconde a sessão do colega (doc 43 §5c)" do
+    # O achado: `pkg_hold` era do BLOCO, e pausar o pacote da Maria tirava o Pilates das terças da
+    # agenda do João e da Ana junto (`bloco_visivel_depois: 0` com `participantes_do_bloco: 2`).
+    test "a presença é segurada, o bloco fica de pé e o colega continua vendo a sessão" do
+      ctx = setup_clinic()
+      turma = tipo!(ctx, nome: "Turma #{unico()}", icon: "Users", grupo: true, capacidade: 4)
+      colega = paciente!(ctx, "Colega #{unico()}")
+
+      {:ok, pkg} =
+        Packages.create_package(params(ctx, %{appointment_type_id: turma.id}), scope: ctx.scope)
+
+      {:ok, dt} = Scheduling.LocalTime.to_utc(@segunda, "08:00", "America/Sao_Paulo")
+
+      {:ok, appt} =
+        Scheduling.schedule_appointment(
+          %{
+            starts_at: dt,
+            professional_id: ctx.prof.id,
+            appointment_type_id: turma.id,
+            patient_ids: [ctx.paciente.id],
+            package_id: pkg.id
+          },
+          scope: ctx.scope
+        )
+
+      {:ok, appt} =
+        Scheduling.add_appointment_participants(appt, %{patient_ids: [colega.id]},
+          scope: ctx.scope
+        )
+
+      assert length(appt.attendances) == 2
+
+      assert {:ok, pausado} = Packages.pause_package(scope_before(ctx), pkg.id)
+      assert pausado.status == :pausado
+
+      # O bloco continua na agenda…
+      visivel = Scheduling.get_appointment!(appt.id, scope: ctx.scope, load: [:attendances])
+      assert visivel.pkg_hold == false
+      # …e com o colega dentro; a presença do pacote sumiu da leitura.
+      assert Enum.map(visivel.attendances, & &1.patient_id) == [colega.id]
+
+      # a presença do dono do pacote existe, segurada (estado cru — a leitura do Ash a esconde)
+      {:ok, %{rows: [[hold]]}} =
+        Api.Repo.query(
+          "SELECT pkg_hold FROM attendances WHERE package_id = $1",
+          [Ecto.UUID.dump!(pkg.id)]
+        )
+
+      assert hold == true
+    end
+
+    test "retomar tira a presença segurada da turma sem cancelar a sessão do colega" do
+      ctx = setup_clinic()
+      turma = tipo!(ctx, nome: "Turma #{unico()}", icon: "Users", grupo: true, capacidade: 4)
+      colega = paciente!(ctx, "Colega #{unico()}")
+
+      {:ok, pkg} =
+        Packages.create_package(params(ctx, %{appointment_type_id: turma.id}), scope: ctx.scope)
+
+      {:ok, dt} = Scheduling.LocalTime.to_utc(@segunda, "08:00", "America/Sao_Paulo")
+
+      {:ok, appt} =
+        Scheduling.schedule_appointment(
+          %{
+            starts_at: dt,
+            professional_id: ctx.prof.id,
+            appointment_type_id: turma.id,
+            patient_ids: [ctx.paciente.id],
+            package_id: pkg.id
+          },
+          scope: ctx.scope
+        )
+
+      {:ok, _} =
+        Scheduling.add_appointment_participants(appt, %{patient_ids: [colega.id]},
+          scope: ctx.scope
+        )
+
+      {:ok, _} = Packages.pause_package(scope_before(ctx), pkg.id)
+
+      {:ok, hoje} = Scheduling.LocalTime.to_utc(~D[2026-08-05], "07:00", "America/Sao_Paulo")
+      assert {:ok, ativo} = Packages.resume_package(scope_at(ctx, hoje), pkg.id)
+      assert ativo.status == :ativo
+
+      # O bloco do colega segue vivo e agendado — a retomada não cancelou a turma.
+      sobrevivente = Scheduling.get_appointment!(appt.id, scope: ctx.scope, load: [:attendances])
+      assert sobrevivente.status == :agendado
+      assert Enum.map(sobrevivente.attendances, & &1.patient_id) == [colega.id]
     end
   end
 

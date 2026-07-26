@@ -312,6 +312,9 @@ defmodule Api.Scheduling.Appointment do
       change Api.Scheduling.Appointment.Changes.ShiftEndsAt
       change Api.Scheduling.Appointment.Changes.CheckAvailability
       change Api.Scheduling.Appointment.Changes.BumpVersion
+
+      # A presença carrega uma cópia do horário do bloco (doc 43 §4) — remarcar move as duas.
+      change Api.Scheduling.Appointment.Changes.SyncSessionStartsAt
     end
 
     # Cancelar preserva o registro (doc 25 §3, "sem hard delete"). Motivo opcional (D4).

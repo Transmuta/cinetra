@@ -21,11 +21,21 @@ defmodule Api.Scheduling.Appointment.Changes.ManageParticipants do
     package_id = Ash.Changeset.get_argument(changeset, :package_id)
     ids = changeset |> Ash.Changeset.get_argument(:patient_ids) |> List.wrap()
 
-    Ash.Changeset.manage_relationship(
-      changeset,
-      :attendances,
-      Enum.map(ids, &%{patient_id: &1, package_id: package_id}),
-      type: :create
-    )
+    # `session_starts_at` é a cópia do horário do bloco que o histórico da ficha ordena (doc 43
+    # §4). Nasce **aqui**, na mesma escrita — o `before_action` garante que `starts_at` já está no
+    # changeset (na criação vem do corpo; num `add_participant` vem do bloco existente).
+    Ash.Changeset.before_action(changeset, fn cs ->
+      starts_at = Ash.Changeset.get_attribute(cs, :starts_at) || cs.data.starts_at
+
+      Ash.Changeset.manage_relationship(
+        cs,
+        :attendances,
+        Enum.map(
+          ids,
+          &%{patient_id: &1, package_id: package_id, session_starts_at: starts_at}
+        ),
+        type: :create
+      )
+    end)
   end
 end
