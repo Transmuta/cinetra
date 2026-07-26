@@ -76,6 +76,80 @@ defmodule ApiWeb.NotificationsControllerTest do
       body = as(ctx.owner) |> get("/api/notifications?unread=1") |> json_response(200)
       assert length(body["notifications"]) == 1
     end
+
+    # #54 — o envelope `page` de pacientes/trilha/fila (09 §8), menos o `total`: a caixa não
+    # exibe "X–Y de Z" e o total custaria ler o recorte inteiro a cada abertura.
+    test "pagina com limit/offset e diz se há mais" do
+      ctx = fixture()
+      for i <- 1..5, do: notify(ctx.clinic, ctx.owner, %{title: "N#{i}"})
+
+      body = as(ctx.owner) |> get("/api/notifications?limit=2") |> json_response(200)
+
+      assert length(body["notifications"]) == 2
+      assert body["page"] == %{"limit" => 2, "offset" => 0, "more" => true}
+
+      segunda = as(ctx.owner) |> get("/api/notifications?limit=2&offset=4") |> json_response(200)
+      assert length(segunda["notifications"]) == 1
+      assert segunda["page"]["more"] == false
+    end
+
+    # O caminho do badge é o mais chamado do sistema (todo carregamento de layout). Com a lista
+    # limitada, `unread` só pode vir do COUNT do recorte — contar a página daria "1".
+    test "?unread=1 conta todas as não-lidas, mesmo com a página limitada" do
+      ctx = fixture()
+      for i <- 1..4, do: notify(ctx.clinic, ctx.owner, %{title: "N#{i}"})
+
+      body = as(ctx.owner) |> get("/api/notifications?unread=1&limit=1") |> json_response(200)
+
+      assert length(body["notifications"]) == 1
+      assert body["unread"] == 4
+    end
+  end
+
+  # Bate-volta (2ª passada). O caminho do badge roda no load do layout, ou seja, em **toda**
+  # navegação do sistema — é o endpoint mais chamado que existe aqui. Ele fazia duas queries, e
+  # a primeira era lixo: uma lista de 1 linha que o BFF descartava para ler só o número. Medido
+  # numa navegação real a `/pacientes`:
+  #
+  #     SELECT n0."read_at" FROM "notifications" ... (limit 1)   ← ninguém lê o resultado
+  #     SELECT coalesce(count(*), $1) FROM "notifications" ...   ← o número
+  describe "GET /api/notifications/unread-count" do
+    test "devolve só o número, e toca a tabela uma vez só" do
+      ctx = fixture()
+      for _ <- 1..3, do: notify(ctx.clinic, ctx.owner)
+
+      {body, queries} =
+        Api.QueryCounter.count(
+          fn -> as(ctx.owner) |> get("/api/notifications/unread-count") |> json_response(200) end,
+          "notifications"
+        )
+
+      assert body == %{"unread" => 3}
+      assert queries == 1
+    end
+
+    test "sem sessão responde 401" do
+      assert Phoenix.ConnTest.build_conn()
+             |> get("/api/notifications/unread-count")
+             |> json_response(401)
+    end
+
+    test "conta só as do próprio destinatário" do
+      ctx = fixture()
+      notify(ctx.clinic, ctx.owner)
+
+      outro = sign_in(email())
+
+      {:ok, m} =
+        Accounts.invite_member(%{papel: :recepcao, user_id: outro.id, clinic_id: ctx.clinic.id},
+          authorize?: false
+        )
+
+      {:ok, _} = Accounts.accept_invite(m, authorize?: false)
+
+      body = as(outro) |> get("/api/notifications/unread-count") |> json_response(200)
+      assert body["unread"] == 0
+    end
   end
 
   describe "POST /api/notifications/:id/read" do

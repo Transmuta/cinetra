@@ -3,6 +3,8 @@
 	import { goto } from '$app/navigation';
 	import BellOff from '@lucide/svelte/icons/bell-off';
 	import CheckCheck from '@lucide/svelte/icons/check-check';
+	import ChevronLeft from '@lucide/svelte/icons/chevron-left';
+	import ChevronRight from '@lucide/svelte/icons/chevron-right';
 	import { relativeTime, notificationHref, type AppNotification } from '$lib/notifications';
 	import type { PageData } from './$types';
 
@@ -11,12 +13,25 @@
 	const notifications = $derived(data.notifications);
 	const unread = $derived(data.unread);
 
+	// Paginação (#54): `?page=` na URL, sem empilhar histórico — mesmo gesto da fila e de
+	// Pacientes. Sem rodapé "X–Y de Z": a API não conta o total da caixa de propósito.
+	function goPage(n: number) {
+		goto(n > 1 ? `/notificacoes?page=${n}` : '/notificacoes', {
+			keepFocus: true,
+			noScroll: true,
+			replaceState: true
+		});
+	}
+
+	const navBtn =
+		'inline-flex items-center gap-1 rounded-lg border border-edge bg-surface px-2.5 py-1.5 text-[12.5px] font-semibold text-ink hover:bg-surface-2 disabled:opacity-40 disabled:hover:bg-surface';
+
 	// Marcar lida ao abrir: submete a action e, se a notificação tem destino, navega para lá.
 	// Sem destino, só revalida (a linha perde o realce e o badge cai).
 	function openRow(n: AppNotification) {
 		return () =>
 			async ({ result, update }: { result: { type: string }; update: () => Promise<void> }) => {
-				const href = notificationHref(n.kind);
+				const href = notificationHref(n);
 				if (result.type === 'success' && href) {
 					await goto(href);
 				} else {
@@ -92,5 +107,26 @@
 				</li>
 			{/each}
 		</ul>
+
+		{#if data.pageInfo.more || data.current > 1}
+			<div class="mt-4 flex items-center justify-end gap-2">
+				<button
+					type="button"
+					class={navBtn}
+					disabled={data.current === 1}
+					onclick={() => goPage(data.current - 1)}
+				>
+					<ChevronLeft size={14} /> Anterior
+				</button>
+				<button
+					type="button"
+					class={navBtn}
+					disabled={!data.pageInfo.more}
+					onclick={() => goPage(data.current + 1)}
+				>
+					Próxima <ChevronRight size={14} />
+				</button>
+			</div>
+		{/if}
 	{/if}
 </div>

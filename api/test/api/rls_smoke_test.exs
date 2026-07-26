@@ -599,4 +599,100 @@ defmodule Api.RlsSmokeTest do
       assert sessao.appointment, "o bloco não veio junto (GUC faltando na relação?)"
     end
   end
+
+  # Onda 4 / Frente 10. Quatro caminhos por-tenant nasceram aqui, e três deles rodam **fora de
+  # request** (job de fundo, cron) — onde não há GUC herdada de lugar nenhum.
+  describe "caixa de notificações sob RLS (Onda 4)" do
+    defp notifica(ctx) do
+      {:ok, n} =
+        Api.Notifications.create_notification(
+          %{
+            recipient_id: ctx.owner.id,
+            kind: :member_joined,
+            title: "T",
+            body: "B",
+            data: %{}
+          },
+          tenant: ctx.clinic.id,
+          authorize?: false
+        )
+
+      n
+    end
+
+    test "a caixa paginada devolve o que foi criado (0 aqui significa GUC faltando)" do
+      ctx = fixture()
+      notifica(ctx)
+
+      :ok = sem_guc()
+
+      page = Api.Notifications.list_inbox(ctx.scope)
+      assert length(page.results) > 0, "a caixa voltou vazia (GUC faltando na leitura?)"
+    end
+
+    # O mais perigoso do lote: `Ash.bulk_update` é ESCRITA em massa sob RLS, e a policy do
+    # recurso é filter-check — ou seja, o `Ash.can` roda um SELECT na própria tabela antes do
+    # UPDATE. Sem GUC, esse SELECT recebe `''::uuid`. A ação de massa também não tem
+    # `SetTenantGuc` (um `before_action` a tiraria do caminho atômico): quem garante a GUC é o
+    # `in_clinic` do wrapper, e é exatamente isso que este teste prova.
+    test "marcar todas como lidas alcança as linhas sob RLS" do
+      ctx = fixture()
+      notifica(ctx)
+      notifica(ctx)
+
+      :ok = sem_guc()
+
+      assert Api.Notifications.mark_all_read(ctx.scope) == 2
+      assert Api.Notifications.unread_count(ctx.scope) == 0
+    end
+
+    test "a poda da caixa apaga sob a GUC de cada clínica" do
+      ctx = fixture()
+      n = notifica(ctx)
+
+      Api.Repo.query!(
+        "UPDATE notifications SET read_at = now(), inserted_at = inserted_at - interval '400 days' WHERE id = $1",
+        [Ecto.UUID.dump!(n.id)]
+      )
+
+      :ok = sem_guc()
+
+      assert {:ok, %{apagadas: apagadas}} =
+               Api.Housekeeping.PruneNotifications.perform(%Oban.Job{args: %{}})
+
+      assert apagadas > 0, "a poda não alcançou linha nenhuma (GUC faltando no job?)"
+    end
+
+    # O cron dos lembretes varre a agenda de fora de qualquer request. Sem `with_clinic`, a
+    # varredura acha zero bloco em toda clínica e o lembrete simplesmente nunca sai — falha
+    # silenciosa, do tipo que só aparece quando alguém reclama que não recebe aviso.
+    test "o resumo diário enxerga a agenda de amanhã sob RLS" do
+      ctx = fixture()
+      tz = Scheduling.clinic_timezone(ctx.clinic.id)
+      amanha = DateTime.utc_now() |> DateTime.shift_zone!(tz) |> DateTime.to_date() |> Date.add(1)
+      {:ok, as_nove} = Scheduling.LocalTime.to_utc(amanha, "09:00", tz)
+
+      {:ok, _} =
+        Scheduling.schedule_appointment(
+          %{
+            starts_at: as_nove,
+            professional_id: ctx.prof.id,
+            appointment_type_id: ctx.tipo.id,
+            patient_ids: [ctx.paciente.id]
+          },
+          scope: ctx.scope
+        )
+
+      :ok = sem_guc()
+
+      blocos =
+        Api.Notifications.Reminders.blocos_por_profissional(
+          ctx.clinic.id,
+          Api.Notifications.Reminders.inicio_do_dia(amanha, tz),
+          Api.Notifications.Reminders.inicio_do_dia(Date.add(amanha, 1), tz)
+        )
+
+      assert map_size(blocos) > 0, "o cron não enxergou a agenda (GUC faltando na varredura?)"
+    end
+  end
 end

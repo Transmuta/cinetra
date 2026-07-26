@@ -84,16 +84,46 @@ config :api,
   ],
   ash_authentication: [return_error_on_invalid_magic_link_token?: true]
 
-# Oban — a fila `housekeeping` roda a materialização de série (Fatia 3) e a **poda da trilha**.
+# Oban — a fila `housekeeping` roda a materialização de série (Fatia 3) e as **podas**.
 #
-# O cron voltou com um trabalho que de fato existe: `PruneTrail` uma vez por dia, às 03:00 UTC. O
+# O cron voltou com trabalho que de fato existe: `PruneTrail` uma vez por dia, às 03:00 UTC. O
 # cron anterior (limpeza de `SlotHold`) foi removido porque varria por clínica a cada 5 min uma
 # tabela que deixara de existir (doc 39) — o critério é esse, não "cron é ruim". A trilha, medida
 # em 3× a tabela base sem nada que a diminuísse (doc 43 §5f), é o oposto: trabalho real, diário.
+# A caixa do sino entrou pelo mesmo critério (#54): tabela que só crescia.
 config :api, Oban,
   repo: Api.Repo,
-  queues: [housekeeping: 2],
-  plugins: [{Oban.Plugins.Cron, crontab: [{"0 3 * * *", Api.Housekeeping.PruneTrail}]}]
+  # `notifications` é fila própria (#52): o fan-out de "vaga livre" não pode ficar atrás de uma
+  # poda que varre clínica a clínica por minutos — aviso de vaga que chega tarde não vale nada.
+  queues: [housekeeping: 2, notifications: 5],
+  plugins: [
+    # A fila que executa as podas também precisava de uma. Sem isto, `oban_jobs` só cresce —
+    # medido: 779 jobs `completed` acumulados em 4 dias de dev, e os crons da Onda 4 garantem
+    # +314 linhas/dia. 7 dias é escolha humana: curto o bastante para a tabela não pesar, longo
+    # o bastante para responder "por que o lembrete não saiu na terça".
+    {Oban.Plugins.Pruner, max_age: 7 * 24 * 60 * 60},
+    {Oban.Plugins.Cron,
+     crontab: [
+       {"0 3 * * *", Api.Housekeeping.PruneTrail},
+       # 15 min depois da trilha, não junto: as duas varrem clínica a clínica e não há motivo
+       # para disputarem pool na mesma madrugada.
+       {"15 3 * * *", Api.Housekeeping.PruneNotifications},
+       # #51 — lembretes por relógio. O resumo acorda de hora em hora porque "19h" é local de
+       # cada clínica (ADR-009); só trabalha nas que estão na hora certa.
+       {"0 * * * *", Api.Notifications.DailyDigestJob},
+       # A cada 5 min, servindo a janela [+15, +20). É esta linha que desliga o "sessão em 15
+       # min" caso a objeção do doc 31 §3d (ruído) se confirme no uso.
+       {"*/5 * * * *", Api.Notifications.SessionSoonJob}
+     ]}
+  ]
+
+# #51 — os dois lembretes por relógio. Números de produto, não de infra.
+config :api, Api.Notifications.DailyDigestJob, hora: 19
+config :api, Api.Notifications.SessionSoonJob, antecedencia_min: 15
+
+# Retenção da caixa do sino (#54). Assimétrica de propósito: lida é histórico, não-lida é
+# trabalho pendente — ver `Api.Housekeeping.PruneNotifications`. Mudar aqui é decisão humana.
+config :api, Api.Housekeeping.PruneNotifications, reter_lidas_dias: 90, reter_dias: 365
 
 # Quanto tempo a trilha de auditoria fica. Decisão humana (doc 43 §5f): um ano cobre o horizonte
 # que a tela `/configuracoes/auditoria` serve. Aumentar é trocar este número.

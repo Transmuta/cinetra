@@ -14,25 +14,49 @@ export interface NotificationsResult {
 
 export async function fetchNotifications(
 	event: RequestEvent,
-	opts: { unread?: boolean } = {}
+	opts: { unread?: boolean; limit?: number; offset?: number } = {}
 ): Promise<NotificationsResult> {
 	try {
-		const suffix = opts.unread ? '?unread=1' : '';
-		const res = await apiFetch(event, `/api/notifications${suffix}`, {
+		const params = new URLSearchParams();
+		if (opts.unread) params.set('unread', '1');
+		if (opts.limit !== undefined) params.set('limit', String(opts.limit));
+		if (opts.offset) params.set('offset', String(opts.offset));
+
+		const qs = params.toString();
+		const res = await apiFetch(event, `/api/notifications${qs ? `?${qs}` : ''}`, {
 			headers: { accept: 'application/json' }
 		});
 		if (!res.ok) return { status: res.status, data: null };
-		return { status: res.status, data: (await res.json()) as NotificationsData };
+		return {
+			status: res.status,
+			data: (await res.json()) as NotificationsData
+		};
 	} catch {
 		return { status: 0, data: null };
 	}
 }
 
-// O número do badge, para o layout (barato: só as não-lidas + a contagem). Falha silenciosa em
-// 0 — um erro ao contar não deve derrubar o shell inteiro.
+// O número do badge, para o layout. Falha silenciosa em 0 — um erro ao contar não deve derrubar
+// o shell inteiro.
+//
+// Rota **própria**, e não `?unread=1&limit=1`, porque este é o endpoint mais chamado do sistema:
+// roda no load do layout, em toda navegação. Pedindo pelo `index` ele custava duas queries —
+// uma lista de uma linha, que esta função descartava, mais o `COUNT`. Sondado num carregamento
+// real de `/pacientes` antes do conserto:
+//
+//     SELECT n0."read_at" FROM "notifications" ... (limit 1)   ← ninguém lê o resultado
+//     SELECT coalesce(count(*), $1) FROM "notifications" ...   ← o número
 export async function fetchUnreadCount(event: RequestEvent): Promise<number> {
-	const { data } = await fetchNotifications(event, { unread: true });
-	return data?.unread ?? 0;
+	try {
+		const res = await apiFetch(event, '/api/notifications/unread-count', {
+			headers: { accept: 'application/json' }
+		});
+		if (!res.ok) return 0;
+		const data = (await res.json()) as { unread?: number };
+		return data.unread ?? 0;
+	} catch {
+		return 0;
+	}
 }
 
 export function markNotificationRead(event: RequestEvent, id: string): Promise<MutationResult> {

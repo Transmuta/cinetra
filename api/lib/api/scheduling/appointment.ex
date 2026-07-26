@@ -337,7 +337,7 @@ defmodule Api.Scheduling.Appointment do
 
       # Cancela-se um bloco aberto (inclusive futuro); um já-concluído/faltou/cancelado não (F4).
       validate {Api.Scheduling.Appointment.Validations.StatusIn,
-                from: [:agendado, :confirmado, :em_atendimento]}
+                from: Api.Scheduling.AppointmentStatus.abertos()}
 
       accept [:cancel_reason]
       change set_attribute(:status, :cancelado)

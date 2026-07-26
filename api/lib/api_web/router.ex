@@ -195,6 +195,9 @@ defmodule ApiWeb.Router do
     # Notificações in-app (doc 31). Leitura para todo membro (cada um só vê a própria caixa, pela
     # policy do recurso); "marcar lida" é a única escrita da UI. `clinic_id` sempre do escopo.
     get "/notifications", NotificationsController, :index
+    # Rota própria para o badge: é o endpoint mais chamado do sistema (roda no load do layout,
+    # em toda navegação) e a única coisa que ele precisa devolver é um número.
+    get "/notifications/unread-count", NotificationsController, :unread_count
     # Literal antes da paramétrica: "read-all" não pode virar um `:id`.
     post "/notifications/read-all", NotificationsController, :mark_all_read
     post "/notifications/:id/read", NotificationsController, :mark_read

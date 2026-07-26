@@ -65,7 +65,7 @@ defmodule Api.Notifications.NotificationTest do
       {:ok, _} = notify(clinic, owner, %{title: "Primeira"})
       {:ok, _} = notify(clinic, owner, %{title: "Segunda"})
 
-      titulos = Notifications.list_inbox(scope) |> Enum.map(& &1.title)
+      titulos = Notifications.list_inbox(scope).results |> Enum.map(& &1.title)
       assert titulos == ["Segunda", "Primeira"]
     end
 
@@ -75,14 +75,68 @@ defmodule Api.Notifications.NotificationTest do
 
       {:ok, minha} = notify(clinic, owner, %{title: "Do dono"})
 
-      owner_ids = Notifications.list_inbox(scope_for(owner, clinic)) |> Enum.map(& &1.id)
-      recep_ids = Notifications.list_inbox(scope_for(recep, clinic)) |> Enum.map(& &1.id)
+      owner_ids = Notifications.list_inbox(scope_for(owner, clinic)).results |> Enum.map(& &1.id)
+      recep_ids = Notifications.list_inbox(scope_for(recep, clinic)).results |> Enum.map(& &1.id)
 
       assert minha.id in owner_ids
       refute minha.id in recep_ids
 
       # A recepção não é destinatária de nada aqui (o member_joined do seu aceite vai ao owner).
       assert recep_ids == []
+    end
+  end
+
+  # #54 (P3 do doc 32). A caixa não tinha teto: a sonda com volume mediu `list_inbox` trazendo
+  # 20.065 linhas em 583 ms — e o caminho do badge (`?unread=1`, chamado em TODA navegação do web)
+  # trafegava as 4.065 não-lidas inteiras para ler **um número**.
+  describe "paginação da caixa (#54)" do
+    test "limita a página e diz se há mais" do
+      {owner, clinic} = owner_and_clinic()
+      scope = scope_for(owner, clinic)
+      for i <- 1..5, do: {:ok, _} = notify(clinic, owner, %{title: "N#{i}"})
+
+      page = Notifications.list_inbox(scope, limit: 2)
+
+      assert length(page.results) == 2
+      assert page.more?
+
+      # Sem `count` de propósito: o total custaria ler o recorte inteiro (10.265 buffers contra
+      # 26 na sonda), e a tela não exibe "X–Y de Z". O `more?` sai do `limit + 1`.
+      refute page.count
+    end
+
+    test "o offset traz a página seguinte, sem repetir" do
+      {owner, clinic} = owner_and_clinic()
+      scope = scope_for(owner, clinic)
+      for i <- 1..5, do: {:ok, _} = notify(clinic, owner, %{title: "N#{i}"})
+
+      primeira = Notifications.list_inbox(scope, limit: 2).results |> Enum.map(& &1.title)
+
+      segunda =
+        Notifications.list_inbox(scope, limit: 2, offset: 2).results |> Enum.map(& &1.title)
+
+      assert primeira == ["N5", "N4"]
+      assert segunda == ["N3", "N2"]
+    end
+
+    # A regressão que a própria paginação cria: contar o que chegou passaria a contar só a página.
+    test "a contagem de não-lidas é a do recorte, não a da página" do
+      {owner, clinic} = owner_and_clinic()
+      scope = scope_for(owner, clinic)
+      for _ <- 1..4, do: {:ok, _} = notify(clinic, owner)
+
+      page = Notifications.list_inbox(scope, only_unread: true, limit: 1)
+
+      assert length(page.results) == 1
+      assert Notifications.unread_count(scope) == 4
+    end
+
+    test "o teto de página barra um limit absurdo" do
+      {owner, clinic} = owner_and_clinic()
+      scope = scope_for(owner, clinic)
+      {:ok, _} = notify(clinic, owner)
+
+      assert Notifications.list_inbox(scope, limit: 10_000).limit == 200
     end
   end
 
@@ -118,6 +172,48 @@ defmodule Api.Notifications.NotificationTest do
       {:ok, n} = notify(clinic, owner)
 
       assert {:error, :not_found} = Notifications.mark_read(scope_for(recep, clinic), n.id)
+    end
+
+    # #53 (P2 do doc 32): eram 1 SELECT + N×(SELECT da policy + UPDATE) em série. O teto é o
+    # conserto — sem ele, "marcar todas" volta a ser O(N) sem ninguém perceber.
+    test "mark_all_read toca a tabela em O(1), não O(N)" do
+      {owner, clinic} = owner_and_clinic()
+      scope = scope_for(owner, clinic)
+      for _ <- 1..6, do: {:ok, _} = notify(clinic, owner)
+
+      {marcadas, queries} =
+        Api.QueryCounter.count(fn -> Notifications.mark_all_read(scope) end, "notifications")
+
+      assert marcadas == 6
+
+      # 1 COUNT (para o número devolvido) + 1 UPDATE. No caminho antigo, 6 não-lidas custavam 13.
+      assert queries == 2
+    end
+
+    test "marcar todas não alcança a caixa do colega" do
+      {owner, clinic} = owner_and_clinic()
+
+      # O aceite do convite já notifica o owner (`member_joined`) — a caixa dele não começa vazia.
+      recep = member(clinic, :recepcao)
+      {:ok, _} = notify(clinic, owner)
+      {:ok, do_colega} = notify(clinic, recep)
+
+      owner_scope = scope_for(owner, clinic)
+      do_owner = Notifications.unread_count(owner_scope)
+      assert do_owner >= 2
+
+      assert Notifications.mark_all_read(owner_scope) == do_owner
+      assert Notifications.unread_count(owner_scope) == 0
+
+      # A policy é filter-check; num UPDATE em massa ela precisa virar cláusula do WHERE, e não
+      # sobrar como checagem por registro que o caminho atômico pula.
+      assert Notifications.unread_count(scope_for(recep, clinic)) == 1
+
+      assert %{read_at: nil} =
+               Notifications.get_notification!(do_colega.id,
+                 authorize?: false,
+                 tenant: clinic.id
+               )
     end
 
     test "mark_all_read zera o badge e devolve quantas tocou" do

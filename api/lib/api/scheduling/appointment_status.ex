@@ -16,4 +16,31 @@ defmodule Api.Scheduling.AppointmentStatus do
   """
   use Ash.Type.Enum,
     values: [:agendado, :confirmado, :em_atendimento, :concluido, :faltou, :cancelado]
+
+  # Os status de **bloco aberto**: compromisso que ainda vai acontecer ou está acontecendo. Os
+  # outros três já têm desfecho.
+  #
+  # Mora aqui, ao lado do enum que define os status — mesma disciplina de
+  # `Api.Scheduling.Attendance.viva?/1`, e pelo mesmo motivo: a lista estava escrita à mão em
+  # dois lugares (o guard do `:cancel` e a varredura dos lembretes da Onda 4), e lista de status
+  # copiada é a que diverge no dia em que alguém acrescenta um status e atualiza só um dos lados.
+  @abertos [:agendado, :confirmado, :em_atendimento]
+
+  @doc """
+  Os status de bloco aberto — o que ainda é compromisso.
+
+      iex> Api.Scheduling.AppointmentStatus.abertos()
+      [:agendado, :confirmado, :em_atendimento]
+  """
+  def abertos, do: @abertos
+
+  @doc """
+  O bloco ainda é um compromisso?
+
+      iex> Api.Scheduling.AppointmentStatus.aberto?(:confirmado)
+      true
+      iex> Api.Scheduling.AppointmentStatus.aberto?(:cancelado)
+      false
+  """
+  def aberto?(status) when is_atom(status), do: status in @abertos
 end

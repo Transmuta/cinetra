@@ -64,16 +64,29 @@ defmodule Api.Pagination do
   def offset(_value, _opts), do: 0
 
   @doc """
-  As opções de página prontas para o `page:` do Ash, com `count: true`.
+  As opções de página prontas para o `page:` do Ash. `count: true` por padrão.
+
+  **`count: false` não é micro-otimização.** O `countable` do Ash vira `COUNT(*) OVER ()`, uma
+  window function que precisa ler o recorte **inteiro** — o `LIMIT` só apara no fim. Medido na
+  caixa de notificações (20.065 linhas, plano pelo mesmo índice nos dois casos):
+
+      com count: 10.265 buffers, 12,9 ms
+      sem count:      26 buffers,  0,11 ms
+
+  Ou seja: quem exibe "X–Y de **Z**" paga o total; quem só precisa de "tem mais?" não deve pagar.
+  O `more?` continua correto sem o count — o Ash busca `limit + 1` para respondê-lo.
 
       iex> Api.Pagination.page_opts(limit: 10, offset: 20)
       [limit: 10, offset: 20, count: true]
+
+      iex> Api.Pagination.page_opts(limit: 10, count: false)
+      [limit: 10, offset: 0, count: false]
   """
   def page_opts(opts \\ []) do
     [
       limit: limit(Keyword.get(opts, :limit)),
       offset: offset(Keyword.get(opts, :offset)),
-      count: true
+      count: Keyword.get(opts, :count, true)
     ]
   end
 end

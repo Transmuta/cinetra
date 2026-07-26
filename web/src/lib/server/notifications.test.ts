@@ -34,10 +34,30 @@ describe('fetchNotifications', () => {
 		expect(m.apiFetch.mock.calls[0][1]).toBe('/api/notifications');
 	});
 
+	// Bate-volta (2ª passada): o badge roda em TODA navegação e pedia uma lista de 1 linha só
+	// para descartá-la — 2 queries onde 1 basta. Agora tem rota própria.
+	it('fetchUnreadCount usa a rota de contagem, sem pedir lista', async () => {
+		m.apiFetch.mockResolvedValueOnce(res(200, { unread: 7 }));
+
+		expect(await fetchUnreadCount(event)).toBe(7);
+		expect(m.apiFetch.mock.calls[0][1]).toBe('/api/notifications/unread-count');
+	});
+
 	it('unread:true acrescenta ?unread=1', async () => {
 		m.apiFetch.mockResolvedValueOnce(res(200, { notifications: [], unread: 0 }));
 		await fetchNotifications(event, { unread: true });
 		expect(m.apiFetch.mock.calls[0][1]).toBe('/api/notifications?unread=1');
+	});
+
+	// #54: limit/offset viraram query string; `offset: 0` não vai (é o default da API).
+	it('limit e offset viram query string', async () => {
+		m.apiFetch.mockResolvedValueOnce(res(200, { notifications: [], unread: 0 }));
+		await fetchNotifications(event, { limit: 20, offset: 40 });
+		expect(m.apiFetch.mock.calls[0][1]).toBe('/api/notifications?limit=20&offset=40');
+
+		m.apiFetch.mockResolvedValueOnce(res(200, { notifications: [], unread: 0 }));
+		await fetchNotifications(event, { limit: 20, offset: 0 });
+		expect(m.apiFetch.mock.calls[1][1]).toBe('/api/notifications?limit=20');
 	});
 
 	it('não-2xx → data null com o status', async () => {

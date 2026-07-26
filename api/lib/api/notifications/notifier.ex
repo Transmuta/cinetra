@@ -2,8 +2,9 @@ defmodule Api.Notifications.Notifier do
   @moduledoc """
   A cola Ash entre os eventos de domínio e o `Api.Notifications.Fanout` (doc 31). Um `Ash.Notifier`
   roda **depois do commit**, então a caixa nunca registra um evento que a transação ainda vai
-  desfazer. Anexado ao `Appointment` (ciclo de vida), à `Attendance` (falta por participante, A2)
-  e ao `Membership` (convite aceito).
+  desfazer. Anexado ao `Appointment` (ciclo de vida), à `Attendance` (falta por participante, A2),
+  ao `Membership` (convite aceito, papel alterado, membro removido) e à `WaitlistEntry` (urgente
+  na fila).
 
   Toda decisão de *quem recebe* mora no `Fanout`; aqui só se roteia a ação para a função certa. As
   gravações do Fanout são best-effort e engolidas lá — este notifier sempre devolve `:ok`, para
@@ -16,6 +17,7 @@ defmodule Api.Notifications.Notifier do
   use Ash.Notifier
 
   alias Api.Notifications.Fanout
+  alias Api.Notifications.SlotOpenedJob
 
   # Escrita de LOTE (a massa por pacote): a caixa recebe **uma** notificação agregada, emitida pelo
   # próprio lote quando ele fecha — não N "novo agendamento na sua agenda" (doc 43 §5b). A marca
@@ -38,7 +40,7 @@ defmodule Api.Notifications.Notifier do
         data: appointment,
         actor: actor
       }) do
-    Api.Notifications.Fanout.participant_added(appointment, actor)
+    Fanout.participant_added(appointment, actor)
     :ok
   end
 
@@ -50,8 +52,12 @@ defmodule Api.Notifications.Notifier do
         changeset: changeset,
         actor: actor
       }) do
-    Api.Notifications.Fanout.appointment_touched(appointment, name, actor)
-    if vaga_abriu?(name, appointment, changeset), do: Fanout.slot_maybe_opened(appointment, actor)
+    Fanout.appointment_touched(appointment, name, actor)
+
+    # #52: aqui só se decide QUE a vaga abriu. Responder "quem cabe" custa ler a fila inteira —
+    # 6 queries com a fila vazia — e isso saiu do caminho síncrono do cancelamento para um job.
+    if vaga_abriu?(name, appointment, changeset), do: SlotOpenedJob.enqueue(appointment, actor)
+
     :ok
   end
 
@@ -65,7 +71,7 @@ defmodule Api.Notifications.Notifier do
         data: attendance,
         actor: actor
       }) do
-    Api.Notifications.Fanout.participant_missed(attendance, actor)
+    Fanout.participant_missed(attendance, actor)
     :ok
   end
 
@@ -75,7 +81,69 @@ defmodule Api.Notifications.Notifier do
         action: %{name: :accept_invite},
         data: membership
       }) do
-    Api.Notifications.Fanout.member_joined(membership)
+    Fanout.member_joined(membership)
+    :ok
+  end
+
+  # #50: papel alterado → o próprio afetado. O `changeset.data` é o vínculo **antes** da escrita,
+  # e é a única fonte do papel anterior: a tela de equipe salva o formulário inteiro, então sem
+  # comparar não se distingue "virou admin" de "gravou o mesmo papel de novo".
+  @impl true
+  def notify(%Ash.Notifier.Notification{
+        resource: Api.Accounts.Membership,
+        action: %{name: :update},
+        data: membership,
+        changeset: %Ash.Changeset{data: %{papel: anterior}},
+        actor: actor
+      }) do
+    Fanout.role_changed(membership, anterior, actor)
+    :ok
+  end
+
+  # #50: saiu da equipe. **Dois canais, dois destinatários**, e é a única cláusula assim:
+  #
+  #   * a caixa in-app vai a owner/admin — não ao removido, que sem vínculo ativo não alcança mais
+  #     a caixa desta clínica (ver `Fanout.member_removed/2`);
+  #   * o e-mail vai ao removido, que é justamente quem a caixa não consegue avisar.
+  @impl true
+  def notify(%Ash.Notifier.Notification{
+        resource: Api.Accounts.Membership,
+        action: %{name: :revoke_access},
+        data: membership,
+        actor: actor
+      }) do
+    Fanout.member_removed(membership, actor)
+    Api.Accounts.AccessRevokedEmailJob.enqueue(membership)
+    :ok
+  end
+
+  # #48: entrou na fila alguém `urgente` → operacional.
+  #
+  # O `:enqueue` é upsert por paciente, então readicionar um urgente que já estava lá avisa de
+  # novo. É um ato deliberado da recepção e o volume é baixo por definição — preferir isso a
+  # inventar uma comparação que o upsert não tem como fazer (no create, `changeset.data` é vazio).
+  @impl true
+  def notify(%Ash.Notifier.Notification{
+        resource: Api.Waitlist.WaitlistEntry,
+        action: %{name: :enqueue},
+        data: %{prio: :urgente} = entry,
+        actor: actor
+      }) do
+    Fanout.waitlist_urgent(entry, actor)
+    :ok
+  end
+
+  # Subir a prioridade de um item que já estava na fila é o mesmo fato — e aqui dá para comparar.
+  @impl true
+  def notify(%Ash.Notifier.Notification{
+        resource: Api.Waitlist.WaitlistEntry,
+        action: %{name: :update},
+        data: %{prio: :urgente} = entry,
+        changeset: %Ash.Changeset{data: %{prio: anterior}},
+        actor: actor
+      })
+      when anterior != :urgente do
+    Fanout.waitlist_urgent(entry, actor)
     :ok
   end
 

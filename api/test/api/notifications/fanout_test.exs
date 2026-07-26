@@ -9,10 +9,12 @@ defmodule Api.Notifications.FanoutTest do
   Prova as três invariantes: destinatário certo, recorte por papel e **supressão do autor**.
   """
   use Api.DataCase, async: false
+  use Oban.Testing, repo: Api.Repo
 
   alias Api.Accounts
   alias Api.Directory
   alias Api.Notifications
+  alias Api.Notifications.SlotOpenedJob
   alias Api.Records
   alias Api.Scheduling
   alias Api.Waitlist
@@ -43,7 +45,13 @@ defmodule Api.Notifications.FanoutTest do
     dt
   end
 
-  defp inbox(user, clinic), do: Notifications.list_inbox(scope_for(user, clinic))
+  # `.results`: a caixa é paginada desde o #54 (doc 32 P3).
+  defp inbox(user, clinic), do: Notifications.list_inbox(scope_for(user, clinic)).results
+
+  # #52: o "quem cabe" saiu do caminho síncrono do cancelamento para a fila `notifications`.
+  # Drenar é o que reproduz, no teste, o que o servidor faz em segundo plano — as asserções
+  # continuam sendo sobre o que o usuário vê na caixa, não sobre o mecanismo.
+  defp drenar, do: Oban.drain_queue(queue: :notifications)
 
   defp kinds(user, clinic), do: inbox(user, clinic) |> Enum.map(& &1.kind)
 
@@ -255,8 +263,44 @@ defmodule Api.Notifications.FanoutTest do
 
       {:ok, appt} = schedule(ctx, owner_scope)
       {:ok, _} = Scheduling.transition_appointment(owner_scope, appt.id, :cancel)
+      drenar()
 
       assert :slot_opened in kinds(recep, ctx.clinic)
+    end
+
+    # #52 (P1 do doc 32). O que este teste guarda não é a notificação — é o **preço** dela: ler a
+    # fila inteira custava 6 queries dentro da resposta do cancelamento, com a fila vazia
+    # inclusive. Mover o `who_fits` de volta para o notifier faz esta asserção falhar na hora.
+    test "cancelar não toca a fila no caminho síncrono — só enfileira o trabalho" do
+      ctx = setup_clinic()
+      _recep = member(ctx.clinic, :recepcao)
+      owner_scope = scope_for(ctx.owner, ctx.clinic)
+      fila(ctx, owner_scope)
+
+      {:ok, appt} = schedule(ctx, owner_scope)
+
+      {_, queries} =
+        Api.QueryCounter.count(
+          fn -> Scheduling.transition_appointment(owner_scope, appt.id, :cancel) end,
+          "waitlist_entries"
+        )
+
+      assert queries == 0
+      assert_enqueued(worker: SlotOpenedJob, args: %{"appointment_id" => appt.id})
+    end
+
+    # O job relê o bloco em vez de carregar o resultado nos args. Se o bloco sumiu entre o commit
+    # e a execução, o fan-out não acontece — e não estoura.
+    test "o job não quebra se o bloco sumiu antes de ele rodar" do
+      ctx = setup_clinic()
+      owner_scope = scope_for(ctx.owner, ctx.clinic)
+      fila(ctx, owner_scope)
+
+      {:ok, appt} = schedule(ctx, owner_scope)
+      {:ok, _} = Scheduling.transition_appointment(owner_scope, appt.id, :cancel)
+      {:ok, _} = Scheduling.transition_appointment(owner_scope, appt.id, :exclude)
+
+      assert %{failure: 0} = drenar()
     end
 
     # A2 (doc 41), achado A-5: com o desfecho virando rollup das presenças, a falta deixou de
@@ -271,6 +315,8 @@ defmodule Api.Notifications.FanoutTest do
 
       {:ok, _} =
         Scheduling.transition_participant(owner_scope, appt.id, ctx.paciente.id, :no_show)
+
+      drenar()
 
       assert :slot_opened in kinds(recep, ctx.clinic)
     end
@@ -291,6 +337,8 @@ defmodule Api.Notifications.FanoutTest do
           justificada: true
         })
 
+      drenar()
+
       # o rollup roda de novo (bloco já em `:faltou`), e o aviso não pode duplicar
       assert Enum.count(kinds(recep, ctx.clinic), &(&1 == :slot_opened)) == 1
     end
@@ -302,8 +350,125 @@ defmodule Api.Notifications.FanoutTest do
 
       {:ok, appt} = schedule(ctx, owner_scope)
       {:ok, _} = Scheduling.transition_appointment(owner_scope, appt.id, :cancel)
+      # Drenar mesmo esperando nada: sem isto o teste passaria por não ter rodado o fan-out,
+      # e não por ele ter concluído que ninguém cabe.
+      drenar()
 
       refute :slot_opened in kinds(recep, ctx.clinic)
+    end
+  end
+
+  # #48 (doc 31 §3b), com o gate #3 do doc 35 decidido em 2026-07-26: o limiar é **só**
+  # `urgente`. `alta` fica de fora porque é frequente demais em clínica movimentada, e um sino
+  # que apita demais deixa de ser olhado.
+  describe "urgente na fila → operacional (#48)" do
+    test "entrar na fila como urgente avisa a recepção" do
+      ctx = setup_clinic()
+      recep = member(ctx.clinic, :recepcao)
+      fila(ctx, scope_for(ctx.owner, ctx.clinic))
+
+      assert :waitlist_urgent in kinds(recep, ctx.clinic)
+    end
+
+    test "prioridade abaixo de urgente não avisa" do
+      ctx = setup_clinic()
+      recep = member(ctx.clinic, :recepcao)
+      scope = scope_for(ctx.owner, ctx.clinic)
+
+      {:ok, _} =
+        Waitlist.enqueue_entry(scope, %{
+          patient_id:
+            Records.create_patient!("Sem pressa", %{}, tenant: ctx.clinic.id, actor: ctx.owner).id,
+          prio: :alta,
+          janela: :qualquer,
+          professional_ids: [],
+          rules: []
+        })
+
+      refute :waitlist_urgent in kinds(recep, ctx.clinic)
+    end
+
+    test "subir a prioridade de um item já na fila também avisa" do
+      ctx = setup_clinic()
+      recep = member(ctx.clinic, :recepcao)
+      scope = scope_for(ctx.owner, ctx.clinic)
+
+      {:ok, entry} =
+        Waitlist.enqueue_entry(scope, %{
+          patient_id:
+            Records.create_patient!("Piorou", %{}, tenant: ctx.clinic.id, actor: ctx.owner).id,
+          prio: :normal,
+          janela: :qualquer,
+          professional_ids: [],
+          rules: []
+        })
+
+      refute :waitlist_urgent in kinds(recep, ctx.clinic)
+
+      {:ok, _} = Waitlist.update_entry(scope, entry.id, %{prio: :urgente})
+
+      assert :waitlist_urgent in kinds(recep, ctx.clinic)
+    end
+
+    test "quem põe na fila não se notifica" do
+      ctx = setup_clinic()
+      recep = member(ctx.clinic, :recepcao)
+      fila(ctx, scope_for(recep, ctx.clinic))
+
+      refute :waitlist_urgent in kinds(recep, ctx.clinic)
+    end
+  end
+
+  # #50 (doc 31 §3c). O par é assimétrico de propósito, e o motivo é estrutural: a caixa é
+  # por-tenant e só se lê com vínculo ativo na clínica. Quem foi removido não tem mais como
+  # abrir a caixa daquela clínica — avisá-lo ali seria escrever numa gaveta trancada. Então
+  # "papel alterado" vai ao afetado (que continua membro) e "saiu da equipe" vai à governança,
+  # espelhando o `member_joined`.
+  describe "governança de membros (#50)" do
+    test "mudar o papel avisa o membro afetado" do
+      ctx = setup_clinic()
+      recep = member(ctx.clinic, :recepcao)
+      membership = Accounts.get_active_membership!(recep.id, ctx.clinic.id, authorize?: false)
+
+      {:ok, _} = Accounts.update_membership(membership, %{papel: :admin}, actor: ctx.owner)
+
+      assert :role_changed in kinds(recep, ctx.clinic)
+
+      assert [%{body: body}] =
+               inbox(recep, ctx.clinic) |> Enum.filter(&(&1.kind == :role_changed))
+
+      assert body =~ "administrador"
+    end
+
+    test "trocar só o profissional vinculado não vira aviso de papel" do
+      ctx = setup_clinic()
+      prof_user = member(ctx.clinic, :profissional)
+      membership = Accounts.get_active_membership!(prof_user.id, ctx.clinic.id, authorize?: false)
+
+      {:ok, _} =
+        Accounts.update_membership(membership, %{professional_id: ctx.prof.id}, actor: ctx.owner)
+
+      refute :role_changed in kinds(prof_user, ctx.clinic)
+    end
+
+    test "quem muda o próprio papel não se notifica" do
+      ctx = setup_clinic()
+      admin = member(ctx.clinic, :admin)
+      membership = Accounts.get_active_membership!(admin.id, ctx.clinic.id, authorize?: false)
+
+      {:ok, _} = Accounts.update_membership(membership, %{papel: :recepcao}, actor: admin)
+
+      refute :role_changed in kinds(admin, ctx.clinic)
+    end
+
+    test "remover um membro avisa owner/admin" do
+      ctx = setup_clinic()
+      recep = member(ctx.clinic, :recepcao)
+      membership = Accounts.get_active_membership!(recep.id, ctx.clinic.id, authorize?: false)
+
+      :ok = Accounts.revoke_access(membership, actor: ctx.owner)
+
+      assert :member_removed in kinds(ctx.owner, ctx.clinic)
     end
   end
 

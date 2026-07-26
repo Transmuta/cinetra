@@ -23,8 +23,20 @@ function notif(over: Partial<AppNotification> = {}): AppNotification {
 }
 
 // `theme`/`me` vêm dos layouts pais e o `PageData` os exige, ainda que esta tela não os use.
-function data(notifications: AppNotification[], unread: number) {
-	return { theme: null, me: meFixture({}), notifications, unread };
+// `pageInfo`/`current` são do #54 — a caixa é paginada; sem `more`, o rodapé não aparece.
+function data(
+	notifications: AppNotification[],
+	unread: number,
+	page: { more?: boolean; current?: number } = {}
+) {
+	return {
+		theme: null,
+		me: meFixture({}),
+		notifications,
+		unread,
+		pageInfo: { limit: 20, offset: 0, more: page.more ?? false },
+		current: page.current ?? 1
+	};
 }
 
 describe('tela de notificações', () => {
@@ -55,5 +67,30 @@ describe('tela de notificações', () => {
 		});
 		expect(getByText('Tudo em dia')).toBeInTheDocument();
 		expect(queryByRole('button', { name: /marcar todas como lidas/i })).toBeNull();
+	});
+
+	// #54 — a caixa paginada.
+	describe('paginação', () => {
+		it('caixa que cabe numa página não mostra o rodapé', () => {
+			const { queryByRole } = render(Page, { props: { data: data([notif()], 1) } });
+			expect(queryByRole('button', { name: /próxima/i })).toBeNull();
+			expect(queryByRole('button', { name: /anterior/i })).toBeNull();
+		});
+
+		it('havendo mais, o rodapé aparece com "Anterior" desabilitado na primeira', () => {
+			const { getByRole } = render(Page, {
+				props: { data: data([notif()], 1, { more: true }) }
+			});
+			expect(getByRole('button', { name: /anterior/i })).toBeDisabled();
+			expect(getByRole('button', { name: /próxima/i })).toBeEnabled();
+		});
+
+		it('na última página, "Próxima" desabilita e "Anterior" continua', () => {
+			const { getByRole } = render(Page, {
+				props: { data: data([notif()], 1, { more: false, current: 2 }) }
+			});
+			expect(getByRole('button', { name: /próxima/i })).toBeDisabled();
+			expect(getByRole('button', { name: /anterior/i })).toBeEnabled();
+		});
 	});
 });

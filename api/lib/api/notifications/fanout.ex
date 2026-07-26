@@ -198,6 +198,54 @@ defmodule Api.Notifications.Fanout do
     :ok
   end
 
+  # ---- Lembretes por relógio (#51) ----
+
+  @doc """
+  "Você tem N atendimentos amanhã" (#51, doc 31 §3d).
+
+  Sem supressão de autor: não há autor — o evento é o relógio. E sem notificação quando `n` é
+  zero: o valor do resumo é dizer que **há** dia; "você não tem nada amanhã" é ruído diário.
+  """
+  def daily_digest(clinic_id, recipient_id, %Date{} = data, quantos) when quantos > 0 do
+    notify(
+      clinic_id,
+      recipient_id,
+      :daily_digest,
+      "Sua agenda de amanhã",
+      "Você tem #{quantos} #{atendimentos(quantos)} amanhã, #{fmt_date(data)}.",
+      %{date: Date.to_iso8601(data), total: quantos}
+    )
+
+    :ok
+  end
+
+  def daily_digest(_clinic_id, _recipient_id, _data, _quantos), do: :ok
+
+  @doc """
+  "Sua próxima sessão começa às HH:MM" (#51, doc 31 §3d).
+
+  O texto diz a **hora**, não "em 15 minutos", e isso é de propósito: o cron roda a cada 5
+  minutos sobre uma janela, então "15 minutos" seria uma imprecisão escrita na cara do usuário
+  enquanto o horário é sempre exato.
+  """
+  def session_soon(clinic_id, recipient_id, %DateTime{} = starts_at, tz) do
+    hora = LocalTime.from_minutes(LocalTime.to_local_minutes(starts_at, tz))
+
+    notify(
+      clinic_id,
+      recipient_id,
+      :session_soon,
+      "Sessão começando",
+      "Sua próxima sessão começa às #{hora}.",
+      %{date: local_date_iso(starts_at, tz), hora: hora}
+    )
+
+    :ok
+  end
+
+  defp atendimentos(1), do: "atendimento"
+  defp atendimentos(_), do: "atendimentos"
+
   # ---- Convite aceito → owner/admin ----
 
   @doc "Avisa owner/admin da clínica que um convidado aceitou e entrou (menos o próprio recém-chegado)."
@@ -214,6 +262,90 @@ defmodule Api.Notifications.Fanout do
         "Novo membro na equipe",
         "#{nome} entrou na clínica como #{papel_label(membership.papel)}.",
         %{user_id: membership.user_id, papel: to_string(membership.papel)}
+      )
+    end
+
+    :ok
+  end
+
+  @doc """
+  Avisa **o próprio membro** que o papel dele mudou (#50, doc 31 §3c).
+
+  É o único evento da caixa cujo destinatário é o alvo da ação, e não um terceiro: mexer no papel
+  mexe no que a pessoa pode fazer, e ela descobriria sozinha só ao esbarrar num botão que sumiu.
+  O autor segue suprimido — quem se promove já sabe.
+  """
+  def role_changed(membership, papel_anterior, actor) do
+    if papel_anterior != membership.papel and deliver?(membership.user_id, actor) do
+      notify(
+        membership.clinic_id,
+        membership.user_id,
+        :role_changed,
+        "Seu acesso mudou",
+        "Seu papel nesta clínica agora é #{papel_label(membership.papel)}.",
+        %{
+          papel: to_string(membership.papel),
+          papel_anterior: to_string(papel_anterior),
+          actor: actor_payload(actor)
+        }
+      )
+    end
+
+    :ok
+  end
+
+  @doc """
+  Avisa owner/admin que alguém **saiu da equipe** (#50) — o par de `member_joined/1`.
+
+  O removido não recebe nada, e isso é estrutural, não esquecimento: a caixa é por-tenant e só se
+  lê com vínculo ativo na clínica. Assim que o vínculo cai, aquela caixa fica inalcançável para
+  ele — avisar por lá seria escrever numa gaveta trancada. Dar essa notícia a quem saiu é
+  trabalho de e-mail, que o doc 31 §5 deixou fora da v1 de propósito.
+  """
+  def member_removed(membership, actor) do
+    clinic_id = membership.clinic_id
+    nome = user_name(membership.user_id)
+
+    recipients =
+      role_user_ids(clinic_id, @governanca) -- ([membership.user_id] -- suppress(actor))
+
+    for recipient_id <- Enum.uniq(recipients) do
+      notify(
+        clinic_id,
+        recipient_id,
+        :member_removed,
+        "Membro removido da equipe",
+        "#{nome} não faz mais parte desta clínica.",
+        %{user_id: membership.user_id, actor: actor_payload(actor)}
+      )
+    end
+
+    :ok
+  end
+
+  @doc """
+  Avisa o operacional que entrou na fila alguém marcado **`urgente`** (#48, doc 31 §3b).
+
+  O limiar é só o topo da prioridade — decisão de 2026-07-26 sobre o gate #3 do doc 35. `alta`
+  ficou de fora porque em clínica movimentada ela é frequente, e o custo de um sino que apita
+  demais não é o volume: é o usuário parar de olhar para ele (doc 31 §4).
+  """
+  def waitlist_urgent(entry, actor) do
+    recipients = role_user_ids(entry.clinic_id, @operacional) -- suppress(actor)
+    paciente = patient_name(entry)
+
+    for recipient_id <- Enum.uniq(recipients) do
+      notify(
+        entry.clinic_id,
+        recipient_id,
+        :waitlist_urgent,
+        "Paciente urgente na fila",
+        "#{paciente} entrou na fila de espera como urgente.",
+        %{
+          entry_id: entry.id,
+          patient_id: entry.patient_id,
+          actor: actor_payload(actor)
+        }
       )
     end
 
@@ -253,9 +385,14 @@ defmodule Api.Notifications.Fanout do
 
   defp professional_user_id(_clinic_id, _professional_id), do: nil
 
-  # `professional_id => user_id` de quem tem vínculo ativo — a pergunta barata que decide se vale
-  # a pena ler o bloco (ver `participant_missed/2`). Mapa vazio = ninguém para notificar.
-  defp professional_users(clinic_id) do
+  @doc """
+  `professional_id => user_id` de quem tem vínculo ativo — a pergunta barata que decide se vale
+  a pena ler o bloco (ver `participant_missed/2`). Mapa vazio = ninguém para notificar.
+
+  Público desde o #51: os lembretes por cron fazem a mesma pergunta antes de varrer a agenda,
+  e tê-la em dois lugares seria ter duas definições de "dono da coluna".
+  """
+  def professional_users(clinic_id) do
     active_memberships(clinic_id)
     |> Enum.reject(&is_nil(&1.professional_id))
     |> Map.new(&{&1.professional_id, &1.user_id})

@@ -32,7 +32,9 @@ defmodule Api.Waitlist.WaitlistEntry do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer],
     # D-E5.3: as mutações da fila viram sinal de tempo real (o cliente recarrega a lista).
-    notifiers: [Api.Waitlist.WaitlistNotifier]
+    # O segundo notifier é a caixa do sino (#48): "entrou alguém urgente" é o único evento da
+    # fila que vira registro por usuário — o resto continua sendo sinal efêmero de tela.
+    notifiers: [Api.Waitlist.WaitlistNotifier, Api.Notifications.Notifier]
 
   postgres do
     table "waitlist_entries"

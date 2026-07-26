@@ -14,21 +14,40 @@ defmodule ApiWeb.NotificationsController do
   alias Api.Notifications
   alias ApiWeb.NotificationsJSON
 
-  # GET /api/notifications  — a caixa + o contador do badge.
+  # GET /api/notifications  — a caixa paginada (`?limit=`, `?offset=`) + o contador do badge.
   def index(conn, params) do
     with_member_scope(conn, fn scope ->
       only_unread = Api.Params.truthy?(params["unread"])
-      notifications = Notifications.list_inbox(scope, only_unread: only_unread)
 
-      # No caminho do badge (`?unread=1`, o que o layout do web chama em toda navegação) a lista
-      # JÁ é a das não-lidas — contá-la é o `unread`, sem uma segunda query idêntica. Só a caixa
-      # completa (default) precisa do `COUNT` à parte.
-      unread = if only_unread, do: length(notifications), else: Notifications.unread_count(scope)
+      page =
+        Notifications.list_inbox(scope,
+          only_unread: only_unread,
+          limit: parse_int(params["limit"]),
+          offset: parse_int(params["offset"])
+        )
+
+      # Paginada (#54), a lista não responde mais "quantas não-lidas" — contar o que chegou
+      # contaria só a página. O número vem sempre do `COUNT` no índice parcial, inclusive no
+      # caminho do badge: é uma query a mais e ainda assim mais barata que pedir o total da
+      # página (`count: true` lê o recorte inteiro — ver `Api.Pagination.page_opts/1`).
+      unread = Notifications.unread_count(scope)
 
       json(conn, %{
-        notifications: Enum.map(notifications, &NotificationsJSON.notification/1),
-        unread: unread
+        notifications: Enum.map(page.results, &NotificationsJSON.notification/1),
+        unread: unread,
+        page: %{limit: page.limit, offset: page.offset, more: page.more?}
       })
+    end)
+  end
+
+  # GET /api/notifications/unread-count  — só o número do badge.
+  #
+  # Existe porque o caminho do badge roda no load do layout, ou seja, em TODA navegação, e não
+  # precisa de lista nenhuma. Pedindo pelo `index` ele custava duas queries — uma lista de uma
+  # linha, que o BFF descartava, mais o `COUNT`. Aqui é uma, e vai ao índice parcial.
+  def unread_count(conn, _params) do
+    with_member_scope(conn, fn scope ->
+      json(conn, %{unread: Notifications.unread_count(scope)})
     end)
   end
 

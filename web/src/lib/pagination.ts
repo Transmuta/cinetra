@@ -6,11 +6,18 @@
 // relação com paciente. `$lib/patients` continua reexportando os nomes, então nada que já os
 // importava de lá precisou mudar.
 
-/** Recorte de página devolvido pela API (`page` no corpo do GET). */
+/**
+ * Recorte de página devolvido pela API (`page` no corpo do GET).
+ *
+ * `total` é **opcional** desde a caixa de notificações (#54): contá-lo obriga a API a ler o
+ * recorte inteiro (`COUNT(*) OVER ()`), medido em 10.265 buffers contra 26 com `LIMIT` puro. As
+ * telas que exibem "X–Y de Z" pagam esse preço porque mostram o Z; a caixa do sino só precisa de
+ * "tem mais?" e não paga. `pageLabel` já devolve vazio quando não há total.
+ */
 export interface PageInfo {
 	limit: number;
 	offset: number;
-	total: number;
+	total?: number;
 	more: boolean;
 }
 

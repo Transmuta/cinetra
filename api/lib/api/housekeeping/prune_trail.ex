@@ -29,32 +29,30 @@ defmodule Api.Housekeeping.PruneTrail do
   `Api.Repo.with_clinic/2` — um `DELETE` sem GUC apagaria zero linha (e passaria no `mix test`,
   onde o sandbox conecta como superusuário: a armadilha de sempre).
 
-  O `DELETE` é em lote com teto (`@lote`), repetido até não sobrar nada: uma clínica com anos de
-  trilha não vira uma transação de milhões de linhas segurando conexão do pool.
+  O `DELETE` é em lote com teto, repetido até não sobrar nada: uma clínica com anos de trilha não
+  vira uma transação de milhões de linhas segurando conexão do pool.
+
+  Esse mecanismo (GUC por clínica, lote, `ctid`) mora em `Api.Housekeeping.Poda` desde que a
+  caixa de notificações ganhou poda própria e viraria a segunda cópia dele.
   """
   use Oban.Worker, queue: :housekeeping, max_attempts: 3
 
   require Logger
+
+  alias Api.Housekeeping.Poda
 
   # As duas tabelas de versão que o projeto tem hoje (`Appointment` e `Attendance` usam
   # AshPaperTrail). A lista é explícita de propósito: uma tabela nova de versão deve entrar aqui
   # por decisão, não por varredura automática do catálogo.
   @tabelas ~w(appointments_versions attendances_versions)
 
-  @lote 5_000
-
   @impl Oban.Worker
   def perform(%Oban.Job{args: args}) do
     corte = corte(args)
 
     apagadas =
-      Enum.reduce(clinicas(), 0, fn clinic_id, total ->
-        {:ok, n} =
-          Api.Repo.with_clinic(clinic_id, fn ->
-            Enum.reduce(@tabelas, 0, &(&2 + podar(&1, clinic_id, corte)))
-          end)
-
-        total + n
+      Poda.por_clinica(fn clinic_id ->
+        Enum.reduce(@tabelas, 0, &(&2 + podar(&1, clinic_id, corte)))
       end)
 
     if apagadas > 0 do
@@ -67,36 +65,13 @@ defmodule Api.Housekeeping.PruneTrail do
   end
 
   @doc "O instante de corte que o job usaria agora — exposto para o doc e para diagnóstico."
-  def corte(args \\ %{}) do
-    dias =
-      case Map.get(args, "reter_dias") do
-        n when is_integer(n) and n >= 0 -> n
-        _ -> Application.get_env(:api, __MODULE__, [])[:reter_dias] || 365
-      end
+  def corte(args \\ %{}),
+    do: Poda.corte(args, "reter_dias", modulo: __MODULE__, chave: :reter_dias, padrao: 365)
 
-    NaiveDateTime.utc_now() |> NaiveDateTime.add(-dias * 24 * 3600, :second)
-  end
-
-  defp clinicas do
-    Api.Accounts.list_clinics!(authorize?: false) |> Enum.map(& &1.id)
-  end
-
-  # Lotes até esgotar. `ctid` no `IN` porque a tabela de versão não tem chave natural para o
-  # recorte e o `id` seria só um caminho mais caro para o mesmo lugar.
-  defp podar(tabela, clinic_id, corte, total \\ 0) do
-    {:ok, %{num_rows: n}} =
-      Api.Repo.query(
-        """
-        DELETE FROM #{tabela}
-        WHERE ctid IN (
-          SELECT ctid FROM #{tabela}
-          WHERE clinic_id = $1 AND version_inserted_at < $2
-          LIMIT #{@lote}
-        )
-        """,
-        [Ecto.UUID.dump!(clinic_id), corte]
-      )
-
-    if n < @lote, do: total + n, else: podar(tabela, clinic_id, corte, total + n)
+  defp podar(tabela, clinic_id, corte) do
+    Poda.em_lote(tabela, "clinic_id = $1 AND version_inserted_at < $2", [
+      Ecto.UUID.dump!(clinic_id),
+      corte
+    ])
   end
 end

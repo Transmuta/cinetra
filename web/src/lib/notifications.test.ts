@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { relativeTime, notificationHref } from './notifications';
+import { relativeTime, notificationHref, type NotificationKind } from './notifications';
 
 describe('relativeTime', () => {
 	const now = new Date('2026-07-21T12:00:00Z');
@@ -31,20 +31,44 @@ describe('relativeTime', () => {
 });
 
 describe('notificationHref', () => {
+	const href = (kind: NotificationKind, data: Record<string, unknown> = {}) =>
+		notificationHref({ kind, data });
+
 	it('eventos de agenda levam à agenda', () => {
-		expect(notificationHref('appointment_scheduled')).toBe('/agenda');
-		expect(notificationHref('appointment_rescheduled')).toBe('/agenda');
-		expect(notificationHref('appointment_canceled')).toBe('/agenda');
+		expect(href('appointment_scheduled')).toBe('/agenda');
+		expect(href('appointment_rescheduled')).toBe('/agenda');
+		expect(href('appointment_canceled')).toBe('/agenda');
 		// A2 (doc 41 etapa 5)
-		expect(notificationHref('appointment_missed')).toBe('/agenda');
-		expect(notificationHref('participant_added')).toBe('/agenda');
+		expect(href('appointment_missed')).toBe('/agenda');
+		expect(href('participant_added')).toBe('/agenda');
 	});
 
-	it('vaga livre leva à fila', () => {
-		expect(notificationHref('slot_opened')).toBe('/fila');
+	// #56: o motivo do item existir. Sem a data, "seu paciente de quinta foi remarcado" abria a
+	// agenda de HOJE e a pessoa navegava até lá na mão.
+	it('quando a notificação traz a data, a agenda abre nela', () => {
+		expect(href('appointment_rescheduled', { date: '2026-08-13' })).toBe('/agenda?date=2026-08-13');
+		expect(href('session_soon', { date: '2026-08-13' })).toBe('/agenda?date=2026-08-13');
+		expect(href('daily_digest', { date: '2026-08-14' })).toBe('/agenda?date=2026-08-14');
 	});
 
-	it('novo membro leva à equipe', () => {
-		expect(notificationHref('member_joined')).toBe('/configuracoes/equipe');
+	// `data` é jsonb livre; o destino de navegação não confia nele sem olhar.
+	it('data com formato inválido é ignorada', () => {
+		expect(href('appointment_canceled', { date: 'amanhã' })).toBe('/agenda');
+		expect(href('appointment_canceled', { date: 42 })).toBe('/agenda');
+	});
+
+	it('a massa por pacote não tem um dia só, então abre no padrão', () => {
+		expect(href('package_bulk_adjusted', { afetadas: 3 })).toBe('/agenda');
+	});
+
+	it('vaga livre leva à fila, e urgente leva à fila já filtrada', () => {
+		expect(href('slot_opened')).toBe('/fila');
+		expect(href('waitlist_urgent')).toBe('/fila?prio=urgente');
+	});
+
+	it('governança de membros leva à equipe', () => {
+		expect(href('member_joined')).toBe('/configuracoes/equipe');
+		expect(href('member_removed')).toBe('/configuracoes/equipe');
+		expect(href('role_changed')).toBe('/configuracoes/equipe');
 	});
 });
