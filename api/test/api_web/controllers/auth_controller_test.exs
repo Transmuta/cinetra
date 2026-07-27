@@ -9,30 +9,12 @@ defmodule ApiWeb.AuthControllerTest do
 
   alias Api.Accounts
 
-  defp create_user, do: sign_in("user-#{System.unique_integer([:positive])}@example.com")
-
-  # Um login por magic link para `email`. Chamado duas vezes com o mesmo e-mail, cada retorno
-  # traz um token DISTINTO (dois "dispositivos" do mesmo usuário) — o que o "sair de todos"
-  # precisa para provar que revoga além da própria sessão.
-  defp sign_in(email) do
-    :ok = Accounts.request_magic_link(email, %{register?: true})
-    assert_receive {:email, mail}, 1_000
-    [_, token] = Regex.run(~r/token=([\w.\-]+)/, mail.text_body)
-    {:ok, user} = Accounts.sign_in_with_magic_link(token)
-    user
-  end
+  defp create_user, do: sign_in!("user-#{System.unique_integer([:positive])}@example.com")
 
   defp onboard(user, nome \\ nil) do
     nome = nome || "Clínica #{System.unique_integer([:positive])}"
     {:ok, clinic} = Accounts.onboard_clinic(nome, %{}, actor: user)
     clinic
-  end
-
-  # Estabelece a sessão exatamente como o callback faz (store_in_session).
-  defp authed(conn, user) do
-    conn
-    |> init_test_session(%{})
-    |> AshAuthentication.Plug.Helpers.store_in_session(user)
   end
 
   describe "POST /api/auth/magic-link (resposta neutra)" do
@@ -333,8 +315,8 @@ defmodule ApiWeb.AuthControllerTest do
     test "revoga TODOS os tokens: outra sessão do mesmo usuário também para de valer",
          %{conn: conn} do
       email = "user-#{System.unique_integer([:positive])}@example.com"
-      device_a = sign_in(email)
-      device_b = sign_in(email)
+      device_a = sign_in!(email)
+      device_b = sign_in!(email)
       assert device_a.id == device_b.id
 
       # O dispositivo B pede "sair de todos".

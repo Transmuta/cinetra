@@ -105,6 +105,45 @@ defmodule ApiWeb.TenantScope do
   def invalid(conn, message), do: unprocessable(conn, [%{field: nil, message: message}])
 
   @doc """
+  **409 do A3/D12** — a mudança de horário é bem formada, mas quebraria agendamentos que já
+  existem (`Api.Scheduling.future_conflicts/2`).
+
+  É 409 e não 422 pela regra do `conflict/4` acima: o pedido *está certo*, o mundo é que diz não.
+  E é a mesma forma dos outros 409 do projeto — `code` estável + `meta` —, então a tela distingue
+  "conflito de agenda" de "dados inválidos" pelo mesmo canal de sempre, e usa o `meta` para
+  desenhar a lista do que remarcar antes de reenviar com `confirm: true`.
+  """
+  def future_conflicts(conn, %{conflicts: conflicts} = analise) do
+    conflict(
+      conn,
+      "future_conflicts",
+      "Há #{length(conflicts)} agendamento(s) futuro(s) que ficariam fora do expediente.",
+      %{conflicts: Enum.map(conflicts, &conflict_json/1), truncado: analise[:truncado?] == true}
+    )
+  end
+
+  @doc """
+  O `confirm` do corpo, na forma que a fronteira aceita: só o booleano `true` (ou a string
+  `"true"`) confirma. Qualquer outra coisa — ausente, `"1"`, `nil` — **não** confirma, que é o
+  default seguro: quem quer pular o gate do D12 tem de dizer isso sem ambiguidade.
+  """
+  def confirmado?(%{"confirm" => true}), do: true
+  def confirmado?(%{"confirm" => "true"}), do: true
+  def confirmado?(_params), do: false
+
+  defp conflict_json(conflito) do
+    %{
+      appointment_id: conflito.appointment_id,
+      date: Date.to_iso8601(conflito.date),
+      hora: conflito.hora,
+      reason: conflito.reason,
+      periods_depois: conflito.periods_depois,
+      professional: %{id: conflito.professional_id, nome: conflito.professional_nome},
+      patients: conflito.patients
+    }
+  end
+
+  @doc """
   Lê um inteiro **não-negativo** de um query param, ou `nil`.
 
   `nil` de propósito, e não 422: valor inválido em `?limit=`/`?offset=`/`?page=` deixa o

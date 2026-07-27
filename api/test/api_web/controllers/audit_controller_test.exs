@@ -11,35 +11,10 @@ defmodule ApiWeb.AuditControllerTest do
   alias Api.Records
   alias Api.Scheduling
 
-  defp email, do: "audit-http-#{System.unique_integer([:positive])}@example.com"
-
-  defp sign_in(addr) do
-    :ok = Accounts.request_magic_link(addr, %{register?: true})
-    assert_receive {:email, mail}, 1_000
-    [_, token] = Regex.run(~r/token=([\w.\-]+)/, mail.text_body)
-    {:ok, user} = Accounts.sign_in_with_magic_link(token)
-    user
-  end
-
-  defp authed(conn, user) do
-    conn
-    |> Phoenix.ConnTest.init_test_session(%{})
-    |> AshAuthentication.Plug.Helpers.store_in_session(user)
-  end
-
-  defp member_session(owner, clinic, papel, professional_id \\ nil) do
-    addr = email()
-    attrs = %{papel: papel, clinic_id: clinic.id, professional_id: professional_id}
-    {:ok, pending} = Accounts.invite_member_by_email(addr, attrs, actor: owner)
-    user = Accounts.get_user_by_email!(addr, authorize?: false)
-    {:ok, _} = Accounts.accept_invite(pending, actor: user)
-    sign_in(addr)
-  end
-
   # Uma clínica com um agendamento já cancelado — três versões na trilha (schedule/reschedule/
   # cancel), do owner. Devolve o escopo e o contexto para as asserções.
   defp fixture do
-    owner = sign_in(email())
+    owner = sign_in!(email_unico("audit-http"))
 
     {:ok, clinic} =
       Accounts.onboard_clinic("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
@@ -95,7 +70,8 @@ defmodule ApiWeb.AuditControllerTest do
       body = json_response(conn, 200)
       assert %{"entries" => entries, "page" => page} = body
       assert length(entries) == 3
-      assert page["total"] == 3
+      # Sem `total` no corpo: a trilha não paga `COUNT(*)` por request (D-Aud1).
+      refute Map.has_key?(page, "total")
       assert page["more"] == false
 
       # A entrada mais recente é o cancelamento: quem · quando · ação · registro · diff.
@@ -110,7 +86,7 @@ defmodule ApiWeb.AuditControllerTest do
 
     test "admin também lê", %{conn: conn} do
       ctx = fixture()
-      admin = member_session(ctx.owner, ctx.clinic, :admin)
+      admin = sessao_de_membro!(ctx.owner, ctx.clinic, :admin)
 
       conn = conn |> authed(admin) |> get("/api/audit")
       assert %{"entries" => [_ | _]} = json_response(conn, 200)
@@ -118,7 +94,7 @@ defmodule ApiWeb.AuditControllerTest do
 
     test "recepção recebe 403 (não lista vazia)", %{conn: conn} do
       ctx = fixture()
-      recepcao = member_session(ctx.owner, ctx.clinic, :recepcao)
+      recepcao = sessao_de_membro!(ctx.owner, ctx.clinic, :recepcao)
 
       conn = conn |> authed(recepcao) |> get("/api/audit")
       assert json_response(conn, 403)
@@ -126,7 +102,7 @@ defmodule ApiWeb.AuditControllerTest do
 
     test "profissional recebe 403", %{conn: conn} do
       ctx = fixture()
-      prof_user = member_session(ctx.owner, ctx.clinic, :profissional, ctx.prof.id)
+      prof_user = sessao_de_membro!(ctx.owner, ctx.clinic, :profissional, ctx.prof.id)
 
       conn = conn |> authed(prof_user) |> get("/api/audit")
       assert json_response(conn, 403)

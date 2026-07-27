@@ -12,6 +12,9 @@ defmodule ApiWeb.ChannelCase do
 
       import Phoenix.ChannelTest
       import ApiWeb.ChannelCase
+
+      # As mesmas fábricas do `Api.DataCase` (`clinica/1`, `sign_in!/1`, `sessao_de_membro!/4`…).
+      import Api.Generators
     end
   end
 

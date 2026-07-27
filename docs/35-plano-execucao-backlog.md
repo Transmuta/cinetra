@@ -10,6 +10,24 @@ Natureza do bloqueio: **[P]** decisão de produto · **[T]** técnico/arquitetur
 
 > ## ▶︎ Onde retomar
 >
+> **A Onda 6 fechou (2026-07-27) — e com ela o backlog deste plano.** Frentes 8, 9, 12 e 13
+> inteiras, registro em [`48`](48-onda-6-soltas-e-limpeza.md). Os **dois gates de produto** que a
+> bloqueavam foram decididos ali:
+>
+> - **A3** — a D12 vale nas quatro portas de edição de horário e é **bloqueio** (`confirm: true`
+>   como saída explícita, e o botão que a envia só existe dentro do modal que mostra a lista). A
+>   precedência que a RN-16 deixou aberta se resolveu **apagando a regra**: a simulação sobrepõe a
+>   mudança nas fontes e pergunta ao `Availability.day_periods/3`, o motor real — então a análise
+>   não pode discordar do que acontece depois de salvar, e a divergência do protótipo fica
+>   registrada como divergência;
+> - **D-Aud1** — a trilha vai a `count: false` e perde o "de Z" (o `more?` continua exato).
+>   Pacientes e Fila **mantêm** o total: o critério é o crescimento da tabela, não a uniformidade.
+>
+> O levantamento tirou cinco itens da onda por já estarem feitos — entre eles o **D-Aud2**, cujo
+> índice nasceu por acidente feliz do conserto de FK da Onda 5. Ficaram três itens de decisão
+> humana no §6 do doc 48, sendo o principal o **e2e autenticado que passa localmente e pula no
+> CI**, porque o job `web-e2e` sobe só o web.
+>
 > **A Onda 4 fechou (2026-07-26)** — Frente 10 inteira: perf/estrutura (#52–#55) e os gatilhos que
 > sobravam (#48, #50, #51, #56). Registro em [`44`](44-onda-4-notificacoes.md); os três gates de
 > produto que a bloqueavam foram decididos na abertura dela. Auditada em
@@ -47,7 +65,7 @@ Natureza do bloqueio: **[P]** decisão de produto · **[T]** técnico/arquitetur
 > para a presença, e foi **removida** com o índice, o campo do JSON e as duas marcas de UI que
 > nunca apareciam ([`46` §6c](46-onda-5-producao.md)).
 >
-> Próximo passo: **Onda 6 — Frentes 8, 9, 12 e 13** (features soltas, auditoria e refactors).
+> ~~Próximo passo: **Onda 6 — Frentes 8, 9, 12 e 13**.~~ ✅ **feita** — ver o topo desta seção.
 >
 > A lição que a Onda 4 acrescentou: **a paginação era pré-requisito do índice, não o contrário.**
 > Entregar o #55 antes do #54 teria produzido um índice íntegro e nunca escolhido — o mesmo
@@ -93,16 +111,20 @@ Registro para não parecerem esquecidos — **não** entram nas ondas abaixo:
 1. ~~**A2 (Turma):** presença individual é requisito? + bug do `pkgOf`.~~ ✅ **RESOLVIDO**
    (2026-07-24, doc 41): é requisito, e **sem migração** — o enum do bloco ficou, o que mudou foi
    quem escreve o status (rollup das presenças).
-2. **A3 (futureConflicts):** estender D12 (horário do profissional) para clínica/exceção + o
-   terceiro consumidor esquecido (`addHoliday`). — bloqueia Frente 8.
+2. ~~**A3 (futureConflicts):** estender D12 para clínica/exceção + o terceiro consumidor
+   esquecido (`addHoliday`).~~ ✅ **RESOLVIDO** (2026-07-27, [doc 48 §5a](48-onda-6-soltas-e-limpeza.md)):
+   a D12 vale nas **quatro** portas e é bloqueio, com `confirm: true` como saída explícita. A
+   precedência do `addHoliday` foi resolvida **apagando a regra** — a simulação passa pelo motor
+   real (`Availability.day_periods/3`), então não há uma segunda regra para discordar.
 3. ~~**F#48:** limiar de "paciente urgente entrou na fila".~~ ✅ **RESOLVIDO** (2026-07-26): **só
    `urgente`**. `alta` é frequente demais em clínica movimentada, e sino que apita demais deixa de
    ser olhado (doc 31 §4).
-4. **D-Aud1:** semântica do rótulo "X–Y de Z" (reltuples / `countable:false`+limit+1 / contar
-   só com filtro). — bloqueia Frente 12. **A Onda 4 acrescentou dado a este gate**: `countable`
-   vira `COUNT(*) OVER ()` e lê o recorte inteiro apesar do `LIMIT` — medido em 10.265 buffers
-   contra 26 ([doc 44](44-onda-4-notificacoes.md) §2). O `Api.Pagination.page_opts/1` já aceita
-   `count: false`.
+4. ~~**D-Aud1:** semântica do rótulo "X–Y de Z".~~ ✅ **RESOLVIDO** (2026-07-27,
+   [doc 48 §4](48-onda-6-soltas-e-limpeza.md)): **`countable: false` + `more?`** na trilha, que
+   perde o "de Z"; Pacientes e Fila **mantêm** o total. O critério é o crescimento da tabela — a
+   trilha é 3× a base e "quantas versões esta clínica acumulou" não é pergunta que alguém faça.
+   O `reltuples` foi descartado por não saber recortar por clínica (é estimativa da tabela toda,
+   inútil sob multi-tenant por atributo).
 
 ---
 
@@ -159,11 +181,14 @@ Registro para não parecerem esquecidos — **não** entram nas ondas abaixo:
   PRESENÇA, com teto de leitura e aviso de corte. **Anexos** seguem ocultos (v2); `faltas` na
   ficha do drawer continua dependendo de F1.
 
-### Frente 8 — futureConflicts (Fatia 7, A3) *(gate #2)*
-- **A3** — ligar o motor `ImpactAnalysis`/`futureConflicts` ao editar horários. **[P]**
+### Frente 8 — futureConflicts (Fatia 7, A3) ✅ FEITA (2026-07-27, [doc 48](48-onda-6-soltas-e-limpeza.md) §5)
+- **A3** — o motor **não existia** no backend (só no protótipo): `Api.Scheduling.ImpactAnalysis`
+  (puro) + `future_conflicts/2` + gate nas **quatro** portas + **409 `future_conflicts`** com a
+  lista no `meta` + `ConflictsModal` nas quatro telas. Gate #2 decidido no doc 48 §5a.
 
-### Frente 9 — Realtime "quem está vendo este dia" (F5)
-- **F5** — `Phoenix.Presence` por dia (feature nova, isolada).
+### Frente 9 — Realtime "quem está vendo este dia" (F5) ✅ FEITA (2026-07-27, [doc 48](48-onda-6-soltas-e-limpeza.md) §3)
+- **F5** — `Phoenix.Presence` por dia. **Só a visão de Dia rastreia** (a Semana assina 5–7 tópicos
+  de dia; sem o filtro, uma pessoa apareceria "vendo" sete dias). Chave = usuário, não socket.
 
 ### Frente 10 — Notificações ✅ FEITA (2026-07-26, [doc 44](44-onda-4-notificacoes.md))
 - **Perf/estrutura:** #52 `who_fits` síncrono → Oban; #53 `mark_all_read` via `Ash.bulk_update`;
@@ -188,13 +213,25 @@ Registro para não parecerem esquecidos — **não** entram nas ondas abaixo:
   `SET NULL` (senão nenhum `User` seria apagável, que é o que a F8 precisa); `attendances.package_id`
   ganhou a FK que nunca teve.
 
-### Frente 12 — Auditoria (perf) *(gate #4)*
-- **D-Aud1** — corrigir o `COUNT(*)`. **D-Aud2** — índice quando a tela expuser o filtro por autor.
+### Frente 12 — Auditoria (perf) ✅ FEITA (2026-07-27, [doc 48](48-onda-6-soltas-e-limpeza.md) §4)
+- **D-Aud1** — `count: false` na trilha; o rodapé vira "1–50" e o `more?` continua exato.
+- ~~**D-Aud2**~~ — **já estava feito**: os índices `*_versions_user_id_index` nasceram do conserto
+  de FK sem índice da Onda 5 (doc 47 §3A).
 
-### Frente 13 — Refactors / limpeza
-- **I67** — extrair `ApiWeb.ScopeGuards`, `sign_in`/`authed` → `ConnCase`, `in_clinic/2`, contrato
-  de paleta. **D-U** — DRY fila↔agenda. **D-R** — pool_size vs fan-out (o dado de volume segue no `movimento_dev`). **I66** —
-  e2e do `switch-clinic` + fila/WS não-vazio. **I68** — `goPage` `replaceState` (UX Pacientes).
+### Frente 13 — Refactors / limpeza ✅ FEITA (2026-07-27, [doc 48](48-onda-6-soltas-e-limpeza.md) §2)
+- **I67** — `ApiWeb.ChannelScope` (a guarda de `join` que estava em três cópias, D7) + os helpers
+  de sessão dos testes (17 `sign_in`, 14 `authed`, 30 `email`) para `Api.Generators`/`ConnCase`:
+  **−654/+242 linhas**. `ApiWeb.ScopeGuards` e `in_clinic/2` **já existiam** (`TenantScope`,
+  `Api.Tenancy`); a paleta ganhou tripwire nos dois lados em vez de contrato entre linguagens.
+- **I68** — `$lib/querystring` nas quatro telas com estado na URL; o `replaceState` que faltava
+  era o da **Auditoria**, não o de Pacientes.
+- **D-U** — D2 (`finish`/`parseIds` → `mutate`) e D3 (`/pacientes` gêmeo → `patient-search`).
+  D4 e D5 **já estavam feitos** (Onda 5 / `WaitlistJSON`).
+- **D-R** — medido: `pool_size: 10` abre **11** conexões (a 11ª é o `LISTEN` do Oban, fora do
+  pool) e as filas podem segurar **7** das 10. `POOL_SIZE` default → **16**, com `Api.ObanPoolTest`
+  travando a aritmética.
+- **I66** — e2e autenticado do `switch-clinic` (magic link real). Passa local; **pula no CI** (§6
+  D1 do doc 48). A parte "fila/WS não-vazio" não entrou.
 
 ---
 
@@ -207,7 +244,7 @@ Registro para não parecerem esquecidos — **não** entram nas ondas abaixo:
 | **3 — Valor central** | 5 → 6 → 7 | ✅ **feita (2026-07-25)** | Pacotes → Turma → Ficha, sequencial por dependência |
 | **4 — Notificações** | 10 | ✅ **feita (2026-07-26)** | Perf antes dos gatilhos — e a paginação acabou sendo pré-requisito do índice |
 | **5 — Produção** | 11 | ✅ **feita (2026-07-26)** | Antes do primeiro deploy real — e achou dois erros que o bloqueavam |
-| **6 — Soltas + limpeza** | 8, 9, 12, 13 | pendente ← **próxima** | Features isoladas, auditoria e refactors por último |
+| **6 — Soltas + limpeza** | 8, 9, 12, 13 | ✅ **feita (2026-07-27)** | Features isoladas, auditoria e refactors por último — fecha o plano |
 
 **Caminho crítico:** D-C → A1 (Pacotes) → A2 (Turma) → C13/#47. ✅ **percorrido inteiro.**
 

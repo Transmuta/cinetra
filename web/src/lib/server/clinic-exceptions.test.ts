@@ -54,7 +54,11 @@ describe('createClinicException', () => {
 		expect(apiFetch).toHaveBeenCalledWith(
 			event,
 			'/api/clinic-exceptions',
-			expect.objectContaining({ method: 'POST', body: JSON.stringify(input) })
+			expect.objectContaining({
+				method: 'POST',
+				// `confirm` vai SEMPRE no corpo (A3/D12); `false` é o default seguro.
+				body: JSON.stringify({ ...input, confirm: false })
+			})
 		);
 	});
 

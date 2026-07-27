@@ -12,33 +12,8 @@ defmodule ApiWeb.ReportsControllerTest do
 
   @segunda "2026-07-20"
 
-  defp email, do: "reports-#{System.unique_integer([:positive])}@example.com"
-
-  defp sign_in(addr) do
-    :ok = Accounts.request_magic_link(addr, %{register?: true})
-    assert_receive {:email, mail}, 1_000
-    [_, token] = Regex.run(~r/token=([\w.\-]+)/, mail.text_body)
-    {:ok, user} = Accounts.sign_in_with_magic_link(token)
-    user
-  end
-
-  defp authed(conn, user) do
-    conn
-    |> Phoenix.ConnTest.init_test_session(%{})
-    |> AshAuthentication.Plug.Helpers.store_in_session(user)
-  end
-
-  defp member_session(owner, clinic, papel, professional_id \\ nil) do
-    addr = email()
-    attrs = %{papel: papel, clinic_id: clinic.id, professional_id: professional_id}
-    {:ok, pending} = Accounts.invite_member_by_email(addr, attrs, actor: owner)
-    user = Accounts.get_user_by_email!(addr, authorize?: false)
-    {:ok, _} = Accounts.accept_invite(pending, actor: user)
-    sign_in(addr)
-  end
-
   defp fixture do
-    owner = sign_in(email())
+    owner = sign_in!(email_unico("reports"))
 
     {:ok, clinic} =
       Accounts.onboard_clinic("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
@@ -141,7 +116,7 @@ defmodule ApiWeb.ReportsControllerTest do
     test "recepção enxerga a clínica inteira", %{conn: conn} do
       ctx = fixture()
       create_appt(conn, ctx, ctx.owner, "2026-07-20T11:00:00Z")
-      recepcao = member_session(ctx.owner, ctx.clinic, :recepcao)
+      recepcao = sessao_de_membro!(ctx.owner, ctx.clinic, :recepcao)
 
       body =
         get_summary(conn, recepcao, %{"date_from" => @segunda, "date_to" => @segunda})
@@ -159,7 +134,7 @@ defmodule ApiWeb.ReportsControllerTest do
       create_appt(conn, ctx, ctx.owner, "2026-07-20T11:00:00Z", ctx.prof.id)
 
       # Vinculado a `outro`, não enxerga o agendamento da Dra. X.
-      prof_user = member_session(ctx.owner, ctx.clinic, :profissional, outro.id)
+      prof_user = sessao_de_membro!(ctx.owner, ctx.clinic, :profissional, outro.id)
 
       body =
         get_summary(conn, prof_user, %{"date_from" => @segunda, "date_to" => @segunda})

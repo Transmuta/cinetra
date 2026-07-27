@@ -20,11 +20,9 @@ defmodule Api.Notifications.RemindersTest do
   alias Api.Notifications.SessionSoonJob
   alias Api.Scheduling
 
-  defp email, do: "rem-#{System.unique_integer([:positive])}@example.com"
-
   # O profissional do fixture com um USUÁRIO vinculado — sem isso não há a quem avisar.
   defp dono_da_coluna(ctx) do
-    user = Accounts.register_user!("Dono coluna", email(), authorize?: false)
+    user = Accounts.register_user!("Dono coluna", email_unico("rem"), authorize?: false)
 
     {:ok, m} =
       Accounts.invite_member(

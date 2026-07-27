@@ -4,9 +4,10 @@
 	// modais: adicionar/editar (AddToWaitlistModal), oferecer vaga (OfferSlotModal) e a confirmação
 	// de remover (ConfirmDialog). O "Adicionar à fila" mora na sidebar e viaja por `?novo=1` —
 	// o único gatilho que precisa cruzar de um componente (a sidebar) para a página.
-	import { goto, invalidate, invalidateAll } from '$app/navigation';
+	import { invalidate, invalidateAll } from '$app/navigation';
 	import { deserialize } from '$app/forms';
 	import { page as pageState } from '$app/state';
+	import { navigateQuery, type QueryPatch } from '$lib/querystring';
 	import {
 		connectWaitlist,
 		type RealtimeConfig,
@@ -88,16 +89,10 @@
 		preselecting = null;
 	}
 
-	// Aplica um patch na query string e navega (molde de `pacientes/+page.svelte`). Usado para
-	// fechar o modal de adicionar (limpar `?novo`), sem empilhar histórico.
-	function navigate(patch: Record<string, string | null>) {
-		const params = new URLSearchParams(pageState.url.searchParams);
-		for (const [key, value] of Object.entries(patch)) {
-			if (value === null || value === '') params.delete(key);
-			else params.set(key, value);
-		}
-		const qs = params.toString();
-		goto(qs ? `/fila?${qs}` : '/fila', { keepFocus: true, noScroll: true, replaceState: true });
+	// Aplica um patch na query string e navega (`$lib/querystring`). Usado para fechar o modal de
+	// adicionar (limpar `?novo`), sem empilhar histórico.
+	function navigate(patch: QueryPatch) {
+		navigateQuery('/fila', pageState.url.searchParams, patch);
 	}
 
 	// Paginação (F6): `?page=` na URL, sem empilhar histórico — mesmo gesto da lista de Pacientes.

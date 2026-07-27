@@ -952,7 +952,27 @@ defmodule Api.Scheduling do
   `:record_id` (histórico de um registro só), `:user_id` (por autor), `:action_name` (por ação),
   `:from`/`:to` (janela sobre `version_inserted_at`), `:limit`, `:offset`.
 
-  Devolve `%{entries: [...], page: %{limit, offset, total, more}}`.
+  Devolve `%{entries: [...], page: %{limit, offset, more}}` — **sem total**, ver abaixo.
+
+  ## Por que não há total (D-Aud1)
+
+  A trilha é a tabela que mais cresce do projeto: **3× a tabela base** e sem nada que a diminua
+  além da poda diária. Pagar `COUNT(*) OVER ()` a cada request para escrever o "de Z" do rodapé é
+  ler o recorte inteiro da clínica — o `LIMIT` só apara no fim. Medido no `movimento_dev`, na
+  mesma consulta e no mesmo plano:
+
+      com count: WindowAgg sobre as 102 linhas do recorte, 16 buffers
+      sem count: sort + limite, 13 buffers
+
+  A diferença é pequena **porque a tabela de dev é pequena**; o que importa é a **forma** do
+  plano, que não depende do tamanho — e ela já foi medida no seu extremo, na caixa de
+  notificações: 10.265 buffers contra 26 (doc 44 §2). É o mesmo `countable`, o mesmo desfecho.
+
+  Onde o total **fica**: em Pacientes e na Fila. Não é inconsistência — é o critério aplicado.
+  Aquelas listas têm teto natural (centenas de pacientes, dezenas na fila) e o total responde uma
+  pergunta que a pessoa faz ("quantos pacientes eu tenho?"). "Quantas versões de agendamento esta
+  clínica já acumulou" não é uma pergunta que alguém faça; o que se quer da trilha é *o que
+  aconteceu*, e para isso bastam a página e o "tem mais".
 
   ## Por que o diff é montado aqui, não no cliente
 
@@ -979,7 +999,7 @@ defmodule Api.Scheduling do
 
       %{
         entries: enrich_versions(resource, scope, page.results),
-        page: %{limit: page.limit, offset: page.offset, total: page.count, more: page.more?}
+        page: %{limit: page.limit, offset: page.offset, more: page.more?}
       }
     end)
   end
@@ -990,7 +1010,7 @@ defmodule Api.Scheduling do
     page_appointment_versions!(
       scope: scope,
       query: query,
-      page: [limit: limit, offset: offset, count: true]
+      page: [limit: limit, offset: offset, count: false]
     )
   end
 
@@ -1000,7 +1020,7 @@ defmodule Api.Scheduling do
     page_attendance_versions!(
       scope: scope,
       query: query,
-      page: [limit: limit, offset: offset, count: true]
+      page: [limit: limit, offset: offset, count: false]
     )
   end
 
@@ -1373,6 +1393,123 @@ defmodule Api.Scheduling do
     |> Map.fetch!(professional_id)
   end
 
+  # ---- A3 / futureConflicts (D12) ----
+
+  # Teto de agendamentos futuros considerados na análise de impacto. Não é paginação: é o
+  # limite de uma pergunta que, sem ele, seria "leia toda a agenda futura da clínica". 500 é
+  # muito acima do que uma clínica tem marcado para frente em qualquer cenário realista, e a
+  # análise devolve `truncado?` quando bate no teto — a tela avisa em vez de mentir por omissão.
+  @teto_conflitos_futuros 500
+
+  @doc """
+  **A3 (D12)** — os agendamentos futuros que uma mudança de horário quebraria.
+
+  A pergunta é sempre feita **antes** de gravar: mexer no expediente é a única operação que muda
+  o futuro de agendamentos que ninguém tocou. `change` é uma das quatro formas de
+  `Api.Scheduling.ImpactAnalysis.change/0` — a semana da clínica, a grade de um profissional, uma
+  exceção da clínica ou uma exceção de um profissional.
+
+  Devolve `%{conflicts: [...], truncado?: boolean}`. Cada conflito já vem com o nome do
+  profissional e dos pacientes: quem vai ler a lista precisa decidir o que remarcar, e um uuid
+  não ajuda a decidir nada.
+
+  ## O recorte da leitura
+
+  "Futuro" é a partir de **agora** (`scope.now`), não do começo do dia: uma mudança de horário não
+  desfaz o que já foi atendido hoje de manhã. Só status **abertos** entram — cancelado, concluído
+  e falta já aconteceram (ou não vão acontecer), e mudar o expediente não os move.
+
+  As três leituras são O(1) em número de queries: os agendamentos, os profissionais citados por
+  eles e as quatro fontes de disponibilidade da janela (`gather_sources/3`, o mesmo ponto único da
+  agenda e da validação de escrita).
+  """
+  def future_conflicts(%Api.Scope{} = scope, change) do
+    %{timezone: tz} = clinic_now(scope)
+
+    in_clinic(scope, fn ->
+      opts = [tenant: scope.clinic_id, authorize?: false]
+      futuros = agendamentos_futuros(scope, opts)
+
+      case Enum.map(futuros, &local_shape(&1, tz)) do
+        [] ->
+          %{conflicts: [], truncado?: false}
+
+        appts ->
+          prof_ids = appts |> Enum.map(& &1.professional_id) |> Enum.uniq()
+          dates = appts |> Enum.map(& &1.date) |> Enum.uniq()
+
+          professionals = professionals_by_id(prof_ids, opts)
+          sources = gather_sources(prof_ids, dates, opts)
+
+          por_prof =
+            Map.new(prof_ids, fn id ->
+              {id, {Map.get(professionals, id, %{}), Map.fetch!(sources, id)}}
+            end)
+
+          conflitos = Api.Scheduling.ImpactAnalysis.conflicts(appts, por_prof, change, tz)
+
+          %{
+            conflicts: Enum.map(conflitos, &enriquecer_conflito(&1, futuros, professionals, tz)),
+            truncado?: length(futuros) >= @teto_conflitos_futuros
+          }
+      end
+    end)
+  end
+
+  defp agendamentos_futuros(scope, opts) do
+    query =
+      Api.Scheduling.Appointment
+      |> Ash.Query.filter(
+        starts_at >= ^scope.now and status in ^Api.Scheduling.AppointmentStatus.abertos()
+      )
+      |> Ash.Query.sort(starts_at: :asc)
+      |> Ash.Query.limit(@teto_conflitos_futuros)
+      |> Ash.Query.load(attendances: [:patient])
+
+    find_appointments!(Keyword.put(opts, :query, query))
+  end
+
+  # A forma que o motor puro consome: data e minutos LOCAIS, porque expediente é sempre local.
+  defp local_shape(appt, tz) do
+    %{
+      id: appt.id,
+      date: Api.Scheduling.LocalTime.to_local_date(appt.starts_at, tz),
+      starts_at: appt.starts_at,
+      ends_at: appt.ends_at,
+      professional_id: appt.professional_id
+    }
+  end
+
+  defp enriquecer_conflito(conflito, futuros, professionals, tz) do
+    appt = Enum.find(futuros, &(&1.id == conflito.appointment_id))
+
+    pacientes =
+      case appt do
+        %{attendances: attendances} when is_list(attendances) ->
+          attendances
+          |> Enum.map(& &1.patient)
+          |> Enum.reject(&is_nil/1)
+          |> Enum.map(& &1.nome)
+
+        _ ->
+          []
+      end
+
+    minutos = Api.Scheduling.LocalTime.to_local_minutes(conflito.starts_at, tz)
+
+    conflito
+    |> Map.put(:hora, Api.Scheduling.LocalTime.from_minutes(minutos))
+    |> Map.put(:professional_nome, nome_do_profissional(professionals, conflito.professional_id))
+    |> Map.put(:patients, pacientes)
+  end
+
+  defp nome_do_profissional(professionals, id) do
+    case Map.get(professionals, id) do
+      %{nome: nome} -> nome
+      _ -> nil
+    end
+  end
+
   # ---- ClinicHours (expediente semanal) ----
 
   @doc "As 7 linhas do expediente da clínica ativa, ordenadas por dia-da-semana."
@@ -1388,30 +1525,54 @@ defmodule Api.Scheduling do
   vez de 7. Pedimos as notificações de volta (`return_notifications?`) e as emitimos fora, para
   não perder eventual notifier e não disparar o alerta do Ash. Só os dias no mapa são tocados.
 
-  Retornos: `{:ok, rows}` · `{:error, {:invalid, details}}` (períodos malformados).
+  **O gate do A3/D12** roda entre a validação e a escrita: se a semana nova deixasse algum
+  agendamento futuro fora do expediente, nada é gravado e volta
+  `{:error, {:future_conflicts, %{conflicts: [...], truncado?: bool}}}`. `opts[:confirm]` passa
+  por cima — a decisão é de quem opera, e a tela só a oferece **depois** de mostrar a lista.
+
+  Retornos: `{:ok, rows}` · `{:error, {:invalid, details}}` (períodos malformados) ·
+  `{:error, {:future_conflicts, analise}}`.
   """
-  def update_clinic_hours(%Api.Scope{} = scope, week) when is_map(week) do
-    case validate_week(week) do
-      :ok ->
-        {:ok, notifications} =
-          Api.Repo.transaction(fn ->
-            Enum.flat_map(week, fn {dow, periods} ->
-              {:ok, _row, notifications} =
-                set_clinic_hours_day(%{dow: dow, periods: periods},
-                  scope: scope,
-                  return_notifications?: true
-                )
-
-              notifications
-            end)
-          end)
-
-        Ash.Notifier.notify(notifications)
-        {:ok, list_clinic_hours(scope)}
-
-      {:error, details} ->
-        {:error, {:invalid, details}}
+  def update_clinic_hours(%Api.Scope{} = scope, week, opts \\ []) when is_map(week) do
+    with :ok <- validate_week(week),
+         :ok <- gate_de_conflitos(scope, {:clinic_hours, week}, opts) do
+      escrever_semana_da_clinica(scope, week)
+    else
+      {:error, details} when is_list(details) -> {:error, {:invalid, details}}
+      {:error, erro} -> {:error, erro}
     end
+  end
+
+  # O gate do A3/D12 — a mesma pergunta nas quatro portas de edição de horário, num lugar só.
+  # `confirm: true` a dispensa; sem ele, conflito é bloqueio (D12: "não deixa salvar enquanto
+  # houver futuro conflitante"), e nada chega a ser escrito.
+  defp gate_de_conflitos(scope, change, opts) do
+    if Keyword.get(opts, :confirm, false) do
+      :ok
+    else
+      case future_conflicts(scope, change) do
+        %{conflicts: []} -> :ok
+        analise -> {:error, {:future_conflicts, analise}}
+      end
+    end
+  end
+
+  defp escrever_semana_da_clinica(scope, week) do
+    {:ok, notifications} =
+      Api.Repo.transaction(fn ->
+        Enum.flat_map(week, fn {dow, periods} ->
+          {:ok, _row, notifications} =
+            set_clinic_hours_day(%{dow: dow, periods: periods},
+              scope: scope,
+              return_notifications?: true
+            )
+
+          notifications
+        end)
+      end)
+
+    Ash.Notifier.notify(notifications)
+    {:ok, list_clinic_hours(scope)}
   end
 
   defp validate_week(week) do
@@ -1540,9 +1701,16 @@ defmodule Api.Scheduling do
     in_clinic(scope, fn -> get_schedule_exception(id, scope: scope) end)
   end
 
-  @doc "Cria uma exceção **da clínica** (professional_id nulo — não é aceito no corpo nesta fatia)."
-  def create_clinic_exception(%Api.Scope{} = scope, attrs) do
-    create_schedule_exception(attrs, scope: scope)
+  @doc """
+  Cria uma exceção **da clínica** (professional_id nulo — não é aceito no corpo nesta fatia).
+
+  Passa pelo gate do A3/D12: um feriado sobre um dia com agenda marcada é recusado com
+  `{:error, {:future_conflicts, analise}}` até a agenda ser resolvida (ou `confirm: true`).
+  """
+  def create_clinic_exception(%Api.Scope{} = scope, attrs, opts \\ []) do
+    with :ok <- gate_de_conflitos(scope, {:clinic_exception, attrs}, opts) do
+      create_schedule_exception(attrs, scope: scope)
+    end
   end
 
   @doc "Apaga uma exceção da clínica (doc 22 H4: destroy de verdade)."
@@ -1568,13 +1736,18 @@ defmodule Api.Scheduling do
   cabe dentro do expediente da clínica no dia) —, então nenhuma escrita falha no meio. Só os
   dias na lista são tocados (mesmo desenho de `update_clinic_hours/2`).
 
+  Passa pelo gate do A3/D12 (ver `update_clinic_hours/3`): estreitar a grade sobre uma sessão já
+  marcada é recusado até a agenda ser resolvida — ou `confirm: true`.
+
   Retornos: `{:ok, rows}` · `{:error, :professional_not_in_clinic}` ·
-  `{:error, {:invalid, details}}`.
+  `{:error, {:invalid, details}}` · `{:error, {:future_conflicts, analise}}`.
   """
-  def update_professional_hours(%Api.Scope{} = scope, professional_id, days)
+  def update_professional_hours(%Api.Scope{} = scope, professional_id, days, opts \\ [])
       when is_binary(professional_id) and is_list(days) do
     with :ok <- ensure_professional_in_clinic(scope, professional_id),
-         :ok <- validate_professional_week(scope, days) do
+         :ok <- validate_professional_week(scope, days),
+         :ok <-
+           gate_de_conflitos(scope, {:professional_hours, professional_id, days}, opts) do
       {:ok, notifications} =
         Api.Repo.transaction(fn ->
           Enum.flat_map(days, fn day ->
@@ -1658,11 +1831,17 @@ defmodule Api.Scheduling do
   Cria uma exceção **de um profissional** (folga ou horário pontual). O `professional_id` é
   amarrado aqui (não vem do corpo livre) e precisa ser da clínica ativa.
 
-  Retornos: `{:ok, exception}` · `{:error, :professional_not_in_clinic}` · `{:error, changeset}`.
+  Passa pelo gate do A3/D12: a folga sobre um dia com sessão marcada **daquele profissional** é
+  recusada. A agenda dos colegas não entra — o recorte é por profissional.
+
+  Retornos: `{:ok, exception}` · `{:error, :professional_not_in_clinic}` ·
+  `{:error, {:future_conflicts, analise}}` · `{:error, changeset}`.
   """
-  def create_professional_exception(%Api.Scope{} = scope, professional_id, attrs)
+  def create_professional_exception(%Api.Scope{} = scope, professional_id, attrs, opts \\ [])
       when is_binary(professional_id) do
-    with :ok <- ensure_professional_in_clinic(scope, professional_id) do
+    with :ok <- ensure_professional_in_clinic(scope, professional_id),
+         :ok <-
+           gate_de_conflitos(scope, {:professional_exception, professional_id, attrs}, opts) do
       attrs = Map.put(attrs, :professional_id, professional_id)
       create_schedule_exception(attrs, scope: scope)
     end

@@ -37,8 +37,18 @@ export const actions: Actions = {
 			periods: tipo === 'horario' ? parsePeriods(form.get('periods')) : []
 		};
 
-		const res = await createClinicException(event, input);
-		if (!res.ok) return fail(res.status || 400, { action: 'add', error: res.error });
+		// A3/D12: `confirm` só viaja depois de a pessoa ver a lista de conflitos e insistir.
+		const res = await createClinicException(event, input, form.get('confirm') === 'true');
+
+		if (!res.ok) {
+			return fail(res.status || 400, {
+				action: 'add',
+				error: res.error,
+				code: res.code,
+				meta: res.meta
+			});
+		}
+
 		return { action: 'add', ok: true };
 	},
 

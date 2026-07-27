@@ -12,10 +12,8 @@ defmodule Api.Scheduling.ClinicHoursTest do
   alias Api.Accounts
   alias Api.Scheduling
 
-  defp email, do: "hours-#{System.unique_integer([:positive])}@example.com"
-
   defp owner_and_clinic(attrs \\ %{}) do
-    owner = Accounts.register_user!("Dono", email(), authorize?: false)
+    owner = Accounts.register_user!("Dono", email_unico("hours"), authorize?: false)
 
     clinic =
       Accounts.onboard_clinic!("Clínica #{System.unique_integer([:positive])}", attrs,
@@ -26,7 +24,7 @@ defmodule Api.Scheduling.ClinicHoursTest do
   end
 
   defp member_with_role(clinic, papel) do
-    user = Accounts.register_user!("Membro #{papel}", email(), authorize?: false)
+    user = Accounts.register_user!("Membro #{papel}", email_unico("hours"), authorize?: false)
 
     {:ok, m} =
       Accounts.invite_member(%{papel: papel, user_id: user.id, clinic_id: clinic.id},
@@ -80,7 +78,7 @@ defmodule Api.Scheduling.ClinicHoursTest do
 
     test "quem não é membro não lê nada" do
       {_owner, clinic} = owner_and_clinic()
-      estranho = Accounts.register_user!("Estranho", email(), authorize?: false)
+      estranho = Accounts.register_user!("Estranho", email_unico("hours"), authorize?: false)
 
       assert [] = Scheduling.list_clinic_hours_rows!(tenant: clinic.id, actor: estranho)
     end

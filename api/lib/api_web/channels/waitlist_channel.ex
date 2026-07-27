@@ -36,15 +36,16 @@ defmodule ApiWeb.WaitlistChannel do
   use Phoenix.Channel
 
   alias Api.Waitlist.WaitlistNotifier
+  alias ApiWeb.ChannelScope
 
   @impl true
   def join(topic, _params, socket) do
-    with {:ok, clinic_id} <- parse_topic(topic),
-         :ok <- same_clinic(clinic_id, socket),
-         {:ok, nome} <- active_member(socket.assigns.user_id, clinic_id) do
+    with {:ok, clinic_id} <- ChannelScope.parse_topic(topic, "waitlist:"),
+         {:ok, scope} <- ChannelScope.authorize(clinic_id, socket) do
       WaitlistNotifier.subscribe(WaitlistNotifier.internal_topic(clinic_id))
       send(self(), :after_join)
-      {:ok, assign(socket, :nome, nome)}
+      # O nome vem do vínculo lido no servidor — nunca do corpo da mensagem (ver o moduledoc).
+      {:ok, assign(socket, :nome, scope.user.nome)}
     else
       :invalid_topic -> {:error, %{reason: "invalid_topic"}}
       _ -> {:error, %{reason: "unauthorized"}}
@@ -88,20 +89,4 @@ defmodule ApiWeb.WaitlistChannel do
   # Mensagem desconhecida (ou malformada) não derruba o canal — a fila continua funcionando.
   @impl true
   def handle_in(_event, _params, socket), do: {:noreply, socket}
-
-  defp parse_topic("waitlist:" <> clinic_id) when clinic_id != "", do: {:ok, clinic_id}
-  defp parse_topic(_topic), do: :invalid_topic
-
-  defp same_clinic(clinic_id, %{assigns: %{clinic_id: clinic_id}}), do: :ok
-  defp same_clinic(_clinic_id, _socket), do: :error
-
-  # Existe vínculo **ativo** deste usuário com esta clínica? A mesma pergunta do `LoadScope`, ao
-  # mesmo lugar. Devolve o **nome** junto: é ele que vai na presença ("Fulana está oferecendo"),
-  # e ele tem de vir daqui — do servidor — e não do corpo da mensagem do cliente.
-  defp active_member(user_id, clinic_id) do
-    with {:ok, %{}} <- Api.Accounts.get_active_membership(user_id, clinic_id, authorize?: false),
-         {:ok, %{nome: nome}} <- Api.Accounts.get_user(user_id, authorize?: false) do
-      {:ok, nome}
-    end
-  end
 end

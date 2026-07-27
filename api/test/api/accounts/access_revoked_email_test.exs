@@ -19,13 +19,11 @@ defmodule Api.Accounts.AccessRevokedEmailTest do
   alias Api.Accounts
   alias Api.Accounts.AccessRevokedEmailJob
 
-  defp email, do: "revoke-#{System.unique_integer([:positive])}@example.com"
-
   defp args_do_job(membership),
     do: %{"user_id" => membership.user_id, "clinic_id" => membership.clinic_id}
 
   defp membro(clinic, papel \\ :recepcao) do
-    user = Accounts.register_user!("Fulano", email(), authorize?: false)
+    user = Accounts.register_user!("Fulano", email_unico("revoke"), authorize?: false)
 
     {:ok, m} =
       Accounts.invite_member(%{papel: papel, user_id: user.id, clinic_id: clinic.id},

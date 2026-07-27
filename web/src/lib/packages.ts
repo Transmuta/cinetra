@@ -1,6 +1,8 @@
 // Tipos e rótulos dos pacotes (Fatia 3). Espelham o JSON de `ApiWeb.PackagesJSON`. Sem lógica de
 // tenant/RBAC aqui — isso vive no escopo da API.
 
+import { TYPE_COLORS } from './appointment-types';
+
 export type PackageStatus = 'ativo' | 'pausado' | 'cancelado' | 'concluido';
 
 // A classificação de uma ocorrência na prévia (o save-gate). Espelha `Api.Packages.Preview`.
@@ -73,17 +75,11 @@ export function issueLabel(issue: OccurrenceIssue): string {
 export const DOW_LABELS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
 // Paleta de cores do pacote (o `cor` do cartão). O backend só exige `allow_nil? false` — a lista
-// fechada vive aqui para o modal oferecer só tons legíveis. Espelha a paleta dos tipos.
-export const PACKAGE_COLORS = [
-	'#0FB5A6',
-	'#7A52CC',
-	'#2B7FFF',
-	'#009E73',
-	'#D55E00',
-	'#E69F00',
-	'#CC79A7',
-	'#0072B2'
-] as const;
+// fechada existe para o modal oferecer só tons legíveis, e é **a mesma dos tipos de atendimento**:
+// as duas aparecem lado a lado na agenda, e duas paletas parecidas-mas-não-iguais é o jeito de a
+// tela ficar suja sem ninguém saber por quê. Era uma terceira cópia dos mesmos 8 hexadecimais
+// (I67), na mesma ordem que não batia com nenhuma das outras duas.
+export const PACKAGE_COLORS = TYPE_COLORS;
 
 // Defaults do "Novo pacote". `falta_punitiva` nasce marcada — é a combinação comercial mais
 // comum (a falta desconta a sessão) e é obrigatória na criação (imutável depois).

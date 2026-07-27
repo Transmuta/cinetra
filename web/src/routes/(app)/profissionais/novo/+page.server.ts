@@ -25,7 +25,10 @@ export const actions: Actions = {
 			originalExceptionIds: []
 		});
 
-		if (!res.ok) return fail(res.status, { error: res.error });
+		// A3/D12: o 409 leva `code`/`meta` para a ficha desenhar a lista de conflitos.
+		if (!res.ok) {
+			return fail(res.status, { error: res.error, code: res.code, meta: res.meta });
+		}
 		redirect(303, '/profissionais');
 	}
 };

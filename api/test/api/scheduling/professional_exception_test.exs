@@ -11,10 +11,8 @@ defmodule Api.Scheduling.ProfessionalExceptionTest do
   alias Api.Directory
   alias Api.Scheduling
 
-  defp email, do: "profe-#{System.unique_integer([:positive])}@example.com"
-
   defp owner_and_clinic do
-    owner = Accounts.register_user!("Dono", email(), authorize?: false)
+    owner = Accounts.register_user!("Dono", email_unico("profe"), authorize?: false)
 
     clinic =
       Accounts.onboard_clinic!("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)

@@ -84,7 +84,7 @@ defmodule ApiWeb.ProfessionalsController do
     with_admin_scope(conn, fn scope ->
       days = params |> Map.get("days", []) |> Enum.map(&day_input/1)
 
-      case Scheduling.update_professional_hours(scope, id, days) do
+      case Scheduling.update_professional_hours(scope, id, days, confirm: confirmado?(params)) do
         {:ok, rows} ->
           json(conn, %{hours: Enum.map(rows, &hours_row_json/1)})
 
@@ -93,6 +93,10 @@ defmodule ApiWeb.ProfessionalsController do
 
         {:error, {:invalid, details}} ->
           unprocessable(conn, details)
+
+        # A3/D12: estreitar a grade sobre sessão já marcada é 409 com a lista no `meta`.
+        {:error, {:future_conflicts, analise}} ->
+          future_conflicts(conn, analise)
 
         {:error, error} ->
           error_response(conn, error)
@@ -103,12 +107,17 @@ defmodule ApiWeb.ProfessionalsController do
   # POST /api/professionals/:id/exceptions — folga ou horário pontual do profissional.
   def create_exception(conn, %{"id" => id} = params) do
     with_admin_scope(conn, fn scope ->
-      case Scheduling.create_professional_exception(scope, id, exception_input(params)) do
+      opts = [confirm: confirmado?(params)]
+
+      case Scheduling.create_professional_exception(scope, id, exception_input(params), opts) do
         {:ok, exc} ->
           conn |> put_status(:created) |> json(%{exception: exception_json(exc)})
 
         {:error, :professional_not_in_clinic} ->
           not_found(conn)
+
+        {:error, {:future_conflicts, analise}} ->
+          future_conflicts(conn, analise)
 
         {:error, error} ->
           error_response(conn, error)

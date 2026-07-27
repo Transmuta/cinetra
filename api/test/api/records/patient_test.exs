@@ -13,10 +13,8 @@ defmodule Api.Records.PatientTest do
   alias Api.Accounts
   alias Api.Records
 
-  defp email, do: "pac-#{System.unique_integer([:positive])}@example.com"
-
   defp owner_and_clinic do
-    owner = Accounts.register_user!("Dono", email(), authorize?: false)
+    owner = Accounts.register_user!("Dono", email_unico("pac"), authorize?: false)
 
     clinic =
       Accounts.onboard_clinic!("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
@@ -25,7 +23,7 @@ defmodule Api.Records.PatientTest do
   end
 
   defp member_with_role(clinic, papel) do
-    user = Accounts.register_user!("Membro #{papel}", email(), authorize?: false)
+    user = Accounts.register_user!("Membro #{papel}", email_unico("pac"), authorize?: false)
 
     {:ok, m} =
       Accounts.invite_member(%{papel: papel, user_id: user.id, clinic_id: clinic.id},
@@ -213,7 +211,7 @@ defmodule Api.Records.PatientTest do
 
     test "quem não é membro não lê nada" do
       {_owner, clinic} = owner_and_clinic()
-      estranho = Accounts.register_user!("Estranho", email(), authorize?: false)
+      estranho = Accounts.register_user!("Estranho", email_unico("pac"), authorize?: false)
 
       assert [] = Records.list_patients!(tenant: clinic.id, actor: estranho)
     end

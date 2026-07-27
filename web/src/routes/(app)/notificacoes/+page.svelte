@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import { goto } from '$app/navigation';
+	import { page as pageState } from '$app/state';
+	import { navigateQuery } from '$lib/querystring';
 	import BellOff from '@lucide/svelte/icons/bell-off';
 	import CheckCheck from '@lucide/svelte/icons/check-check';
 	import ChevronLeft from '@lucide/svelte/icons/chevron-left';
@@ -16,10 +18,8 @@
 	// Paginação (#54): `?page=` na URL, sem empilhar histórico — mesmo gesto da fila e de
 	// Pacientes. Sem rodapé "X–Y de Z": a API não conta o total da caixa de propósito.
 	function goPage(n: number) {
-		goto(n > 1 ? `/notificacoes?page=${n}` : '/notificacoes', {
-			keepFocus: true,
-			noScroll: true,
-			replaceState: true
+		navigateQuery('/notificacoes', pageState.url.searchParams, {
+			page: n > 1 ? String(n) : null
 		});
 	}
 

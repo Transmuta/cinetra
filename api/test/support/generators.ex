@@ -30,7 +30,18 @@ defmodule Api.Generators do
 
   Unicidade vem de `System.unique_integer([:positive])`: é global ao nó, o que a suíte async exige
   (ver a seção "Preventing Deadlocks in Concurrent Tests" de `.claude/rules/ash.md`).
+
+  ## As fábricas de SESSÃO
+
+  `usuario!/1` registra direto pelo domínio — é o que o teste de domínio precisa. Quem testa a
+  fronteira (controller, canal) precisa de **sessão de verdade**, com o token que o
+  `AshAuthentication` põe em `metadata`, e para isso o caminho tem de ser o magic link inteiro.
+  Essa ida-e-volta estava copiada, byte a byte, em **catorze** arquivos de teste (I67): quatorze
+  `defp sign_in`, quatorze `defp email`, e onze `defp member_session` que só divergiam no prefixo
+  do e-mail. `sign_in!/1` e `sessao_de_membro!/4` são elas, uma vez.
   """
+
+  import ExUnit.Assertions
 
   alias Api.Accounts
   alias Api.Directory
@@ -133,4 +144,53 @@ defmodule Api.Generators do
 
   @doc "Inteiro único no nó — a defesa contra deadlock em teste async."
   def unico, do: System.unique_integer([:positive])
+
+  @doc """
+  Um e-mail globalmente único. O prefixo é só para leitura do log de teste — a unicidade vem do
+  `unico/0`.
+
+      iex> Api.Generators.email_unico("appt") =~ ~r/^appt-\\d+@example\\.com$/
+      true
+  """
+  def email_unico(prefixo \\ "u"), do: "#{prefixo}-#{unico()}@example.com"
+
+  @doc """
+  Sessão de verdade: pede o magic link, lê o token do e-mail que caiu na caixa de teste e troca
+  por um `User` **com o token de sessão em `metadata`** — que é o que
+  `AshAuthentication.Plug.Helpers.store_in_session/2` precisa.
+
+  `register?: true` cria o usuário se ele ainda não existe, que é o caso de todo teste.
+  """
+  def sign_in!(addr) do
+    :ok = Accounts.request_magic_link(addr, %{register?: true})
+    assert_receive {:email, mail}, 1_000
+    [_, token] = Regex.run(~r/token=([\w.\-]+)/, mail.text_body)
+    {:ok, user} = Accounts.sign_in_with_magic_link(token)
+    user
+  end
+
+  @doc "Um usuário novo, já com sessão. O par de `usuario!/1` para quem testa a fronteira."
+  def usuario_com_sessao!(prefixo \\ "u"), do: prefixo |> email_unico() |> sign_in!()
+
+  @doc """
+  Um membro **convidado por e-mail e com o convite aceito**, já com sessão.
+
+  Vai pelo convite por e-mail (e não por `user_id`, como `escopo_de_membro!/3`) porque é o caminho
+  que a fronteira exercita: o usuário nasce do convite. `professional_id` vincula o membro a uma
+  coluna da agenda — sem ele, um `:profissional` não enxerga sessão nenhuma (A7).
+  """
+  def sessao_de_membro!(owner, clinic, papel, professional_id \\ nil),
+    do: owner |> convite_aceito!(clinic, papel, professional_id) |> elem(0)
+
+  @doc "Como `sessao_de_membro!/4`, mas devolve `{user, membership}` — para quem revoga depois."
+  def convite_aceito!(owner, clinic, papel, professional_id \\ nil) do
+    addr = email_unico(to_string(papel))
+    attrs = %{papel: papel, clinic_id: clinic.id, professional_id: professional_id}
+
+    {:ok, pending} = Accounts.invite_member_by_email(addr, attrs, actor: owner)
+    user = Accounts.get_user_by_email!(addr, authorize?: false)
+    {:ok, membership} = Accounts.accept_invite(pending, actor: user)
+
+    {sign_in!(addr), membership}
+  end
 end

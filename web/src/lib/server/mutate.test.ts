@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const m = vi.hoisted(() => ({ apiFetch: vi.fn() }));
 vi.mock('./api', () => m);
 
-import { mutate, errorMessage, errorInfo } from './mutate';
+import { mutate, errorMessage, errorInfo, finish, parseIds } from './mutate';
 
 // Resposta mínima com o shape que `mutate` consome (ok/status/json).
 function res(status: number, body?: unknown): Response {
@@ -121,5 +121,48 @@ describe('mutate', () => {
 		m.apiFetch.mockRejectedValueOnce(new Error('boom'));
 		const r = await mutate(event, '/api/x', 'POST');
 		expect(r).toEqual({ ok: false, status: 0, error: 'Falha de conexão com o servidor.' });
+	});
+});
+
+// As duas funções que a Frente 13 trouxe para cá (D2 do doc 29 §5) — estavam copiadas nas
+// actions da agenda e da fila.
+describe('finish', () => {
+	it('sucesso vira { ok, action } — é o que o `use:enhance` da tela lê', () => {
+		expect(finish('criar', { ok: true, status: 201 })).toEqual({ ok: true, action: 'criar' });
+	});
+
+	it('erro carrega o `code` junto — sem ele a tela não sabe oferecer o Encaixe', () => {
+		const r = finish('criar', {
+			ok: false,
+			status: 422,
+			error: 'Esse horário sobrepõe outro agendamento.',
+			code: 'schedule_conflict',
+			details: [{ field: null, message: 'Esse horário sobrepõe outro agendamento.' }]
+		}) as { status: number; data: { action: string; code?: string } };
+
+		expect(r.status).toBe(422);
+		expect(r.data.action).toBe('criar');
+		expect(r.data.code).toBe('schedule_conflict');
+	});
+
+	it('status ausente ou 0 (falha de rede) cai em 400, não em zero', () => {
+		const r = finish('criar', { ok: false, status: 0, error: 'x' }) as { status: number };
+		expect(r.status).toBe(400);
+	});
+});
+
+describe('parseIds', () => {
+	it('lê a lista de ids do hidden', () => {
+		expect(parseIds(JSON.stringify(['a', 'b']))).toEqual(['a', 'b']);
+	});
+
+	it('descarta o que não é string não-vazia', () => {
+		expect(parseIds(JSON.stringify(['a', 1, null, '', 'b']))).toEqual(['a', 'b']);
+	});
+
+	it('JSON quebrado, null ou objeto viram lista vazia em vez de estourar a action', () => {
+		expect(parseIds('{')).toEqual([]);
+		expect(parseIds(null)).toEqual([]);
+		expect(parseIds(JSON.stringify({ a: 1 }))).toEqual([]);
 	});
 });

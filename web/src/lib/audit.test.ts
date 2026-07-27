@@ -53,13 +53,13 @@ describe('parseResource / parsePage', () => {
 });
 
 describe('pageLabel', () => {
-	it('"1–50 de 214"', () => {
-		expect(pageLabel({ limit: 50, offset: 0, total: 214, more: true }, 50)).toBe('1–50 de 214');
-		expect(pageLabel({ limit: 50, offset: 50, total: 214, more: true }, 50)).toBe('51–100 de 214');
+	it('"1–50", sem o total (D-Aud1)', () => {
+		expect(pageLabel({ limit: 50, offset: 0, more: true }, 50)).toBe('1–50');
+		expect(pageLabel({ limit: 50, offset: 50, more: true }, 50)).toBe('51–100');
 	});
 
 	it('vazio quando não há resultado', () => {
-		expect(pageLabel({ limit: 50, offset: 0, total: 0, more: false }, 0)).toBe('');
+		expect(pageLabel({ limit: 50, offset: 0, more: false }, 0)).toBe('');
 	});
 });
 

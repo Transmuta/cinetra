@@ -7,35 +7,8 @@ defmodule ApiWeb.ClinicHoursControllerTest do
 
   alias Api.Accounts
 
-  defp email, do: "hours-#{System.unique_integer([:positive])}@example.com"
-
-  defp sign_in(addr) do
-    :ok = Accounts.request_magic_link(addr, %{register?: true})
-    assert_receive {:email, mail}, 1_000
-    [_, token] = Regex.run(~r/token=([\w.\-]+)/, mail.text_body)
-    {:ok, user} = Accounts.sign_in_with_magic_link(token)
-    user
-  end
-
-  defp authed(conn, user) do
-    conn
-    |> Phoenix.ConnTest.init_test_session(%{})
-    |> AshAuthentication.Plug.Helpers.store_in_session(user)
-  end
-
-  defp active_member_session(owner, clinic, papel) do
-    addr = email()
-
-    {:ok, pending} =
-      Accounts.invite_member_by_email(addr, %{papel: papel, clinic_id: clinic.id}, actor: owner)
-
-    user = Accounts.get_user_by_email!(addr, authorize?: false)
-    {:ok, _} = Accounts.accept_invite(pending, actor: user)
-    sign_in(addr)
-  end
-
   defp owner_with_clinic do
-    owner = sign_in(email())
+    owner = sign_in!(email_unico("hours"))
 
     {:ok, clinic} =
       Accounts.onboard_clinic("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
@@ -64,7 +37,7 @@ defmodule ApiWeb.ClinicHoursControllerTest do
     end
 
     test "autenticado sem clínica ativa devolve 403", %{base_conn: base_conn} do
-      orphan = sign_in(email())
+      orphan = sign_in!(email_unico("hours"))
       assert base_conn |> authed(orphan) |> get(~p"/api/clinic-hours") |> json_response(403)
     end
 
@@ -73,13 +46,13 @@ defmodule ApiWeb.ClinicHoursControllerTest do
       owner: owner,
       clinic: clinic
     } do
-      recep = active_member_session(owner, clinic, :recepcao)
+      recep = sessao_de_membro!(owner, clinic, :recepcao)
       body = base_conn |> authed(recep) |> get(~p"/api/clinic-hours") |> json_response(200)
       assert map_size(body["clinic_hours"]) == 7
     end
 
     test "não vaza o expediente de outra clínica", %{conn: conn} do
-      other = sign_in(email())
+      other = sign_in!(email_unico("hours"))
 
       {:ok, other_clinic} =
         Accounts.onboard_clinic("Outra #{System.unique_integer([:positive])}", %{}, actor: other)
@@ -132,7 +105,7 @@ defmodule ApiWeb.ClinicHoursControllerTest do
     end
 
     test "recepção não escreve (403)", %{base_conn: base_conn, owner: owner, clinic: clinic} do
-      recep = active_member_session(owner, clinic, :recepcao)
+      recep = sessao_de_membro!(owner, clinic, :recepcao)
 
       assert base_conn
              |> authed(recep)
@@ -150,5 +123,99 @@ defmodule ApiWeb.ClinicHoursControllerTest do
   defp scope(user, clinic) do
     membership = Accounts.get_active_membership!(user.id, clinic.id, authorize?: false)
     Api.Scope.with_membership(user, membership)
+  end
+
+  # A3/D12 — a fronteira do gate de conflitos futuros. O motor tem teste próprio
+  # (`ImpactAnalysisTest`) e o gate também (`FutureConflictsTest`); aqui prova-se o **contrato
+  # HTTP**: o 409 com `code` estável e a lista no `meta`, e o `confirm` que passa por cima.
+  describe "PATCH /api/clinic-hours — conflitos futuros (A3/D12)" do
+    setup %{owner: owner, clinic: clinic} do
+      scope = escopo(owner, clinic)
+      prof = Api.Directory.create_professional!("Dra. X", %{}, tenant: clinic.id, actor: owner)
+
+      tipo =
+        Api.Directory.create_appointment_type!(
+          %{nome: "Sessão #{unico()}", duracao_minutos: 50, cor: "#0FB5A6", icon: "Activity"},
+          tenant: clinic.id,
+          actor: owner
+        )
+
+      paciente = Api.Records.create_patient!("Paciente", %{}, tenant: clinic.id, actor: owner)
+
+      # Uma segunda-feira bem no futuro, às 14h — fora da janela 08–12 que o teste vai propor.
+      {:ok, starts_at} =
+        Api.Scheduling.LocalTime.to_utc(~D[2027-03-15], "14:00", "America/Sao_Paulo")
+
+      {:ok, appt} =
+        Api.Scheduling.schedule_appointment(
+          %{
+            starts_at: starts_at,
+            professional_id: prof.id,
+            appointment_type_id: tipo.id,
+            patient_ids: [paciente.id]
+          },
+          scope: scope
+        )
+
+      %{appt: appt, prof: prof, paciente: paciente}
+    end
+
+    test "encurtar a segunda devolve 409 com a lista dos afetados", ctx do
+      body =
+        ctx.conn
+        |> patch(~p"/api/clinic-hours", %{"clinic_hours" => %{"1" => [["08:00", "12:00"]]}})
+        |> json_response(409)
+
+      assert body["error"] == "conflict"
+      assert body["code"] == "future_conflicts"
+
+      assert [conflito] = body["meta"]["conflicts"]
+      assert conflito["appointment_id"] == ctx.appt.id
+      assert conflito["date"] == "2027-03-15"
+      assert conflito["hora"] == "14:00"
+      assert conflito["reason"] == "fora_do_expediente"
+      # A tela desenha nome, não uuid.
+      assert conflito["professional"]["nome"] == "Dra. X"
+      assert conflito["patients"] == ["Paciente"]
+      refute body["meta"]["truncado"]
+    end
+
+    test "e NADA foi gravado — o gate bloqueia, não avisa", ctx do
+      ctx.conn
+      |> patch(~p"/api/clinic-hours", %{"clinic_hours" => %{"1" => [["08:00", "12:00"]]}})
+
+      hours = ctx.conn |> get(~p"/api/clinic-hours") |> json_response(200)
+      assert hours["clinic_hours"]["1"] == [["08:00", "12:00"], ["13:00", "18:00"]]
+    end
+
+    test "com confirm: true aplica assim mesmo", ctx do
+      body =
+        ctx.conn
+        |> patch(~p"/api/clinic-hours", %{
+          "clinic_hours" => %{"1" => [["08:00", "12:00"]]},
+          "confirm" => true
+        })
+        |> json_response(200)
+
+      assert body["clinic_hours"]["1"] == [["08:00", "12:00"]]
+    end
+
+    test "só o booleano true confirma — string qualquer não passa o gate", ctx do
+      assert ctx.conn
+             |> patch(~p"/api/clinic-hours", %{
+               "clinic_hours" => %{"1" => [["08:00", "12:00"]]},
+               "confirm" => "sim"
+             })
+             |> json_response(409)
+    end
+
+    test "mudança que não quebra nada continua salvando direto", ctx do
+      body =
+        ctx.conn
+        |> patch(~p"/api/clinic-hours", %{"clinic_hours" => %{"1" => [["08:00", "20:00"]]}})
+        |> json_response(200)
+
+      assert body["clinic_hours"]["1"] == [["08:00", "20:00"]]
+    end
   end
 end

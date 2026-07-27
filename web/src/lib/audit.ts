@@ -42,7 +42,6 @@ export interface AuditEntry {
 export interface AuditPage {
 	limit: number;
 	offset: number;
-	total: number;
 	more: boolean;
 }
 
@@ -65,10 +64,21 @@ export function parsePage(value: string | null | undefined): number {
 	return Number.isInteger(n) && n > 0 ? n : 1;
 }
 
-// Rótulo do rodapé ("1–50 de 214"). Vazio quando não há resultado.
+/**
+ * Rótulo do rodapé ("1–50"). Vazio quando não há resultado.
+ *
+ * **Sem o "de Z" (D-Aud1).** A trilha é a tabela que mais cresce do projeto, e o total custava um
+ * `COUNT(*) OVER ()` por request — que lê o recorte inteiro da clínica apesar do `LIMIT` (medido:
+ * 10.265 buffers contra 26 na caixa de notificações, doc 44 §2). Quem olha a auditoria quer
+ * *o que aconteceu*, não quantas versões a clínica acumulou; o "tem mais" continua vindo do
+ * servidor, exato, e é ele que habilita a seta.
+ *
+ * Pacientes e Fila **mantêm** o total: aquelas listas têm teto natural e o número responde uma
+ * pergunta que alguém de fato faz.
+ */
 export function pageLabel(page: AuditPage, shown: number): string {
-	if (!page.total || !shown) return '';
-	return `${page.offset + 1}–${page.offset + shown} de ${page.total}`;
+	if (!shown) return '';
+	return `${page.offset + 1}–${page.offset + shown}`;
 }
 
 // Só owner·admin veem a auditoria (RBAC da API; aqui é o gating do menu/UX). Espelha o

@@ -10,10 +10,8 @@ defmodule Api.Waitlist.WaitlistNotifierTest do
   alias Api.Waitlist
   alias Api.Waitlist.WaitlistNotifier
 
-  defp email, do: "wnotif-#{System.unique_integer([:positive])}@example.com"
-
   defp fixture do
-    owner = Accounts.register_user!("Dono", email(), authorize?: false)
+    owner = Accounts.register_user!("Dono", email_unico("wnotif"), authorize?: false)
 
     clinic =
       Accounts.onboard_clinic!("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)

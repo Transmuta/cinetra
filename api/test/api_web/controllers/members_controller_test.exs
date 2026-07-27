@@ -7,37 +7,8 @@ defmodule ApiWeb.MembersControllerTest do
 
   alias Api.Accounts
 
-  defp email, do: "user-#{System.unique_integer([:positive])}@example.com"
-
-  # Sign-in de domínio (retorna o User com token de sessão em metadata).
-  defp sign_in(addr) do
-    :ok = Accounts.request_magic_link(addr, %{register?: true})
-    assert_receive {:email, mail}, 1_000
-    [_, token] = Regex.run(~r/token=([\w.\-]+)/, mail.text_body)
-    {:ok, user} = Accounts.sign_in_with_magic_link(token)
-    user
-  end
-
-  defp authed(conn, user) do
-    conn
-    |> Phoenix.ConnTest.init_test_session(%{})
-    |> AshAuthentication.Plug.Helpers.store_in_session(user)
-  end
-
-  # Convida, ativa e devolve a SESSÃO real de um membro (para exercer o RBAC do controller).
-  defp active_member_session(owner, clinic, papel) do
-    addr = email()
-
-    {:ok, pending} =
-      Accounts.invite_member_by_email(addr, %{papel: papel, clinic_id: clinic.id}, actor: owner)
-
-    user = Accounts.get_user_by_email!(addr, authorize?: false)
-    {:ok, _} = Accounts.accept_invite(pending, actor: user)
-    sign_in(addr)
-  end
-
   setup %{conn: conn} do
-    owner = sign_in(email())
+    owner = sign_in!(email_unico("user"))
 
     {:ok, clinic} =
       Accounts.onboard_clinic("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
@@ -64,14 +35,14 @@ defmodule ApiWeb.MembersControllerTest do
     test "autenticado sem clínica ativa devolve 403", %{base_conn: base_conn} do
       # usuário logado, mas sem nenhuma clínica (não fez onboarding nem foi convidado):
       # o scope não tem clinic_id, então `with_member_scope` barra (403, não 401).
-      orphan = sign_in(email())
+      orphan = sign_in!(email_unico("user"))
 
       assert base_conn |> authed(orphan) |> get(~p"/api/members") |> json_response(403)
     end
 
     test "qualquer membro autenticado vê os membros (recepção, 200)",
          %{base_conn: base_conn, owner: owner, clinic: clinic} do
-      recep = active_member_session(owner, clinic, :recepcao)
+      recep = sessao_de_membro!(owner, clinic, :recepcao)
 
       body = base_conn |> authed(recep) |> get(~p"/api/members") |> json_response(200)
 
@@ -84,7 +55,7 @@ defmodule ApiWeb.MembersControllerTest do
 
   describe "POST /api/members" do
     test "convida por e-mail e cria vínculo pendente", %{conn: conn} do
-      invitee = email()
+      invitee = email_unico("user")
 
       body =
         conn
@@ -101,18 +72,18 @@ defmodule ApiWeb.MembersControllerTest do
 
     test "recepção não pode convidar (403)",
          %{base_conn: base_conn, owner: owner, clinic: clinic} do
-      recep = active_member_session(owner, clinic, :recepcao)
+      recep = sessao_de_membro!(owner, clinic, :recepcao)
 
       assert base_conn
              |> authed(recep)
-             |> post(~p"/api/members", %{email: email(), papel: "recepcao"})
+             |> post(~p"/api/members", %{email: email_unico("user"), papel: "recepcao"})
              |> json_response(403)
     end
 
     test "papel inválido devolve 422", %{conn: conn} do
       body =
         conn
-        |> post(~p"/api/members", %{email: email(), papel: "faxineiro"})
+        |> post(~p"/api/members", %{email: email_unico("user"), papel: "faxineiro"})
         |> json_response(422)
 
       assert body["error"] == "invalid"
@@ -125,7 +96,7 @@ defmodule ApiWeb.MembersControllerTest do
     # preenchido.
     test "convite do mesmo e-mail duas vezes devolve 422 com o campo preenchido (não null)",
          %{conn: conn} do
-      invitee = email()
+      invitee = email_unico("user")
       conn |> post(~p"/api/members", %{email: invitee, papel: "recepcao"}) |> json_response(201)
 
       body =
@@ -151,7 +122,7 @@ defmodule ApiWeb.MembersControllerTest do
       body =
         conn
         |> post(~p"/api/members", %{
-          email: email(),
+          email: email_unico("user"),
           nome: "Prof",
           papel: "profissional",
           professional_id: prof.id
@@ -166,7 +137,9 @@ defmodule ApiWeb.MembersControllerTest do
   describe "PATCH /api/members/:id" do
     test "troca o papel do membro", %{conn: conn, owner: owner, clinic: clinic} do
       {:ok, m} =
-        Accounts.invite_member_by_email(email(), %{papel: :recepcao, clinic_id: clinic.id},
+        Accounts.invite_member_by_email(
+          email_unico("user"),
+          %{papel: :recepcao, clinic_id: clinic.id},
           actor: owner
         )
 
@@ -185,7 +158,7 @@ defmodule ApiWeb.MembersControllerTest do
 
     test "não altera vínculo de outra clínica (isolamento → 404)", %{conn: conn} do
       # um owner de OUTRA clínica, com seu próprio vínculo owner.
-      other = sign_in(email())
+      other = sign_in!(email_unico("user"))
 
       {:ok, other_clinic} =
         Accounts.onboard_clinic("Outra #{System.unique_integer([:positive])}", %{}, actor: other)
@@ -206,7 +179,9 @@ defmodule ApiWeb.MembersControllerTest do
         Api.Directory.create_professional("Dra. Liga", %{}, tenant: clinic.id, authorize?: false)
 
       {:ok, m} =
-        Accounts.invite_member_by_email(email(), %{papel: :profissional, clinic_id: clinic.id},
+        Accounts.invite_member_by_email(
+          email_unico("user"),
+          %{papel: :profissional, clinic_id: clinic.id},
           actor: owner
         )
 
@@ -225,7 +200,9 @@ defmodule ApiWeb.MembersControllerTest do
   describe "DELETE /api/members/:id" do
     test "revoga o acesso (204)", %{conn: conn, owner: owner, clinic: clinic} do
       {:ok, m} =
-        Accounts.invite_member_by_email(email(), %{papel: :recepcao, clinic_id: clinic.id},
+        Accounts.invite_member_by_email(
+          email_unico("user"),
+          %{papel: :recepcao, clinic_id: clinic.id},
           actor: owner
         )
 

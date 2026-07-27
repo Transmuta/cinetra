@@ -8,25 +8,8 @@ defmodule ApiWeb.ClinicControllerTest do
 
   alias Api.Accounts
 
-  defp email, do: "user-#{System.unique_integer([:positive])}@example.com"
-
-  # Sign-in de domínio (retorna o User com token de sessão em metadata).
-  defp sign_in(addr) do
-    :ok = Accounts.request_magic_link(addr, %{register?: true})
-    assert_receive {:email, mail}, 1_000
-    [_, token] = Regex.run(~r/token=([\w.\-]+)/, mail.text_body)
-    {:ok, user} = Accounts.sign_in_with_magic_link(token)
-    user
-  end
-
-  defp authed(conn, user) do
-    conn
-    |> Phoenix.ConnTest.init_test_session(%{})
-    |> AshAuthentication.Plug.Helpers.store_in_session(user)
-  end
-
   defp owner_with_clinic do
-    owner = sign_in(email())
+    owner = sign_in!(email_unico("user"))
 
     {:ok, clinic} =
       Accounts.onboard_clinic("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
@@ -34,19 +17,8 @@ defmodule ApiWeb.ClinicControllerTest do
     {owner, clinic}
   end
 
-  defp active_member_session(owner, clinic, papel) do
-    addr = email()
-
-    {:ok, pending} =
-      Accounts.invite_member_by_email(addr, %{papel: papel, clinic_id: clinic.id}, actor: owner)
-
-    user = Accounts.get_user_by_email!(addr, authorize?: false)
-    {:ok, _} = Accounts.accept_invite(pending, actor: user)
-    sign_in(addr)
-  end
-
   setup %{conn: conn} do
-    user = sign_in(email())
+    user = sign_in!(email_unico("user"))
     %{conn: authed(conn, user), base_conn: conn, user: user}
   end
 
@@ -107,7 +79,7 @@ defmodule ApiWeb.ClinicControllerTest do
 
     test "recepção também lê (leitura para todo membro)", %{base_conn: base_conn} do
       {owner, clinic} = owner_with_clinic()
-      recep = active_member_session(owner, clinic, :recepcao)
+      recep = sessao_de_membro!(owner, clinic, :recepcao)
 
       body = base_conn |> authed(recep) |> get(~p"/api/clinic") |> json_response(200)
       assert body["clinic"]["id"] == clinic.id
@@ -118,7 +90,7 @@ defmodule ApiWeb.ClinicControllerTest do
     end
 
     test "autenticado sem clínica ativa devolve 403", %{base_conn: base_conn} do
-      orphan = sign_in(email())
+      orphan = sign_in!(email_unico("user"))
       assert base_conn |> authed(orphan) |> get(~p"/api/clinic") |> json_response(403)
     end
   end
@@ -161,7 +133,7 @@ defmodule ApiWeb.ClinicControllerTest do
       base_conn: base_conn
     } do
       {owner, clinic} = owner_with_clinic()
-      other = sign_in(email())
+      other = sign_in!(email_unico("user"))
 
       {:ok, other_clinic} =
         Accounts.onboard_clinic("Outra #{System.unique_integer([:positive])}", %{}, actor: other)
@@ -179,7 +151,7 @@ defmodule ApiWeb.ClinicControllerTest do
 
     test "recepção não edita (403)", %{base_conn: base_conn} do
       {owner, clinic} = owner_with_clinic()
-      recep = active_member_session(owner, clinic, :recepcao)
+      recep = sessao_de_membro!(owner, clinic, :recepcao)
 
       assert base_conn
              |> authed(recep)
@@ -189,7 +161,7 @@ defmodule ApiWeb.ClinicControllerTest do
 
     test "profissional (sem gestão) não edita (403)", %{base_conn: base_conn} do
       {owner, clinic} = owner_with_clinic()
-      prof = active_member_session(owner, clinic, :profissional)
+      prof = sessao_de_membro!(owner, clinic, :profissional)
 
       assert base_conn
              |> authed(prof)

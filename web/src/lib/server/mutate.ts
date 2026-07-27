@@ -1,3 +1,4 @@
+import { fail } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import { apiFetch } from './api';
 
@@ -24,12 +25,19 @@ export interface MutationResult {
 	// saída (ex.: "marcar como Encaixe") em vez de só mostrar o erro.
 	code?: string;
 	details?: FieldError[];
+	/**
+	 * O `meta` do 409 — payload estruturado que **explica** o conflito em vez de só nomeá-lo.
+	 * Hoje quem o usa é o A3/D12 (`future_conflicts`): a lista dos agendamentos que ficariam fora
+	 * do expediente, que a tela precisa desenhar antes de oferecer o "salvar mesmo assim".
+	 */
+	meta?: Record<string, unknown>;
 }
 
 export interface ErrorInfo {
 	error: string;
 	code?: string;
 	details?: FieldError[];
+	meta?: Record<string, unknown>;
 }
 
 export async function mutate(
@@ -72,7 +80,17 @@ export async function errorInfo(res: Response): Promise<ErrorInfo> {
 			// A mensagem do servidor ganha da genérica: ela é específica e, no caso
 			// `field: null`, é a única explicação existente.
 			const error = details?.[0]?.message ?? 'Dados inválidos. Verifique os campos.';
-			return { error, ...(code ? { code } : {}), ...(details ? { details } : {}) };
+			const meta =
+				body?.meta && typeof body.meta === 'object'
+					? (body.meta as Record<string, unknown>)
+					: undefined;
+
+			return {
+				error,
+				...(code ? { code } : {}),
+				...(details ? { details } : {}),
+				...(meta ? { meta } : {})
+			};
 		}
 	} catch {
 		// corpo não-JSON: cai na mensagem genérica.
@@ -97,4 +115,42 @@ function parseDetails(raw: unknown): FieldError[] | undefined {
 // Mantido para os chamadores que só querem a string (BFFs de Pacientes e Profissionais).
 export async function errorMessage(res: Response): Promise<string> {
 	return (await errorInfo(res)).error;
+}
+
+/**
+ * Traduz o resultado de uma mutação no retorno de uma `action` do SvelteKit.
+ *
+ * O `code` viajar até aqui é o ponto: é por ele que a tela distingue "recarregue, o bloco mudou"
+ * (`version_conflict`, 409) de "quer marcar como encaixe?" (`schedule_conflict`, 422) — sem ele,
+ * os dois viram a mesma mensagem vermelha e o fluxo de recuperação some.
+ *
+ * Estava escrito duas vezes, igual, nas actions da agenda e da fila (D2 do doc 29 §5).
+ */
+export function finish(action: string, result: MutationResult) {
+	if (result.ok) return { ok: true, action };
+
+	return fail(result.status || 400, {
+		action,
+		error: result.error,
+		code: result.code,
+		details: result.details,
+		meta: result.meta
+	});
+}
+
+/**
+ * Lê uma lista de ids de um campo hidden que carrega JSON (os modais montam o form assim).
+ *
+ * Qualquer coisa fora da forma esperada vira lista vazia — quem valida "faltou paciente" é a
+ * action, com a mensagem certa; aqui não se adivinha. Havia duas versões, e a de
+ * `server/professionals.ts` aceitava string vazia como id válido.
+ */
+export function parseIds(raw: FormDataEntryValue | null): string[] {
+	try {
+		const parsed = JSON.parse(String(raw ?? '[]'));
+		if (!Array.isArray(parsed)) return [];
+		return parsed.filter((v): v is string => typeof v === 'string' && v.length > 0);
+	} catch {
+		return [];
+	}
 }

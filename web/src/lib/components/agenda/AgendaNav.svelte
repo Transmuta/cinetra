@@ -8,17 +8,21 @@
 	import ChevronLeft from '@lucide/svelte/icons/chevron-left';
 	import ChevronRight from '@lucide/svelte/icons/chevron-right';
 	import { VIEWS, VIEW_LABELS, shiftByView, viewLabel, type AgendaView } from '$lib/agenda-views';
+	import DayViewers from './DayViewers.svelte';
 
 	let {
 		date,
 		today,
 		view = 'dia',
+		viewers = [],
 		onDate,
 		onView
 	}: {
 		date: string;
 		today: string;
 		view?: AgendaView;
+		/** F5 — quem MAIS está com este dia aberto (só Dia/Lista recebem; ver `realtime.ts`). */
+		viewers?: string[];
 		onDate: (date: string) => void;
 		onView: (view: AgendaView) => void;
 	} = $props();
@@ -75,6 +79,8 @@
 	<div class="min-w-0 flex-1 truncate text-[13.5px] font-semibold first-letter:uppercase">
 		{label}
 	</div>
+
+	<DayViewers nomes={viewers} />
 
 	<div class="flex items-center gap-0.5 rounded-lg border border-edge bg-surface-2 p-0.5">
 		{#each VIEWS as key (key)}

@@ -8,7 +8,7 @@ import { load } from './+page.server';
 // O load chama error() (que lança) nos ramos de falha; no sucesso a forma é concreta.
 type LoadOk = {
 	entries: unknown[];
-	pageInfo: { total: number; more: boolean };
+	pageInfo: { limit: number; offset: number; more: boolean };
 	resource: string;
 	action: string | null;
 	recordId: string | null;
@@ -21,7 +21,7 @@ function ev(search = ''): never {
 
 const okData = {
 	status: 200,
-	data: { entries: [{ id: 'v1' }], page: { limit: 50, offset: 0, total: 1, more: false } }
+	data: { entries: [{ id: 'v1' }], page: { limit: 50, offset: 0, more: false } }
 };
 
 beforeEach(() => m.fetchAudit.mockReset());
@@ -34,7 +34,7 @@ describe('load', () => {
 		expect(r.entries).toHaveLength(1);
 		expect(r.resource).toBe('appointment');
 		expect(r.current).toBe(1);
-		expect(r.pageInfo.total).toBe(1);
+		expect(r.pageInfo.more).toBe(false);
 	});
 
 	it('traduz ?page= em offset e repassa resource/record_id', async () => {

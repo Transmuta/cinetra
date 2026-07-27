@@ -21,10 +21,8 @@ defmodule Api.Directory.AppointmentTypeTest do
     "Reavaliação" => "REA"
   }
 
-  defp email, do: "tipo-#{System.unique_integer([:positive])}@example.com"
-
   defp owner_and_clinic(attrs \\ %{}) do
-    owner = Accounts.register_user!("Dono", email(), authorize?: false)
+    owner = Accounts.register_user!("Dono", email_unico("tipo"), authorize?: false)
 
     clinic =
       Accounts.onboard_clinic!("Clínica #{System.unique_integer([:positive])}", attrs,
@@ -36,7 +34,7 @@ defmodule Api.Directory.AppointmentTypeTest do
 
   # Um membro ativo da clínica com o papel pedido (sem passar pelo e-mail de convite).
   defp member_with_role(clinic, papel) do
-    user = Accounts.register_user!("Membro #{papel}", email(), authorize?: false)
+    user = Accounts.register_user!("Membro #{papel}", email_unico("tipo"), authorize?: false)
 
     {:ok, m} =
       Accounts.invite_member(%{papel: papel, user_id: user.id, clinic_id: clinic.id},
@@ -301,7 +299,7 @@ defmodule Api.Directory.AppointmentTypeTest do
 
     test "quem não é membro não lê nada" do
       {_owner, clinic} = owner_and_clinic()
-      estranho = Accounts.register_user!("Estranho", email(), authorize?: false)
+      estranho = Accounts.register_user!("Estranho", email_unico("tipo"), authorize?: false)
 
       assert [] = Directory.list_appointment_types!(tenant: clinic.id, actor: estranho)
     end
@@ -471,6 +469,36 @@ defmodule Api.Directory.AppointmentTypeTest do
                  tenant: clinic.id,
                  actor: owner
                )
+    end
+
+    # A tripwire do contrato entre linguagens (I67). O `one_of` daqui é a autoridade; a tela
+    # repete a lista para só oferecer o que a API aceita, e nenhum compilador liga os dois — o
+    # container da API não enxerga `web/`. Este teste é o que sobra: mudar a paleta aqui fica
+    # vermelho até alguém mudar a outra ponta **de propósito**.
+    test "a paleta é contrato com o web — mudar aqui exige mudar web/src/lib/appointment-types.ts" do
+      assert Api.Directory.AppointmentType.cores() == [
+               "#0FB5A6",
+               "#0072B2",
+               "#009E73",
+               "#CC79A7",
+               "#7A52CC",
+               "#D55E00",
+               "#E69F00",
+               "#2B7FFF"
+             ]
+
+      assert Api.Directory.AppointmentType.icones() == [
+               "Activity",
+               "ClipboardList",
+               "StretchHorizontal",
+               "Users",
+               "RefreshCw",
+               "HeartPulse",
+               "Dumbbell",
+               "Footprints",
+               "Hand",
+               "Bone"
+             ]
     end
 
     test "capacidade fora de 2..50 é recusada" do

@@ -94,6 +94,7 @@ import {
 	connectAgenda,
 	connectWaitlist,
 	connectNotifications,
+	viewerNames,
 	type AgendaHandlers
 } from './realtime';
 
@@ -454,5 +455,84 @@ describe('connectNotifications', () => {
 
 		expect(socket.channels[0].left).toBe(true);
 		expect(socket.disconnected).toBe(true);
+	});
+});
+
+// F5 — "quem está vendo este dia" (doc 30 / 09 §7.4).
+describe('viewerNames', () => {
+	it('lista os OUTROS que estão no dia, sem repetir quem tem duas abas', () => {
+		const nomes = viewerNames(
+			{
+				'u-ana': {
+					metas: [
+						{ user_id: 'u-ana', nome: 'Ana Lima', phx_ref: 'r1' },
+						{ user_id: 'u-ana', nome: 'Ana Lima', phx_ref: 'r2' }
+					]
+				},
+				'u-bia': { metas: [{ user_id: 'u-bia', nome: 'Bia Reis', phx_ref: 'r3' }] }
+			},
+			'u-eu'
+		);
+
+		expect(nomes).toEqual(['Ana Lima', 'Bia Reis']);
+	});
+
+	it('tira o próprio usuário — o aviso é sobre os outros', () => {
+		const nomes = viewerNames(
+			{ 'u-eu': { metas: [{ user_id: 'u-eu', nome: 'Eu Mesmo', phx_ref: 'r1' }] } },
+			'u-eu'
+		);
+
+		expect(nomes).toEqual([]);
+	});
+
+	it('meta sem nome não vira entrada vazia na tela', () => {
+		const nomes = viewerNames({ 'u-x': { metas: [{ user_id: 'u-x', phx_ref: 'r1' }] } }, 'u-eu');
+		expect(nomes).toEqual([]);
+	});
+});
+
+describe('connectAgenda — presença do dia (F5)', () => {
+	it('o presence_state vira a lista de quem mais está no dia', () => {
+		let vistos: string[] = [];
+		const h = handlers();
+
+		connectAgenda(
+			config,
+			['clinic:c1:agenda:2026-07-20'],
+			{ ...h, onViewers: (nomes: string[]) => (vistos = nomes) },
+			{ userId: 'u-eu' }
+		);
+
+		fake.FakeSocket.last!.channels[0].emit('presence_state', {
+			'u-ana': { metas: [{ user_id: 'u-ana', nome: 'Ana Lima', phx_ref: 'r1' }] },
+			'u-eu': { metas: [{ user_id: 'u-eu', nome: 'Eu Mesmo', phx_ref: 'r2' }] }
+		});
+
+		expect(vistos).toEqual(['Ana Lima']);
+	});
+
+	it('sair some da lista', () => {
+		let vistos: string[] = [];
+		const h = handlers();
+
+		connectAgenda(
+			config,
+			['clinic:c1:agenda:2026-07-20'],
+			{ ...h, onViewers: (nomes: string[]) => (vistos = nomes) },
+			{ userId: 'u-eu' }
+		);
+
+		const canal = fake.FakeSocket.last!.channels[0];
+
+		canal.emit('presence_diff', {
+			joins: { 'u-ana': { metas: [{ user_id: 'u-ana', nome: 'Ana Lima', phx_ref: 'r1' }] } }
+		});
+		expect(vistos).toEqual(['Ana Lima']);
+
+		canal.emit('presence_diff', {
+			leaves: { 'u-ana': { metas: [{ user_id: 'u-ana', nome: 'Ana Lima', phx_ref: 'r1' }] } }
+		});
+		expect(vistos).toEqual([]);
 	});
 });

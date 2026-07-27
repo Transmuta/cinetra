@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { untrack, onDestroy } from 'svelte';
 	import { page as pageState } from '$app/state';
-	import { goto } from '$app/navigation';
+	import { navigateQuery, type QueryPatch } from '$lib/querystring';
 	import Search from '@lucide/svelte/icons/search';
 	import UserPlus from '@lucide/svelte/icons/user-plus';
 	import Phone from '@lucide/svelte/icons/phone';
@@ -44,18 +44,8 @@
 	});
 
 	// Aplica um patch na query string e navega. Chaves com valor vazio saem da URL.
-	function navigate(patch: Record<string, string | null>) {
-		const params = new URLSearchParams(pageState.url.searchParams);
-		for (const [key, value] of Object.entries(patch)) {
-			if (value === null || value === '') params.delete(key);
-			else params.set(key, value);
-		}
-		const qs = params.toString();
-		goto(qs ? `/pacientes?${qs}` : '/pacientes', {
-			keepFocus: true,
-			noScroll: true,
-			replaceState: true
-		});
+	function navigate(patch: QueryPatch) {
+		navigateQuery('/pacientes', pageState.url.searchParams, patch);
 	}
 
 	// Digitar refaz a busca no servidor — com folga para não disparar a cada tecla. Mudar o

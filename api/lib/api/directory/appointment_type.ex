@@ -25,9 +25,22 @@ defmodule Api.Directory.AppointmentType do
   # Paletas fechadas do protótipo, validadas no servidor: o cliente não escolhe hex/ícone
   # livre. Mesmo espírito do whitelist `@papeis` do MembersController — a fronteira HTTP
   # não confia no client (09 §8).
+  #
+  # **Esta é a autoridade da paleta** — quem recusa com 422 é o `one_of` daqui. A tela repete a
+  # lista em `web/src/lib/appointment-types.ts` (`TYPE_COLORS`/`TYPE_ICONS`) para só *oferecer* o
+  # que a API aceita, e não há compilador que ligue os dois lados: são linguagens diferentes, e o
+  # container da API não enxerga `web/` (nem o contrário). O que existe no lugar é a tripwire de
+  # `appointment_type_test.exs` — mudar a lista aqui deixa um teste vermelho pedindo, por escrito,
+  # que a outra ponta seja mudada junto.
   @cores ~w(#0FB5A6 #0072B2 #009E73 #CC79A7 #7A52CC #D55E00 #E69F00 #2B7FFF)
   @icones ~w(Activity ClipboardList StretchHorizontal Users RefreshCw HeartPulse Dumbbell
              Footprints Hand Bone)
+
+  @doc "A paleta de cores aceita (a mesma que o `one_of` valida)."
+  def cores, do: @cores
+
+  @doc "A paleta de ícones aceita (a mesma que o `one_of` valida)."
+  def icones, do: @icones
 
   postgres do
     table "appointment_types"

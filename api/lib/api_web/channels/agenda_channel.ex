@@ -58,25 +58,47 @@ defmodule ApiWeb.AgendaChannel do
   alias Api.Scheduling
   alias Api.Scheduling.AgendaNotifier
   alias Api.Scheduling.Preparations.OwnAgendaOnly
+  alias ApiWeb.ChannelScope
 
   @impl true
   def join(topic, params, socket) do
     with {:ok, clinic_id, resolucao} <- parse_topic(topic),
-         :ok <- same_clinic(clinic_id, socket),
-         {:ok, scope} <- scope_for(socket.assigns.user_id, clinic_id) do
+         {:ok, scope} <- ChannelScope.authorize(clinic_id, socket) do
       AgendaNotifier.subscribe(internal_topic(clinic_id, resolucao))
+
+      modo = mode(resolucao, params)
 
       socket =
         socket
         |> assign(:scope, scope)
         |> assign(:resolucao, resolucao)
-        |> assign(:mode, mode(resolucao, params))
+        |> assign(:mode, modo)
+
+      if rastreia_presenca?(resolucao, modo), do: send(self(), :after_join)
 
       {:ok, socket}
     else
       :invalid_topic -> {:error, %{reason: "invalid_topic"}}
       _ -> {:error, %{reason: "unauthorized"}}
     end
+  end
+
+  # F5 — "quem está vendo este dia" (09 §7.4). Rastreia depois do `join`, não dentro dele: o
+  # `Presence.track/3` precisa do processo do canal já registrado no tópico.
+  #
+  # A chave é o **usuário**, não o socket: duas abas da mesma pessoa são uma pessoa na tela, e é
+  # o `Presence` que junta os metas sob a mesma chave. O nome sai do vínculo lido no `join` —
+  # nunca do corpo do cliente, como na fila (doc 39).
+  @impl true
+  def handle_info(:after_join, socket) do
+    %{user: user} = socket.assigns.scope
+
+    {:ok, _ref} = ApiWeb.Presence.track(socket, user.id, %{user_id: user.id, nome: user.nome})
+
+    # Quem já estava aqui antes de eu entrar. Sem isto, só se descobre no próximo `presence_diff`
+    # — ou seja, nunca, se ninguém mexer.
+    push(socket, "presence_state", ApiWeb.Presence.list(socket))
+    {:noreply, socket}
   end
 
   # Sinal: nada de releitura. Só a pergunta do recorte, respondida da membership que o `join`
@@ -132,6 +154,16 @@ defmodule ApiWeb.AgendaChannel do
   defp mode(_resolucao, %{"mode" => "signal"}), do: :signal
   defp mode(_resolucao, _params), do: :block
 
+  # Só quem está **olhando um dia** entra na presença — que é Dia e Lista, e é exatamente o que
+  # `mode: :block` significa.
+  #
+  # A Semana assina os 5–7 tópicos de dia da janela (é a granularidade do notifier). Rastrear no
+  # `join` sem este filtro colocaria uma pessoa como "vendo" sete dias ao mesmo tempo: o aviso
+  # deixaria de significar "ela está com este dia na tela", que é a única coisa que ele serve
+  # para dizer. O Mês é sinal por definição e cai aqui pelo mesmo caminho.
+  defp rastreia_presenca?({:day, _date}, :block), do: true
+  defp rastreia_presenca?(_resolucao, _modo), do: false
+
   # Dia e semana: evento semântico com o recurso serializado (doc 04 §6.2), pela **mesma**
   # serialização do `GET /api/appointments` — o cliente aplica patch no store sem saber por
   # qual porta o bloco chegou.
@@ -159,21 +191,6 @@ defmodule ApiWeb.AgendaChannel do
     case Date.from_iso8601(iso) do
       {:ok, date} -> {:ok, clinic_id, {resolucao, date}}
       _ -> :invalid_topic
-    end
-  end
-
-  defp same_clinic(clinic_id, %{assigns: %{clinic_id: clinic_id}}), do: :ok
-  defp same_clinic(_clinic_id, _socket), do: :error
-
-  # A mesma pergunta que o `LoadScope` faz na fronteira HTTP, feita ao mesmo lugar: existe
-  # vínculo **ativo** deste usuário com esta clínica? O papel sai daqui, nunca do token.
-  defp scope_for(user_id, clinic_id) do
-    with {:ok, user} <- Api.Accounts.get_user(user_id, authorize?: false),
-         {:ok, membership} <-
-           Api.Accounts.get_active_membership(user_id, clinic_id, authorize?: false) do
-      {:ok, Api.Scope.with_membership(user, membership)}
-    else
-      _ -> :error
     end
   end
 

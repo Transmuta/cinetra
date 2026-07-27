@@ -8,8 +8,6 @@ defmodule Api.Accounts.MembershipTest do
 
   alias Api.Accounts
 
-  defp email, do: "user-#{System.unique_integer([:positive])}@example.com"
-
   # Bootstrap de conta nova (owner) = pedido de CADASTRO (register?: true).
   defp capture_token(addr) do
     :ok = Accounts.request_magic_link(addr, %{register?: true})
@@ -20,7 +18,7 @@ defmodule Api.Accounts.MembershipTest do
 
   # Um owner com clínica ativa (consome o e-mail do magic link do próprio owner).
   defp owner_and_clinic do
-    {:ok, owner} = Accounts.sign_in_with_magic_link(capture_token(email()))
+    {:ok, owner} = Accounts.sign_in_with_magic_link(capture_token(email_unico("user")))
 
     {:ok, clinic} =
       Accounts.onboard_clinic("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
@@ -30,7 +28,7 @@ defmodule Api.Accounts.MembershipTest do
 
   # Convida alguém e ativa o vínculo (simula o aceite no primeiro acesso).
   defp active_member(clinic, owner, papel) do
-    addr = email()
+    addr = email_unico("user")
 
     {:ok, m} =
       Accounts.invite_member_by_email(addr, %{papel: papel, clinic_id: clinic.id}, actor: owner)
@@ -43,7 +41,7 @@ defmodule Api.Accounts.MembershipTest do
   describe "invite_member_by_email/3" do
     test "cria Membership pendente e dispara magic link para o convidado" do
       {owner, clinic} = owner_and_clinic()
-      invitee = email()
+      invitee = email_unico("user")
 
       {:ok, membership} =
         Accounts.invite_member_by_email(
@@ -63,7 +61,7 @@ defmodule Api.Accounts.MembershipTest do
 
     test "cria o User do convidado quando ele ainda não existe" do
       {owner, clinic} = owner_and_clinic()
-      invitee = email()
+      invitee = email_unico("user")
 
       {:ok, membership} =
         Accounts.invite_member_by_email(
@@ -79,7 +77,7 @@ defmodule Api.Accounts.MembershipTest do
 
     test "reaproveita o User existente sem sobrescrever o nome" do
       {owner, clinic} = owner_and_clinic()
-      existing = email()
+      existing = email_unico("user")
       {:ok, user} = Accounts.register_user("Nome Original", existing, authorize?: false)
 
       {:ok, membership} =
@@ -103,7 +101,7 @@ defmodule Api.Accounts.MembershipTest do
 
       assert {:error, %Ash.Error.Invalid{}} =
                Accounts.invite_member_by_email(
-                 email(),
+                 email_unico("user"),
                  %{papel: :profissional, professional_id: prof_b.id, clinic_id: clinic_a.id},
                  actor: owner_a
                )
@@ -117,7 +115,7 @@ defmodule Api.Accounts.MembershipTest do
 
       assert {:ok, m} =
                Accounts.invite_member_by_email(
-                 email(),
+                 email_unico("user"),
                  %{papel: :profissional, professional_id: prof.id, clinic_id: clinic.id},
                  actor: owner
                )
@@ -131,7 +129,7 @@ defmodule Api.Accounts.MembershipTest do
 
       assert {:error, %Ash.Error.Forbidden{}} =
                Accounts.invite_member_by_email(
-                 email(),
+                 email_unico("user"),
                  %{papel: :recepcao, clinic_id: clinic.id},
                  actor: recep
                )
@@ -140,7 +138,7 @@ defmodule Api.Accounts.MembershipTest do
     test "convite NEGADO não cria o User do convidado (sem phantom user)" do
       {owner, clinic} = owner_and_clinic()
       {recep, _} = active_member(clinic, owner, :recepcao)
-      ghost = email()
+      ghost = email_unico("user")
 
       assert {:error, %Ash.Error.Forbidden{}} =
                Accounts.invite_member_by_email(
@@ -164,7 +162,7 @@ defmodule Api.Accounts.MembershipTest do
 
       assert {:ok, membership} =
                Accounts.invite_member_by_email(
-                 email(),
+                 email_unico("user"),
                  %{papel: :recepcao, clinic_id: clinic.id},
                  actor: admin
                )
@@ -175,7 +173,7 @@ defmodule Api.Accounts.MembershipTest do
     test "admin NÃO pode convidar alguém como owner (barra cunhagem de owner par)" do
       {owner, clinic} = owner_and_clinic()
       {admin, _m} = active_member(clinic, owner, :admin)
-      addr = email()
+      addr = email_unico("user")
 
       assert {:error, %Ash.Error.Invalid{}} =
                Accounts.invite_member_by_email(
@@ -198,7 +196,7 @@ defmodule Api.Accounts.MembershipTest do
 
       assert {:ok, membership} =
                Accounts.invite_member_by_email(
-                 email(),
+                 email_unico("user"),
                  %{papel: :owner, clinic_id: clinic.id},
                  actor: owner
                )
@@ -345,7 +343,7 @@ defmodule Api.Accounts.MembershipTest do
   describe "Invites.activate_pending/1" do
     test "o primeiro acesso do convidado ativa o vínculo pendente" do
       {owner, clinic} = owner_and_clinic()
-      invitee = email()
+      invitee = email_unico("user")
 
       {:ok, pending} =
         Accounts.invite_member_by_email(

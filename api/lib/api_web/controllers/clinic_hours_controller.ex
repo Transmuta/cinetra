@@ -5,8 +5,12 @@ defmodule ApiWeb.ClinicHoursController do
   vem sempre do escopo, nunca do corpo (09 §8).
 
   `PATCH` recebe a semana num mapa `{"clinic_hours": {dow: periods}}` e substitui só os dias
-  presentes. Um `confirm` no corpo é aceito e ignorado até o motor de conflitos com a agenda
-  existir (doc 22 §6/H2) — o whitelist de `clinic_hours` já descarta qualquer outra chave.
+  presentes.
+
+  **O `confirm` passou a valer (A3/D12, Onda 6).** Sem ele, uma semana que deixaria agendamentos
+  futuros fora do expediente é recusada com **409 `future_conflicts`** e a lista dos afetados no
+  `meta` — nada é gravado. Com `confirm: true`, aplica assim mesmo: a decisão é de quem opera, e a
+  tela só oferece o botão **depois** de mostrar a lista.
   """
   use ApiWeb, :controller
 
@@ -24,12 +28,15 @@ defmodule ApiWeb.ClinicHoursController do
   # PATCH /api/clinic-hours — substitui os dias enviados; valida a semana antes de aplicar.
   def update(conn, params) do
     with_admin_scope(conn, fn scope ->
-      case Scheduling.update_clinic_hours(scope, week_input(params)) do
+      case Scheduling.update_clinic_hours(scope, week_input(params), confirm: confirmado?(params)) do
         {:ok, rows} ->
           json(conn, %{clinic_hours: hours_map(rows)})
 
         {:error, {:invalid, details}} ->
           unprocessable(conn, details)
+
+        {:error, {:future_conflicts, analise}} ->
+          future_conflicts(conn, analise)
 
         {:error, error} ->
           error_response(conn, error)

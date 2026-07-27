@@ -9,8 +9,6 @@ defmodule Api.Accounts.AuthFlowTest do
   alias Api.Accounts
   alias Api.Scope
 
-  defp email, do: "user-#{System.unique_integer([:positive])}@example.com"
-
   # Bootstrap de conta nova = pedido de CADASTRO (register?: true); o login não cria conta.
   defp request_and_capture_token(addr, nome \\ nil) do
     :ok = Accounts.request_magic_link(addr, %{nome: nome, register?: true})
@@ -20,7 +18,7 @@ defmodule Api.Accounts.AuthFlowTest do
   end
 
   test "cadastro (register?: true) envia e-mail para o endereço pedido" do
-    addr = email()
+    addr = email_unico("user")
     assert :ok = Accounts.request_magic_link(addr, %{register?: true})
 
     assert_receive {:email, email}, 1_000
@@ -35,7 +33,7 @@ defmodule Api.Accounts.AuthFlowTest do
   # "entrar" vira um cadastro silencioso e dá para enumerar quem tem conta.
   describe "login não cria conta (register?: false)" do
     test "e-mail SEM conta: resposta neutra, sem enviar link e sem criar User" do
-      addr = email()
+      addr = email_unico("user")
 
       assert :ok = Accounts.request_magic_link(addr)
 
@@ -44,7 +42,7 @@ defmodule Api.Accounts.AuthFlowTest do
     end
 
     test "e-mail COM conta: o login envia o link normalmente" do
-      addr = email()
+      addr = email_unico("user")
       # Cadastra a conta antes (register?: true), depois um login para o mesmo e-mail.
       {:ok, _user} = Accounts.sign_in_with_magic_link(request_and_capture_token(addr))
 
@@ -56,7 +54,7 @@ defmodule Api.Accounts.AuthFlowTest do
   end
 
   test "sign-in por magic link cria o User com nome defaultado do e-mail" do
-    addr = email()
+    addr = email_unico("user")
     token = request_and_capture_token(addr)
 
     {:ok, user} = Accounts.sign_in_with_magic_link(token)
@@ -68,7 +66,7 @@ defmodule Api.Accounts.AuthFlowTest do
   end
 
   test "sign-in por magic link usa o nome informado no cadastro" do
-    addr = email()
+    addr = email_unico("user")
     token = request_and_capture_token(addr, "Ana Paula")
 
     {:ok, user} = Accounts.sign_in_with_magic_link(token)
@@ -79,7 +77,7 @@ defmodule Api.Accounts.AuthFlowTest do
   end
 
   test "nome absurdamente longo é limitado (não estoura o token/URL nem o DB)" do
-    addr = email()
+    addr = email_unico("user")
     token = request_and_capture_token(addr, String.duplicate("a", 3_000))
 
     {:ok, user} = Accounts.sign_in_with_magic_link(token)
@@ -90,7 +88,7 @@ defmodule Api.Accounts.AuthFlowTest do
   end
 
   test "nome do cadastro NÃO sobrescreve o nome de um usuário já existente" do
-    addr = email()
+    addr = email_unico("user")
     # Primeiro acesso define o nome real.
     {:ok, existing} =
       Accounts.sign_in_with_magic_link(request_and_capture_token(addr, "Nome Verdadeiro"))
@@ -111,7 +109,7 @@ defmodule Api.Accounts.AuthFlowTest do
     alias Api.Accounts.User.MagicLinkToken
 
     test "o token no link é opaco: não é JWT legível nem expõe e-mail/nome (LGPD)" do
-      addr = email()
+      addr = email_unico("user")
       :ok = Accounts.request_magic_link(addr, %{nome: "Sigila Segredo", register?: true})
       assert_receive {:email, email}, 1_000
       [_, token] = Regex.run(~r/token=([\w.\-]+)/, email.text_body)
@@ -136,7 +134,7 @@ defmodule Api.Accounts.AuthFlowTest do
     end
 
     test "sign-in exige o token selado: JWT cru (sem selo) é rejeitado" do
-      addr = email()
+      addr = email_unico("user")
       sealed = request_and_capture_token(addr)
 
       # Sanidade: dentro do selo existe um JWT normal…
@@ -155,7 +153,7 @@ defmodule Api.Accounts.AuthFlowTest do
     # qualquer e-mail. O selo deriva do secret_key_base (o segredo do ENVELOPE, como no
     # cookie de sessão): forjar um link exige vazar os DOIS segredos.
     test "atacante só com a token_signing_secret assina mas NÃO sela: forja rejeitada" do
-      addr = email()
+      addr = email_unico("user")
       sealed = request_and_capture_token(addr)
       {:ok, jwt} = MagicLinkToken.unseal(sealed)
 
@@ -171,7 +169,7 @@ defmodule Api.Accounts.AuthFlowTest do
     # emitido → rejeitado. Sem isto, o magic link vira impersonação de qualquer conta,
     # driblando presença/binding da sessão — porque quem emite a sessão é o servidor.
     test "link forjado offline (jti nunca emitido) é rejeitado mesmo com os dois segredos" do
-      addr = email()
+      addr = email_unico("user")
       Accounts.register_user!(addr, addr, authorize?: false)
 
       signer = Joken.Signer.create("HS256", Application.fetch_env!(:api, :token_signing_secret))
@@ -199,7 +197,7 @@ defmodule Api.Accounts.AuthFlowTest do
     end
 
     test "token selado adulterado é rejeitado (sem estourar 500)" do
-      addr = email()
+      addr = email_unico("user")
       sealed = request_and_capture_token(addr)
 
       assert {:error, _} = Accounts.sign_in_with_magic_link(sealed <> "x")
@@ -212,7 +210,7 @@ defmodule Api.Accounts.AuthFlowTest do
   end
 
   test "onboard cria a clínica E o Membership owner ativo (ADR-016)" do
-    addr = email()
+    addr = email_unico("user")
     token = request_and_capture_token(addr)
     {:ok, user} = Accounts.sign_in_with_magic_link(token)
 
@@ -226,7 +224,7 @@ defmodule Api.Accounts.AuthFlowTest do
   end
 
   test "o escopo deriva tenant/papel do Membership ativo (Ash.Scope.ToOpts)" do
-    addr = email()
+    addr = email_unico("user")
     token = request_and_capture_token(addr)
     {:ok, user} = Accounts.sign_in_with_magic_link(token)
     {:ok, clinic} = Accounts.onboard_clinic("Clínica Escopo", %{}, actor: user)

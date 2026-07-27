@@ -7,8 +7,6 @@ defmodule Api.Accounts.ClinicTest do
 
   alias Api.Accounts
 
-  defp email, do: "clinic-#{System.unique_integer([:positive])}@example.com"
-
   defp capture_token(addr) do
     :ok = Accounts.request_magic_link(addr, %{register?: true})
     assert_receive {:email, mail}, 1_000
@@ -17,7 +15,7 @@ defmodule Api.Accounts.ClinicTest do
   end
 
   defp owner_and_clinic do
-    {:ok, owner} = Accounts.sign_in_with_magic_link(capture_token(email()))
+    {:ok, owner} = Accounts.sign_in_with_magic_link(capture_token(email_unico("clinic")))
 
     {:ok, clinic} =
       Accounts.onboard_clinic("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
@@ -26,7 +24,7 @@ defmodule Api.Accounts.ClinicTest do
   end
 
   defp active_member(clinic, owner, papel) do
-    addr = email()
+    addr = email_unico("clinic")
 
     {:ok, m} =
       Accounts.invite_member_by_email(addr, %{papel: papel, clinic_id: clinic.id}, actor: owner)

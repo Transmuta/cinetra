@@ -45,7 +45,11 @@ describe('updateClinicHours', () => {
 		expect(apiFetch).toHaveBeenCalledWith(
 			event,
 			'/api/clinic-hours',
-			expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ clinic_hours: week }) })
+			expect.objectContaining({
+				method: 'PATCH',
+				// `confirm` vai SEMPRE no corpo (A3/D12); `false` é o default seguro.
+				body: JSON.stringify({ clinic_hours: week, confirm: false })
+			})
 		);
 	});
 

@@ -9,10 +9,8 @@ defmodule Api.Records.PatientListTest do
   alias Api.Accounts
   alias Api.Records
 
-  defp email, do: "paclist-#{System.unique_integer([:positive])}@example.com"
-
   defp owner_and_clinic do
-    owner = Accounts.register_user!("Dono", email(), authorize?: false)
+    owner = Accounts.register_user!("Dono", email_unico("paclist"), authorize?: false)
 
     clinic =
       Accounts.onboard_clinic!("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)

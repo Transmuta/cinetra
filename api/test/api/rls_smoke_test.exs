@@ -42,10 +42,8 @@ defmodule Api.RlsSmokeTest do
 
   @segunda ~D[2026-07-20]
 
-  defp email, do: "rls-#{System.unique_integer([:positive])}@example.com"
-
   defp fixture do
-    owner = Accounts.register_user!("Dono RLS", email(), authorize?: false)
+    owner = Accounts.register_user!("Dono RLS", email_unico("rls"), authorize?: false)
 
     clinic =
       Accounts.onboard_clinic!("Clínica RLS #{System.unique_integer([:positive])}", %{},

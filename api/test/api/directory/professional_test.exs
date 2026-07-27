@@ -13,10 +13,8 @@ defmodule Api.Directory.ProfessionalTest do
   alias Api.Accounts
   alias Api.Directory
 
-  defp email, do: "prof-#{System.unique_integer([:positive])}@example.com"
-
   defp owner_and_clinic do
-    owner = Accounts.register_user!("Dono", email(), authorize?: false)
+    owner = Accounts.register_user!("Dono", email_unico("prof"), authorize?: false)
 
     clinic =
       Accounts.onboard_clinic!("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
@@ -25,7 +23,7 @@ defmodule Api.Directory.ProfessionalTest do
   end
 
   defp member_with_role(clinic, papel, professional_id \\ nil) do
-    user = Accounts.register_user!("Membro #{papel}", email(), authorize?: false)
+    user = Accounts.register_user!("Membro #{papel}", email_unico("prof"), authorize?: false)
 
     attrs = %{papel: papel, user_id: user.id, clinic_id: clinic.id}
     attrs = if professional_id, do: Map.put(attrs, :professional_id, professional_id), else: attrs
@@ -204,7 +202,7 @@ defmodule Api.Directory.ProfessionalTest do
 
     test "quem não é membro não lê nada" do
       {_owner, clinic} = owner_and_clinic()
-      estranho = Accounts.register_user!("Estranho", email(), authorize?: false)
+      estranho = Accounts.register_user!("Estranho", email_unico("prof"), authorize?: false)
 
       assert [] = Directory.list_professionals!(tenant: clinic.id, actor: estranho)
     end

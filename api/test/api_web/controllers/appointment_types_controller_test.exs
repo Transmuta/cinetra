@@ -9,37 +9,8 @@ defmodule ApiWeb.AppointmentTypesControllerTest do
   alias Api.Accounts
   alias Api.Directory
 
-  defp email, do: "tipos-#{System.unique_integer([:positive])}@example.com"
-
-  # Sign-in de domínio (retorna o User com token de sessão em metadata).
-  defp sign_in(addr) do
-    :ok = Accounts.request_magic_link(addr, %{register?: true})
-    assert_receive {:email, mail}, 1_000
-    [_, token] = Regex.run(~r/token=([\w.\-]+)/, mail.text_body)
-    {:ok, user} = Accounts.sign_in_with_magic_link(token)
-    user
-  end
-
-  defp authed(conn, user) do
-    conn
-    |> Phoenix.ConnTest.init_test_session(%{})
-    |> AshAuthentication.Plug.Helpers.store_in_session(user)
-  end
-
-  # Convida, ativa e devolve a SESSÃO real de um membro (para exercer o RBAC do controller).
-  defp active_member_session(owner, clinic, papel) do
-    addr = email()
-
-    {:ok, pending} =
-      Accounts.invite_member_by_email(addr, %{papel: papel, clinic_id: clinic.id}, actor: owner)
-
-    user = Accounts.get_user_by_email!(addr, authorize?: false)
-    {:ok, _} = Accounts.accept_invite(pending, actor: user)
-    sign_in(addr)
-  end
-
   defp owner_with_clinic do
-    owner = sign_in(email())
+    owner = sign_in!(email_unico("tipos"))
 
     {:ok, clinic} =
       Accounts.onboard_clinic("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
@@ -128,7 +99,7 @@ defmodule ApiWeb.AppointmentTypesControllerTest do
     end
 
     test "autenticado sem clínica ativa devolve 403", %{base_conn: base_conn} do
-      orphan = sign_in(email())
+      orphan = sign_in!(email_unico("tipos"))
 
       assert base_conn |> authed(orphan) |> get(~p"/api/appointment-types") |> json_response(403)
     end
@@ -138,7 +109,7 @@ defmodule ApiWeb.AppointmentTypesControllerTest do
       owner: owner,
       clinic: clinic
     } do
-      recep = active_member_session(owner, clinic, :recepcao)
+      recep = sessao_de_membro!(owner, clinic, :recepcao)
 
       body = base_conn |> authed(recep) |> get(~p"/api/appointment-types") |> json_response(200)
 
@@ -146,7 +117,7 @@ defmodule ApiWeb.AppointmentTypesControllerTest do
     end
 
     test "não vaza o catálogo de outra clínica", %{conn: conn} do
-      other = sign_in(email())
+      other = sign_in!(email_unico("tipos"))
 
       {:ok, other_clinic} =
         Accounts.onboard_clinic("Outra #{System.unique_integer([:positive])}", %{}, actor: other)
@@ -202,7 +173,7 @@ defmodule ApiWeb.AppointmentTypesControllerTest do
 
     test "IGNORA clinic_id do corpo — o tenant vem do escopo (09 §8)",
          %{conn: conn, clinic: clinic} do
-      other = sign_in(email())
+      other = sign_in!(email_unico("tipos"))
 
       {:ok, other_clinic} =
         Accounts.onboard_clinic("Alvo #{System.unique_integer([:positive])}", %{}, actor: other)
@@ -236,7 +207,7 @@ defmodule ApiWeb.AppointmentTypesControllerTest do
     end
 
     test "recepção não cria (403)", %{base_conn: base_conn, owner: owner, clinic: clinic} do
-      recep = active_member_session(owner, clinic, :recepcao)
+      recep = sessao_de_membro!(owner, clinic, :recepcao)
 
       assert base_conn
              |> authed(recep)
@@ -350,7 +321,7 @@ defmodule ApiWeb.AppointmentTypesControllerTest do
     end
 
     test "tipo de outra clínica devolve 404 (isolamento)", %{conn: conn} do
-      other = sign_in(email())
+      other = sign_in!(email_unico("tipos"))
 
       {:ok, other_clinic} =
         Accounts.onboard_clinic("Outra #{System.unique_integer([:positive])}", %{}, actor: other)
@@ -382,7 +353,7 @@ defmodule ApiWeb.AppointmentTypesControllerTest do
 
     test "recepção não atualiza (403)",
          %{base_conn: base_conn, owner: owner, clinic: clinic} do
-      recep = active_member_session(owner, clinic, :recepcao)
+      recep = sessao_de_membro!(owner, clinic, :recepcao)
       tipo = create_tipo(clinic)
 
       assert base_conn
@@ -412,7 +383,7 @@ defmodule ApiWeb.AppointmentTypesControllerTest do
     end
 
     test "recepção não arquiva (403)", %{base_conn: base_conn, owner: owner, clinic: clinic} do
-      recep = active_member_session(owner, clinic, :recepcao)
+      recep = sessao_de_membro!(owner, clinic, :recepcao)
       tipo = create_tipo(clinic)
 
       assert base_conn
@@ -456,7 +427,7 @@ defmodule ApiWeb.AppointmentTypesControllerTest do
     end
 
     test "recepção não restaura (403)", %{base_conn: base_conn, owner: owner, clinic: clinic} do
-      recep = active_member_session(owner, clinic, :recepcao)
+      recep = sessao_de_membro!(owner, clinic, :recepcao)
       tipo = create_tipo(clinic)
 
       assert base_conn
@@ -466,7 +437,7 @@ defmodule ApiWeb.AppointmentTypesControllerTest do
     end
 
     test "tipo de outra clínica devolve 404 (isolamento)", %{conn: conn} do
-      other = sign_in(email())
+      other = sign_in!(email_unico("tipos"))
 
       {:ok, other_clinic} =
         Accounts.onboard_clinic("Outra #{System.unique_integer([:positive])}", %{}, actor: other)

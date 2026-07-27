@@ -65,9 +65,23 @@ if config_env() == :prod do
       For example: ecto://USER:PASS@HOST/DATABASE
       """
 
+  # D-R (doc 30) — o pool contra o fan-out do Oban, agora com a conta escrita.
+  #
+  # As filas do Oban **tiram do mesmo pool** que o HTTP e o WebSocket: um job em execução segura
+  # uma conexão enquanto trabalha, e os nossos são todos ligados ao banco de ponta a ponta
+  # (materialização de série, fan-out do sino, podas). Com `queues: [housekeeping: 2,
+  # notifications: 5]`, **7** das conexões podem estar em job ao mesmo tempo — e com o pool em 10,
+  # sobravam 3 para atender gente.
+  #
+  # Medido no dev (`pg_stat_activity`): `pool_size: 10` abre **11** conexões. A 11ª é o
+  # `LISTEN "public.oban_insert"` do notifier do Oban, que fica **fora** do pool — some do
+  # orçamento do pool, mas conta no limite do servidor.
+  #
+  # 16 = 7 (filas) + 8 (HTTP/WS) + 1 (o stager e os plugins do Oban, que também usam o pool).
+  # `Api.ObanPoolTest` é o alarme: mexer nas filas sem mexer aqui deixa um teste vermelho.
   config :api, Api.Repo,
     url: database_url,
-    pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10")
+    pool_size: String.to_integer(System.get_env("POOL_SIZE") || "16")
 
   config :api,
     token_signing_secret:

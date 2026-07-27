@@ -9,7 +9,7 @@ import {
 	type UpdateInput
 } from '$lib/server/waitlist';
 import { fetchAppointmentTypes } from '$lib/server/appointment-types';
-import type { MutationResult } from '$lib/server/mutate';
+import { finish, parseIds } from '$lib/server/mutate';
 import {
 	parsePriorityFilter,
 	PAGE_SIZE,
@@ -160,18 +160,6 @@ async function submission(event: Parameters<Actions[string]>[0], action: string)
 	return { form, id };
 }
 
-// Traduz o resultado do BFF no retorno da action. O `code` é o que deixa a tela distinguir o
-// `schedule_conflict` (que oferece o Encaixe) do erro genérico.
-function finish(action: string, result: MutationResult) {
-	if (result.ok) return { ok: true, action };
-	return fail(result.status || 400, {
-		action,
-		error: result.error,
-		code: result.code,
-		details: result.details
-	});
-}
-
 // Prioridade/janela do cliente não são de confiança: casam contra os valores conhecidos e caem
 // no default (o `<select>` só oferece válidos, mas o servidor não terceriza a validação ao form).
 const PRIOS: readonly Priority[] = ['urgente', 'alta', 'normal', 'baixa'];
@@ -184,18 +172,6 @@ const JANELAS: readonly TimeWindow[] = ['manha', 'tarde', 'qualquer'];
 function parseJanela(raw: FormDataEntryValue | null): TimeWindow {
 	const v = String(raw ?? '');
 	return JANELAS.find((j) => j === v) ?? 'qualquer';
-}
-
-// professional_ids vem como JSON num hidden (o modal o monta). Qualquer coisa fora da forma
-// esperada vira lista vazia — o mesmo tratamento de `parseIds` da agenda.
-function parseIds(raw: FormDataEntryValue | null): string[] {
-	try {
-		const parsed = JSON.parse(String(raw ?? '[]'));
-		if (!Array.isArray(parsed)) return [];
-		return parsed.filter((v): v is string => typeof v === 'string' && v.length > 0);
-	} catch {
-		return [];
-	}
 }
 
 // `rules` também é JSON num hidden. Normaliza defensivamente (a `RuleShape` do servidor é a

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { page as pageState } from '$app/state';
-	import { goto } from '$app/navigation';
+	import { navigateQuery, type QueryPatch } from '$lib/querystring';
 	import ChevronLeft from '@lucide/svelte/icons/chevron-left';
 	import ChevronRight from '@lucide/svelte/icons/chevron-right';
 	import History from '@lucide/svelte/icons/history';
@@ -25,17 +25,8 @@
 
 	// Patch na query string + navegação (mesmo desenho da lista de Pacientes). Chaves vazias
 	// saem da URL; trocar de recurso ou limpar filtro volta para a página 1.
-	function navigate(patch: Record<string, string | null>) {
-		const params = new URLSearchParams(pageState.url.searchParams);
-		for (const [key, value] of Object.entries(patch)) {
-			if (value === null || value === '') params.delete(key);
-			else params.set(key, value);
-		}
-		const qs = params.toString();
-		goto(qs ? `/configuracoes/auditoria?${qs}` : '/configuracoes/auditoria', {
-			keepFocus: true,
-			noScroll: true
-		});
+	function navigate(patch: QueryPatch) {
+		navigateQuery('/configuracoes/auditoria', pageState.url.searchParams, patch);
 	}
 
 	function selectResource(key: ResourceFilter) {

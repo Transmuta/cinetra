@@ -59,7 +59,9 @@ defmodule Api.Scheduling.AuditLogTest do
 
       # Três versões: cancel, reschedule, schedule — nesta ordem (recência).
       assert actions(entries) == [:cancel, :reschedule, :schedule]
-      assert page.total == 3
+
+      # Sem `total`: a trilha não paga `COUNT(*)` por request (D-Aud1) — ver `list_audit_log/2`.
+      refute Map.has_key?(page, :total)
       assert page.offset == 0
       assert page.limit == 50
       assert page.more == false
@@ -71,7 +73,6 @@ defmodule Api.Scheduling.AuditLogTest do
 
       %{entries: first, page: p1} = Scheduling.list_audit_log(ctx.scope, limit: 2, offset: 0)
       assert actions(first) == [:cancel, :reschedule]
-      assert p1.total == 3
       assert p1.more == true
 
       %{entries: second, page: p2} = Scheduling.list_audit_log(ctx.scope, limit: 2, offset: 2)
@@ -176,18 +177,21 @@ defmodule Api.Scheduling.AuditLogTest do
       assert actions(entries) == [:cancel]
     end
 
-    # Bate-volta (verificação): o `count: true` da paginação tem que contar o RECORTE, não a
-    # clínica inteira — senão o rótulo "X de Z" da tela mentiria sob filtro.
-    test "o total da página respeita o filtro record_id (não é a clínica inteira)" do
+    # Era a verificação de que o `count: true` contava o RECORTE e não a clínica inteira. O
+    # D-Aud1 removeu o count (a trilha é a tabela que mais cresce); o que restou para proteger é
+    # o **`more?` sob filtro** — se ele fosse calculado sobre a clínica, a tela ofereceria uma
+    # próxima página vazia.
+    test "o `more?` respeita o filtro record_id (não é a clínica inteira)" do
       ctx = setup_clinic()
       alvo = appt_with_history(ctx)
       _outro = schedule(ctx, %{starts_at: at("14:00")})
 
-      %{page: sem_filtro} = Scheduling.list_audit_log(ctx.scope)
-      assert sem_filtro.total == 4
+      # 4 versões na clínica, 3 do registro alvo: com limite 3 e filtro, NÃO há próxima página.
+      %{page: sem_filtro} = Scheduling.list_audit_log(ctx.scope, limit: 3)
+      assert sem_filtro.more == true
 
-      %{page: com_filtro} = Scheduling.list_audit_log(ctx.scope, record_id: alvo.id)
-      assert com_filtro.total == 3
+      %{page: com_filtro} = Scheduling.list_audit_log(ctx.scope, record_id: alvo.id, limit: 3)
+      assert com_filtro.more == false
     end
 
     test "por autor (user_id): a admin que remarca aparece separada do owner" do

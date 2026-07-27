@@ -47,6 +47,11 @@ export interface AgendaHandlers {
 	onRemove(appointmentId: string): void;
 	/** Rejoin depois de reconexão: o cliente pode ter perdido eventos (09 §7.5). */
 	onResync(): void;
+	/**
+	 * **F5** — quem MAIS está com este dia aberto, agora. Já sem o próprio usuário e sem
+	 * repetição por aba. Só a visão de Dia/Lista recebe: o servidor não rastreia Semana nem Mês.
+	 */
+	onViewers?(nomes: string[]): void;
 }
 
 /**
@@ -152,15 +157,38 @@ export function connectAgenda(
 	config: RealtimeConfig,
 	topics: string[],
 	handlers: AgendaHandlers,
-	opts: { refreshToken?: () => Promise<string | null>; mode?: AgendaMode } = {}
+	opts: {
+		refreshToken?: () => Promise<string | null>;
+		mode?: AgendaMode;
+		userId?: string | null;
+	} = {}
 ): () => void {
 	const refreshToken = opts.refreshToken ?? buscarToken;
 	const mode = opts.mode ?? 'block';
+	const meuId = opts.userId ?? null;
 
 	const socket = abrirSocket(config, refreshToken);
 
+	// F5 — presença por dia. Um mapa por TÓPICO: a Semana assina vários, e mesmo que o servidor
+	// não rastreie ali, misturar os mapas seria a porta para "vendo o dia 20" vazar no dia 21.
+	const presencas = new Map<string, PresenceMap>();
+
+	const avisarViewers = (topic: string, mapa: PresenceMap) => {
+		presencas.set(topic, mapa);
+		handlers.onViewers?.(viewerNames(mapa, meuId));
+	};
+
 	const channels = topics.map((topic) => {
 		const channel = socket.channel(topic, { mode });
+
+		channel.on('presence_state', (estado) => avisarViewers(topic, (estado ?? {}) as PresenceMap));
+
+		channel.on('presence_diff', (diff) =>
+			avisarViewers(
+				topic,
+				applyPresenceDiff(presencas.get(topic) ?? {}, (diff ?? {}) as { joins?: PresenceMap })
+			)
+		);
 
 		for (const evento of EVENTOS_DE_BLOCO) {
 			channel.on(evento, (payload) => handlers.onAppointment(payload as AgendaEventPayload));
@@ -254,7 +282,7 @@ interface PresenceEntry {
 	metas: Array<{ user_id?: string; nome?: string; phx_ref?: string }>;
 }
 
-type PresenceMap = Record<string, PresenceEntry>;
+export type PresenceMap = Record<string, PresenceEntry>;
 
 /**
  * Aplica um `presence_diff` sobre o estado local. É o mínimo do protocolo (o pacote `phoenix`
@@ -279,6 +307,20 @@ export function applyPresenceDiff(
 	}
 
 	return next;
+}
+
+/**
+ * **F5** — os nomes de quem mais está com este dia aberto.
+ *
+ * Duas reduções, as duas visíveis na tela: **tira o próprio usuário** (o aviso é sobre os
+ * outros) e **junta as abas de uma mesma pessoa** — a chave da presença é o usuário, então duas
+ * abas são dois `metas` sob a mesma chave e continuam sendo uma pessoa.
+ */
+export function viewerNames(presencas: PresenceMap, meuId: string | null): string[] {
+	return Object.entries(presencas)
+		.filter(([userId]) => userId !== meuId)
+		.map(([, entry]) => entry.metas.find((m) => m.nome)?.nome)
+		.filter((nome): nome is string => !!nome);
 }
 
 /**

@@ -9,35 +9,8 @@ defmodule ApiWeb.ProfessionalsControllerTest do
   alias Api.Accounts
   alias Api.Directory
 
-  defp email, do: "profc-#{System.unique_integer([:positive])}@example.com"
-
-  defp sign_in(addr) do
-    :ok = Accounts.request_magic_link(addr, %{register?: true})
-    assert_receive {:email, mail}, 1_000
-    [_, token] = Regex.run(~r/token=([\w.\-]+)/, mail.text_body)
-    {:ok, user} = Accounts.sign_in_with_magic_link(token)
-    user
-  end
-
-  defp authed(conn, user) do
-    conn
-    |> Phoenix.ConnTest.init_test_session(%{})
-    |> AshAuthentication.Plug.Helpers.store_in_session(user)
-  end
-
-  defp active_member_session(owner, clinic, papel, professional_id \\ nil) do
-    addr = email()
-    attrs = %{papel: papel, clinic_id: clinic.id, professional_id: professional_id}
-
-    {:ok, pending} = Accounts.invite_member_by_email(addr, attrs, actor: owner)
-
-    user = Accounts.get_user_by_email!(addr, authorize?: false)
-    {:ok, _} = Accounts.accept_invite(pending, actor: user)
-    sign_in(addr)
-  end
-
   defp owner_with_clinic do
-    owner = sign_in(email())
+    owner = sign_in!(email_unico("profc"))
 
     {:ok, clinic} =
       Accounts.onboard_clinic("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
@@ -157,7 +130,7 @@ defmodule ApiWeb.ProfessionalsControllerTest do
     } do
       eu = create_prof(clinic, "Eu")
       colega = create_prof(clinic, "Colega")
-      prof = active_member_session(owner, clinic, :profissional, eu.id)
+      prof = sessao_de_membro!(owner, clinic, :profissional, eu.id)
       conn = authed(base, prof)
 
       assert conn |> get(~p"/api/professionals/#{eu.id}") |> json_response(200)
@@ -258,7 +231,7 @@ defmodule ApiWeb.ProfessionalsControllerTest do
     end
 
     test "recepção lê mas não escreve", %{base_conn: base, owner: owner, clinic: clinic} do
-      recep = active_member_session(owner, clinic, :recepcao)
+      recep = sessao_de_membro!(owner, clinic, :recepcao)
       conn = authed(base, recep)
 
       assert conn |> get(~p"/api/professionals") |> json_response(200)

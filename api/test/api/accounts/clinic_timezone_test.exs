@@ -12,10 +12,8 @@ defmodule Api.Accounts.ClinicTimezoneTest do
   alias Api.Accounts
   alias Api.Accounts.ClinicTimezone
 
-  defp email, do: "tz-#{System.unique_integer([:positive])}@example.com"
-
   defp fixture do
-    addr = email()
+    addr = email_unico("tz")
     :ok = Accounts.request_magic_link(addr, %{register?: true})
     assert_receive {:email, mail}, 1_000
     [_, token] = Regex.run(~r/token=([\w.\-]+)/, mail.text_body)

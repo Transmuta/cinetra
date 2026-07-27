@@ -12,10 +12,8 @@ defmodule Api.Notifications.NotificationTest do
   alias Api.Accounts
   alias Api.Notifications
 
-  defp email, do: "notif-#{System.unique_integer([:positive])}@example.com"
-
   defp owner_and_clinic do
-    owner = Accounts.register_user!("Dono", email(), authorize?: false)
+    owner = Accounts.register_user!("Dono", email_unico("notif"), authorize?: false)
 
     clinic =
       Accounts.onboard_clinic!("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
@@ -24,7 +22,7 @@ defmodule Api.Notifications.NotificationTest do
   end
 
   defp member(clinic, papel) do
-    user = Accounts.register_user!("Membro #{papel}", email(), authorize?: false)
+    user = Accounts.register_user!("Membro #{papel}", email_unico("notif"), authorize?: false)
 
     {:ok, m} =
       Accounts.invite_member(%{papel: papel, user_id: user.id, clinic_id: clinic.id},

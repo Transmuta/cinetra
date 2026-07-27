@@ -22,12 +22,10 @@ defmodule Api.Notifications.FanoutTest do
   # 2026-07-27 é uma segunda; o seed do onboard abre seg–sex 08–12 / 13–18. SP = UTC-3.
   @segunda ~D[2026-07-27]
 
-  defp email, do: "fan-#{System.unique_integer([:positive])}@example.com"
-
   defp setup_clinic, do: clinica()
 
   defp member(clinic, papel, professional_id \\ nil) do
-    user = Accounts.register_user!("Membro #{papel}", email(), authorize?: false)
+    user = Accounts.register_user!("Membro #{papel}", email_unico("fan"), authorize?: false)
     attrs = %{papel: papel, user_id: user.id, clinic_id: clinic.id}
     attrs = if professional_id, do: Map.put(attrs, :professional_id, professional_id), else: attrs
     {:ok, m} = Accounts.invite_member(attrs, authorize?: false)

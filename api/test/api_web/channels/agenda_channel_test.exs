@@ -22,27 +22,8 @@ defmodule ApiWeb.AgendaChannelTest do
 
   @dia "2026-07-20"
 
-  defp email, do: "chan-#{System.unique_integer([:positive])}@example.com"
-
-  defp sign_in(addr) do
-    :ok = Accounts.request_magic_link(addr, %{register?: true})
-    assert_receive {:email, mail}, 1_000
-    [_, token] = Regex.run(~r/token=([\w.\-]+)/, mail.text_body)
-    {:ok, user} = Accounts.sign_in_with_magic_link(token)
-    user
-  end
-
-  defp member(owner, clinic, papel, professional_id \\ nil) do
-    addr = email()
-    attrs = %{papel: papel, clinic_id: clinic.id, professional_id: professional_id}
-    {:ok, pending} = Accounts.invite_member_by_email(addr, attrs, actor: owner)
-    user = Accounts.get_user_by_email!(addr, authorize?: false)
-    {:ok, membership} = Accounts.accept_invite(pending, actor: user)
-    {sign_in(addr), membership}
-  end
-
   defp fixture do
-    owner = sign_in(email())
+    owner = sign_in!(email_unico("chan"))
 
     {:ok, clinic} =
       Accounts.onboard_clinic("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
@@ -123,7 +104,7 @@ defmodule ApiWeb.AgendaChannelTest do
 
     test "vínculo revogado depois do token emitido não entra" do
       ctx = fixture()
-      {user, membership} = member(ctx.owner, ctx.clinic, :recepcao)
+      {user, membership} = convite_aceito!(ctx.owner, ctx.clinic, :recepcao)
 
       # O token continua válido (15 min) — quem barra é a releitura do vínculo no join.
       :ok = Accounts.revoke_access(membership, actor: ctx.owner)
@@ -172,7 +153,7 @@ defmodule ApiWeb.AgendaChannelTest do
 
     test "A7: o profissional NÃO recebe o bloco do colega" do
       ctx = fixture()
-      {prof_user, _} = member(ctx.owner, ctx.clinic, :profissional, ctx.outra.id)
+      {prof_user, _} = convite_aceito!(ctx.owner, ctx.clinic, :profissional, ctx.outra.id)
 
       {:ok, _, _socket} =
         prof_user
@@ -188,7 +169,7 @@ defmodule ApiWeb.AgendaChannelTest do
 
     test "A7: o profissional recebe o próprio bloco" do
       ctx = fixture()
-      {prof_user, _} = member(ctx.owner, ctx.clinic, :profissional, ctx.prof.id)
+      {prof_user, _} = convite_aceito!(ctx.owner, ctx.clinic, :profissional, ctx.prof.id)
 
       {:ok, _, _socket} =
         prof_user
@@ -246,7 +227,7 @@ defmodule ApiWeb.AgendaChannelTest do
 
     test "A7 vale também para o sinal do mês" do
       ctx = fixture()
-      {prof_user, _} = member(ctx.owner, ctx.clinic, :profissional, ctx.outra.id)
+      {prof_user, _} = convite_aceito!(ctx.owner, ctx.clinic, :profissional, ctx.outra.id)
 
       {:ok, _, _socket} =
         prof_user
@@ -269,7 +250,7 @@ defmodule ApiWeb.AgendaChannelTest do
   describe "revogação derruba a conexão" do
     test "revogar o vínculo manda o socket daquele usuário desconectar" do
       ctx = fixture()
-      {user, membership} = member(ctx.owner, ctx.clinic, :recepcao)
+      {user, membership} = convite_aceito!(ctx.owner, ctx.clinic, :recepcao)
 
       ApiWeb.Endpoint.subscribe("user_socket:#{user.id}")
 
@@ -280,7 +261,7 @@ defmodule ApiWeb.AgendaChannelTest do
 
     test "mudar o papel também derruba — o escopo do canal foi capturado no join" do
       ctx = fixture()
-      {user, membership} = member(ctx.owner, ctx.clinic, :admin)
+      {user, membership} = convite_aceito!(ctx.owner, ctx.clinic, :admin)
 
       ApiWeb.Endpoint.subscribe("user_socket:#{user.id}")
 
@@ -291,7 +272,7 @@ defmodule ApiWeb.AgendaChannelTest do
 
     test "aceitar convite NÃO derruba (é entrada, não perda de acesso)" do
       ctx = fixture()
-      addr = email()
+      addr = email_unico("chan")
       attrs = %{papel: :recepcao, clinic_id: ctx.clinic.id}
       {:ok, pending} = Accounts.invite_member_by_email(addr, attrs, actor: ctx.owner)
       user = Accounts.get_user_by_email!(addr, authorize?: false)
@@ -355,7 +336,7 @@ defmodule ApiWeb.AgendaChannelTest do
 
     test "A7 no modo signal: o profissional não é avisado do bloco do colega" do
       ctx = fixture()
-      {prof_user, _} = member(ctx.owner, ctx.clinic, :profissional, ctx.outra.id)
+      {prof_user, _} = convite_aceito!(ctx.owner, ctx.clinic, :profissional, ctx.outra.id)
       scope = scope_for(ctx.owner, ctx.clinic)
       {:ok, appt} = Scheduling.schedule_appointment(agenda(ctx), scope: scope)
 
@@ -371,7 +352,7 @@ defmodule ApiWeb.AgendaChannelTest do
 
     test "A7 no modo signal: o profissional é avisado do PRÓPRIO bloco" do
       ctx = fixture()
-      {prof_user, _} = member(ctx.owner, ctx.clinic, :profissional, ctx.prof.id)
+      {prof_user, _} = convite_aceito!(ctx.owner, ctx.clinic, :profissional, ctx.prof.id)
       scope = scope_for(ctx.owner, ctx.clinic)
       {:ok, appt} = Scheduling.schedule_appointment(agenda(ctx), scope: scope)
 
@@ -387,7 +368,7 @@ defmodule ApiWeb.AgendaChannelTest do
 
     test "remarcar entre profissionais avisa as DUAS agendas" do
       ctx = fixture()
-      {prof_user, _} = member(ctx.owner, ctx.clinic, :profissional, ctx.prof.id)
+      {prof_user, _} = convite_aceito!(ctx.owner, ctx.clinic, :profissional, ctx.prof.id)
       scope = scope_for(ctx.owner, ctx.clinic)
       {:ok, appt} = Scheduling.schedule_appointment(agenda(ctx), scope: scope)
 
@@ -480,7 +461,7 @@ defmodule ApiWeb.AgendaChannelTest do
 
     test "A7: o profissional NÃO recebe a remoção do bloco de um colega" do
       ctx = fixture()
-      {prof_user, _} = member(ctx.owner, ctx.clinic, :profissional, ctx.outra.id)
+      {prof_user, _} = convite_aceito!(ctx.owner, ctx.clinic, :profissional, ctx.outra.id)
       scope = scope_for(ctx.owner, ctx.clinic)
       {:ok, appt} = Scheduling.schedule_appointment(agenda(ctx), scope: scope)
 

@@ -60,6 +60,8 @@
 	// evento é otimização sobre ele (09 §7.5), nunca o contrário.
 	let live = $state<{ appointments: Appointment[]; patients: AgendaPatient[] } | null>(null);
 	let realtime = $state<RealtimeConfig | null>(null);
+	// F5 — os nomes de quem MAIS está vendo este dia (já sem o próprio usuário).
+	let viewers = $state<string[]>([]);
 
 	const appointments = $derived(live?.appointments ?? data.appointments);
 	const patients = $derived(live?.patients ?? data.patients);
@@ -175,10 +177,20 @@
 						patients: live?.patients ?? data.patients
 					};
 				},
-				onResync: recarregar
+				onResync: recarregar,
+				// F5 — quem mais está com este dia aberto. Só Dia/Lista recebem: o servidor não
+				// rastreia presença nos tópicos que renderizam contagem.
+				onViewers: (nomes) => (viewers = nomes)
 			},
-			{ mode: mode as AgendaMode }
+			{ mode: mode as AgendaMode, userId: data.me?.user?.id ?? null }
 		);
+	});
+
+	// Trocar de dia/visão zera a lista: a presença do dia anterior não vale para o novo, e o
+	// `presence_state` do tópico novo só chega depois do join.
+	$effect(() => {
+		topicsKey;
+		viewers = [];
 	});
 
 	// Nome do paciente por id, do sidecar `patients` do GET. O mapa é montado por
@@ -338,6 +350,7 @@
 		date={data.date}
 		today={data.today}
 		view={data.view as AgendaView}
+		{viewers}
 		onDate={(d) => navigate({ date: d })}
 		onView={(v) => navigate({ view: v === 'dia' ? null : v })}
 	/>

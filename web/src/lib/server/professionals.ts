@@ -102,20 +102,24 @@ export function reactivateProfessional(event: RequestEvent, id: string): Promise
 
 // PATCH substitui a grade dos dias enviados (valida a semana inteira antes de escrever,
 // incluindo o invariante prof ⊆ clínica).
+// `confirm` é o A3/D12 — ver `updateClinicHours`. Estreitar a grade sobre sessão marcada volta
+// 409 `future_conflicts` com a lista no `meta`.
 export function updateProfessionalHours(
 	event: RequestEvent,
 	id: string,
-	days: DayInput[]
+	days: DayInput[],
+	confirm = false
 ): Promise<MutationResult> {
-	return mutate(event, `${path(id)}/hours`, 'PATCH', { days });
+	return mutate(event, `${path(id)}/hours`, 'PATCH', { days, confirm });
 }
 
 export function createProfessionalException(
 	event: RequestEvent,
 	id: string,
-	input: { data: string; nome: string; tipo: string; periods: Period[] }
+	input: { data: string; nome: string; tipo: string; periods: Period[] },
+	confirm = false
 ): Promise<MutationResult> {
-	return mutate(event, `${path(id)}/exceptions`, 'POST', input);
+	return mutate(event, `${path(id)}/exceptions`, 'POST', { ...input, confirm });
 }
 
 export function deleteProfessionalException(
@@ -192,14 +196,10 @@ export function parseExceptions(raw: string): ExceptionInput[] {
 	}
 }
 
-export function parseIds(raw: string): string[] {
-	try {
-		const parsed = JSON.parse(raw);
-		return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : [];
-	} catch {
-		return [];
-	}
-}
+// A leitura de "lista de ids num hidden com JSON" mora em `$lib/server/mutate` desde a Frente 13
+// (D2, doc 29 §5) — eram três cópias, e esta era a que aceitava string vazia como id válido.
+// Continua exportada daqui porque a ficha do profissional já a importava por este caminho.
+export { parseIds } from './mutate';
 
 // Aplica a situação (ativo) da ficha: como `ativo` não entra no corpo da ficha (só muda por
 // deactivate/reactivate), o save compara o desejado com o original e chama o verbo certo. Sem
@@ -220,7 +220,8 @@ export async function syncProfessionalExceptions(
 	event: RequestEvent,
 	id: string,
 	desired: ExceptionInput[],
-	originalIds: string[]
+	originalIds: string[],
+	confirm = false
 ): Promise<MutationResult> {
 	const keep = new Set(desired.filter((e) => e.id).map((e) => e.id as string));
 
@@ -230,12 +231,12 @@ export async function syncProfessionalExceptions(
 	}
 
 	for (const e of desired.filter((e) => !e.id)) {
-		const res = await createProfessionalException(event, id, {
-			data: e.data,
-			nome: e.nome,
-			tipo: e.tipo,
-			periods: e.periods
-		});
+		const res = await createProfessionalException(
+			event,
+			id,
+			{ data: e.data, nome: e.nome, tipo: e.tipo, periods: e.periods },
+			confirm
+		);
 		if (!res.ok) return res;
 	}
 
@@ -259,7 +260,14 @@ export async function runProfessionalSave(
 	event: RequestEvent,
 	form: FormData,
 	opts: RunSaveOpts
-): Promise<{ ok: true } | { ok: false; status: number; error?: string }> {
+): Promise<
+	| { ok: true }
+	| { ok: false; status: number; error?: string; code?: string; meta?: Record<string, unknown> }
+> {
+	// A3/D12 — a ficha é a QUARTA porta de edição de horário (grade + exceções do profissional).
+	// O `confirm` atravessa a orquestração inteira: sem ele a API recusa a grade (ou a folga) que
+	// deixaria sessão marcada fora do expediente, e o 409 sobe com a lista para a tela desenhar.
+	const confirm = form.get('confirm') === 'true';
 	const parsed = parseProfessionalForm(
 		String(form.get('ficha') ?? ''),
 		String(form.get('days') ?? '')
@@ -272,16 +280,29 @@ export async function runProfessionalSave(
 	const id = opts.professionalId ?? persisted.id;
 	if (!id) return { ok: false, status: 500, error: 'Não foi possível salvar o profissional.' };
 
-	const hours = await updateProfessionalHours(event, id, parsed.days);
-	if (!hours.ok) return { ok: false, status: hours.status || 400, error: hours.error };
+	const hours = await updateProfessionalHours(event, id, parsed.days, confirm);
+
+	if (!hours.ok) {
+		return {
+			ok: false,
+			status: hours.status || 400,
+			error: hours.error,
+			code: hours.code,
+			meta: hours.meta
+		};
+	}
 
 	const exc = await syncProfessionalExceptions(
 		event,
 		id,
 		parseExceptions(String(form.get('exceptions') ?? '[]')),
-		opts.originalExceptionIds
+		opts.originalExceptionIds,
+		confirm
 	);
-	if (!exc.ok) return { ok: false, status: exc.status || 400, error: exc.error };
+
+	if (!exc.ok) {
+		return { ok: false, status: exc.status || 400, error: exc.error, code: exc.code, meta: exc.meta };
+	}
 
 	const st = await applyActiveState(
 		event,

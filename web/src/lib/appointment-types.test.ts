@@ -30,6 +30,11 @@ const tipo = (over: Partial<AppointmentType> = {}): AppointmentType => ({
 describe('paletas fechadas', () => {
 	// A paleta é validada com `one_of` no servidor (doc 20 §1); estes testes são o
 	// contrato do lado do cliente — se divergirem, a tela oferece o que a API recusa.
+	//
+	// A outra ponta é `@cores`/`@icones` em `api/lib/api/directory/appointment_type.ex`, com a
+	// tripwire gêmea em `appointment_type_test.exs`. Nenhum compilador liga os dois (linguagens
+	// diferentes, e um container não enxerga o diretório do outro): mudar a paleta é mudar os
+	// **quatro** lugares — as duas listas e os dois testes — de propósito. É deliberado que doa.
 	it('as 8 cores, verbatim do protótipo (:2391)', () => {
 		expect(TYPE_COLORS).toEqual([
 			'#0FB5A6',

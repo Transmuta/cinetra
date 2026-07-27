@@ -13,10 +13,8 @@ defmodule Api.Scheduling.ProfessionalHoursTest do
   alias Api.Directory
   alias Api.Scheduling
 
-  defp email, do: "profh-#{System.unique_integer([:positive])}@example.com"
-
   defp owner_and_clinic do
-    owner = Accounts.register_user!("Dono", email(), authorize?: false)
+    owner = Accounts.register_user!("Dono", email_unico("profh"), authorize?: false)
 
     clinic =
       Accounts.onboard_clinic!("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
@@ -25,7 +23,7 @@ defmodule Api.Scheduling.ProfessionalHoursTest do
   end
 
   defp member_with_role(clinic, papel) do
-    user = Accounts.register_user!("Membro #{papel}", email(), authorize?: false)
+    user = Accounts.register_user!("Membro #{papel}", email_unico("profh"), authorize?: false)
 
     {:ok, m} =
       Accounts.invite_member(%{papel: papel, user_id: user.id, clinic_id: clinic.id},

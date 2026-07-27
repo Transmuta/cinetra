@@ -11,7 +11,7 @@ import {
 	excludeAppointment,
 	transitionParticipant
 } from '$lib/server/appointments';
-import type { MutationResult } from '$lib/server/mutate';
+import { finish, parseIds, type MutationResult } from '$lib/server/mutate';
 import {
 	parseDateParam,
 	parseHiddenProfs,
@@ -323,31 +323,8 @@ async function transition(
 	return finish(action, await run(event, s.id, expectedVersion(s.form)));
 }
 
-// Traduz o resultado do BFF no retorno da action. O `code` é o que deixa a tela distinguir
-// "recarregue" (`version_conflict`, 409) de "marque como encaixe" (`schedule_conflict`, 422).
-function finish(action: string, result: MutationResult) {
-	if (result.ok) return { ok: true, action };
-	return fail(result.status || 400, {
-		action,
-		error: result.error,
-		code: result.code,
-		details: result.details
-	});
-}
-
 function expectedVersion(form: FormData): number {
 	const v = Number(form.get('expected_version'));
 	return Number.isFinite(v) ? v : 0;
 }
 
-// Os ids vêm como JSON num campo hidden (o form é montado pelo modal). Qualquer coisa fora
-// da forma esperada vira lista vazia — e a validação acima devolve a mensagem certa.
-function parseIds(raw: FormDataEntryValue | null): string[] {
-	try {
-		const parsed = JSON.parse(String(raw ?? '[]'));
-		if (!Array.isArray(parsed)) return [];
-		return parsed.filter((v): v is string => typeof v === 'string' && v.length > 0);
-	} catch {
-		return [];
-	}
-}

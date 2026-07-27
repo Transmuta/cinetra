@@ -26,7 +26,18 @@ export async function fetchClinicHours(event: RequestEvent): Promise<ClinicHours
 	}
 }
 
-// PATCH substitui a semana enviada. O corpo espelha o contrato: `{ clinic_hours: {dow: periods} }`.
-export function updateClinicHours(event: RequestEvent, week: WeekHours): Promise<MutationResult> {
-	return mutate(event, '/api/clinic-hours', 'PATCH', { clinic_hours: week });
+/**
+ * PATCH substitui a semana enviada. O corpo espelha o contrato:
+ * `{ clinic_hours: {dow: periods}, confirm }`.
+ *
+ * `confirm` é o A3/D12: sem ele, a API recusa com **409 `future_conflicts`** e a lista dos
+ * agendamentos que ficariam fora do expediente. A tela mostra a lista e só então reenvia com
+ * `confirm: true` — o botão não existe antes de a pessoa ver o que vai quebrar.
+ */
+export function updateClinicHours(
+	event: RequestEvent,
+	week: WeekHours,
+	confirm = false
+): Promise<MutationResult> {
+	return mutate(event, '/api/clinic-hours', 'PATCH', { clinic_hours: week, confirm });
 }

@@ -13,29 +13,8 @@ defmodule ApiWeb.NotificationChannelTest do
   alias Api.Accounts
   alias Api.Notifications
 
-  defp email, do: "nchan-#{System.unique_integer([:positive])}@example.com"
-
-  defp sign_in(addr) do
-    :ok = Accounts.request_magic_link(addr, %{register?: true})
-    assert_receive {:email, mail}, 1_000
-    [_, token] = Regex.run(~r/token=([\w.\-]+)/, mail.text_body)
-    {:ok, user} = Accounts.sign_in_with_magic_link(token)
-    user
-  end
-
-  defp member(owner, clinic, papel) do
-    addr = email()
-
-    {:ok, pending} =
-      Accounts.invite_member_by_email(addr, %{papel: papel, clinic_id: clinic.id}, actor: owner)
-
-    user = Accounts.get_user_by_email!(addr, authorize?: false)
-    {:ok, membership} = Accounts.accept_invite(pending, actor: user)
-    {sign_in(addr), membership}
-  end
-
   defp fixture do
-    owner = sign_in(email())
+    owner = sign_in!(email_unico("nchan"))
 
     {:ok, clinic} =
       Accounts.onboard_clinic("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
@@ -94,7 +73,7 @@ defmodule ApiWeb.NotificationChannelTest do
 
     test "vínculo revogado depois do token emitido não entra" do
       ctx = fixture()
-      {user, membership} = member(ctx.owner, ctx.clinic, :recepcao)
+      {user, membership} = convite_aceito!(ctx.owner, ctx.clinic, :recepcao)
       :ok = Accounts.revoke_access(membership, actor: ctx.owner)
 
       assert {:error, %{reason: "unauthorized"}} =
@@ -121,7 +100,7 @@ defmodule ApiWeb.NotificationChannelTest do
 
     test "a caixa de outro membro não vaza para este socket" do
       ctx = fixture()
-      {outro, _m} = member(ctx.owner, ctx.clinic, :recepcao)
+      {outro, _m} = convite_aceito!(ctx.owner, ctx.clinic, :recepcao)
 
       {:ok, _, _socket} =
         ctx.owner
