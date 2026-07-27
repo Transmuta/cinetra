@@ -26,7 +26,15 @@ afterEach(cleanup);
 describe('PatientHistory', () => {
 	it('sem sessões, mostra o placeholder', () => {
 		render(PatientHistory, { sessions: [] });
-		expect(screen.getByText(/nenhuma sessão registrada/i)).toBeInTheDocument();
+		// Texto do protótipo ([`:2822`]) desde o doc 51 §L6.
+		expect(screen.getByText(/sem atendimentos registrados/i)).toBeInTheDocument();
+	});
+
+	// §L6: o protótipo mostra quantas sessões existem no canto do cabeçalho; a versão anterior
+	// não mostrava nenhuma contagem.
+	it('conta as sessões no cabeçalho', () => {
+		render(PatientHistory, { sessions: [sessao(), sessao({ id: 'att2' })] });
+		expect(screen.getByText('2')).toBeInTheDocument();
 	});
 
 	it('desenha data local, tipo, profissional e o selo da presença', () => {

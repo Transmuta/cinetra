@@ -13,12 +13,15 @@
 	import ShieldCheck from '@lucide/svelte/icons/shield-check';
 	import Archive from '@lucide/svelte/icons/archive';
 	import ArchiveRestore from '@lucide/svelte/icons/archive-restore';
+	import CalendarPlus from '@lucide/svelte/icons/calendar-plus';
 	import { initials } from '$lib/format';
 	import { patientColor, convLabel, idade, prefNomes, canManagePatients } from '$lib/patients';
+	import { canManageAttachments } from '$lib/attachments';
 	import PackageList from '$lib/components/patients/PackageList.svelte';
 	import PackageCreateModal from '$lib/components/patients/PackageCreateModal.svelte';
 	import PackageBulkModal from '$lib/components/patients/PackageBulkModal.svelte';
 	import PatientHistory from '$lib/components/patients/PatientHistory.svelte';
+	import PatientAttachments from '$lib/components/patients/PatientAttachments.svelte';
 	import type { Package as Pkg } from '$lib/packages';
 	import type { PageData, ActionData } from './$types';
 
@@ -40,6 +43,9 @@
 
 	const p = $derived(data.patient);
 	const canManage = $derived(canManagePatients(data.me.papel));
+	// Anexos têm recorte PRÓPRIO de papel (owner·admin·recepção, doc 51): o `profissional` não vê
+	// a seção. É a única parte da ficha que não segue o "todo membro visualiza" do D16.
+	const canAttach = $derived(canManageAttachments(data.me.papel));
 	const nomePorId = $derived(
 		Object.fromEntries(data.professionals.map((x) => [x.id, x.nome])) as Record<string, string>
 	);
@@ -121,8 +127,19 @@
 					{/if}
 				</div>
 			</div>
-			{#if canManage}
-				<div class="flex shrink-0 gap-2.5">
+			<div class="flex shrink-0 flex-wrap gap-2.5">
+				<!-- "Agendar" é do protótipo ([`:2756`]) e faltava: o caminho só existia ao contrário
+				     (o drawer da agenda levava à ficha). Quem atende ao telefone abre a ficha,
+				     confirma o convênio e precisa marcar dali, sem buscar o paciente de novo. -->
+				{#if p.ativo}
+					<a
+						href="/agenda?paciente={p.id}"
+						class="flex items-center gap-1.5 rounded-[9px] border border-edge bg-surface px-3.5 py-2 text-[13px] font-semibold text-ink hover:bg-surface-2"
+					>
+						<CalendarPlus size={15} /> Agendar
+					</a>
+				{/if}
+				{#if canManage}
 					{#if p.ativo}
 						<form method="POST" action="?/deactivate" use:enhance>
 							<button
@@ -139,8 +156,8 @@
 					>
 						<Pencil size={14} /> Editar dados
 					</a>
-				</div>
-			{/if}
+				{/if}
+			</div>
 		</div>
 
 		{#if p.tags.length}
@@ -159,13 +176,33 @@
 				</div>
 			{/snippet}
 			{@render stat('Idade', idadeVal !== null ? `${idadeVal} anos` : '—', 'text-ink')}
+			<!-- "Faltas" é o stat do protótipo ([`:2763`]). O agregado existe desde a agenda e já
+			     alimentava drawer e fila; faltava chegar aqui. Substitui "Comunicação", que dizia
+			     pela terceira vez na mesma tela o que o selo do topo e o cartão de consentimentos
+			     já diziam. -->
+			{@render stat(
+				'Faltas',
+				p.faltas != null ? String(p.faltas) : '—',
+				p.faltas ? 'text-danger' : 'text-ink'
+			)}
 			{@render stat('Consentimento LGPD', p.lgpd ? 'OK' : 'Pendente', p.lgpd ? 'text-success' : 'text-faint')}
-			{@render stat('Comunicação', p.comunicacao ? 'Autorizada' : 'Não', p.comunicacao ? 'text-success' : 'text-faint')}
 		</div>
 	</div>
 
-	<!-- Cartões cadastrais -->
-	<div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+	<!--
+		Duas colunas, como no protótipo ([`:2768`]): à esquerda o CADASTRO (estático, consultado);
+		à direita a ATIVIDADE (pacotes, histórico, anexos — o que se olha primeiro).
+
+		Era uma grade `md:grid-cols-2` com os cinco cartões cadastrais, e pacotes/histórico em
+		largura cheia embaixo. Isso deixava um buraco na segunda coluna da terceira linha (cinco
+		cartões numa grade de dois) e empurrava o histórico para fora da dobra, enquanto "Pacotes"
+		usava 1180px para mostrar uma barra de progresso.
+
+		`flex-wrap` com bases 340/300px: em telas estreitas as colunas empilham sozinhas, sem
+		breakpoint.
+	-->
+	<div class="flex flex-wrap items-start gap-4">
+	<div class="flex min-w-0 flex-[1.5_1_340px] flex-col gap-4">
 		{#snippet grid2(body: import('svelte').Snippet)}
 			<div class="grid grid-cols-2 gap-x-[18px] gap-y-3.5">{@render body()}</div>
 		{/snippet}
@@ -246,16 +283,35 @@
 		{@render card(ShieldCheck, 'Consentimentos', consentBody)}
 	</div>
 
-	<!-- Pacotes (Fatia 3): lista + ciclo de vida + criação (modal com prévia ao vivo). -->
-	<PackageList
-		packages={data.packages}
-		{canManage}
-		onNew={() => (criandoPacote = true)}
-		onBulk={(pkg) => (ajustando = pkg)}
-	/>
+	<!-- Coluna da atividade: Pacotes, Histórico e Anexos, na ordem do protótipo ([`:2812`]). -->
+	<div class="flex min-w-0 flex-[1_1_300px] flex-col gap-4">
+		<!-- Pacotes (Fatia 3): lista + ciclo de vida + criação (modal com prévia ao vivo). -->
+		<PackageList
+			packages={data.packages}
+			{canManage}
+			onNew={() => (criandoPacote = true)}
+			onBulk={(pkg) => (ajustando = pkg)}
+		/>
 
-	<!-- Histórico (C13, Frente 7): abaixo dos pacotes, como no protótipo. -->
-	<PatientHistory sessions={data.history} more={data.historyMore} timezone={data.me.timezone ?? 'America/Sao_Paulo'} />
+		<!-- Histórico (C13, Frente 7). -->
+		<PatientHistory
+			sessions={data.history}
+			more={data.historyMore}
+			timezone={data.me.timezone ?? 'America/Sao_Paulo'}
+		/>
+
+		<!-- Anexos (doc 51). Escondido para quem não pode: mostrar a seção e dar 403 no clique
+		     seria pior que não mostrá-la — a policy da API continua sendo quem barra. -->
+		{#if canAttach}
+			<PatientAttachments
+				patientId={p.id}
+				attachments={data.attachments}
+				limites={data.attachmentLimits}
+				onChanged={() => invalidateAll()}
+			/>
+		{/if}
+	</div>
+	</div>
 
 	{#if form?.ok && form?.afetadas != null}
 		<p class="mt-2 text-[12.5px] font-semibold text-success">

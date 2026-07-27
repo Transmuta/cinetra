@@ -47,6 +47,11 @@ export interface Patient {
 	comunicacao: boolean;
 	cor_indice: number;
 	ativo: boolean;
+	/**
+	 * Faltas não justificadas (agregado sobre `Attendance`). Só a FICHA o recebe — na lista seria
+	 * um `count` por linha e ninguém pede o número ali, então lá vem `null`.
+	 */
+	faltas?: number | null;
 }
 
 // O recorte de página e seus dois helpers moram em `$lib/pagination` desde que a fila passou a

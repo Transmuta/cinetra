@@ -15,17 +15,21 @@ import {
 	cancelPackage,
 	bulkAdjustPackage
 } from '$lib/server/packages';
+import { fetchPatientAttachments } from '$lib/server/attachments';
 
 // A ficha (só leitura). Vão junto o diretório (nomes dos profissionais preferidos), os pacotes
-// (Fatia 3) e o histórico de sessões (C13, Frente 7). Anexos seguem fora: dependem do prontuário
-// (v2). As leituras vão em paralelo — nenhuma depende da outra (H61).
+// (Fatia 3), o histórico de sessões (C13, Frente 7) e os anexos (doc 51 — saíram do v2).
+//
+// As seis leituras vão em paralelo: nenhuma depende da outra (H61). A dos anexos degrada sozinha
+// — para o `profissional` a API responde 403 e a lista vem vazia, e a tela nem renderiza a seção.
 export const load: PageServerLoad = async (event) => {
-	const [pat, prof, types, pkgs, hist] = await Promise.all([
+	const [pat, prof, types, pkgs, hist, anexos] = await Promise.all([
 		fetchPatient(event, event.params.id),
 		fetchProfessionals(event),
 		fetchAppointmentTypes(event),
 		fetchPatientPackages(event, event.params.id),
-		fetchPatientHistory(event, event.params.id)
+		fetchPatientHistory(event, event.params.id),
+		fetchPatientAttachments(event, event.params.id)
 	]);
 
 	if (!pat.patient) error(pat.status || 404, 'Paciente não encontrado.');
@@ -36,7 +40,9 @@ export const load: PageServerLoad = async (event) => {
 		appointmentTypes: types.data?.appointment_types ?? [],
 		packages: pkgs.packages,
 		history: hist.sessions,
-		historyMore: hist.more
+		historyMore: hist.more,
+		attachments: anexos.attachments,
+		attachmentLimits: anexos.limites
 	};
 };
 

@@ -240,6 +240,54 @@ defmodule ApiWeb.PatientsControllerTest do
 
       assert conn |> get(~p"/api/patients/#{alheio.id}") |> json_response(404)
     end
+
+    test "a ficha traz `faltas`, e é a ÚNICA porta que paga o agregado", %{
+      conn: conn,
+      clinic: clinic
+    } do
+      p = create_patient(clinic, "Com Faltas")
+
+      # A ficha precisa do número: é o stat do cabeçalho (doc 51 §L3).
+      {body, sql_show} =
+        com_sql(fn -> conn |> get(~p"/api/patients/#{p.id}") |> json_response(200) end)
+
+      assert body["patient"]["faltas"] == 0
+      assert Enum.any?(sql_show, &(&1 =~ "attendances"))
+
+      # As outras portas usam o MESMO lookup e não querem o número. O agregado vira um LATERAL
+      # JOIN sobre `attendances` (medido: +67 buffers, ~0,9 ms por chamada, e a ficha resolve o
+      # paciente 3×: ela, o histórico e os anexos). Pendurá-lo no lookup compartilhado fazia
+      # todo mundo pagar por um dado que só uma tela lê — inclusive a ESCRITA.
+      {_, sql_patch} =
+        com_sql(fn ->
+          conn |> patch(~p"/api/patients/#{p.id}", %{"tel" => "11999"}) |> json_response(200)
+        end)
+
+      refute Enum.any?(sql_patch, &(&1 =~ "attendances"))
+    end
+  end
+
+  # Captura o TEXTO das queries emitidas durante `fun` — o contador de linhas não distingue
+  # "carregou o agregado" de "não carregou", porque o LATERAL viaja dentro da mesma query de
+  # `patients`.
+  defp com_sql(fun) do
+    parent = self()
+    ref = make_ref()
+
+    handler = fn _e, _m, meta, _c -> send(parent, {ref, meta[:query]}) end
+    :telemetry.attach({__MODULE__, ref, :sql}, [:api, :repo, :query], handler, nil)
+    resultado = fun.()
+    :telemetry.detach({__MODULE__, ref, :sql})
+
+    {resultado, drenar_sql(ref, [])}
+  end
+
+  defp drenar_sql(ref, acc) do
+    receive do
+      {^ref, sql} -> drenar_sql(ref, [to_string(sql) | acc])
+    after
+      50 -> acc
+    end
   end
 
   describe "PATCH /api/patients/:id" do

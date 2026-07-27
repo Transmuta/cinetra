@@ -24,6 +24,7 @@
 		appointmentTypes,
 		papel,
 		preset,
+		pacientesIniciais = [],
 		onClose,
 		search,
 		form = undefined
@@ -34,6 +35,11 @@
 		appointmentTypes: AgendaAppointmentType[];
 		papel: Papel | null;
 		preset: { professional_id: string; hora: string };
+		/**
+		 * Pacientes já escolhidos na abertura — hoje só o `?paciente=` vindo do "Agendar" da ficha
+		 * (doc 51 §L2). Vazio no caminho normal (clicar num slot vazio da grade).
+		 */
+		pacientesIniciais?: AgendaPatient[];
 		onClose: () => void;
 		search: (q: string) => Promise<SearchResult>;
 		/** Resultado da action `criar` — traz `code`/`error` do 422. */
@@ -54,7 +60,8 @@
 	let typeId = $state(untrack(() => ativos[0]?.id ?? ''));
 	let encaixe = $state(false);
 	let obs = $state('');
-	let selected = $state<AgendaPatient[]>([]);
+	// Mesmo `untrack` dos campos acima: parte do que veio na abertura e passa a ser do usuário.
+	let selected = $state<AgendaPatient[]>(untrack(() => pacientesIniciais));
 
 	const tipo = $derived(ativos.find((t) => t.id === typeId));
 	const grupo = $derived(!!tipo?.grupo);

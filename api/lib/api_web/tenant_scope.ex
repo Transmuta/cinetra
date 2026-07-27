@@ -19,11 +19,23 @@ defmodule ApiWeb.TenantScope do
   alias Api.Scope
 
   @doc "Escrita: exige owner/admin de uma clínica ativa. Senão 403 (membro) / 401 (sem sessão)."
-  def with_admin_scope(conn, fun) do
+  def with_admin_scope(conn, fun), do: with_roles_scope(conn, [:owner, :admin], fun)
+
+  @doc """
+  Exige que o papel do membro esteja em `roles`. 403 para membro fora da lista, 401 sem sessão.
+
+  A generalização de `with_admin_scope/2`, que virou um caso dela. Nasceu com os anexos (doc 51):
+  o acesso ali é **owner·admin·recepção** — nem "todo membro" nem "só quem escreve o cadastro" —,
+  e sem esta guarda o `profissional` chegaria à policy do recurso e receberia um
+  `Ash.Error.Forbidden` no meio de um `list!`, virando 500 em vez de 403.
+
+  `roles` vem de quem chama (ex.: `Api.Records.Attachment.papeis/0`) para o corte transversal não
+  precisar conhecer os domínios.
+  """
+  def with_roles_scope(conn, roles, fun) do
     case conn.assigns[:scope] do
-      %Scope{clinic_id: cid, papel: papel} = scope
-      when not is_nil(cid) and papel in [:owner, :admin] ->
-        fun.(scope)
+      %Scope{clinic_id: cid, papel: papel} = scope when not is_nil(cid) ->
+        if papel in roles, do: fun.(scope), else: forbidden(conn)
 
       %Scope{} ->
         forbidden(conn)

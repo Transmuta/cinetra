@@ -27,6 +27,8 @@ import {
 	type AgendaView,
 	type DayCount
 } from '$lib/agenda-views';
+import { fetchPatient } from '$lib/server/patients';
+import type { AgendaPatient } from '$lib/agenda';
 
 // Agenda (doc 25, Entregas 1 e 2). Quatro visões, duas formas de carregar:
 //
@@ -60,7 +62,18 @@ export const load: PageServerLoad = async (event) => {
 	// URL custaria um round-trip inteiro em toda navegação entre dias, sem usá-lo para nada.
 	const date = pedida || todayInZone(new Date().toISOString(), await fusoDaClinica(event));
 
-	const comum = { view, date, hidden: parseHiddenProfs(event.url.searchParams.get('profs')) };
+	// `?paciente=<id>` — o "Agendar" da ficha (doc 51 §L2). Resolve o paciente aqui para a tela
+	// poder abrir o modal já com ele escolhido; sem isso o botão devolveria a recepção à busca de
+	// que ela acabou de sair. Só o ID viaja na URL (nome de paciente em URL entra em histórico e
+	// log de proxy); o nome vem desta leitura, autenticada e escopada.
+	const presetPatient = await carregarPreset(event);
+
+	const comum = {
+		view,
+		date,
+		hidden: parseHiddenProfs(event.url.searchParams.get('profs')),
+		presetPatient
+	};
 
 	if (view === 'semana' || view === 'mes') {
 		return { ...comum, ...(await carregarContagens(event, view, date)) };
@@ -89,6 +102,30 @@ export const load: PageServerLoad = async (event) => {
 		today: todayInZone(agenda.data.agora, agenda.data.timezone)
 	};
 };
+
+// O paciente de `?paciente=<id>`, no formato que o picker do modal entende.
+//
+// Degrada para `null` em tudo — id ausente, malformado, de outra clínica, sem permissão: uma URL
+// com paciente inválido abre a agenda normalmente, sem modal. Este parâmetro é conveniência de
+// navegação, e conveniência não derruba tela.
+async function carregarPreset(
+	event: Parameters<PageServerLoad>[0]
+): Promise<AgendaPatient | null> {
+	const id = event.url.searchParams.get('paciente');
+	if (!id) return null;
+
+	const { patient } = await fetchPatient(event, id);
+	if (!patient) return null;
+
+	return {
+		id: patient.id,
+		nome: patient.nome,
+		tel: patient.tel,
+		ativo: patient.ativo,
+		cor_indice: patient.cor_indice,
+		...(patient.faltas != null ? { faltas: patient.faltas } : {})
+	};
+}
 
 // A janela de cada visão de contagem. As duas saem de `$lib/agenda-views`, que é a casa das
 // grades de calendário — o Mês reimplementava a aritmética aqui, fora do módulo e fora da

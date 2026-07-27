@@ -80,6 +80,11 @@ defmodule Api.MixProject do
       # data+hora local da clínica para o `:utc_datetime` do agendamento (25 §A2) exige
       # `DateTime.new/4`, que precisa de uma time zone database instalada.
       {:tz, "~> 0.28"},
+      # Cliente HTTP do adaptador de storage (doc 51). Já estava na árvore como transitiva; entra
+      # como direta porque `Api.Storage.R2` a chama. É a ÚNICA dependência que os anexos
+      # acrescentam: a assinatura SigV4 é nossa (`Api.Storage.SigV4`), o que dispensou
+      # `ex_aws` + `ex_aws_s3` + `sweet_xml` + `hackney`.
+      {:req, "~> 0.6"},
       {:excoveralls, "~> 0.18", only: :test}
     ]
   end

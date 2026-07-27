@@ -35,9 +35,13 @@ defmodule ApiWeb.PatientsController do
   end
 
   # GET /api/patients/:id — a ficha completa.
+  #
+  # `faltas` é pedido **aqui e só aqui**: é o stat do cabeçalho da ficha (doc 51 §L3). O agregado
+  # vira um `LEFT JOIN LATERAL` sobre `attendances`, e o mesmo lookup serve o histórico, os anexos
+  # e as escritas — nenhum deles lê o número.
   def show(conn, %{"id" => id}) do
     with_member_scope(conn, fn scope ->
-      case Records.fetch_clinic_patient(scope, id) do
+      case Records.fetch_clinic_patient(scope, id, load: [:faltas]) do
         {:ok, %{} = patient} -> json(conn, %{patient: patient_json(patient)})
         {:ok, nil} -> not_found(conn)
       end
@@ -191,9 +195,16 @@ defmodule ApiWeb.PatientsController do
       lgpd: p.lgpd,
       comunicacao: p.comunicacao,
       cor_indice: p.cor_indice,
-      ativo: p.ativo
+      ativo: p.ativo,
+      faltas: faltas(p)
     }
   end
+
+  # `nil` quando o agregado não foi carregado — é o caso da LISTA, onde um `count` por linha
+  # sairia caro e ninguém pede o número. Sem esta cláusula, o `%Ash.NotLoaded{}` chegaria ao
+  # encoder e derrubaria a resposta inteira.
+  defp faltas(%{faltas: n}) when is_integer(n), do: n
+  defp faltas(_patient), do: nil
 
   @campos ~w(nome nome_social cpf rg genero estado_civil nascimento responsavel tel email cep
              endereco numero complemento bairro cidade uf emergencia_nome emergencia_parentesco

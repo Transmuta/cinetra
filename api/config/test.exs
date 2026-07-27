@@ -18,6 +18,16 @@ config :ash, policies: [show_policy_breakdowns?: true], disable_async?: true
 # chamando `perform/1` direto (o cron é config, não lógica).
 config :api, Oban, testing: :manual
 
+# Storage em memória (`test/support/storage_memory.ex`): a suíte de anexos não fala com o
+# Cloudflare. As credenciais são falsas mas PRESENTES de propósito — `Api.Storage.configured?/0`
+# precisa dar `true`, senão todo teste de anexo bateria no 503 antes de exercitar a regra.
+config :api, Api.Storage,
+  adapter: Api.Storage.Memory,
+  account_id: "conta-de-teste",
+  bucket: "bucket-de-teste",
+  access_key_id: "chave-de-teste",
+  secret_access_key: "segredo-de-teste"
+
 # E-mails vão para a caixa de teste (Swoosh.Adapters.Test); assert com Swoosh.TestAssertions.
 config :api, Api.Mailer, adapter: Swoosh.Adapters.Test
 

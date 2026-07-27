@@ -88,7 +88,25 @@ defmodule Api.OnDeleteTest do
     # H64: esta não tinha FK **nenhuma** — o `package_id` era um uuid solto ("gancho da Fatia 3,
     # sem FK"), escrito antes de `Package` existir como tabela. `SET NULL` porque a sessão é do
     # paciente e sobrevive ao pacote; o vínculo é que se perde.
-    {"attendances", "package_id"} => "SET NULL"
+    {"attendances", "package_id"} => "SET NULL",
+
+    # Anexos (doc 51) — as DUAS únicas FKs `RESTRICT` para `clinics`/`patients` do projeto, e a
+    # exceção é deliberada: um `CASCADE` apagaria a LINHA e deixaria os BYTES no bucket. O
+    # `DELETE` cascateante roda dentro do Postgres, sem passar pela aplicação — logo sem o
+    # `Api.Storage.delete/1` que tira o objeto do R2. Sobraria laudo no bucket sem nada apontando
+    # para ele: dado de saúde invisível ao sistema e fora de qualquer policy.
+    #
+    # `RESTRICT` vira isso numa trava: apagar paciente ou clínica exige passar pela aplicação e
+    # remover os anexos antes — que é o caminho que apaga os bytes. É a ordem que o F8
+    # (eliminação da LGPD, `50 §D-1`) terá de respeitar.
+    {"attachments", "clinic_id"} => "RESTRICT",
+    {"attachments", "patient_id"} => "RESTRICT",
+    {"attachments", "uploaded_by_id"} => "SET NULL",
+
+    # A trilha de acesso a anexo não guarda bytes, então o CASCADE do tenant vale como em todas
+    # as outras. `attachment_id`/`patient_id`/`user_id` são uuid CRU, sem FK, de propósito: o
+    # registro tem de sobreviver ao que ele registra (ver `Api.Records.AttachmentEvent`).
+    {"attachment_events", "clinic_id"} => "CASCADE"
   }
 
   defp fks do

@@ -108,6 +108,10 @@ config :api, Oban,
        # 15 min depois da trilha, não junto: as duas varrem clínica a clínica e não há motivo
        # para disputarem pool na mesma madrugada.
        {"15 3 * * *", Api.Housekeeping.PruneNotifications},
+       # Mais 15 min: a terceira poda da madrugada (doc 51). Recolhe upload abandonado — que
+       # tem BYTES no R2 do outro lado, e por isso varre linha a linha em vez de DELETE em
+       # lote — e a trilha de acesso a anexo.
+       {"30 3 * * *", Api.Housekeeping.PruneAttachments},
        # #51 — lembretes por relógio. O resumo acorda de hora em hora porque "19h" é local de
        # cada clínica (ADR-009); só trabalha nas que estão na hora certa.
        {"0 * * * *", Api.Notifications.DailyDigestJob},
@@ -156,6 +160,12 @@ config :phoenix, :json_library, Jason
 # Local/Test/SMTP); adapters de API ficam para quando houver provedor real.
 config :api, Api.Mailer, adapter: Swoosh.Adapters.Local
 config :swoosh, :api_client, false
+
+# Object storage dos anexos (doc 51, ADR-008): Cloudflare R2, bucket privado. As credenciais são
+# SEGREDO e vêm por env em `runtime.exs` — aqui fica só o adaptador. Sem credencial,
+# `Api.Storage.configured?/0` é falso e o endpoint devolve 503 em vez de oferecer um upload que
+# não tem para onde ir.
+config :api, Api.Storage, adapter: Api.Storage.R2
 
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.

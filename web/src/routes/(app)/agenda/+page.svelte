@@ -218,6 +218,22 @@
 
 	let modal = $state<{ professional_id: string; hora: string } | null>(null);
 
+	// `?paciente=<id>` — chegou do "Agendar" da ficha (doc 51 §L2). Abre o modal já com o paciente
+	// escolhido; profissional e hora ficam em branco, como no protótipo, que também abria a partir
+	// da ficha sem slot ([`:2756`]).
+	//
+	// `preAberto` faz disparar UMA vez: sem ele, fechar o modal e o efeito reavaliar (por qualquer
+	// mudança de estado) o reabriria, e a tela ficaria impossível de fechar.
+	let preAberto = $state(false);
+	const presetPatient = $derived(data.presetPatient ?? null);
+
+	$effect(() => {
+		if (presetPatient && podeCriar && !preAberto) {
+			preAberto = true;
+			modal = { professional_id: '', hora: '' };
+		}
+	});
+
 	// ---- Ciclo de vida (Entrega 4) ----------------------------------------------------------
 	//
 	// O drawer abre ao selecionar um bloco; a remarcação abre por cima dele (ou pelo arraste).
@@ -427,6 +443,7 @@
 		appointmentTypes={data.appointmentTypes}
 		papel={data.me?.papel ?? null}
 		preset={modal}
+		pacientesIniciais={presetPatient ? [presetPatient] : []}
 		{search}
 		{form}
 		onClose={() => (modal = null)}

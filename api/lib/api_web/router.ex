@@ -132,6 +132,16 @@ defmodule ApiWeb.Router do
     get "/patients/:patient_id/packages", PackagesController, :index
     # Histórico de sessões da ficha (C13, Frente 7) — por PRESENÇA, não por bloco.
     get "/patients/:patient_id/history", PatientsController, :history
+
+    # Anexos da ficha (doc 51). Owner·admin·recepção — o `profissional` NÃO acessa, e por isso o
+    # controller tem guarda própria em vez das duas de `TenantScope`. Nenhum byte passa por aqui:
+    # o browser sobe e baixa direto do R2 por URL assinada de vida curta.
+    get "/patients/:patient_id/attachments", AttachmentsController, :index
+    post "/patients/:patient_id/attachments", AttachmentsController, :create
+    post "/attachments/:id/confirm", AttachmentsController, :confirm
+    get "/attachments/:id/download", AttachmentsController, :download
+    patch "/attachments/:id", AttachmentsController, :update
+    delete "/attachments/:id", AttachmentsController, :delete
     post "/packages/preview", PackagesController, :preview
     post "/packages", PackagesController, :create
     post "/packages/:id/pause", PackagesController, :pause
@@ -201,6 +211,8 @@ defmodule ApiWeb.Router do
     # Literal antes da paramétrica: "read-all" não pode virar um `:id`.
     post "/notifications/read-all", NotificationsController, :mark_all_read
     post "/notifications/:id/read", NotificationsController, :mark_read
+    # Esvaziar a caixa: DELETE na coleção — some a caixa inteira do dono, não uma linha.
+    delete "/notifications", NotificationsController, :clear_all
 
     # Trilha de auditoria (doc 25 §11.4, tela /configuracoes/auditoria). Owner·admin only —
     # a guarda vive no controller (with_admin_scope) e nas policies do recurso de versão.

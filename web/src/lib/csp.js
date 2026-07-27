@@ -29,19 +29,45 @@ export function wsOrigin(origin) {
 }
 
 /**
- * `connect-src` da CSP: `self` mais o par http(s)/ws(s) da API.
+ * A origem do bucket de anexos (Cloudflare R2, doc 51), derivada do id da conta.
  *
- * O WebSocket da agenda é a única conexão do browser que NÃO passa pelo BFF (ADR-004/005), então
- * `self` não basta. A regra de esquema é a mesma de `socketUrl` (realtime.ts) — quem monta a URL
- * do socket e quem a autoriza têm de concordar. `ws:`/`wss:` genéricos liberariam qualquer
- * destino, que é o que a CSP existe para impedir.
+ * Derivada, e não uma variável própria, porque o `R2_ACCOUNT_ID` já precisa existir para a API
+ * assinar as URLs: duas variáveis para o mesmo endereço são duas chances de divergirem, e a
+ * divergência aqui só aparece no console do browser de quem tenta subir um laudo.
+ *
+ * @param {string | undefined} accountId
+ * @returns {string | null}
+ */
+export function r2Origin(accountId) {
+	const id = (accountId || '').trim();
+	return id ? `https://${id}.r2.cloudflarestorage.com` : null;
+}
+
+/**
+ * `connect-src` da CSP: `self`, o par http(s)/ws(s) da API e — quando configurado — o bucket.
+ *
+ * Duas conexões do browser NÃO passam pelo BFF (ADR-004/005), e por isso `self` não basta:
+ *
+ *   1. o **WebSocket** da agenda, que vai direto ao Phoenix. A regra de esquema é a mesma de
+ *      `socketUrl` (realtime.ts) — quem monta a URL do socket e quem a autoriza têm de concordar;
+ *   2. o **`PUT` do anexo**, que vai direto ao R2 por URL assinada. É `fetch`, logo cai em
+ *      `connect-src`; sem esta entrada o upload morre com o motivo só no console (doc 51 §5.3).
+ *
+ * O bucket entra apenas se houver `R2_ACCOUNT_ID` no build — sem ele a fatia de anexos já está
+ * desligada na API (503), e não há por que abrir um destino a mais na política.
+ *
+ * `ws:`/`wss:` genéricos, ou `https://*.r2.cloudflarestorage.com`, liberariam qualquer destino —
+ * inclusive o bucket de outra conta. É exatamente o que a CSP existe para impedir.
  *
  * @param {string | undefined} apiPublicOrigin
+ * @param {string} [r2AccountId]  omitido/vazio = sem bucket no `connect-src`
  * @returns {string[]}
  */
-export function connectSrc(apiPublicOrigin) {
+export function connectSrc(apiPublicOrigin, r2AccountId) {
 	const origin = (apiPublicOrigin || DEV_API_ORIGIN).replace(/\/+$/, '');
-	return ['self', origin, wsOrigin(origin)];
+	const bucket = r2Origin(r2AccountId);
+
+	return ['self', origin, wsOrigin(origin), ...(bucket ? [bucket] : [])];
 }
 
 /**

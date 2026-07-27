@@ -30,6 +30,22 @@ config :api, :google_oauth,
   # BASE — o AshAuthentication anexa "/user/google/callback".
   redirect_uri: System.get_env("GOOGLE_REDIRECT_URI") || "http://localhost:5173/auth"
 
+# Cloudflare R2 (anexos, doc 51). Fora do teste: lá o adaptador é `Api.Storage.Memory` e
+# sobrescrever as chaves aqui apagaria a escolha de `config/test.exs` — `runtime.exs` roda
+# DEPOIS dos configs por ambiente.
+#
+# As quatro variáveis são segredo (Fly secrets em produção, `.env` gitignored em dev). Sem elas o
+# sistema sobe normalmente e só a fatia de anexos responde 503 — anexo não pode ser motivo de a
+# clínica inteira não abrir.
+if config_env() != :test do
+  config :api, Api.Storage,
+    adapter: Api.Storage.R2,
+    account_id: System.get_env("R2_ACCOUNT_ID"),
+    bucket: System.get_env("R2_BUCKET"),
+    access_key_id: System.get_env("R2_ACCESS_KEY_ID"),
+    secret_access_key: System.get_env("R2_SECRET_ACCESS_KEY")
+end
+
 if config_env() == :prod do
   # The secret key base is used to sign/encrypt cookies and other secrets.
   # A default value is used in config/dev.exs and config/test.exs but you

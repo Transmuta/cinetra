@@ -29,7 +29,12 @@ const config = {
 				// S3 (Onda 5): a lista era fixa e carregava os DOIS ambientes — o build de produção
 				// levava `localhost:4010` junto. Agora sai da origem pública da API, uma só por
 				// build. Ver `src/lib/csp.js` (e por que isto é build-time).
-				'connect-src': connectSrc(process.env.API_PUBLIC_ORIGIN),
+				//
+				// Doc 51: o `PUT` do anexo vai direto ao bucket do R2, também sem passar pelo BFF,
+				// então a origem dele entra aqui. `R2_ACCOUNT_ID` é a MESMA variável que a API usa
+				// para assinar — e, como a CSP é build-time, ela precisa de `ARG` no
+				// `Dockerfile.prod` e `[build.args]` no `fly.toml`, não `[env]`.
+				'connect-src': connectSrc(process.env.API_PUBLIC_ORIGIN, process.env.R2_ACCOUNT_ID),
 				'base-uri': ['self'],
 				'form-action': ['self'],
 				'frame-ancestors': ['none'],

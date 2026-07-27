@@ -45,12 +45,22 @@
 	}
 </script>
 
-<section class="mt-4 rounded-[14px] border border-edge bg-surface p-4.5">
-	<div class="mb-3.5 flex items-center justify-between gap-2">
-		<div class="flex items-center gap-2">
-			<Package size={17} class="text-faint" />
-			<h2 class="text-[13px] font-bold uppercase tracking-[.04em] text-faint">Pacotes</h2>
-		</div>
+<!--
+	O cabeçalho é o `cardHead` do protótipo ([`:2735`]) — quadrado teal 30×30, título 14px bold —,
+	o MESMO dos cinco cartões cadastrais da ficha. Era um ícone cinza solto com título 13px
+	maiúsculo: não divergia só do protótipo, divergia dos cartões vizinhos, a 300px de distância
+	(doc 51 §L5).
+-->
+<section class="rounded-[14px] border border-edge bg-surface p-5">
+	<div class="mb-4 flex items-center gap-2.5">
+		<span class="grid size-[30px] shrink-0 place-items-center rounded-lg bg-teal-subtle text-teal-text">
+			<Package size={15} />
+		</span>
+		<h2 class="flex-1 text-[14px] font-bold">
+			Pacotes{#if packages.length > 1}<span class="font-semibold text-faint">
+					· {packages.length}</span
+				>{/if}
+		</h2>
 		{#if canManage}
 			<button
 				type="button"

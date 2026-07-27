@@ -21,6 +21,15 @@ COPY . .
 ARG API_PUBLIC_ORIGIN
 ENV API_PUBLIC_ORIGIN=${API_PUBLIC_ORIGIN}
 
+# Doc 51 — a origem do bucket de anexos entra no MESMO `connect-src` (o `PUT` do browser vai
+# direto ao R2), pela mesma razão de ser `ARG`. Não é segredo: é o id público da conta, e o
+# bucket continua privado — o acesso é por URL assinada de vida curta.
+#
+# Vazio é estado válido: sem ele o `connect-src` não ganha o bucket, e a fatia de anexos já
+# responde 503 na API por falta de credencial.
+ARG R2_ACCOUNT_ID
+ENV R2_ACCOUNT_ID=${R2_ACCOUNT_ID}
+
 RUN npm run build
 # Descarta devDeps para a imagem final.
 RUN npm prune --omit=dev

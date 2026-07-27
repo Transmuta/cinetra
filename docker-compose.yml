@@ -45,6 +45,12 @@ services:
       # BASE do redirect (ADR-005/015): o AshAuthentication anexa "/user/google/callback".
       # Aponta para o WEB (BFF), não para a API. Deve casar com o que está no console do Google.
       GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost:5173/auth}
+      # Cloudflare R2 — anexos do paciente (doc 51, ADR-008). Segredo: vem do .env (gitignored).
+      # Sem estas quatro, a API sobe normalmente e só a fatia de anexos responde 503.
+      R2_ACCOUNT_ID: ${R2_ACCOUNT_ID:-}
+      R2_BUCKET: ${R2_BUCKET:-}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:-}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:-}
     ports:
       # Host 4010 (4000 já usado por outro stack) -> Phoenix do container.
       - "4010:4000"
@@ -69,6 +75,10 @@ services:
       # porque quem disca é o navegador do host, não um container — `http://api:4000` não
       # resolve fora da rede do compose.
       API_PUBLIC_ORIGIN: http://localhost:4010
+      # Terceira exceção ao ADR-005 (doc 51): o `PUT` do anexo vai direto ao bucket do R2, então
+      # a origem dele precisa entrar no `connect-src` da CSP. Aqui é o id PÚBLICO da conta — o
+      # bucket segue privado, e o acesso é sempre por URL assinada.
+      R2_ACCOUNT_ID: ${R2_ACCOUNT_ID:-}
     ports:
       - "5173:5173"
     volumes:
