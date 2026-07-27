@@ -3,17 +3,24 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const svc = vi.hoisted(() => ({
 	fetchNotifications: vi.fn(),
 	markNotificationRead: vi.fn(),
-	markAllNotificationsRead: vi.fn()
+	markAllNotificationsRead: vi.fn(),
+	clearAllNotifications: vi.fn()
 }));
 vi.mock('$lib/server/notifications', () => svc);
 
 import { load, actions } from './+page.server';
 
-// `url` entrou com a paginação (#54): o load lê `?page=` para virar `offset`.
-const ev = (page?: string) =>
+// `url` entrou com a paginação (#54): o load lê `?page=` para virar `offset`, e agora também
+// `?filtro=nao-lidas` (a aba).
+const ev = (page?: string, filtro?: string) =>
 	({
 		depends: vi.fn(),
-		url: new URL(`http://x/notificacoes${page ? `?page=${page}` : ''}`)
+		url: new URL(
+			`http://x/notificacoes?${new URLSearchParams({
+				...(page ? { page } : {}),
+				...(filtro ? { filtro } : {})
+			})}`
+		)
 	}) as never;
 
 function formEvent(fields: Record<string, string>) {
@@ -37,8 +44,27 @@ describe('load', () => {
 			notifications: [{ id: 'n1' }],
 			unread: 1,
 			pageInfo: pagina,
-			current: 1
+			current: 1,
+			onlyUnread: false
 		});
+	});
+
+	// A aba "Não lidas" filtra NO SERVIDOR (`?unread=1` da API), e não escondendo linha no
+	// browser: esconder no cliente quebraria a paginação — uma página de 20 poderia exibir 3.
+	it('?filtro=nao-lidas pede só as não-lidas', async () => {
+		svc.fetchNotifications.mockResolvedValueOnce({
+			status: 200,
+			data: { notifications: [{ id: 'n1' }], unread: 1, page: pagina }
+		});
+
+		const out = await load(ev(undefined, 'nao-lidas'));
+
+		expect(svc.fetchNotifications).toHaveBeenCalledWith(expect.anything(), {
+			unread: true,
+			limit: 20,
+			offset: 0
+		});
+		expect(out).toMatchObject({ onlyUnread: true });
 	});
 
 	// #54: `?page=` da URL vira `offset` para a API — a mesma tradução da fila e de Pacientes.
@@ -57,6 +83,7 @@ describe('load', () => {
 		const out = await load(ev('3'));
 
 		expect(svc.fetchNotifications).toHaveBeenCalledWith(expect.anything(), {
+			unread: false,
 			limit: 20,
 			offset: 40
 		});
@@ -78,6 +105,20 @@ describe('load', () => {
 		await expect(load(ev('5'))).rejects.toMatchObject({
 			status: 303,
 			location: '/notificacoes'
+		});
+	});
+
+	// O beco de novo, agora com a aba: voltar para `/notificacoes` limpo jogaria quem está em
+	// "Não lidas" de volta para "Todas" sem ter pedido — o filtro tem de sobreviver ao resgate.
+	it('página além do fim preserva a aba ao voltar para a primeira', async () => {
+		svc.fetchNotifications.mockResolvedValueOnce({
+			status: 200,
+			data: { notifications: [], unread: 0, page: { limit: 20, offset: 80, more: false } }
+		});
+
+		await expect(load(ev('5', 'nao-lidas'))).rejects.toMatchObject({
+			status: 303,
+			location: '/notificacoes?filtro=nao-lidas'
 		});
 	});
 
@@ -133,5 +174,28 @@ describe('action readAll', () => {
 	it('erro → fail', async () => {
 		svc.markAllNotificationsRead.mockResolvedValueOnce({ ok: false, status: 500, error: 'x' });
 		expect(await actions.readAll(ev())).toMatchObject({ status: 500 });
+	});
+});
+
+describe('action clearAll', () => {
+	it('esvazia a caixa', async () => {
+		svc.clearAllNotifications.mockResolvedValueOnce({ ok: true, status: 200 });
+		expect(await actions.clearAll(ev())).toEqual({ ok: true, action: 'clearAll' });
+	});
+
+	it('erro → fail com a mensagem', async () => {
+		svc.clearAllNotifications.mockResolvedValueOnce({
+			ok: false,
+			status: 500,
+			error: 'Não foi possível concluir a operação.'
+		});
+
+		expect(await actions.clearAll(ev())).toMatchObject({
+			status: 500,
+			data: {
+				action: 'clearAll',
+				error: 'Não foi possível concluir a operação.'
+			}
+		});
 	});
 });

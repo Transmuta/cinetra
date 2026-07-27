@@ -15,15 +15,27 @@
 	import Plus from '@lucide/svelte/icons/plus';
 	import Check from '@lucide/svelte/icons/check';
 	import Clock4 from '@lucide/svelte/icons/clock-4';
-	import History from '@lucide/svelte/icons/history';
+	import Inbox from '@lucide/svelte/icons/inbox';
+	import BellDot from '@lucide/svelte/icons/bell-dot';
 	import CalendarDays from '@lucide/svelte/icons/calendar-days';
 	import CalendarRange from '@lucide/svelte/icons/calendar-range';
 	import User from '@lucide/svelte/icons/user';
 	import { PERIOD_LABELS, professionalName } from '$lib/reports';
 	import { sectionOf, SECTION_TITLES, CONFIG_LINKS } from './nav';
-	import { canViewAudit } from '$lib/audit';
+	import {
+		actionOptions,
+		auditHref,
+		canViewAudit,
+		parseAction,
+		parsePeriod,
+		parseResource,
+		resourcePatch,
+		PERIOD_OPTIONS,
+		type AuditRef
+	} from '$lib/audit';
 	import { canManageProfessionals, countByStatus, type Professional } from '$lib/professionals';
 	import { canManagePatients, type PatientCounts } from '$lib/patients';
+	import { notificationsHref, onlyUnreadFrom } from '$lib/notifications';
 	import {
 		canManageWaitlist,
 		priorityCounts,
@@ -50,22 +62,15 @@
 	const section = $derived(sectionOf(pathname));
 	const title = $derived(section ? SECTION_TITLES[section] : '');
 
-	// Ícone de cada item de Configurações, por href (não por índice — a lista é filtrada por
-	// papel, e um array paralelo desalinharia quando a Auditoria some para não-admin).
+	// Ícone de cada item de Configurações, por href (não por índice — assim acrescentar ou tirar
+	// um item não desalinha um array paralelo).
 	const CONFIG_ICONS: Record<string, typeof Building2> = {
 		'/configuracoes/clinica': Building2,
 		'/configuracoes/tipos': Stethoscope,
 		'/configuracoes/horario': Clock,
 		'/configuracoes/excecoes': CalendarOff,
-		'/configuracoes/equipe': SlidersHorizontal,
-		'/configuracoes/auditoria': History
+		'/configuracoes/equipe': SlidersHorizontal
 	};
-
-	// A Auditoria é owner·admin: o link só aparece para quem pode entrar (a policy da API é a
-	// autoridade — os demais levariam 403). Os outros itens são de todo membro.
-	const configLinks = $derived(
-		CONFIG_LINKS.filter((link) => !link.ownerAdmin || canViewAudit(page.data.me?.papel as Papel | null | undefined))
-	);
 
 	// Sidebar contextual de Profissionais (profs.png): "Novo profissional" + FILTRAR com
 	// contagens. Os dados vêm do load da rota (`page.data`), não de props — só existem quando a
@@ -153,6 +158,19 @@
 			agendaHidden.includes(id) ? agendaHidden.filter((x) => x !== id) : [...agendaHidden, id]
 		);
 
+	// Sidebar da caixa de notificações (doc 53). Os filtros saíram do corpo da página e vieram
+	// para cá, como em Profissionais/Pacientes/Fila: `?filtro=nao-lidas` na URL, links e não
+	// botões, e o ramo lendo `page.data`.
+	//
+	// O número das não-lidas vem do LAYOUT (`page.data.unread`), que roda em toda navegação para
+	// alimentar o badge do sino — não do load da página. Assim o sidebar e o sino nunca divergem.
+	// "Todas" fica **sem número** de propósito: a API não conta o total da caixa (`count: false`,
+	// custaria ler o recorte inteiro a cada abertura). Mesma regra do `hasProfCounts`/`hasPatCounts`
+	// (F3, doc 34) — sem contagem confiável, esconder é melhor do que exibir um número que conta
+	// só a página aberta.
+	const notifUnread = $derived((page.data.unread as number | undefined) ?? 0);
+	const notifOnlyUnread = $derived(onlyUnreadFrom(page.url.searchParams));
+
 	// Sidebar de Relatórios (doc 33 / `sbRelatorios` :1461): dois filtros — período e
 	// profissional. Ambos viajam na URL (`?period=` / `?prof=`), como as outras seções; o load
 	// os lê. A lista de profissionais vem do próprio relatório (`page.data.professionals`), então
@@ -168,6 +186,35 @@
 		{ key: 'mes', icon: CalendarRange },
 		{ key: 'trimestre', icon: CalendarRange }
 	] as const;
+
+	// Sidebar da Auditoria (doc 25 §11.4). Os quatro eixos que a API sempre aceitou e a tela
+	// nunca expôs: registro, período, ação e autor. Três deles ficavam implementados no
+	// controller, no BFF e no load, e **nenhum controle os escrevia** — filtro morto.
+	//
+	// Como nas outras seções, tudo viaja na URL e tudo é `<a>`: o estado é linkável, o botão
+	// voltar funciona e o load busca já filtrado.
+	// O mesmo predicado que o rail usa para esconder o destino. Sem ele, a sidebar contextual
+	// aparecia na página de **403**: `sectionOf` decide o ramo pelo caminho, e o caminho continua
+	// `/auditoria` quando o load falha — então a única seção owner·admin do app era também a
+	// única cuja barra de filtros a recepção via, com cada clique levando a outro 403.
+	const canAudit = $derived(canViewAudit(page.data.me?.papel as Papel | null | undefined));
+	const audResource = $derived(parseResource(page.url.searchParams.get('resource')));
+	const audAction = $derived(parseAction(page.url.searchParams.get('acao'), audResource));
+	const audPeriod = $derived(parsePeriod(page.url.searchParams.get('periodo')));
+	const audAutor = $derived(page.url.searchParams.get('autor'));
+	// Os autores vêm do load (a equipe da clínica), como `professionals` em Relatórios.
+	const audAutores = $derived((page.data.autores as AuditRef[] | undefined) ?? []);
+	const audActions = $derived(actionOptions(audResource));
+
+	const AUD_RESOURCES = [
+		{ key: 'appointment', label: 'Agendamentos', icon: CalendarDays },
+		{ key: 'attendance', label: 'Participantes', icon: Users }
+	] as const;
+
+	// Trocar de recurso zera ação e registro junto (ver `resourcePatch`): as duas tabelas de
+	// ação não se cruzam, e um filtro órfão devolveria um feed legitimamente vazio.
+	const audHref = (patch: Record<string, string | null>) =>
+		auditHref(page.url.searchParams, { ...patch, page: null });
 
 	// O link preserva o OUTRO filtro e omite os defaults ('mes' / 'todos') para a URL ficar limpa.
 	function relHref(next: { period?: string; prof?: string }): string {
@@ -212,7 +259,7 @@
 			<div class="px-2 pb-1.5 pt-3 text-[10.5px] font-bold uppercase tracking-[.06em] text-faint">
 				Ajustes
 			</div>
-			{#each configLinks as link (link.href)}
+			{#each CONFIG_LINKS as link (link.href)}
 				{@const Icon = CONFIG_ICONS[link.href]}
 				{@const isActive = pathname === link.href}
 				<a
@@ -370,6 +417,109 @@
 					<span class="font-mono text-[11px] text-faint">{filaCounts[fil.key]}</span>
 				</a>
 			{/each}
+		</div>
+	{/if}
+
+	{#if section === 'notificacoes'}
+		<div class="flex-1 overflow-auto px-3 py-1">
+			<div class="px-2 pb-1.5 pt-3 text-[10.5px] font-bold uppercase tracking-[.06em] text-faint">
+				Filtrar
+			</div>
+
+			<a
+				href={notificationsHref(false)}
+				aria-current={!notifOnlyUnread ? 'page' : undefined}
+				class="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13px] {!notifOnlyUnread
+					? 'bg-surface-2 font-semibold text-ink'
+					: 'font-medium text-muted hover:bg-surface-2'}"
+			>
+				<span class={!notifOnlyUnread ? 'text-teal-text' : 'text-faint'}><Inbox size={15} /></span>
+				<span class="flex-1 truncate">Todas</span>
+			</a>
+
+			<a
+				href={notificationsHref(true)}
+				aria-current={notifOnlyUnread ? 'page' : undefined}
+				class="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13px] {notifOnlyUnread
+					? 'bg-surface-2 font-semibold text-ink'
+					: 'font-medium text-muted hover:bg-surface-2'}"
+			>
+				<span class={notifOnlyUnread ? 'text-teal-text' : 'text-faint'}><BellDot size={15} /></span>
+				<span class="flex-1 truncate">Não lidas</span>
+				{#if notifUnread > 0}
+					<span class="font-mono text-[11px] text-faint">{notifUnread}</span>
+				{/if}
+			</a>
+		</div>
+	{/if}
+
+	{#if section === 'auditoria' && canAudit}
+		<div class="flex-1 overflow-auto px-3 py-1">
+			<!-- Uma linha de filtro. Snippet porque são quatro listas com a mesma anatomia (ícone
+			     opcional, rótulo, ativo) — escrever a classe quatro vezes é como os `py-[7px]`
+			     divergiram entre seções. -->
+			{#snippet filtro(href: string, label: string, isActive: boolean, Icon: typeof CalendarDays | null)}
+				<a
+					{href}
+					aria-current={isActive ? 'page' : undefined}
+					class="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13px] {isActive
+						? 'bg-surface-2 font-semibold text-ink'
+						: 'font-medium text-muted hover:bg-surface-2'}"
+				>
+					{#if Icon}
+						<span class={isActive ? 'text-teal-text' : 'text-faint'}><Icon size={15} /></span>
+					{:else}
+						<span class="grid size-[15px] place-items-center">
+							<span
+								class="size-1.5 rounded-full {isActive ? 'bg-teal' : 'bg-edge-strong'}"
+							></span>
+						</span>
+					{/if}
+					<span class="flex-1 truncate">{label}</span>
+				</a>
+			{/snippet}
+
+			<div class="px-2 pb-1.5 pt-3 text-[10.5px] font-bold uppercase tracking-[.06em] text-faint">
+				Registro
+			</div>
+			{#each AUD_RESOURCES as r (r.key)}
+				{@render filtro(
+					auditHref(page.url.searchParams, resourcePatch(r.key)),
+					r.label,
+					audResource === r.key,
+					r.icon
+				)}
+			{/each}
+
+			<div class="px-2 pb-1.5 pt-3 text-[10.5px] font-bold uppercase tracking-[.06em] text-faint">
+				Período
+			</div>
+			{#each PERIOD_OPTIONS as per (per.key)}
+				{@render filtro(
+					audHref({ periodo: per.key === 'tudo' ? null : per.key }),
+					per.label,
+					audPeriod === per.key,
+					per.key === 'tudo' ? Clock4 : CalendarRange
+				)}
+			{/each}
+
+			<div class="px-2 pb-1.5 pt-3 text-[10.5px] font-bold uppercase tracking-[.06em] text-faint">
+				Ação
+			</div>
+			{@render filtro(audHref({ acao: null }), 'Todas', !audAction, SlidersHorizontal)}
+			{#each audActions as opt (opt.key)}
+				{@render filtro(audHref({ acao: opt.key }), opt.label, audAction === opt.key, null)}
+			{/each}
+
+			{#if audAutores.length}
+				<div class="px-2 pb-1.5 pt-3 text-[10.5px] font-bold uppercase tracking-[.06em] text-faint">
+					Autor
+				</div>
+				{@render filtro(audHref({ autor: null }), 'Todos', !audAutor, Users)}
+				{#each audAutores as autor (autor.id)}
+					{@render filtro(audHref({ autor: autor.id }), autor.nome, audAutor === autor.id, User)}
+				{/each}
+			{/if}
 		</div>
 	{/if}
 

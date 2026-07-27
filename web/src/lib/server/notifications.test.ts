@@ -10,7 +10,8 @@ import {
 	fetchNotifications,
 	fetchUnreadCount,
 	markNotificationRead,
-	markAllNotificationsRead
+	markAllNotificationsRead,
+	clearAllNotifications
 } from './notifications';
 
 const event = {} as never;
@@ -94,5 +95,15 @@ describe('marcar lida', () => {
 		mut.mutate.mockResolvedValueOnce({ ok: true, status: 200 });
 		await markAllNotificationsRead(event);
 		expect(mut.mutate).toHaveBeenCalledWith(event, '/api/notifications/read-all', 'POST');
+	});
+});
+
+describe('limpar a caixa', () => {
+	// DELETE na coleção (não um POST /clear-all): some a caixa inteira do dono. O verbo é o
+	// contrato — trocá-lo por POST aqui esconderia que a operação é destrutiva.
+	it('clearAllNotifications faz DELETE na coleção', async () => {
+		mut.mutate.mockResolvedValueOnce({ ok: true, status: 200 });
+		await clearAllNotifications(event);
+		expect(mut.mutate).toHaveBeenCalledWith(event, '/api/notifications', 'DELETE');
 	});
 });

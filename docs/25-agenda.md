@@ -1202,7 +1202,12 @@ ele duplicaria os inputs da ação (incluindo `obs`) numa segunda coluna.
 > de bloquear**. Isso é deliberado: se um dia houver expurgo, ele será uma operação explícita
 > sobre a trilha, não um efeito colateral silencioso de um `DELETE`.
 
-### 11.4 A tela `/configuracoes/auditoria`
+### 11.4 A tela de auditoria
+
+> **Onde ela mora, hoje:** `/auditoria`, seção própria do rail. Nasceu em
+> `/configuracoes/auditoria` (é como o resto desta seção a chama) e saiu de lá no redesenho de
+> 2026-07-27 — ver [`54`](54-auditoria-ui-ux.md). A rota antiga responde **308** com a query
+> preservada. O inventário abaixo é o do desenho original; o que mudou está no doc 54.
 
 Fatiável **depois** da Entrega 1 — gravar é que é urgente (histórico não se reconstrói); exibir
 não muda schema. Inventário do que ela custa:
@@ -1220,9 +1225,10 @@ não muda schema. Inventário do que ela custa:
 - Teto de janela como em `/appointments` (31 dias), pelo mesmo motivo
 
 **Frontend**
-- Rota `routes/(app)/configuracoes/auditoria/` + ramo em `Sidebar.svelte` e entrada em
-  [`nav.ts`](../web/src/lib/components/shell/nav.ts) — lembrando o gotcha do `<Sidebar>`
-  renderizado **duas vezes** no `(app)/+layout.svelte` (foi assim que o bug do CNPJ passou)
+- Rota `routes/(app)/auditoria/` (era `configuracoes/auditoria/`) + ramo em `Sidebar.svelte` e
+  entrada em [`nav.ts`](../web/src/lib/components/shell/nav.ts) — lembrando o gotcha do rail e da
+  sidebar renderizados **duas vezes** no `(app)/+layout.svelte` (foi assim que o bug do CNPJ
+  passou; hoje o par vive num snippet único, ver [`54`](54-auditoria-ui-ux.md))
 - Lista cronológica reversa: quem · quando · qual ação · qual registro · o diff dos campos
 - Componente de diff campo-a-campo (**não existe nada parecido no projeto hoje** — é o único
   componente realmente novo desta tela)

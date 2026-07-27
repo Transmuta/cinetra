@@ -8,6 +8,7 @@
 import type { Me, MembershipSummary, Papel } from '../session';
 import type { AgendaProfessional } from '../agenda';
 import type { DayCount, ProfessionalCount } from '../agenda-views';
+import type { AuditEntry } from '../audit';
 
 export function membershipFixture(over: Partial<MembershipSummary> = {}): MembershipSummary {
 	return {
@@ -63,6 +64,29 @@ export function agendaProfessionalFixture(
 		crefito: null,
 		cor_indice: 1,
 		segue_horario_clinica: true,
+		...over
+	};
+}
+
+// Uma entrada da trilha de auditoria. Nasceu em dobro — `entry()` reescrita em `audit.test.ts`
+// e em `AuditEntry.svelte.test.ts`, com os mesmos 13 campos e defaults divergentes —, que é o
+// caso exato que esta casa existe para evitar: um campo novo em `AuditEntry` custava dois
+// consertos. Os defaults são de uma CRIAÇÃO de agendamento; quem testa outra coisa sobrescreve.
+export function auditEntryFixture(over: Partial<AuditEntry> = {}): AuditEntry {
+	return {
+		id: 'v1',
+		resource: 'appointment',
+		record_id: 'a1',
+		action: 'schedule',
+		action_type: 'create',
+		at: '2026-07-20T14:30:00Z',
+		status: 'agendado',
+		actor: { id: 'u1', nome: 'Ana Gestora' },
+		starts_at: '2026-07-20T11:00:00Z',
+		professional: { id: 'p1', nome: 'Dra. Bea' },
+		patient: null,
+		appointment_id: null,
+		diff: [],
 		...over
 	};
 }

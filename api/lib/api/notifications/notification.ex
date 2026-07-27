@@ -132,6 +132,15 @@ defmodule Api.Notifications.Notification do
       accept []
       change set_attribute(:read_at, expr(now()))
     end
+
+    # "Limpar tudo": apaga a caixa do dono, lida ou não. Mesmo desenho do `mark_all_read` — ação
+    # sem hook nenhum, para o `Ash.bulk_destroy!` poder ir pelo caminho atômico (um DELETE só) e
+    # para a policy filter-check virar cláusula do WHERE. Um hook aqui derrubaria as duas coisas.
+    #
+    # É destruição de verdade, não arquivamento: a caixa é um aviso, não um registro de domínio —
+    # o que aconteceu está na agenda e na trilha de auditoria, que ninguém apaga daqui.
+    destroy :clear do
+    end
   end
 
   policies do
@@ -143,6 +152,11 @@ defmodule Api.Notifications.Notification do
     # Filter-check: no UPDATE em massa ela vira cláusula do `WHERE`, e é o que impede o
     # "marcar todas" de um usuário de alcançar a caixa do colega da mesma clínica.
     policy action([:mark_read, :mark_all_read]) do
+      authorize_if expr(recipient_id == ^actor(:id))
+    end
+
+    # Mesmo recorte, e aqui ele é o que separa "esvaziei a minha caixa" de "apaguei a do colega".
+    policy action_type(:destroy) do
       authorize_if expr(recipient_id == ^actor(:id))
     end
   end

@@ -1,7 +1,8 @@
 defmodule ApiWeb.AuditController do
   @moduledoc """
-  A trilha de auditoria da clínica ativa (doc 25 §11.4) — o backend da tela
-  `/configuracoes/auditoria`. Um `GET` só, paginado, com os filtros do §11.4.
+  A trilha de auditoria da clínica ativa (doc 25 §11.4) — o backend da tela `/auditoria`
+  (que saiu de `/configuracoes/auditoria`, hoje um 308). Um `GET` só, paginado, com os
+  filtros do §11.4.
 
   RBAC **owner·admin**: ao contrário das outras leituras de gestão (que são de todo membro), a
   trilha guarda o histórico inteiro da clínica e é o pedido literal — "tela de auditoria pro
@@ -22,8 +23,23 @@ defmodule ApiWeb.AuditController do
   # As ações que geram versão — `Appointment` e `Attendance`. Whitelist antes do
   # `to_existing_atom` (nunca converter string crua de query em átomo), no molde do
   # `parse_status` de `PatientsController`.
-  @audit_actions ~w(schedule add_participant reschedule mark_completed mark_missed cancel
-                    reopen set_falta_justificada create transition)
+  #
+  # A lista precisa ser **completa**, não representativa: nome fora dela vira filtro `nil`, ou
+  # seja, o feed inteiro volta e quem filtrou não percebe (não há 422). A primeira versão
+  # deixou de fora **dez** nomes que o banco tem — `remove_participant`, `set_pkg_hold`,
+  # `apply_participant_rollup` e `exclude` no bloco; `set_package`, `mark_present`,
+  # `mark_absent`, `reopen_attendance`, `justify_absence` e `remove` na presença.
+  #
+  # Mantê-la à mão é o risco: o bate-volta reduziu a lista a dois nomes e os 1177 testes
+  # ficaram verdes. Quem a segura agora é o teste "toda ação de escrita dos recursos é
+  # filtrável de fato", que tira a verdade de `Ash.Resource.Info.actions/1` — ação nova cai lá
+  # sem ninguém lembrar. Os nomes APOSENTADOS (`mark_completed`, `mark_missed`,
+  # `set_falta_justificada`, `set_package`) ficam: sumiram do recurso, não da trilha.
+  @audit_actions ~w(schedule add_participant remove_participant reschedule mark_completed
+                    mark_missed cancel reopen set_falta_justificada set_pkg_hold
+                    apply_participant_rollup exclude
+                    create transition set_package mark_present mark_absent reopen_attendance
+                    justify_absence remove)
 
   # GET /api/audit?resource=&record_id=&user_id=&action=&from=&to=&limit=&offset=
   def index(conn, params) do
@@ -98,7 +114,10 @@ defmodule ApiWeb.AuditController do
 
   # Átomos (`action`, `status`) o Jason emite como string; DateTime vai em ISO-8601 explícito
   # (o resto do projeto faz assim — `appointments_controller`). Campos de contexto que não se
-  # aplicam ao recurso vêm `null` (professional no attendance, patient no appointment).
+  # aplicam ao recurso vêm `null`: `patient` no appointment, e `appointment_id` no attendance.
+  # `starts_at`/`professional` vêm nos DOIS — no participante a versão não os guarda (são do
+  # bloco), e `Api.Scheduling` os enriquece lendo o agendamento; só faltam quando o bloco não é
+  # mais legível (excluído/segurado), e aí a tela degrada para "sem o horário".
   defp entry_json(e) do
     %{
       id: e.id,

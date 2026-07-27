@@ -14,6 +14,9 @@
 	const me = $derived(data.me);
 	const unread = $derived(data.unread ?? 0);
 	const membership = $derived(activeMembership(me));
+	// O papel na clínica ativa. O rail o usa para esconder a Auditoria de quem levaria 403 —
+	// e precisa chegar nas DUAS instâncias do rail (desktop e gaveta mobile).
+	const papel = $derived(me.papel ?? null);
 	const clinicName = $derived(membership?.clinic_nome ?? null);
 	const clinicCnpj = $derived(membership?.clinic_cnpj ?? null);
 	const clinicEndereco = $derived(membership?.clinic_endereco ?? null);
@@ -58,11 +61,27 @@
 
 <svelte:window onkeydown={(e) => e.key === 'Escape' && (drawerOpen = false)} />
 
+<!--
+	O cromo (rail + sidebar) num SNIPPET, e não escrito duas vezes.
+
+	Ele aparece em dois lugares — fixo no desktop e dentro da gaveta no mobile — e cada prop nova
+	precisava ser ligada nos dois. Foi assim que o bug do CNPJ passou (props só na instância
+	mobile), e o bate-volta mostrou que a fiação continuava desprotegida: apagar `{papel}` só da
+	gaveta deixava a recepção vendo o ícone da Auditoria no menu do celular, com a suíte inteira
+	verde (1445 testes) e o `svelte-check` limpo — o prop é opcional, então nada acusa.
+
+	Um teste pegaria a mutação; o snippet **elimina a classe do bug**: não há mais dois lugares
+	que possam divergir.
+-->
+{#snippet cromo()}
+	<Rail {pathname} {theme} {unread} {papel} />
+	<Sidebar {pathname} {clinicName} {clinicCnpj} {clinicEndereco} />
+{/snippet}
+
 <div class="flex h-dvh w-full overflow-hidden bg-canvas text-ink">
 	<!-- Desktop (≥lg): rail + sidebar fixos. -->
 	<div class="hidden lg:flex">
-		<Rail {pathname} {theme} {unread} />
-		<Sidebar {pathname} {clinicName} {clinicCnpj} {clinicEndereco} />
+		{@render cromo()}
 	</div>
 
 	<div class="flex min-w-0 flex-1 flex-col">
@@ -86,8 +105,7 @@
 			onclick={() => (drawerOpen = false)}
 		></button>
 		<div class="relative flex h-full shadow-pop">
-			<Rail {pathname} {theme} {unread} />
-			<Sidebar {pathname} {clinicName} {clinicCnpj} {clinicEndereco} />
+			{@render cromo()}
 		</div>
 	</div>
 {/if}

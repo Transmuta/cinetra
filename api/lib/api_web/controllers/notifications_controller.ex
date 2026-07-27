@@ -74,4 +74,16 @@ defmodule ApiWeb.NotificationsController do
       json(conn, %{marked: count, unread: 0})
     end)
   end
+
+  # DELETE /api/notifications  — esvazia a caixa (lidas e não-lidas).
+  #
+  # `DELETE` na coleção, e não um `POST /clear-all` ao lado do `read-all`: aqui a coleção INTEIRA
+  # do dono deixa de existir, que é exatamente o que o verbo diz. O `read-all` é POST porque
+  # "marcar lida" é uma transição de estado, não uma remoção.
+  def clear_all(conn, _params) do
+    with_member_scope(conn, fn scope ->
+      count = Notifications.clear_all(scope)
+      json(conn, %{cleared: count, unread: 0})
+    end)
+  end
 end

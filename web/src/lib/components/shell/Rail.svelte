@@ -4,30 +4,49 @@
 	import Stethoscope from '@lucide/svelte/icons/stethoscope';
 	import Clock4 from '@lucide/svelte/icons/clock-4';
 	import ChartBar from '@lucide/svelte/icons/chart-bar';
+	// `ScrollText` (a trilha escrita), e não `History`: o relógio-com-seta do History é quase
+	// igual ao `Clock4` da Fila de espera a 19px, e o rail tinha dois relógios vizinhos.
+	import ScrollText from '@lucide/svelte/icons/scroll-text';
 	import Settings from '@lucide/svelte/icons/settings';
 	import Bell from '@lucide/svelte/icons/bell';
 	import Mark from '$lib/components/Mark.svelte';
 	import ThemeToggle from '$lib/components/ThemeToggle.svelte';
+	import { canViewAudit } from '$lib/audit';
+	import type { Papel } from '$lib/session';
 	import { sectionOf, RAIL_ITEMS, type Section } from './nav';
 
 	let {
 		pathname,
 		theme,
-		unread = 0
-	}: { pathname: string; theme?: string | null; unread?: number } = $props();
+		unread = 0,
+		papel = null
+	}: {
+		pathname: string;
+		theme?: string | null;
+		unread?: number;
+		papel?: Papel | null;
+	} = $props();
 
 	const active = $derived(sectionOf(pathname));
+
+	// A Auditoria é owner·admin: o ícone só aparece para quem pode entrar (a policy da API é a
+	// autoridade — os demais levariam 403). Os outros destinos são de todo membro.
+	const items = $derived(RAIL_ITEMS.filter((item) => !item.ownerAdmin || canViewAudit(papel)));
 	const notificacoesActive = $derived(pathname.startsWith('/notificacoes'));
 	// Cap visual do badge: acima de 9 vira "9+" (o número real está na tela).
 	const badge = $derived(unread > 9 ? '9+' : String(unread));
 
+	// `notificacoes` entra por completude do tipo: é seção (tem sidebar própria) mas NÃO é item
+	// do rail — o acesso é o sino do rodapé, logo abaixo, e o `{#each RAIL_ITEMS}` nunca a lê.
 	const ICONS: Record<Section, typeof CalendarDays> = {
 		agenda: CalendarDays,
 		pacientes: Users,
 		profissionais: Stethoscope,
 		fila: Clock4,
 		relatorios: ChartBar,
-		config: Settings
+		auditoria: ScrollText,
+		config: Settings,
+		notificacoes: Bell
 	};
 </script>
 
@@ -44,7 +63,7 @@
 		<Mark class="size-6" />
 	</a>
 
-	{#each RAIL_ITEMS as item (item.section)}
+	{#each items as item (item.section)}
 		{@const Icon = ICONS[item.section]}
 		{@const isActive = active === item.section}
 		<a

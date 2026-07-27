@@ -1,66 +1,112 @@
 <script lang="ts">
 	import CalendarSearch from '@lucide/svelte/icons/calendar-search';
-	import { initials } from '$lib/format';
-	import { actionLabel, formatAt, dayKey, type AuditEntry } from '$lib/audit';
+	import CirclePlus from '@lucide/svelte/icons/circle-plus';
+	import CircleMinus from '@lucide/svelte/icons/circle-minus';
+	import History from '@lucide/svelte/icons/history';
+	import RefreshCw from '@lucide/svelte/icons/refresh-cw';
+	import {
+		auditHref,
+		dayKey,
+		entryContext,
+		entryHeadline,
+		formatAt,
+		formatTime,
+		type AuditEntry
+	} from '$lib/audit';
 	import FieldDiff from './FieldDiff.svelte';
 
-	// Uma entrada do feed de auditoria (doc 25 §11.4): quem · qual ação · qual registro · quando,
-	// e o diff campo-a-campo por baixo. `entry.at` é QUANDO a mudança foi gravada; `entry.starts_at`
-	// (só no appointment) é o horário do agendamento em si — os dois são coisas diferentes e por
-	// isso aparecem em lugares diferentes.
+	// Uma entrada do feed de auditoria (doc 25 §11.4), em três níveis:
+	//
+	//   1. o FATO — verbo de ator + objeto ("Adicionou Mariana ao atendimento");
+	//   2. o CONTEXTO — de qual sessão se fala ("Dra. Bea · ter 20/07, 09:00");
+	//   3. o AUTOR e os links ("por Fulano").
+	//
+	// A versão anterior era uma frase só (`{ator} {verbo} · {contexto}`), e ela AFIRMAVA COISA
+	// ERRADA no participante: os verbos de `attendance` estavam escritos na perspectiva do
+	// paciente, com o ator como sujeito — "Fulano entrou na turma · Mariana". Quem entrou foi a
+	// Mariana. Hoje o objeto entra dentro da frase (`entryHeadline`) e o ator desce de nível.
+	//
+	// `entry.at` é QUANDO a mudança foi gravada; `entry.starts_at` é o horário do agendamento em
+	// si — os dois são coisas diferentes e por isso aparecem em lugares diferentes.
 	let { entry, timezone }: { entry: AuditEntry; timezone: string } = $props();
 
 	const actorName = $derived(entry.actor?.nome ?? 'Sistema');
+	const headline = $derived(entryHeadline(entry));
+	const context = $derived(entryContext(entry, timezone));
 
-	// Contexto do registro: no agendamento, o profissional; no participante, o paciente.
-	const contextName = $derived(
-		entry.resource === 'attendance' ? (entry.patient?.nome ?? null) : (entry.professional?.nome ?? null)
+	// Ícone e cor pelo TIPO da ação: criar, alterar e destruir precisam pesar diferente numa
+	// varredura. Antes as três renderizavam idênticas, e a âncora à esquerda era o avatar do
+	// ator — o dado menos discriminante do feed (num dia típico, todas as linhas têm o mesmo).
+	const TONE = {
+		create: { icon: CirclePlus, klass: 'text-success' },
+		update: { icon: RefreshCw, klass: 'text-info' },
+		destroy: { icon: CircleMinus, klass: 'text-danger' }
+	} as const;
+	// `exclude` é soft-delete: é `update` no schema, mas para quem audita é uma exclusão.
+	const tone = $derived(
+		entry.action === 'exclude' || entry.action === 'remove' || entry.action === 'cancel'
+			? TONE.destroy
+			: TONE[entry.action_type]
 	);
 
-	// "Ver na agenda" leva ao DIA do agendamento (a agenda lê `?date=`). Só faz sentido quando há
-	// `starts_at` — o participante não o carrega nesta fatia.
+	// "Ver na agenda" leva ao DIA do agendamento (a agenda lê `?date=`). Depende de `starts_at`,
+	// que o participante agora também tem (a API o enriquece a partir do bloco) — some só quando
+	// o bloco não é mais legível, p.ex. depois de excluído.
 	const agendaHref = $derived(entry.starts_at ? `/agenda?date=${dayKey(entry.starts_at, timezone)}` : null);
 
-	// O create já se explica pelo verbo ("Agendou") + o contexto; o diff cheio de "— → valor"
-	// seria ruído. Só as ATUALIZAÇÕES mostram o antes/depois.
+	// "Ver histórico" isola a cadeia deste registro (`?record_id=`). O filtro sempre existiu na
+	// API e no load; o que faltava era **entrada** para ele — sem este link, só chegava lá quem
+	// digitasse a URL à mão.
+	const historyHref = $derived(
+		auditHref(new URLSearchParams(), {
+			resource: entry.resource === 'appointment' ? null : entry.resource,
+			record_id: entry.record_id
+		})
+	);
+
+	// O create já se explica pelo verbo ("Criou o agendamento") + o contexto; o diff cheio de
+	// "— → valor" seria ruído. Só as ATUALIZAÇÕES mostram o antes/depois.
 	const showDiff = $derived(entry.action_type !== 'create' && entry.diff.length > 0);
+
+	const linkClass = 'inline-flex items-center gap-1 font-medium text-teal-text hover:underline';
 </script>
 
 <article class="flex gap-3 px-3.5 py-3">
-	<!-- Avatar do autor: neutro (o usuário não tem cor de agenda), só as iniciais. -->
-	<span
-		class="mt-0.5 grid size-7 shrink-0 place-items-center rounded-full border border-edge bg-surface-2 text-[10px] font-bold text-muted"
-		aria-hidden="true"
-	>
-		{initials(actorName)}
+	<span class="mt-0.5 shrink-0 {tone.klass}" aria-hidden="true">
+		<tone.icon size={17} />
 	</span>
 
 	<div class="min-w-0 flex-1">
 		<div class="flex items-baseline justify-between gap-3">
-			<div class="min-w-0 text-[13px] leading-snug">
-				<span class="font-semibold text-ink">{actorName}</span>
-				<span class="text-muted">{actionLabel(entry).toLowerCase()}</span>
-				{#if contextName}
-					<span class="text-faint">·</span>
-					<span class="text-muted">{contextName}</span>
-				{/if}
-			</div>
-			<time class="shrink-0 whitespace-nowrap font-mono text-[11px] text-faint" datetime={entry.at}>
-				{formatAt(entry.at, timezone)}
+			<h3 class="min-w-0 text-[13px] font-semibold leading-snug text-ink">{headline}</h3>
+			<time
+				class="shrink-0 whitespace-nowrap font-mono text-[11px] text-faint"
+				datetime={entry.at}
+				title={formatAt(entry.at, timezone)}
+			>
+				{formatTime(entry.at, timezone)}
 			</time>
 		</div>
+
+		{#if context}
+			<p class="mt-0.5 text-[12px] leading-snug text-muted">{context}</p>
+		{/if}
 
 		{#if showDiff}
 			<FieldDiff resource={entry.resource} diff={entry.diff} {timezone} />
 		{/if}
 
-		{#if agendaHref}
-			<a
-				href={agendaHref}
-				class="mt-1.5 inline-flex items-center gap-1 text-[11.5px] font-medium text-teal-text hover:underline"
-			>
-				<CalendarSearch size={12} /> Ver na agenda
+		<div class="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px]">
+			<span class="text-faint">por {actorName}</span>
+			<span class="flex-1"></span>
+			{#if agendaHref}
+				<a href={agendaHref} class={linkClass}>
+					<CalendarSearch size={12} /> Ver na agenda
+				</a>
+			{/if}
+			<a href={historyHref} class={linkClass}>
+				<History size={12} /> Ver histórico
 			</a>
-		{/if}
+		</div>
 	</div>
 </article>

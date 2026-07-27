@@ -28,7 +28,10 @@ defmodule ApiWeb.MembersController do
     with_member_scope(conn, fn scope ->
       members = Accounts.list_clinic_members!(scope.clinic_id, scope: scope)
       # A leitura por-tenant (com o GUC de RLS) mora na camada de domínio, não aqui.
-      professionals = Directory.list_clinic_professionals(scope)
+      # `%{id, nome}` é tudo o que `professional_json/1` emite — então é só isso que se lê. A
+      # grade semanal e as 38 colunas da ficha eram carregadas e descartadas em toda abertura
+      # desta tela, e agora também da Auditoria, que consome este endpoint para o filtro de autor.
+      professionals = Directory.list_clinic_professionals(scope, query: [select: [:id, :nome]])
 
       json(conn, %{
         members: Enum.map(members, &member_json/1),
@@ -108,6 +111,9 @@ defmodule ApiWeb.MembersController do
   defp member_json(m) do
     %{
       id: m.id,
+      # O id do VÍNCULO (`id`) é o que edita/revoga; o do USUÁRIO é o que a trilha de auditoria
+      # grava em `version.user_id`, e é por ele que a tela de Auditoria filtra "por autor".
+      user_id: m.user_id,
       nome: m.user.nome,
       email: to_string(m.user.email),
       papel: m.papel,

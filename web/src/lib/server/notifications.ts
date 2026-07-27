@@ -66,3 +66,9 @@ export function markNotificationRead(event: RequestEvent, id: string): Promise<M
 export function markAllNotificationsRead(event: RequestEvent): Promise<MutationResult> {
 	return mutate(event, '/api/notifications/read-all', 'POST');
 }
+
+// Esvaziar a caixa: DELETE na **coleção**, e não um `POST /clear-all` ao lado do `read-all`. A
+// API apaga as linhas do dono, lidas e não-lidas; o verbo é que diz que a operação é destrutiva.
+export function clearAllNotifications(event: RequestEvent): Promise<MutationResult> {
+	return mutate(event, '/api/notifications', 'DELETE');
+}

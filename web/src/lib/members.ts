@@ -6,7 +6,16 @@ import { canManageMembers, type Papel } from './session';
 export type MemberStatus = 'ativo' | 'pendente';
 
 export interface Member {
+	/** O id do VÍNCULO — é por ele que se edita/revoga o membro. */
 	id: string;
+	/**
+	 * O id do USUÁRIO — o que a trilha de auditoria grava como autor (`version.user_id`), e por
+	 * onde a tela de Auditoria filtra "por autor".
+	 *
+	 * Opcional porque a tela de Equipe constrói um `Member` sintético para pré-preencher o
+	 * convite de um profissional **sem acesso**: ali não existe usuário ainda.
+	 */
+	user_id?: string;
 	nome: string;
 	email: string;
 	papel: Papel;

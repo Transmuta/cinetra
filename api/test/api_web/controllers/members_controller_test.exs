@@ -28,6 +28,17 @@ defmodule ApiWeb.MembersControllerTest do
       assert [%{"nome" => "Dra. Ana"}] = body["professionals"]
     end
 
+    # `id` é o do VÍNCULO (é por ele que se edita/revoga o membro), não o do usuário. Quem
+    # precisa do usuário é o filtro "por autor" da auditoria: a trilha grava `user_id`, e sem
+    # este campo não há como ligar um nome da equipe às linhas que ele escreveu.
+    test "expõe o user_id além do id do vínculo", %{conn: conn, owner: owner} do
+      body = conn |> get(~p"/api/members") |> json_response(200)
+
+      assert [%{"id" => membership_id, "user_id" => user_id}] = body["members"]
+      assert user_id == owner.id
+      refute membership_id == user_id
+    end
+
     test "sem sessão devolve 401", %{base_conn: base_conn} do
       assert base_conn |> get(~p"/api/members") |> json_response(401)
     end

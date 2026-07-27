@@ -1073,12 +1073,30 @@ defmodule Api.Scheduling do
     actors = actors_map(versions)
     patients = patients_map(scope, distinct(versions, & &1.patient_id))
 
+    # A versão de presença não guarda horário nem profissional — são do BLOCO. Sem eles a linha
+    # da tela diz *quem* mexeu em *qual paciente* e não diz **de qual sessão** se trata, nem tem
+    # como oferecer "ver na agenda" (que navega por dia). Duas leituras em lote (blocos, depois
+    # os profissionais deles), no molde de `professionals_map` — nunca uma por entrada.
+    #
+    # As duas são serializadas (a segunda precisa dos `professional_id` da primeira) e isso foi
+    # levantado no bate-volta como roundtrip a mais dentro da transação que segura a GUC. Trocar
+    # por `load: [professional: ...]` foi TENTADO e refutado pela sonda: o Ash emite o segundo
+    # `SELECT` de qualquer forma (é um belongs_to carregado à parte) e, sem `strict?` — que não é
+    # opção do `query:` da code interface —, ele vem com as **38 colunas** da ficha, incluindo
+    # CPF, RG e dados bancários. Duas queries enxutas ganham de duas queries, uma delas gorda.
+    appointments = appointments_map(scope, distinct(versions, & &1.appointment_id))
+    profs = professionals_map(scope, distinct(Map.values(appointments), & &1.professional_id))
+
     Enum.map(versions, fn v ->
+      appt = Map.get(appointments, v.appointment_id)
+
       base_entry(v, actors, diffs)
       |> Map.merge(%{
         resource: :attendance,
         patient: Map.get(patients, v.patient_id),
-        appointment_id: v.appointment_id
+        appointment_id: v.appointment_id,
+        starts_at: appt && appt.starts_at,
+        professional: appt && Map.get(profs, appt.professional_id)
       })
     end)
   end
@@ -1188,6 +1206,24 @@ defmodule Api.Scheduling do
       query: [filter: [id: [in: ids]], select: [:id, :nome]]
     )
     |> Map.new(&{&1.id, %{id: &1.id, nome: &1.nome}})
+  end
+
+  # O contexto do bloco para as versões de presença: só `starts_at` e o profissional.
+  #
+  # Lê pela ação `:read` normal, com as preparations globais valendo — ou seja, um bloco
+  # **excluído** (soft-delete) ou **segurado** por pacote não volta, e a entrada fica sem
+  # contexto (a tela degrada para "sem o horário", nunca some). É a degradação certa: furar o
+  # `HideExcluded` aqui reabriria por uma leitura de auditoria exatamente o que o doc 40 fechou
+  # em toda leitura.
+  defp appointments_map(_scope, []), do: %{}
+
+  defp appointments_map(scope, ids) do
+    find_appointments!(
+      scope: scope,
+      authorize?: false,
+      query: [filter: [id: [in: ids]], select: [:id, :starts_at, :professional_id]]
+    )
+    |> Map.new(&{&1.id, %{starts_at: &1.starts_at, professional_id: &1.professional_id}})
   end
 
   defp patients_map(_scope, []), do: %{}

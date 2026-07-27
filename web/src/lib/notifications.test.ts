@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { relativeTime, notificationHref, type NotificationKind } from './notifications';
+import {
+	relativeTime,
+	notificationHref,
+	notificationsHref,
+	onlyUnreadFrom,
+	type NotificationKind
+} from './notifications';
 
 describe('relativeTime', () => {
 	const now = new Date('2026-07-21T12:00:00Z');
@@ -70,5 +76,32 @@ describe('notificationHref', () => {
 		expect(href('member_joined')).toBe('/configuracoes/equipe');
 		expect(href('member_removed')).toBe('/configuracoes/equipe');
 		expect(href('role_changed')).toBe('/configuracoes/equipe');
+	});
+});
+
+// O contrato do filtro da caixa (Todas / Não lidas). Ele atravessa TRÊS lugares — a sidebar
+// que monta o link, o `load` que lê a URL e o resgate da página-além-do-fim — e estava escrito
+// à mão nos três. Uma renomeação em dois deles e o terceiro para de filtrar EM SILÊNCIO: o
+// link continua válido, a tela continua abrindo, só não filtra mais.
+describe('filtro da caixa', () => {
+	it('o href de cada filtro', () => {
+		expect(notificationsHref(false)).toBe('/notificacoes');
+		expect(notificationsHref(true)).toBe('/notificacoes?filtro=nao-lidas');
+	});
+
+	it('lê o filtro da query string', () => {
+		expect(onlyUnreadFrom(new URLSearchParams('filtro=nao-lidas'))).toBe(true);
+		expect(onlyUnreadFrom(new URLSearchParams(''))).toBe(false);
+	});
+
+	// Valor desconhecido não é erro: degrada para "todas", que é o estado neutro da tela.
+	it('valor estranho cai em "todas"', () => {
+		expect(onlyUnreadFrom(new URLSearchParams('filtro=xpto'))).toBe(false);
+	});
+
+	// O link do filtro NÃO carrega `?page=`: a página 3 de "Todas" não é a página 3 de
+	// "Não lidas", e herdar o número levaria a um beco (que o load teria de resgatar).
+	it('o href não carrega página', () => {
+		expect(notificationsHref(true)).not.toContain('page');
 	});
 });

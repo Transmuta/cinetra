@@ -167,6 +167,45 @@ defmodule ApiWeb.NotificationsControllerTest do
     end
   end
 
+  describe "DELETE /api/notifications" do
+    test "esvazia a caixa e devolve quantas apagou" do
+      ctx = fixture()
+      n = notify(ctx.clinic, ctx.owner)
+      notify(ctx.clinic, ctx.owner)
+      {:ok, _} = Notifications.mark_read(scope(ctx), n.id)
+
+      body = as(ctx.owner) |> delete("/api/notifications") |> json_response(200)
+      assert body["cleared"] == 2
+      assert body["unread"] == 0
+
+      depois = as(ctx.owner) |> get("/api/notifications") |> json_response(200)
+      assert depois["notifications"] == []
+      assert depois["unread"] == 0
+    end
+
+    test "sem sessão responde 401" do
+      assert Phoenix.ConnTest.build_conn() |> delete("/api/notifications") |> json_response(401)
+    end
+
+    test "não apaga a caixa do colega" do
+      ctx = fixture()
+      outro = sign_in!(email_unico("nc"))
+
+      {:ok, m} =
+        Accounts.invite_member(%{papel: :recepcao, user_id: outro.id, clinic_id: ctx.clinic.id},
+          authorize?: false
+        )
+
+      {:ok, _} = Accounts.accept_invite(m, authorize?: false)
+      notify(ctx.clinic, outro)
+
+      assert as(ctx.owner) |> delete("/api/notifications") |> json_response(200)
+
+      body = as(outro) |> get("/api/notifications") |> json_response(200)
+      assert body["unread"] == 1
+    end
+  end
+
   defp scope(ctx) do
     {:ok, membership} =
       Accounts.get_active_membership(ctx.owner.id, ctx.clinic.id, authorize?: false)

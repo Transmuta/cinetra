@@ -253,6 +253,15 @@
 		outline-offset: 1px;
 	}
 
+	/* O Tailwind v4 tirou do preflight o `cursor: pointer` que o v3 punha em `button`, então
+	   todo botão do app passou a mostrar a seta comum — o que o faz parecer inerte. Restaurado
+	   aqui, uma vez, em vez de espalhar `cursor-pointer` por centenas de classes. `:where`
+	   mantém especificidade 0 (qualquer utilitário de cursor ganha) e o `:disabled` fica de
+	   fora: botão desabilitado não deve prometer clique. */
+	:where(button, [role='button'], summary):not(:disabled) {
+		cursor: pointer;
+	}
+
 	@media (prefers-reduced-motion: reduce) {
 		*,
 		*::before,

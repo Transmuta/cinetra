@@ -93,12 +93,20 @@ defmodule Api.Directory do
   Profissionais da clínica ativa do escopo (com o GUC de tenant setado), com a grade semanal
   (`weekly_hours`) carregada — a coluna "Atendimento" da lista a resolve contra o expediente
   da clínica.
+
+  `opts` troca esse default para quem **não** precisa da ficha inteira. Quem só mostra o nome
+  (o seletor de vínculo em Equipe & acessos, e por tabela o filtro de autor da Auditoria, que
+  passou a abrir esse endpoint em toda página) puxava 38 colunas — CPF, RG, PIX, conta, agência,
+  endereço — **mais** uma segunda query de `professional_hours`, para emitir `%{id, nome}`.
+  Medido no bate-volta: 1827 bytes por linha contra 471.
   """
-  def list_clinic_professionals(%Api.Scope{clinic_id: clinic_id} = scope)
+  def list_clinic_professionals(scope, opts \\ [load: [:weekly_hours]])
+
+  def list_clinic_professionals(%Api.Scope{clinic_id: clinic_id} = scope, opts)
       when is_binary(clinic_id) do
     {:ok, professionals} =
       Api.Repo.with_clinic(clinic_id, fn ->
-        list_professionals!(scope: scope, load: [:weekly_hours])
+        list_professionals!([scope: scope] ++ opts)
       end)
 
     professionals

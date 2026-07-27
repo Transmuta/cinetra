@@ -644,6 +644,20 @@ defmodule Api.RlsSmokeTest do
       assert Api.Notifications.unread_count(ctx.scope) == 0
     end
 
+    # O irmão do de cima, e o de consequência pior: `Ash.bulk_destroy` é DELETE em massa sob RLS,
+    # com a mesma policy filter-check (um SELECT de autorização antes). Sem GUC ele não erra alto
+    # — apaga **zero linha** e devolve sucesso, então a tela diria "limpo" com a caixa intacta.
+    test "limpar a caixa alcança as linhas sob RLS" do
+      ctx = fixture()
+      notifica(ctx)
+      notifica(ctx)
+
+      :ok = sem_guc()
+
+      assert Api.Notifications.clear_all(ctx.scope) == 2
+      assert Api.Notifications.list_inbox(ctx.scope).results == []
+    end
+
     test "a poda da caixa apaga sob a GUC de cada clínica" do
       ctx = fixture()
       n = notifica(ctx)

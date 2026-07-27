@@ -227,4 +227,63 @@ defmodule Api.Notifications.NotificationTest do
       assert Notifications.unread_count(scope) == 0
     end
   end
+
+  describe "limpar a caixa" do
+    test "apaga tudo do usuário — lidas e não-lidas — e devolve quantas" do
+      {owner, clinic} = owner_and_clinic()
+      scope = scope_for(owner, clinic)
+
+      {:ok, _} = notify(clinic, owner)
+      {:ok, lida} = notify(clinic, owner)
+      {:ok, _} = Notifications.mark_read(scope, lida.id)
+
+      assert Notifications.clear_all(scope) == 2
+      assert Notifications.unread_count(scope) == 0
+      assert Notifications.list_inbox(scope).results == []
+    end
+
+    test "caixa vazia devolve 0 sem estourar" do
+      {owner, clinic} = owner_and_clinic()
+      scope = scope_for(owner, clinic)
+      _ = Notifications.clear_all(scope)
+
+      assert Notifications.clear_all(scope) == 0
+    end
+
+    # O gêmeo do "marcar todas não alcança a caixa do colega", e aqui a aposta é maior: um DELETE
+    # que escape do recorte não deixa o dado ilegível, deixa-o **inexistente**. A policy é
+    # filter-check; no caminho atômico ela precisa virar cláusula do WHERE do DELETE.
+    test "limpar não alcança a caixa do colega" do
+      {owner, clinic} = owner_and_clinic()
+      recep = member(clinic, :recepcao)
+      {:ok, _} = notify(clinic, owner)
+      {:ok, do_colega} = notify(clinic, recep)
+
+      _ = Notifications.clear_all(scope_for(owner, clinic))
+
+      assert Notifications.unread_count(scope_for(recep, clinic)) == 1
+
+      assert %{id: _} =
+               Notifications.get_notification!(do_colega.id,
+                 authorize?: false,
+                 tenant: clinic.id
+               )
+    end
+
+    # Mesmo teto do #53: limpar é UM DELETE, não N. Sem o teto, o caminho volta a ser O(N) —
+    # e numa caixa de um ano (a sonda do #54 mediu 20.065 linhas) isso é um travamento.
+    test "clear_all toca a tabela em O(1), não O(N)" do
+      {owner, clinic} = owner_and_clinic()
+      scope = scope_for(owner, clinic)
+      for _ <- 1..6, do: {:ok, _} = notify(clinic, owner)
+
+      {apagadas, queries} =
+        Api.QueryCounter.count(fn -> Notifications.clear_all(scope) end, "notifications")
+
+      assert apagadas == 6
+
+      # 1 COUNT (para o número devolvido) + 1 DELETE.
+      assert queries == 2
+    end
+  end
 end

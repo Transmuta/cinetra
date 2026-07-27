@@ -131,6 +131,72 @@ defmodule ApiWeb.AuditControllerTest do
       assert entry["patient"]["nome"] == "Caio"
     end
 
+    # A versão de participante não carrega horário nem profissional — são do agendamento. Sem
+    # este enriquecimento a linha da tela não diz **de qual sessão** se fala, e não há como
+    # oferecer "ver na agenda" (a agenda é navegada por dia).
+    test "resource=attendance traz o contexto do agendamento (quando e com quem)", %{conn: conn} do
+      ctx = fixture()
+      conn = conn |> authed(ctx.owner) |> get("/api/audit?resource=attendance")
+
+      assert [entry | _] = json_response(conn, 200)["entries"]
+      assert entry["appointment_id"] == ctx.appt.id
+      # O agendamento foi remarcado para 12:00 — o contexto reflete o estado ATUAL do bloco.
+      assert entry["starts_at"] == "2026-07-20T12:00:00Z"
+      assert entry["professional"]["nome"] == "Dra. Bea"
+    end
+
+    # A whitelist de `parse_action` decide o que é filtrável; nome fora dela vira filtro **nulo**
+    # (o feed inteiro volta, e quem filtrou não percebe). Ela nasceu incompleta: `exclude`,
+    # `apply_participant_rollup`, `set_pkg_hold` e as ações de presença estavam de fora, e todas
+    # existem no banco.
+    # A whitelist de `parse_action` é mantida à MÃO e falha em silêncio: nome fora dela vira
+    # filtro `nil` — o feed inteiro volta com 200 e quem filtrou não percebe. O bate-volta provou
+    # que ela estava desprotegida: reduzi-la de 20 nomes para dois deixou os 1177 testes verdes.
+    #
+    # Este teste tira a verdade do Ash, não de uma lista digitada de novo: TODA ação de escrita
+    # dos dois recursos precisa filtrar de fato. Ação nova amanhã cai aqui sem ninguém lembrar.
+    # É `⊇`, não igualdade: a whitelist carrega também nomes APOSENTADOS (`mark_completed`,
+    # `set_package`), que sumiram do recurso mas continuam gravados na trilha.
+    test "toda ação de escrita dos recursos é filtrável de fato", %{conn: conn} do
+      ctx = fixture()
+      conn = authed(conn, ctx.owner)
+
+      acoes =
+        [Api.Scheduling.Appointment, Api.Scheduling.Attendance]
+        |> Enum.flat_map(fn res ->
+          res
+          |> Ash.Resource.Info.actions()
+          |> Enum.filter(&(&1.type in [:create, :update, :destroy]))
+          |> Enum.map(&to_string(&1.name))
+        end)
+        |> Enum.uniq()
+
+      for acao <- acoes, recurso <- ~w(appointment attendance) do
+        entries =
+          conn
+          |> get("/api/audit?resource=#{recurso}&action=#{acao}")
+          |> json_response(200)
+          |> Map.fetch!("entries")
+
+        # Vazio é resposta legítima (a fixture não tem essa ação); o que não pode é voltar
+        # entrada de OUTRA ação — sinal de que o filtro foi descartado.
+        assert Enum.all?(entries, &(&1["action"] == acao)),
+               "filtro action=#{acao} (#{recurso}) foi ignorado: voltou " <>
+                 inspect(Enum.map(entries, & &1["action"]) |> Enum.uniq())
+      end
+    end
+
+    test "filtra por uma ação que não estava na whitelist original", %{conn: conn} do
+      ctx = fixture()
+      scope = scope_for(ctx.owner, ctx.clinic)
+      {:ok, _} = Scheduling.transition_appointment(scope, ctx.appt.id, :exclude, %{})
+
+      conn = conn |> authed(ctx.owner) |> get("/api/audit?action=exclude")
+
+      assert %{"entries" => [entry]} = json_response(conn, 200)
+      assert entry["action"] == "exclude"
+    end
+
     test "pagina por limit/offset", %{conn: conn} do
       ctx = fixture()
       conn = conn |> authed(ctx.owner) |> get("/api/audit?limit=2&offset=0")

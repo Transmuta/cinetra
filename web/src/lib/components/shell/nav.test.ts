@@ -10,7 +10,9 @@ describe('sectionOf', () => {
 		['/pacientes', 'pacientes'],
 		['/profissionais', 'profissionais'],
 		['/fila', 'fila'],
-		['/relatorios', 'relatorios']
+		['/relatorios', 'relatorios'],
+		['/auditoria', 'auditoria'],
+		['/notificacoes', 'notificacoes']
 	])('%s → %s', (path, section) => {
 		expect(sectionOf(path)).toBe(section);
 	});
@@ -32,15 +34,21 @@ describe('modelo de navegação', () => {
 		}
 	});
 
-	it('Auditoria é o último link de Configurações e é o único restrito a owner·admin', () => {
-		expect(CONFIG_LINKS.at(-1)).toEqual({
+	it('a Auditoria é seção do rail, e a única restrita a owner·admin', () => {
+		const aud = RAIL_ITEMS.find((i) => i.section === 'auditoria');
+		expect(aud).toEqual({
+			section: 'auditoria',
 			label: 'Auditoria',
-			href: '/configuracoes/auditoria',
+			href: '/auditoria',
 			ownerAdmin: true
 		});
 
-		// Ela é a única restrita — os demais ajustes são de todo membro (a Sidebar é que oculta).
-		const restritos = CONFIG_LINKS.filter((l) => l.ownerAdmin).map((l) => l.href);
-		expect(restritos).toEqual(['/configuracoes/auditoria']);
+		// Ela é a única restrita — os demais destinos são de todo membro (o Rail é que oculta).
+		const restritos = RAIL_ITEMS.filter((i) => i.ownerAdmin).map((i) => i.href);
+		expect(restritos).toEqual(['/auditoria']);
+	});
+
+	it('a Auditoria saiu de Configurações (nenhum ajuste aponta para ela)', () => {
+		expect(CONFIG_LINKS.some((l) => l.href.includes('auditoria'))).toBe(false);
 	});
 });

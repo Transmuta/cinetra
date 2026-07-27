@@ -43,6 +43,26 @@ export interface NotificationsData {
 // não estudada — e o "carregar mais" é um clique, não uma navegação de trabalho.
 export const PAGE_SIZE = 20;
 
+// ---- O contrato do filtro Todas / Não lidas (doc 53) ------------------------------------
+//
+// Este par é o **dono único** da chave. Ela atravessa três lugares — a sidebar que monta o
+// link, o `load` que lê a URL e o resgate da página-além-do-fim — e estava escrita à mão nos
+// três. O modo de falha de manter assim não é um erro de compilação: renomear em dois deles
+// deixa o terceiro **parar de filtrar em silêncio** (o link segue válido, a tela segue
+// abrindo, só não filtra). Por isso vira função, não constante solta.
+const FILTRO_PARAM = 'filtro';
+const FILTRO_NAO_LIDAS = 'nao-lidas';
+
+/** O href de cada filtro. Sem `?page=`: a página 3 de "Todas" não é a página 3 de "Não lidas". */
+export function notificationsHref(onlyUnread: boolean): string {
+	return onlyUnread ? `/notificacoes?${FILTRO_PARAM}=${FILTRO_NAO_LIDAS}` : '/notificacoes';
+}
+
+/** Lê o filtro da query string. Valor desconhecido degrada para "todas", o estado neutro. */
+export function onlyUnreadFrom(params: URLSearchParams): boolean {
+	return params.get(FILTRO_PARAM) === FILTRO_NAO_LIDAS;
+}
+
 // Tempo relativo curto (pt-BR) para o carimbo de cada notificação. `now` injetável para o teste
 // não depender do relógio de parede.
 export function relativeTime(iso: string, now: Date = new Date()): string {

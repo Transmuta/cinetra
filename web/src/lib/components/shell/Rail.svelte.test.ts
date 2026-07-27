@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import '@testing-library/jest-dom/vitest';
-import { render } from '@testing-library/svelte';
+import { render, cleanup } from '@testing-library/svelte';
 import Rail from './Rail.svelte';
 
 describe('Rail', () => {
@@ -44,5 +44,38 @@ describe('Rail', () => {
 	it('destaca o sino quando em /notificacoes', () => {
 		const { getByTitle } = render(Rail, { props: { pathname: '/notificacoes' } });
 		expect(getByTitle('Notificações')).toHaveAttribute('aria-current', 'page');
+	});
+});
+
+// A Auditoria virou seção de primeiro nível (saiu de Configurações), e é owner·admin: o ícone
+// só aparece para quem pode entrar — a policy da API é a autoridade, os demais levariam 403.
+describe('Rail — Auditoria (owner·admin)', () => {
+	// `cleanup` em `afterEach`, e NÃO no fim do corpo do teste: uma asserção que levanta pula o
+	// resto do corpo, o DOM do render anterior sobrevive, e o teste seguinte encontra dois rails
+	// — uma falha real cascateia em três, e a suíte fica intermitente. Foi visto acontecer.
+	afterEach(cleanup);
+
+	it.each(['owner', 'admin'] as const)('%s vê o destino', (papel) => {
+		const { getByTitle } = render(Rail, { props: { pathname: '/agenda', papel } });
+		expect(getByTitle('Auditoria')).toHaveAttribute('href', '/auditoria');
+	});
+
+	it.each(['recepcao', 'profissional'] as const)(
+		'%s NÃO vê (mas vê os demais destinos)',
+		(papel) => {
+			const { queryByTitle, getByTitle } = render(Rail, { props: { pathname: '/agenda', papel } });
+			expect(queryByTitle('Auditoria')).toBeNull();
+			expect(getByTitle('Agenda')).toBeInTheDocument();
+		}
+	);
+
+	it('sem papel conhecido, esconde', () => {
+		const { queryByTitle } = render(Rail, { props: { pathname: '/agenda' } });
+		expect(queryByTitle('Auditoria')).toBeNull();
+	});
+
+	it('destaca a seção quando em /auditoria', () => {
+		const { getByTitle } = render(Rail, { props: { pathname: '/auditoria', papel: 'owner' } });
+		expect(getByTitle('Auditoria')).toHaveAttribute('aria-current', 'page');
 	});
 });

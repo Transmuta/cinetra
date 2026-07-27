@@ -118,6 +118,38 @@ defmodule Api.Notifications do
     end)
   end
 
+  @doc """
+  Esvazia a caixa do usuário na clínica ativa — lidas e não-lidas. Devolve quantas foram apagadas.
+
+  Um `COUNT` e um `DELETE`, pelo mesmo desenho do `mark_all_read/1`: o recorte da policy
+  (`recipient_id == actor`) é filter-check, então vira cláusula do `WHERE` do DELETE em vez de
+  checagem por registro — e é isso que impede o "limpar" de um usuário de alcançar a caixa do
+  colega da mesma clínica. Tudo dentro do `in_clinic` (a autorização consulta a tabela sob RLS).
+
+  A leitura de partida é a `:read`, não a `:inbox`: `:inbox` traz um `sort` que não serve a um
+  DELETE. O `COUNT` existe só para o número devolvido, e é um relato do que havia — entre contar
+  e apagar cabe uma notificação nova, que sobrevive (e deve mesmo sobreviver).
+  """
+  def clear_all(%Api.Scope{} = scope) do
+    in_clinic(scope, fn ->
+      query =
+        Api.Notifications.Notification
+        |> Ash.Query.for_read(:read, %{}, scope: scope)
+
+      quantas = Ash.count!(query)
+
+      %Ash.BulkResult{status: :success} =
+        Ash.bulk_destroy!(query, :clear, %{},
+          scope: scope,
+          strategy: :atomic,
+          return_records?: false,
+          notify?: false
+        )
+
+      quantas
+    end)
+  end
+
   # `return_notifications?: true` no `mark_read`, `notify?: false` no lote: os dois calam o mesmo
   # aviso, e pelo mesmo motivo. A escrita roda dentro da transação do `in_clinic` (exigência da
   # RLS — ver o moduledoc de `mark_read`), e o Ash não despacha notificações de dentro de uma

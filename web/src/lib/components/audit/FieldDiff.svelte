@@ -18,17 +18,22 @@
 </script>
 
 {#if diff.length}
-	<ul class="mt-1.5 flex flex-col gap-1">
+	<ul class="mt-1 flex flex-col gap-1">
 		{#each diff as row (row.field)}
+			{@const antes = formatValue(resource, row.field, row.from, timezone)}
+			{@const depois = formatValue(resource, row.field, row.to, timezone)}
 			<li class="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[12px] leading-tight">
 				<span class="text-faint">{fieldLabel(row.field)}:</span>
-				<span class="text-muted line-through decoration-edge-strong">
-					{formatValue(resource, row.field, row.from, timezone)}
-				</span>
-				<ArrowRight size={11} class="text-faint" />
-				<span class="font-semibold text-ink">
-					{formatValue(resource, row.field, row.to, timezone)}
-				</span>
+				<!-- `<del>`/`<ins>` e não dois `<span>`: o riscado e a seta são pistas VISUAIS, e um
+				     leitor de tela lia "14:00 15:30" sem dizer qual é qual. Com a semântica certa,
+				     ele anuncia remoção e inserção — e o `title` cobre o valor truncado. -->
+				<del class="max-w-[22ch] truncate text-muted decoration-edge-strong" title={antes}>
+					{antes}
+				</del>
+				<ArrowRight size={11} class="text-faint" aria-hidden="true" />
+				<ins class="max-w-[28ch] truncate font-semibold text-ink no-underline" title={depois}>
+					{depois}
+				</ins>
 			</li>
 		{/each}
 	</ul>
