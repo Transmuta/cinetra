@@ -40,6 +40,11 @@ defmodule Api.Scheduling.ImpactAnalysis do
   alias Api.Scheduling.Availability
   alias Api.Scheduling.LocalTime
 
+  # Os enums que o rascunho pode carregar. Existem aqui para a normalização **não** usar
+  # `String.to_existing_atom` sobre valor que o cliente escolhe (ver o fim do módulo).
+  @tipos Api.Scheduling.ExceptionKind.values()
+  @modos Api.Scheduling.WeekdayMode.values()
+
   @typedoc """
   A mudança a simular. Cada forma é uma das portas de edição de horário do produto:
 
@@ -75,10 +80,36 @@ defmodule Api.Scheduling.ImpactAnalysis do
   """
   @spec conflicts([map()], %{String.t() => {map(), map()}}, change(), String.t()) :: [conflict()]
   def conflicts(appointments, sources_por_prof, change, timezone) do
-    appointments
-    |> Enum.filter(&afetado_por?(&1, change))
-    |> Enum.flat_map(&conflito(&1, sources_por_prof, change, timezone))
-    |> Enum.sort_by(&{&1.date, &1.starts_at})
+    if valida?(change) do
+      appointments
+      |> Enum.filter(&afetado_por?(&1, change))
+      |> Enum.flat_map(&conflito(&1, sources_por_prof, change, timezone))
+      |> Enum.sort_by(&{&1.date, &1.starts_at})
+    else
+      # Rascunho que nem é válido (data malformada, `tipo` inventado): o gate **se abstém**.
+      # Ele é regra de negócio, e quem recusa dado inválido é a validação do recurso, com o 422
+      # certo — acusar conflito aqui devolveria 409 para o que na verdade é um 422.
+      []
+    end
+  end
+
+  # Se qualquer campo do rascunho não sobreviveu à normalização, a mudança não descreve um
+  # estado possível e não há o que simular.
+  defp valida?({:clinic_hours, week}) do
+    is_map(week) and Enum.all?(Map.keys(week), &(inteiro(&1) != :invalido))
+  end
+
+  defp valida?({:professional_hours, _id, days}) do
+    is_list(days) and
+      Enum.all?(days, &(dia_da_semana(&1) != :invalido and modo(&1) != :invalido))
+  end
+
+  defp valida?({:clinic_exception, attrs}), do: excecao_valida?(attrs)
+  defp valida?({:professional_exception, _id, attrs}), do: excecao_valida?(attrs)
+  defp valida?(_change), do: false
+
+  defp excecao_valida?(attrs) do
+    is_map(attrs) and data_de(attrs) != :invalido and tipo(attrs) != :invalido
   end
 
   # Recorte barato ANTES de simular: uma mudança de terça-feira não tem como afetar uma quinta, e
@@ -197,14 +228,55 @@ defmodule Api.Scheduling.ImpactAnalysis do
     |> Enum.map(fn {dow, periods} -> %{dow: dow, periods: periods} end)
   end
 
-  # Os mapas do rascunho chegam da fronteira HTTP, então podem vir com chave string.
-  defp dia_da_semana(day), do: day[:dow] || day["dow"]
-  defp data_de(attrs), do: attrs[:data] || attrs["data"]
-  defp modo(day), do: normalizar(day[:modo] || day["modo"])
-  defp tipo(attrs), do: normalizar(attrs[:tipo] || attrs["tipo"])
+  # ---- o rascunho vem da fronteira HTTP, e lá tudo é string ----
+  #
+  # Este bloco é o conserto do bate-volta ([doc 49](../../../../docs/49-bate-volta-onda-6.md)).
+  # O motor é chamado de dois lugares com **formas diferentes** do mesmo dado: do domínio (e dos
+  # testes) chegam `%Date{}` e átomos; da fronteira chegam `"2027-03-15"` e `"fechado"`. Sem
+  # normalizar, `appt.date == "2027-03-15"` é **sempre falso** — e o gate não acusava nada, com
+  # a exceção sendo criada por cima da agenda (201 no lugar de 409). O tipo do dado era a regra,
+  # e ninguém tinha escrito qual.
+
+  defp dia_da_semana(day), do: inteiro(day[:dow] || day["dow"])
+  defp data_de(attrs), do: data(attrs[:data] || attrs["data"])
   defp periodos_do(map), do: map[:periods] || map["periods"] || []
 
-  defp normalizar(valor) when is_atom(valor), do: valor
-  defp normalizar(valor) when is_binary(valor), do: String.to_existing_atom(valor)
-  defp normalizar(nil), do: nil
+  defp modo(day), do: normalizar(day[:modo] || day["modo"], @modos)
+  defp tipo(attrs), do: normalizar(attrs[:tipo] || attrs["tipo"], @tipos)
+
+  defp data(%Date{} = date), do: date
+
+  defp data(valor) when is_binary(valor) do
+    case Date.from_iso8601(valor) do
+      {:ok, date} -> date
+      _ -> :invalido
+    end
+  end
+
+  defp data(_valor), do: :invalido
+
+  defp inteiro(valor) when is_integer(valor), do: valor
+
+  defp inteiro(valor) when is_binary(valor) do
+    case Integer.parse(valor) do
+      {n, ""} -> n
+      _ -> :invalido
+    end
+  end
+
+  defp inteiro(_valor), do: :invalido
+
+  # **Nunca** `String.to_existing_atom` sobre valor que o cliente escolhe: um `tipo` inventado
+  # derrubava a request com `ArgumentError` (500) num caminho que devolvia 422 corretamente
+  # antes. Valor fora da lista vira `:invalido`, e `valida?/1` faz o gate se abster — o rascunho
+  # inválido é problema da validação do recurso, que responde 422 logo em seguida.
+  defp normalizar(valor, validos) when is_atom(valor) and not is_nil(valor) do
+    if valor in validos, do: valor, else: :invalido
+  end
+
+  defp normalizar(valor, validos) when is_binary(valor) do
+    Enum.find(validos, :invalido, &(Atom.to_string(&1) == valor))
+  end
+
+  defp normalizar(nil, _validos), do: nil
 end

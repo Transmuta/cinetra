@@ -319,4 +319,87 @@ defmodule Api.Scheduling.ImpactAnalysisTest do
                @tz
              )
   end
+
+  # ------------------------------------------------------------------------------------
+  # Bate-volta da Onda 6 — o rascunho vem da FRONTEIRA HTTP, e lá tudo é string.
+  # ------------------------------------------------------------------------------------
+  describe "o rascunho vindo da fronteira (bate-volta doc 49)" do
+    # O achado grave: `data` chega como "2027-03-15" e o agendamento tem `%Date{}`. Sem
+    # normalizar, `appt.date == data` é sempre falso e o gate **não vê nada** — 201 no lugar de
+    # 409, com a exceção criada por cima da agenda.
+    test "a data em STRING casa com a data do agendamento" do
+      assert [_] =
+               ImpactAnalysis.conflicts(
+                 [appt()],
+                 mapa(),
+                 {:clinic_exception,
+                  %{"data" => "2026-07-20", "tipo" => "fechado", "periods" => []}},
+                 @tz
+               )
+    end
+
+    test "a data em string de OUTRO dia continua não afetando" do
+      assert [] =
+               ImpactAnalysis.conflicts(
+                 [appt()],
+                 mapa(),
+                 {:clinic_exception,
+                  %{"data" => "2026-07-21", "tipo" => "fechado", "periods" => []}},
+                 @tz
+               )
+    end
+
+    test "a folga do profissional também casa com data em string" do
+      assert [_] =
+               ImpactAnalysis.conflicts(
+                 [appt()],
+                 mapa(),
+                 {:professional_exception, "p1",
+                  %{"data" => "2026-07-20", "tipo" => "fechado", "periods" => []}},
+                 @tz
+               )
+    end
+
+    test "`dow` em string (o JSON manda \"1\") casa com o dia da semana" do
+      assert [_] =
+               ImpactAnalysis.conflicts(
+                 [appt()],
+                 mapa(),
+                 {:professional_hours, "p1",
+                  [%{"dow" => "1", "modo" => "fechado", "periods" => []}]},
+                 @tz
+               )
+    end
+
+    # O segundo achado: `String.to_existing_atom` num valor que o cliente escolhe derruba a
+    # request com 500, num caminho que antes devolvia 422. O gate é regra de NEGÓCIO: diante de
+    # um rascunho que nem é válido, ele se abstém e deixa a validação do recurso falar.
+    test "valor de enum inexistente NÃO estoura — o gate se abstém" do
+      assert [] =
+               ImpactAnalysis.conflicts(
+                 [appt()],
+                 mapa(),
+                 {:clinic_exception, %{"data" => "2026-07-20", "tipo" => "nao_existe"}},
+                 @tz
+               )
+
+      assert [] =
+               ImpactAnalysis.conflicts(
+                 [appt()],
+                 mapa(),
+                 {:professional_hours, "p1", [%{"dow" => 1, "modo" => "modo_inexistente"}]},
+                 @tz
+               )
+    end
+
+    test "data malformada também não estoura" do
+      assert [] =
+               ImpactAnalysis.conflicts(
+                 [appt()],
+                 mapa(),
+                 {:clinic_exception, %{"data" => "ontem", "tipo" => "fechado"}},
+                 @tz
+               )
+    end
+  end
 end

@@ -193,4 +193,99 @@ defmodule ApiWeb.ClinicExceptionsControllerTest do
              |> json_response(403)
     end
   end
+
+  # A3/D12 pela fronteira — e o bate-volta da Onda 6 (doc 49) mora aqui.
+  #
+  # O gate **existia e não disparava**: a `data` chega como string ("2027-03-15") e o
+  # agendamento tem `%Date{}`, então a comparação era sempre falsa e a exceção era criada por
+  # cima da agenda (201 no lugar de 409). Os testes de domínio passavam `Date` e não viam.
+  # Toda regra que atravessa a fronteira precisa de um teste QUE ATRAVESSE a fronteira.
+  describe "POST /api/clinic-exceptions — conflitos futuros (A3/D12)" do
+    setup %{owner: owner, clinic: clinic} do
+      scope = escopo(owner, clinic)
+      prof = Api.Directory.create_professional!("Dra. X", %{}, tenant: clinic.id, actor: owner)
+
+      tipo =
+        Api.Directory.create_appointment_type!(
+          %{nome: "Sessão #{unico()}", duracao_minutos: 50, cor: "#0FB5A6", icon: "Activity"},
+          tenant: clinic.id,
+          actor: owner
+        )
+
+      paciente = Api.Records.create_patient!("Paciente", %{}, tenant: clinic.id, actor: owner)
+
+      {:ok, starts_at} =
+        Api.Scheduling.LocalTime.to_utc(~D[2027-03-15], "14:00", "America/Sao_Paulo")
+
+      {:ok, appt} =
+        Api.Scheduling.schedule_appointment(
+          %{
+            starts_at: starts_at,
+            professional_id: prof.id,
+            appointment_type_id: tipo.id,
+            patient_ids: [paciente.id]
+          },
+          scope: scope
+        )
+
+      %{appt: appt}
+    end
+
+    test "feriado sobre um dia com agenda devolve 409 com a lista", ctx do
+      body =
+        ctx.conn
+        |> post(~p"/api/clinic-exceptions", %{
+          "data" => "2027-03-15",
+          "nome" => "Feriado",
+          "tipo" => "fechado",
+          "periods" => []
+        })
+        |> json_response(409)
+
+      assert body["code"] == "future_conflicts"
+      assert [conflito] = body["meta"]["conflicts"]
+      assert conflito["appointment_id"] == ctx.appt.id
+      assert conflito["reason"] == "sem_atendimento"
+
+      # E nada foi criado.
+      assert %{"clinic_exceptions" => []} =
+               ctx.conn |> get(~p"/api/clinic-exceptions") |> json_response(200)
+    end
+
+    test "com confirm cria assim mesmo", ctx do
+      assert ctx.conn
+             |> post(~p"/api/clinic-exceptions", %{
+               "data" => "2027-03-15",
+               "nome" => "Feriado",
+               "tipo" => "fechado",
+               "periods" => [],
+               "confirm" => true
+             })
+             |> json_response(201)
+    end
+
+    test "exceção em dia SEM agenda cria direto", ctx do
+      assert ctx.conn
+             |> post(~p"/api/clinic-exceptions", %{
+               "data" => "2027-03-16",
+               "nome" => "Feriado",
+               "tipo" => "fechado",
+               "periods" => []
+             })
+             |> json_response(201)
+    end
+
+    # O segundo achado do doc 49: `String.to_existing_atom` sobre valor do cliente derrubava a
+    # request com 500. O gate se abstém e a validação do recurso responde o 422 de sempre.
+    test "tipo inventado continua 422, não 500", ctx do
+      assert ctx.conn
+             |> post(~p"/api/clinic-exceptions", %{
+               "data" => "2027-03-15",
+               "nome" => "Xpto",
+               "tipo" => "nao_existe",
+               "periods" => []
+             })
+             |> json_response(422)
+    end
+  end
 end

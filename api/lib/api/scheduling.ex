@@ -1788,11 +1788,20 @@ defmodule Api.Scheduling do
     end)
   end
 
+  @modos_validos Api.Scheduling.WeekdayMode.values()
+
   defp validate_professional_day(day, clinic_periods) do
     modo = day[:modo] || day["modo"]
     periods = day[:periods] || day["periods"] || []
 
     cond do
+      # `modo` é escolha do cliente e não estava validado aqui: um valor inventado atravessava e
+      # só morria no `{:ok, _} = set_professional_hours_day(...)` lá embaixo, dentro da
+      # transação — `MatchError`, ou seja **500** para entrada malformada (bate-volta doc 49).
+      # A escada deste endpoint é 422, como em todo o resto da fronteira.
+      not modo_valido?(modo) ->
+        {:error, "modo inválido"}
+
       modo in [:herda, :fechado, "herda", "fechado"] and periods != [] ->
         {:error, "modo #{modo} não carrega períodos próprios"}
 
@@ -1808,6 +1817,13 @@ defmodule Api.Scheduling do
         Api.Scheduling.Periods.validate(periods)
     end
   end
+
+  defp modo_valido?(modo) when is_atom(modo) and not is_nil(modo), do: modo in @modos_validos
+
+  defp modo_valido?(modo) when is_binary(modo),
+    do: Enum.any?(@modos_validos, &(Atom.to_string(&1) == modo))
+
+  defp modo_valido?(_modo), do: false
 
   # `%{dow => periods}` do expediente da clínica ativa, para o invariante prof ⊆ clínica.
   defp clinic_week_map(scope) do

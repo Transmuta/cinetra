@@ -56,6 +56,12 @@
 				if (achados) {
 					conflitos = achados;
 				} else {
+					// Erro que NÃO é conflito zera o `confirmando` (bate-volta doc 49): sem isto,
+					// uma tentativa confirmada que falhasse por outro motivo deixaria a flag ligada,
+					// e o próximo "Salvar" pularia o gate **sem** a pessoa ver lista nenhuma.
+					conflitos = null;
+					confirmando = false;
+
 					const message = result.data?.error;
 					toast(
 						typeof message === 'string' ? message : 'Não foi possível salvar o horário.',

@@ -238,4 +238,76 @@ defmodule ApiWeb.ProfessionalsControllerTest do
       assert conn |> post(~p"/api/professionals", %{"nome" => "X"}) |> json_response(403)
     end
   end
+
+  # Bate-volta da Onda 6 (doc 49) — a fronteira manda string, e o `modo` é escolha do cliente.
+  describe "grade e folga pela fronteira (A3/D12 + doc 49)" do
+    test "modo inventado devolve 422, não 500", %{conn: conn, owner: owner, clinic: clinic} do
+      prof = Directory.create_professional!("Dra. X", %{}, tenant: clinic.id, actor: owner)
+      _ = owner
+
+      assert conn
+             |> patch(~p"/api/professionals/#{prof.id}/hours", %{
+               "days" => [%{"dow" => 1, "modo" => "modo_inexistente", "periods" => []}]
+             })
+             |> json_response(422)
+    end
+
+    test "modo ausente também é 422", %{conn: conn, owner: owner, clinic: clinic} do
+      prof = Directory.create_professional!("Dra. X", %{}, tenant: clinic.id, actor: owner)
+      _ = owner
+
+      assert conn
+             |> patch(~p"/api/professionals/#{prof.id}/hours", %{
+               "days" => [%{"dow" => 1, "periods" => []}]
+             })
+             |> json_response(422)
+    end
+
+    # A quarta porta do gate. Estava tão morta quanto a da exceção da clínica pelo mesmo motivo
+    # (a `data` chega string), e é por isso que este teste atravessa o router.
+    test "folga sobre um dia com sessão marcada devolve 409", %{
+      conn: conn,
+      owner: owner,
+      clinic: clinic
+    } do
+      scope = escopo(owner, clinic)
+      prof = Directory.create_professional!("Dra. X", %{}, tenant: clinic.id, actor: owner)
+
+      tipo =
+        Directory.create_appointment_type!(
+          %{nome: "Sessão #{unico()}", duracao_minutos: 50, cor: "#0FB5A6", icon: "Activity"},
+          tenant: clinic.id,
+          actor: owner
+        )
+
+      paciente = Api.Records.create_patient!("Paciente", %{}, tenant: clinic.id, actor: owner)
+
+      {:ok, starts_at} =
+        Api.Scheduling.LocalTime.to_utc(~D[2027-03-15], "14:00", "America/Sao_Paulo")
+
+      {:ok, _appt} =
+        Api.Scheduling.schedule_appointment(
+          %{
+            starts_at: starts_at,
+            professional_id: prof.id,
+            appointment_type_id: tipo.id,
+            patient_ids: [paciente.id]
+          },
+          scope: scope
+        )
+
+      body =
+        conn
+        |> post(~p"/api/professionals/#{prof.id}/exceptions", %{
+          "data" => "2027-03-15",
+          "nome" => "Folga",
+          "tipo" => "fechado",
+          "periods" => []
+        })
+        |> json_response(409)
+
+      assert body["code"] == "future_conflicts"
+      assert [_] = body["meta"]["conflicts"]
+    end
+  end
 end
