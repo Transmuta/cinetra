@@ -2,7 +2,6 @@
 	// Formulário de nova exceção, fiel a `cfgFeriados` (:3266): data + descrição + segmented
 	// "Fechar o dia inteiro" / "Horário específico" + períodos condicionais. Envia para a action
 	// `?/add`; reseta no sucesso. `tipo` e `periods` viajam por hidden inputs.
-	import { tick } from 'svelte';
 	import { enhance } from '$app/forms';
 	import type { SubmitFunction } from '@sveltejs/kit';
 	import PeriodEditor from './PeriodEditor.svelte';
@@ -18,11 +17,9 @@
 	let periods = $state<Period[]>([['08:00', '12:00']]);
 	let submitting = $state(false);
 
-	// A3/D12 — o 409 `future_conflicts` abre o modal com a lista; o "criar mesmo assim" reenvia
-	// este mesmo formulário com `confirm=true`.
+	// A3/D12 — o 409 `future_conflicts` abre o modal com a lista. É aviso, não escolha: não há
+	// "criar mesmo assim".
 	let conflitos = $state<FutureConflicts | null>(null);
-	let formEl: HTMLFormElement | null = $state(null);
-	let confirmando = $state(false);
 
 	const submit: SubmitFunction = () => {
 		submitting = true;
@@ -36,21 +33,12 @@
 				tipo = 'fechado';
 				periods = [['08:00', '12:00']];
 				conflitos = null;
-				confirmando = false;
 			} else if (result.type === 'failure') {
 				conflitos = parseFutureConflicts(result.data?.code, result.data?.meta);
-				if (!conflitos) confirmando = false;
 			}
 		};
 	};
 
-	// `await tick()` antes do submit: sem ele o hidden ainda carrega o valor antigo e o reenvio
-	// sairia com `confirm=false` — o servidor recusaria de novo, em loop.
-	async function criarMesmoAssim() {
-		confirmando = true;
-		await tick();
-		formEl?.requestSubmit();
-	}
 
 	const seg =
 		'flex-1 rounded-[7px] border px-2 py-[7px] text-[12px] font-semibold cursor-pointer';
@@ -63,7 +51,6 @@
 	method="POST"
 	action="?/add"
 	use:enhance={submit}
-	bind:this={formEl}
 	class="mb-3.5 rounded-[10px] border border-edge bg-surface-2 p-3"
 >
 	<div class="mb-2.5 flex flex-wrap gap-2">
@@ -105,7 +92,6 @@
 		</button>
 	</div>
 	<input type="hidden" name="tipo" value={tipo} />
-	<input type="hidden" name="confirm" value={confirmando ? 'true' : 'false'} />
 
 	{#if tipo === 'horario'}
 		<div class="mb-2.5">
@@ -129,13 +115,5 @@
 </form>
 
 {#if conflitos}
-	<ConflictsModal
-		{conflitos}
-		confirmLabel="Criar mesmo assim"
-		onClose={() => {
-			conflitos = null;
-			confirmando = false;
-		}}
-		onConfirm={criarMesmoAssim}
-	/>
+	<ConflictsModal {conflitos} onClose={() => (conflitos = null)} />
 {/if}

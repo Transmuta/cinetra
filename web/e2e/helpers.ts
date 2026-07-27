@@ -13,13 +13,19 @@ import { expect, type APIRequestContext, type Page } from '@playwright/test';
 /**
  * A API **a partir deste processo**, que não é o mesmo que a API a partir do browser.
  *
- * `API_URL` é a variável server-to-server do compose (`http://api:4000`, pela rede interna) e é a
- * certa quando o Playwright roda dentro do container. `API_PUBLIC_ORIGIN` é a de fora
- * (`localhost:4010`), que serve quando se roda no host. A ordem importa: dentro do container as
- * duas existem, e a pública **não resolve** — foi o que fez a primeira execução pular o teste
- * achando que a stack estava fora do ar.
+ * `E2E_API_ORIGIN` é a porta de entrada para apontar o e2e a outro ambiente (hml, produção) —
+ * ver `README.md`. Sem ela, `API_URL` é a variável server-to-server do compose
+ * (`http://api:4000`, pela rede interna), a certa quando o Playwright roda dentro do container.
+ * `API_PUBLIC_ORIGIN` é a de fora (`localhost:4010`), que serve quando se roda no host.
+ *
+ * A ordem importa: dentro do container as duas últimas existem, e a pública **não resolve** — foi
+ * o que fez a primeira execução pular o teste achando que a stack estava fora do ar.
  */
-const API_ORIGIN = process.env.API_URL ?? process.env.API_PUBLIC_ORIGIN ?? 'http://localhost:4010';
+const API_ORIGIN =
+	process.env.E2E_API_ORIGIN ??
+	process.env.API_URL ??
+	process.env.API_PUBLIC_ORIGIN ??
+	'http://localhost:4010';
 
 export function emailUnico(prefixo = 'e2e'): string {
 	return `${prefixo}-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.com`;
@@ -29,10 +35,8 @@ export function emailUnico(prefixo = 'e2e'): string {
  * A API está de pé com as rotas de dev?
  *
  * Os e2e autenticados precisam de API + banco + a caixa de e-mail de dev — a stack do
- * `docker compose`. O job `web-e2e` do CI hoje sobe **só o web** (build + preview), então lá eles
- * pulam com aviso em vez de falhar por infraestrutura ausente, que é ruído e não sinal. Ligar a
- * API naquele job é trabalho declarado no doc 48; enquanto não acontece, o valor destes testes é
- * local — e é onde eles pegam o que a unidade não pega.
+ * `docker compose`. Contra hml/produção não há `dev_routes`, então não há como ler o magic link:
+ * ali eles pulam com aviso em vez de falhar por infraestrutura ausente. Ver `README.md`.
  */
 export async function stackCompleta(request: APIRequestContext): Promise<boolean> {
 	try {

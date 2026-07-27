@@ -156,7 +156,21 @@ folga do profissional sobre agenda → 409 (era 201)
 `movimento_app` / 0 falhas**, web **1.334 / 0**, `svelte-check` limpo,
 `mix compile --warnings-as-errors` limpo, as duas coberturas passando.
 
-## 5. O que ficou para você
+## 5. O que ficou para você — **e o que foi decidido depois**
+
+> **Atualização (2026-07-27).** Os dois itens abaixo foram levados para decisão e **resolvidos na
+> mesma sessão**, junto de outras quatro. O registro do que virou código está no
+> [`48 §6`](48-onda-6-soltas-e-limpeza.md); o que virou débito aceito está no
+> [`50`](50-debitos-tecnicos.md). Em resumo:
+>
+> - **D1 (a ficha confirma duas listas mostrando uma)** — **dissolvido**: o "salvar mesmo assim"
+>   deixou de existir. Sem `confirm`, não há como confirmar lista nenhuma;
+> - **D2 (TOCTOU)** — **estreitado**: o recheck passou para dentro da transação que grava (nas
+>   portas de horário) e para dentro da ação (nas de exceção), como o `CheckAvailability` faz ao
+>   agendar. O que resta de janela sob `READ COMMITTED` está registrado em
+>   [`50 §D-5`](50-debitos-tecnicos.md).
+>
+> O texto original dos dois fica abaixo, porque é o diagnóstico que levou à decisão.
 
 ### D1 — na ficha do profissional, um `confirm` cobre duas listas, e a pessoa vê uma
 

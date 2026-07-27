@@ -188,23 +188,13 @@ defmodule ApiWeb.ClinicHoursControllerTest do
       assert hours["clinic_hours"]["1"] == [["08:00", "12:00"], ["13:00", "18:00"]]
     end
 
-    test "com confirm: true aplica assim mesmo", ctx do
-      body =
-        ctx.conn
-        |> patch(~p"/api/clinic-hours", %{
-          "clinic_hours" => %{"1" => [["08:00", "12:00"]]},
-          "confirm" => true
-        })
-        |> json_response(200)
-
-      assert body["clinic_hours"]["1"] == [["08:00", "12:00"]]
-    end
-
-    test "só o booleano true confirma — string qualquer não passa o gate", ctx do
+    # O gate é absoluto: não existe corpo que force a mudança. Um `confirm` no payload é ignorado
+    # como qualquer outra chave desconhecida — quem quer mudar o horário remarca a agenda antes.
+    test "nenhum campo do corpo força a mudança", ctx do
       assert ctx.conn
              |> patch(~p"/api/clinic-hours", %{
                "clinic_hours" => %{"1" => [["08:00", "12:00"]]},
-               "confirm" => "sim"
+               "confirm" => true
              })
              |> json_response(409)
     end

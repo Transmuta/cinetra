@@ -48,12 +48,12 @@ describe('action add', () => {
 			ev({ data: '2026-07-09', nome: 'Feriado', tipo: 'fechado', periods: '[["08:00","12:00"]]' })
 		);
 		expect(r).toEqual({ action: 'add', ok: true });
-		expect(m.createClinicException).toHaveBeenCalledWith(
-			expect.anything(),
-			{ data: '2026-07-09', nome: 'Feriado', tipo: 'fechado', periods: [] },
-			// Sem `confirm` no form, o gate do A3/D12 vale.
-			false
-		);
+		expect(m.createClinicException).toHaveBeenCalledWith(expect.anything(), {
+			data: '2026-07-09',
+			nome: 'Feriado',
+			tipo: 'fechado',
+			periods: []
+		});
 	});
 
 	it('horario → cria com os períodos parseados', async () => {
@@ -63,8 +63,7 @@ describe('action add', () => {
 		);
 		expect(m.createClinicException).toHaveBeenCalledWith(
 			expect.anything(),
-			expect.objectContaining({ tipo: 'horario', periods: [['08:00', '12:00']] }),
-			false
+			expect.objectContaining({ tipo: 'horario', periods: [['08:00', '12:00']] })
 		);
 	});
 
@@ -73,8 +72,7 @@ describe('action add', () => {
 		await actions.add(ev({ data: '2026-07-24', tipo: 'horario', periods: '{ nope' }));
 		expect(m.createClinicException).toHaveBeenCalledWith(
 			expect.anything(),
-			expect.objectContaining({ periods: [] }),
-			false
+			expect.objectContaining({ periods: [] })
 		);
 	});
 

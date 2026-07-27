@@ -26,8 +26,7 @@ export const actions: Actions = {
 
 		if (!week) return fail(400, { error: 'Não foi possível ler o horário.' });
 
-		// A3/D12: `confirm` só viaja quando a pessoa já viu a lista de conflitos e insistiu.
-		const res = await updateClinicHours(event, week, form.get('confirm') === 'true');
+		const res = await updateClinicHours(event, week);
 
 		if (!res.ok) {
 			return fail(res.status || 400, { error: res.error, code: res.code, meta: res.meta });

@@ -27,6 +27,20 @@ defmodule Api.Scheduling.CodedError do
     Ash.Error.Changes.InvalidChanges.exception(message: message, vars: [code: code])
   end
 
+  @doc """
+  O erro do **A3/D12**: a mudança quebraria agendamentos futuros.
+
+  Carrega a análise inteira em `vars` (e não só o código) porque a tela precisa **listar** o que
+  vai quebrar — é o único erro do projeto cujo conteúdo é uma lista, e é o que a fronteira
+  promove para o `meta` do 409.
+  """
+  def future_conflicts(%{conflicts: conflicts, total: total}) do
+    Ash.Error.Changes.InvalidChanges.exception(
+      message: "Há #{total} agendamento(s) futuro(s) que ficariam fora do expediente.",
+      vars: [code: "future_conflicts", conflicts: conflicts, total: total]
+    )
+  end
+
   @doc "Erro de campo, com código opcional — quando o formulário tem de fato onde pintar."
   def invalid_attribute(field, message, code \\ nil) when is_atom(field) and is_binary(message) do
     Ash.Error.Changes.InvalidAttribute.exception(

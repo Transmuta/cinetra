@@ -174,33 +174,15 @@ jobs:
       - run: npm run coverage
       - run: npm run build
 
-  web-e2e:
-    name: Web — e2e (Playwright, cenários críticos)
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: web
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-
-      - run: npm ci
-      - name: Instalar browser + libs de sistema (chromium)
-        run: npx playwright install --with-deps chromium
-
-      # A config do Playwright sobe o app (build + preview) sozinha via `webServer`.
-      - run: npm run test:e2e
-
-      - name: Publicar relatório em caso de falha
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-report
-          path: web/playwright-report
-          retention-days: 7
+  # O e2e **saiu do CI** (decisão de 2026-07-27). Ele precisa da stack inteira — API, banco e a
+  # caixa de e-mail de dev, para consumir o magic link —, e este workflow sobe só o web. Um job
+  # que pula com aviso é ruído com cara de cobertura.
+  #
+  # Ele roda **local**, contra o `docker compose`, e aponta para onde se mandar:
+  #
+  #     npm run test:e2e                                  # preview local (build automático)
+  #     E2E_BASE_URL=https://hml.exemplo.com \
+  #     E2E_API_ORIGIN=https://api-hml.exemplo.com npm run test:e2e
+  #
+  # Ver `web/e2e/README.md`. Um estudo sobre e2e está previsto — quando ele definir a forma, o
+  # job volta com a stack que precisa.

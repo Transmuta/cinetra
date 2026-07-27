@@ -113,23 +113,34 @@ defmodule ApiWeb.TenantScope do
   "conflito de agenda" de "dados inválidos" pelo mesmo canal de sempre, e usa o `meta` para
   desenhar a lista do que remarcar antes de reenviar com `confirm: true`.
   """
-  def future_conflicts(conn, %{conflicts: conflicts} = analise) do
+  def future_conflicts(conn, %{conflicts: conflicts, total: total}) do
     conflict(
       conn,
       "future_conflicts",
-      "Há #{length(conflicts)} agendamento(s) futuro(s) que ficariam fora do expediente.",
-      %{conflicts: Enum.map(conflicts, &conflict_json/1), truncado: analise[:truncado?] == true}
+      "Há #{total} agendamento(s) futuro(s) que ficariam fora do expediente.",
+      %{conflicts: Enum.map(conflicts, &conflict_json/1), total: total}
     )
   end
 
   @doc """
-  O `confirm` do corpo, na forma que a fronteira aceita: só o booleano `true` (ou a string
-  `"true"`) confirma. Qualquer outra coisa — ausente, `"1"`, `nil` — **não** confirma, que é o
-  default seguro: quem quer pular o gate do D12 tem de dizer isso sem ambiguidade.
+  A análise do A3 quando ela vem **de dentro de uma ação** (o `CheckFutureConflicts` das
+  exceções), embrulhada num `Ash.Error.Invalid`, e não como tupla do domínio.
+
+  Duas portas escrevem por transação própria e devolvem tupla; as outras duas escrevem por uma
+  ação do Ash e devolvem erro. A resposta HTTP é a mesma — este casamento é o que faz o cliente
+  não precisar saber por qual das duas o pedido passou.
   """
-  def confirmado?(%{"confirm" => true}), do: true
-  def confirmado?(%{"confirm" => "true"}), do: true
-  def confirmado?(_params), do: false
+  def future_conflicts_error(%Ash.Error.Invalid{errors: errors}) do
+    Enum.find_value(errors, fn erro ->
+      vars = Map.get(erro, :vars) || []
+
+      if Keyword.get(vars, :code) == "future_conflicts" do
+        %{conflicts: Keyword.fetch!(vars, :conflicts), total: Keyword.fetch!(vars, :total)}
+      end
+    end)
+  end
+
+  def future_conflicts_error(_error), do: nil
 
   defp conflict_json(conflito) do
     %{

@@ -39,7 +39,7 @@ describe('action save', () => {
 		m.updateClinicHours.mockResolvedValueOnce({ ok: true, status: 200 });
 		const r = await actions.save(ev({ clinic_hours: JSON.stringify(week) }));
 		expect(r).toEqual({ ok: true });
-		expect(m.updateClinicHours).toHaveBeenCalledWith(expect.anything(), week, false);
+		expect(m.updateClinicHours).toHaveBeenCalledWith(expect.anything(), week);
 	});
 
 	it('JSON malformado → fail 400 sem tocar na API', async () => {

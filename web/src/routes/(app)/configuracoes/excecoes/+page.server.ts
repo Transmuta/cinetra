@@ -37,8 +37,7 @@ export const actions: Actions = {
 			periods: tipo === 'horario' ? parsePeriods(form.get('periods')) : []
 		};
 
-		// A3/D12: `confirm` só viaja depois de a pessoa ver a lista de conflitos e insistir.
-		const res = await createClinicException(event, input, form.get('confirm') === 'true');
+		const res = await createClinicException(event, input);
 
 		if (!res.ok) {
 			return fail(res.status || 400, {

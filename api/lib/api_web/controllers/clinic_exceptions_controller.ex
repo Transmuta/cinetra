@@ -6,9 +6,9 @@ defmodule ApiWeb.ClinicExceptionsController do
 
   Excluir é `DELETE` de verdade (H4): a exceção é uma linha de data sem FK dependente.
 
-  **O `confirm` passou a valer (A3/D12, Onda 6).** Um feriado sobre um dia com agenda marcada é
-  recusado com **409 `future_conflicts`** e a lista dos afetados no `meta`; `confirm: true` cria
-  assim mesmo.
+  **O gate do A3/D12 é absoluto.** Um feriado sobre um dia com agenda marcada é recusado com
+  **409 `future_conflicts`** (os 10 primeiros afetados + o total real no `meta`), sem opção de
+  forçar. A checagem roda **dentro da ação** (`CheckFutureConflicts`), no instante da escrita.
   """
   use ApiWeb, :controller
 
@@ -30,17 +30,17 @@ defmodule ApiWeb.ClinicExceptionsController do
   # POST /api/clinic-exceptions — cria uma exceção da clínica.
   def create(conn, params) do
     with_admin_scope(conn, fn scope ->
-      opts = [confirm: confirmado?(params)]
-
-      case Scheduling.create_clinic_exception(scope, input(params), opts) do
+      case Scheduling.create_clinic_exception(scope, input(params)) do
         {:ok, exception} ->
           conn |> put_status(:created) |> json(%{clinic_exception: exception_json(exception)})
 
-        {:error, {:future_conflicts, analise}} ->
-          future_conflicts(conn, analise)
-
         {:error, error} ->
-          error_response(conn, error)
+          # O A3 vem de dentro da ação, então chega embrulhado num `Ash.Error.Invalid`; qualquer
+          # outro erro segue a escada normal (403/404/422).
+          case future_conflicts_error(error) do
+            nil -> error_response(conn, error)
+            analise -> future_conflicts(conn, analise)
+          end
       end
     end)
   end

@@ -4,7 +4,7 @@
 	// cartões de seção com chip de ícone + subtítulo + contagem, e rodapé fixo. A grade de
 	// horário e as EXCEÇÕES de data vivem dentro da seção "Horário" e são encenadas no estado
 	// do form — tudo salva junto no `?/save`, que o `+page.server` orquestra.
-	import { untrack, tick } from 'svelte';
+	import { untrack } from 'svelte';
 	import { enhance } from '$app/forms';
 	import ConflictsModal from '$lib/components/scheduling/ConflictsModal.svelte';
 	import { parseFutureConflicts, type FutureConflicts } from '$lib/scheduling-conflicts';
@@ -191,11 +191,8 @@
 	}
 
 	// A3/D12 — a ficha é a quarta porta de edição de horário (grade + folgas). Um 409
-	// `future_conflicts` abre a mesma lista das telas de Horário e Exceções, e o "salvar mesmo
-	// assim" reenvia a ficha inteira com `confirm=true`.
+	// `future_conflicts` abre a mesma lista das telas de Horário e Exceções. Não há como forçar.
 	let conflitos = $state<FutureConflicts | null>(null);
-	let formEl: HTMLFormElement | null = $state(null);
-	let confirmando = $state(false);
 
 	const submit: SubmitFunction = () => {
 		submitting = true;
@@ -214,18 +211,10 @@
 			}
 
 			conflitos = null;
-			confirmando = false;
 			await update();
 		};
 	};
 
-	// `await tick()`: no Svelte 5 o hidden só troca de valor no flush — submeter no mesmo tick
-	// mandaria `confirm=false` e o servidor recusaria de novo, em loop.
-	async function salvarMesmoAssim() {
-		confirmando = true;
-		await tick();
-		formEl?.requestSubmit();
-	}
 
 	// ---- Progresso e contagem por seção (fiel a `secCount`/`filled` :3014) ----
 	const nonEmpty = (v: unknown) => (typeof v === 'string' ? v.trim() !== '' : !!v);
@@ -294,11 +283,9 @@
 	method="POST"
 	action="?/save"
 	use:enhance={submit}
-	bind:this={formEl}
 	class="flex h-full flex-col bg-canvas"
 >
 	<input type="hidden" name="ficha" value={JSON.stringify(fichaPayload())} />
-	<input type="hidden" name="confirm" value={confirmando ? 'true' : 'false'} />
 	<input type="hidden" name="days" value={JSON.stringify(buildDays(segue, grade, clinicHours))} />
 	<input
 		type="hidden"
@@ -731,12 +718,5 @@
 </form>
 
 {#if conflitos}
-	<ConflictsModal
-		{conflitos}
-		onClose={() => {
-			conflitos = null;
-			confirmando = false;
-		}}
-		onConfirm={salvarMesmoAssim}
-	/>
+	<ConflictsModal {conflitos} onClose={() => (conflitos = null)} />
 {/if}

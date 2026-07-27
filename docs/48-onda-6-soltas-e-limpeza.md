@@ -9,15 +9,17 @@ de **decisão de produto** antes de existir código.
 
 > ## ▶︎ Onde retomar
 >
-> Tudo entregue e verde: **1.064 testes no backend** (18 doctests) e **1.334 no web**, `0
-> falhas`, `svelte-check` limpo, `mix compile --warnings-as-errors` limpo.
+> Tudo entregue e verde: **1.082 testes no backend** (18 doctests, 91,2%), **1.336 no web** e os
+> **4 e2e**, `0 falhas`, `svelte-check` limpo, `mix compile --warnings-as-errors` limpo, gate
+> `:rls` verde como `movimento_app`.
 >
 > Os dois gates de produto que bloqueavam a onda foram **decididos aqui** e estão registrados no
 > §5 (A3) e no §4 (D-Aud1) — com a medição que sustenta cada um. Um terceiro item, o desenho do
 > F5, foi decidido no §3.
 >
-> O que ficou para decisão humana está no §6 — em especial o e2e autenticado, que **roda e passa
-> localmente** mas pula no CI, porque o job `web-e2e` sobe só o web.
+> O §6 registra as decisões tomadas **depois** da auditoria, que mudaram o A3: o "salvar mesmo
+> assim" foi **removido**, a contagem de conflitos virou exata, o recheck passou para dentro da
+> escrita e o e2e saiu do CI. O que sobrou de débito está no [`50`](50-debitos-tecnicos.md).
 
 ## 1. O que o levantamento mudou
 
@@ -231,37 +233,51 @@ a tela num inventário de encaixes antigos a cada ajuste de horário. A compara�
 > hidden com o valor **antigo** (`confirm=false`) e o servidor recusaria de novo, em loop. É o
 > mesmo tropeço que a presença da turma pagou (doc 41), onde só o clique ao vivo revelou.
 
-## 6. O que fica para decisão humana
+## 6. As decisões que foram tomadas depois (2026-07-27)
 
-### D1 — o e2e autenticado passa localmente e **pula** no CI
+Os itens que este doc tinha deixado abertos foram **decididos e implementados** na mesma sessão.
+O registro de cada um está no [`50`](50-debitos-tecnicos.md) quando virou débito, e aqui quando
+virou código:
 
-`e2e/switch-clinic.spec.ts` roda verde contra o `docker compose` (provado). No CI, o job
-`web-e2e` sobe **só o web** (build + preview) — não há API nem banco —, então o teste pula com
-aviso em vez de falhar por infraestrutura ausente.
+### O e2e saiu do CI, e o alvo virou variável
 
-Um teste que pula no CI é quase um teste que não existe. A correção é ligar API + Postgres naquele
-job (serviço `postgres`, `setup-beam`, `mix ecto.setup`, `phx.server` em background com
-`dev_routes`), o que é trabalho de pipeline e não desta frente. Enquanto isso, o valor é local — e
-foi lá que ele achou os três tropeços do §2e.
+O job `web-e2e` foi **removido**: ele precisa da stack inteira (API, banco, caixa de e-mail de dev)
+e o workflow sobe só o web — um job que pula com aviso é ruído com cara de cobertura. Ele roda
+local, e apontar para hml/produção é `E2E_BASE_URL` + `E2E_API_ORIGIN` (ver `web/e2e/README.md`).
 
-### D2 — o teto de 500 agendamentos da análise de impacto
+Rodá-lo fora do CI **achou três specs podres na hora**: `/entrar` mudou o título ("Bem-vindo de
+volta"), o estado neutro virou "Verifique seu e-mail", e o toggle de tema **mudou de lugar** — saiu
+das telas de entrada e vive no `Rail` do app, então o e2e de tema passou a precisar de sessão. Os
+três corrigidos; os quatro specs passam.
 
-`future_conflicts/2` lê no máximo 500 agendamentos futuros e devolve `truncado?`. Acima disso a
-tela avisa ("e possivelmente mais"), mas a lista fica incompleta. É muito acima do que uma clínica
-tem marcado para frente, e o teto existe para a pergunta não virar "leia toda a agenda futura" —
-mas é escolha, não medição, e a hora de revisitá-la é quando alguma clínica passar perto.
+### O "salvar mesmo assim" não existe mais
 
-### D3 — a paleta continua duplicada entre as linguagens
+O `confirm` saiu de ponta a ponta (domínio, fronteira, BFF, as três telas). **Mudar horário por
+cima de agenda marcada não é uma opção do produto**: o modal informa o que quebraria e a recepção
+remarca. Isso também dissolveu o item da ficha do profissional — não há mais como confirmar uma
+lista que não foi vista, porque não há mais o que confirmar.
 
-O `one_of` de `AppointmentType` é a autoridade; `web/src/lib/appointment-types.ts` repete a lista
-para a tela só *oferecer* o que a API aceita. Nenhum compilador liga os dois lados (linguagens
-diferentes, e um container **não enxerga** o diretório do outro — `./api:/app` e `./web:/app`).
+### A contagem é real; a lista é que tem teto
 
-O que entrou no lugar: a terceira cópia (`PACKAGE_COLORS`) foi eliminada, e cada lado ganhou uma
-**tripwire** — um teste que fixa a lista e diz, por escrito, para mudar a outra ponta junto. Mudar
-a paleta passou a ser mudar quatro lugares de propósito. Um contrato de verdade exigiria a API
-**servir** a paleta e a tela consumi-la, o que é mudança de contrato para um risco cujo pior caso
-é um 422 em inglês.
+O teto de 500 **na leitura** era um buraco: se os conflitos estivessem depois do 500º, o gate
+passava calado. Agora a leitura vai por `stream?` (sem teto), o `total` é exato e a resposta
+detalha os **10 primeiros** — "10 de 80" é o que a recepção consegue usar; 80 linhas não.
+
+De quebra ficou mais barato: as presenças e os pacientes são lidos **depois** de saber quem
+conflita, e só para os 10 que a tela mostra.
+
+### O recheck acontece dentro da escrita
+
+O gate deixou de rodar antes da transação. Nas duas portas de horário ele roda **dentro** do
+`Api.Repo.transaction` que grava (conflito → `Repo.rollback`); nas duas de exceção, **dentro da
+ação**, num `before_action` (`CheckFutureConflicts`) — o mesmo lugar em que o `CheckAvailability`
+confere o expediente ao agendar. O que resta de janela está no [`50 §D-5`](50-debitos-tecnicos.md).
+
+### A paleta fica como está
+
+Não era decisão em aberto, e este doc errou ao chamá-la assim. Acrescentar uma cor é acrescentá-la
+nos dois lados, e há uma tripwire em cada um dizendo isso por escrito. Registrado em
+[`50 §D-3`](50-debitos-tecnicos.md).
 
 ## 7. Lições
 

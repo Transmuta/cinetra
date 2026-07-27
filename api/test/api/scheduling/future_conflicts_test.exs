@@ -45,7 +45,7 @@ defmodule Api.Scheduling.FutureConflictsTest do
       ctx = ctx_no_passado()
       appt = agendar(ctx, "14:00")
 
-      %{conflicts: [conflito], truncado?: false} =
+      %{conflicts: [conflito], total: 1} =
         Scheduling.future_conflicts(ctx.scope, {:clinic_hours, %{1 => [["08:00", "12:00"]]}})
 
       assert conflito.appointment_id == appt.id
@@ -83,11 +83,28 @@ defmodule Api.Scheduling.FutureConflictsTest do
                )
     end
 
-    test "sem agendamento nenhum, nenhuma conflito e nenhuma leitura extra" do
+    test "sem agendamento nenhum, nenhum conflito" do
       ctx = ctx_no_passado()
 
-      assert %{conflicts: [], truncado?: false} =
+      assert %{conflicts: [], total: 0} =
                Scheduling.future_conflicts(ctx.scope, {:clinic_hours, %{1 => []}})
+    end
+
+    # #2 da rodada de decisões: o `total` é o número REAL, e a lista detalha só os primeiros —
+    # uma tela com 80 linhas não ajuda a decidir; "10 de 80" ajuda.
+    test "o total é exato mesmo quando a lista é cortada" do
+      ctx = ctx_no_passado()
+
+      # 12 sessões às 14h — uma por profissional, todas fora da janela 08–12 proposta.
+      for n <- 1..12 do
+        agendar(ctx, "14:00", professional_id: profissional!(ctx, "Dr. #{n}").id)
+      end
+
+      %{conflicts: conflitos, total: total} =
+        Scheduling.future_conflicts(ctx.scope, {:clinic_hours, %{1 => [["08:00", "12:00"]]}})
+
+      assert total == 12
+      assert length(conflitos) == 10, "a lista detalha 10; a contagem não tem teto"
     end
 
     test "não enxerga a agenda de outra clínica" do
@@ -129,14 +146,17 @@ defmodule Api.Scheduling.FutureConflictsTest do
       assert segunda.periods == [["08:00", "12:00"]]
     end
 
-    test "`confirm: true` passa por cima — a decisão é de quem opera" do
+    # Não existe "salvar mesmo assim": mudar horário por cima de agenda marcada não é uma opção
+    # do produto. A lista existe para a recepção remarcar um a um e tentar de novo.
+    test "não há como forçar — a segunda tentativa igual é recusada igual" do
       ctx = ctx_no_passado()
       agendar(ctx, "14:00")
 
-      assert {:ok, _rows} =
-               Scheduling.update_clinic_hours(ctx.scope, %{1 => [["08:00", "12:00"]]},
-                 confirm: true
-               )
+      assert {:error, {:future_conflicts, _}} =
+               Scheduling.update_clinic_hours(ctx.scope, %{1 => [["08:00", "12:00"]]})
+
+      assert {:error, {:future_conflicts, _}} =
+               Scheduling.update_clinic_hours(ctx.scope, %{1 => [["08:00", "12:00"]]})
     end
 
     test "update_professional_hours recusa quando fecha o dia de quem tem sessão marcada" do
@@ -153,7 +173,7 @@ defmodule Api.Scheduling.FutureConflictsTest do
       ctx = ctx_no_passado()
       agendar(ctx, "14:00")
 
-      assert {:error, {:future_conflicts, %{conflicts: [_ | _]}}} =
+      assert {:error, erro} =
                Scheduling.create_clinic_exception(ctx.scope, %{
                  data: @segunda,
                  nome: "Feriado",
@@ -161,6 +181,9 @@ defmodule Api.Scheduling.FutureConflictsTest do
                  periods: []
                })
 
+      # A recusa vem de DENTRO da ação (`CheckFutureConflicts`), então é erro do Ash com o
+      # código e a lista em `vars` — a fronteira o promove a 409.
+      assert %{conflicts: [_ | _], total: 1} = ApiWeb.TenantScope.future_conflicts_error(erro)
       assert Scheduling.list_clinic_exceptions(ctx.scope) == []
     end
 
@@ -168,13 +191,15 @@ defmodule Api.Scheduling.FutureConflictsTest do
       ctx = ctx_no_passado()
       agendar(ctx, "14:00")
 
-      assert {:error, {:future_conflicts, %{conflicts: [_ | _]}}} =
+      assert {:error, erro} =
                Scheduling.create_professional_exception(ctx.scope, ctx.prof.id, %{
                  data: @segunda,
                  nome: "Folga",
                  tipo: :fechado,
                  periods: []
                })
+
+      assert %{total: 1} = ApiWeb.TenantScope.future_conflicts_error(erro)
     end
 
     test "a folga de UM profissional não é barrada pela agenda de OUTRO" do

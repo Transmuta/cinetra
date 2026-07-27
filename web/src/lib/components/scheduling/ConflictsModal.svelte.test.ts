@@ -20,9 +20,8 @@ function conflito(over: Partial<FutureConflict> = {}): FutureConflict {
 
 function base(over = {}) {
 	return {
-		conflitos: { conflicts: [conflito()], truncado: false },
+		conflitos: { conflicts: [conflito()], total: 1 },
 		onClose: () => {},
-		onConfirm: () => {},
 		...over
 	};
 }
@@ -42,7 +41,7 @@ describe('ConflictsModal (A3/D12)', () => {
 			props: base({
 				conflitos: {
 					conflicts: [conflito({ reason: 'sem_atendimento', periods_depois: [] })],
-					truncado: false
+					total: 1
 				}
 			})
 		});
@@ -50,29 +49,31 @@ describe('ConflictsModal (A3/D12)', () => {
 		expect(screen.getByText('Sem atendimento nesse dia')).toBeInTheDocument();
 	});
 
-	it('avisa quando a lista veio cortada pelo teto do servidor', () => {
+	// O total manda no cabeçalho, e o resto vira uma linha — é o que transforma "80 linhas
+	// ilegíveis" em "aqui vão 1, e faltam 79".
+	it('conta pelo total do servidor e avisa quantos ficaram de fora da lista', () => {
 		render(ConflictsModal, {
-			props: base({ conflitos: { conflicts: [conflito()], truncado: true } })
+			props: base({ conflitos: { conflicts: [conflito()], total: 80 } })
 		});
 
-		expect(screen.getByText(/e possivelmente mais/)).toBeInTheDocument();
+		expect(screen.getByText(/80 agendamentos futuros/)).toBeInTheDocument();
+		expect(screen.getByText('e mais 79 agendamentos não listados aqui')).toBeInTheDocument();
 	});
 
-	// O ponto do D12: a confirmação existe, mas só DEPOIS da lista — o botão vive aqui dentro.
-	it('"Salvar mesmo assim" chama o confirm; "Voltar e ajustar" fecha', async () => {
-		const onConfirm = vi.fn();
+	it('sem resto, não inventa a linha do resto', () => {
+		render(ConflictsModal, { props: base() });
+		expect(screen.queryByText(/não listados aqui/)).not.toBeInTheDocument();
+	});
+
+	// O gate é absoluto (D12): o modal informa, não oferece saída. Um "salvar mesmo assim" aqui
+	// seria a única porta para gravar por cima de agenda marcada — e ela não deve existir.
+	it('NÃO oferece forçar a mudança — só o "Entendi", que fecha', async () => {
 		const onClose = vi.fn();
-		render(ConflictsModal, { props: base({ onConfirm, onClose }) });
+		render(ConflictsModal, { props: base({ onClose }) });
 
-		await userEvent.click(screen.getByRole('button', { name: 'Salvar mesmo assim' }));
-		expect(onConfirm).toHaveBeenCalledOnce();
+		expect(screen.queryByRole('button', { name: /mesmo assim/i })).not.toBeInTheDocument();
 
-		await userEvent.click(screen.getByRole('button', { name: 'Voltar e ajustar' }));
+		await userEvent.click(screen.getByRole('button', { name: 'Entendi' }));
 		expect(onClose).toHaveBeenCalledOnce();
-	});
-
-	it('o rótulo do confirmar é configurável (a exceção diz "Criar")', () => {
-		render(ConflictsModal, { props: base({ confirmLabel: 'Criar mesmo assim' }) });
-		expect(screen.getByRole('button', { name: 'Criar mesmo assim' })).toBeInTheDocument();
 	});
 });

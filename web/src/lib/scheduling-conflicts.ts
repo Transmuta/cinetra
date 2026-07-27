@@ -21,9 +21,10 @@ export interface FutureConflict {
 }
 
 export interface FutureConflicts {
+	/** Os primeiros afetados, detalhados (o servidor manda no máximo 10). */
 	conflicts: FutureConflict[];
-	/** O servidor bateu no teto de leitura — há mais do que a lista mostra. */
-	truncado: boolean;
+	/** O número **real** de agendamentos afetados — sem teto. */
+	total: number;
 }
 
 /**
@@ -46,7 +47,9 @@ export function parseFutureConflicts(
 	const conflicts = bruto.filter(isConflict);
 	if (!conflicts.length) return null;
 
-	return { conflicts, truncado: (meta as { truncado?: unknown }).truncado === true };
+	const total = (meta as { total?: unknown }).total;
+
+	return { conflicts, total: typeof total === 'number' ? total : conflicts.length };
 }
 
 function isConflict(v: unknown): v is FutureConflict {
@@ -75,13 +78,23 @@ export function motivoLabel(conflito: FutureConflict): string {
 	return janelas ? `Fora do novo expediente (${janelas})` : 'Fora do novo expediente';
 }
 
-/** O cabeçalho do modal: quantos, e a ressalva quando a lista foi cortada pelo teto. */
-export function resumoConflitos({ conflicts, truncado }: FutureConflicts): string {
-	const n = conflicts.length;
-	const base =
-		n === 1
-			? '1 agendamento futuro ficaria fora do expediente'
-			: `${n} agendamentos futuros ficariam fora do expediente`;
+/** O cabeçalho do modal: quantos ficariam fora, pelo número REAL. */
+export function resumoConflitos({ total }: FutureConflicts): string {
+	return total === 1
+		? '1 agendamento futuro ficaria fora do expediente'
+		: `${total} agendamentos futuros ficariam fora do expediente`;
+}
 
-	return truncado ? `${base} (e possivelmente mais)` : base;
+/**
+ * A linha abaixo da lista quando o servidor detalhou só os primeiros. Vazia quando a lista já
+ * mostra tudo — não se avisa sobre um resto que não existe.
+ */
+export function restoNaoListado({ conflicts, total }: FutureConflicts): string {
+	const resto = total - conflicts.length;
+
+	if (resto <= 0) return '';
+
+	return resto === 1
+		? 'e mais 1 agendamento não listado aqui'
+		: `e mais ${resto} agendamentos não listados aqui`;
 }

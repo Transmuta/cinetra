@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { untrack, tick } from 'svelte';
+	import { untrack } from 'svelte';
 	import { enhance } from '$app/forms';
 	import type { SubmitFunction } from '@sveltejs/kit';
 	import Circle from '@lucide/svelte/icons/circle';
@@ -33,11 +33,9 @@
 		return structuredClone($state.snapshot(w)) as WeekHours;
 	}
 
-	// A3/D12 — os conflitos que o servidor devolveu no 409, e o formulário que os reenvia com
-	// `confirm`. O modal é a ÚNICA porta para o confirm: ninguém aplica sem ter visto a lista.
+	// A3/D12 — os conflitos que o servidor devolveu no 409. O modal é só AVISO: não existe
+	// "salvar mesmo assim", então não há o que reenviar.
 	let conflitos = $state<FutureConflicts | null>(null);
-	let formEl: HTMLFormElement | null = $state(null);
-	let confirmando = $state(false);
 
 	const save: SubmitFunction = () => {
 		return async ({ result, update }) => {
@@ -45,7 +43,6 @@
 			if (result.type === 'success') {
 				draft = clone(data.clinicHours);
 				conflitos = null;
-				confirmando = false;
 				toast('Horário da clínica salvo');
 			} else if (result.type === 'failure') {
 				// 409 com a lista → modal. Qualquer outro erro (ex.: períodos inválidos → 422) vira
@@ -56,11 +53,7 @@
 				if (achados) {
 					conflitos = achados;
 				} else {
-					// Erro que NÃO é conflito zera o `confirmando` (bate-volta doc 49): sem isto,
-					// uma tentativa confirmada que falhasse por outro motivo deixaria a flag ligada,
-					// e o próximo "Salvar" pularia o gate **sem** a pessoa ver lista nenhuma.
 					conflitos = null;
-					confirmando = false;
 
 					const message = result.data?.error;
 					toast(
@@ -72,17 +65,6 @@
 		};
 	};
 
-	// Reenvia a MESMA semana com `confirm=true`.
-	//
-	// O `await tick()` NÃO é decorativo: no Svelte 5 o DOM só é atualizado no flush, e um
-	// `requestSubmit()` no mesmo tick submeteria o hidden com o valor ANTIGO — o form iria com
-	// `confirm=false` e o servidor recusaria de novo, para sempre. É o mesmo tropeço que a
-	// presença da turma pagou (doc 41), e ali só o clique ao vivo revelou.
-	async function aplicarMesmoAssim() {
-		confirmando = true;
-		await tick();
-		formEl?.requestSubmit();
-	}
 
 	function discard() {
 		draft = clone(data.clinicHours);
@@ -124,9 +106,8 @@
 					</button>
 				{/if}
 
-				<form method="POST" action="?/save" use:enhance={save} bind:this={formEl}>
+				<form method="POST" action="?/save" use:enhance={save}>
 					<input type="hidden" name="clinic_hours" value={JSON.stringify(draft)} />
-					<input type="hidden" name="confirm" value={confirmando ? 'true' : 'false'} />
 					<button
 						type="submit"
 						disabled={!dirty || hasErrors}
@@ -152,12 +133,5 @@
 </div>
 
 {#if conflitos}
-	<ConflictsModal
-		{conflitos}
-		onClose={() => {
-			conflitos = null;
-			confirmando = false;
-		}}
-		onConfirm={aplicarMesmoAssim}
-	/>
+	<ConflictsModal {conflitos} onClose={() => (conflitos = null)} />
 {/if}

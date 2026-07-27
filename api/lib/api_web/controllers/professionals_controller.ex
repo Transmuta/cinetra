@@ -84,7 +84,7 @@ defmodule ApiWeb.ProfessionalsController do
     with_admin_scope(conn, fn scope ->
       days = params |> Map.get("days", []) |> Enum.map(&day_input/1)
 
-      case Scheduling.update_professional_hours(scope, id, days, confirm: confirmado?(params)) do
+      case Scheduling.update_professional_hours(scope, id, days) do
         {:ok, rows} ->
           json(conn, %{hours: Enum.map(rows, &hours_row_json/1)})
 
@@ -107,20 +107,20 @@ defmodule ApiWeb.ProfessionalsController do
   # POST /api/professionals/:id/exceptions — folga ou horário pontual do profissional.
   def create_exception(conn, %{"id" => id} = params) do
     with_admin_scope(conn, fn scope ->
-      opts = [confirm: confirmado?(params)]
-
-      case Scheduling.create_professional_exception(scope, id, exception_input(params), opts) do
+      case Scheduling.create_professional_exception(scope, id, exception_input(params)) do
         {:ok, exc} ->
           conn |> put_status(:created) |> json(%{exception: exception_json(exc)})
 
         {:error, :professional_not_in_clinic} ->
           not_found(conn)
 
-        {:error, {:future_conflicts, analise}} ->
-          future_conflicts(conn, analise)
-
         {:error, error} ->
-          error_response(conn, error)
+          # O A3 da folga vem de dentro da ação (`CheckFutureConflicts`), embrulhado em
+          # `Ash.Error.Invalid`.
+          case future_conflicts_error(error) do
+            nil -> error_response(conn, error)
+            analise -> future_conflicts(conn, analise)
+          end
       end
     end)
   end

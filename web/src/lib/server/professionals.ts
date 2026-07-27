@@ -102,24 +102,22 @@ export function reactivateProfessional(event: RequestEvent, id: string): Promise
 
 // PATCH substitui a grade dos dias enviados (valida a semana inteira antes de escrever,
 // incluindo o invariante prof ⊆ clínica).
-// `confirm` é o A3/D12 — ver `updateClinicHours`. Estreitar a grade sobre sessão marcada volta
-// 409 `future_conflicts` com a lista no `meta`.
+// Estreitar a grade sobre sessão marcada volta 409 `future_conflicts` com a lista no `meta`
+// (A3/D12 — sem opção de forçar).
 export function updateProfessionalHours(
 	event: RequestEvent,
 	id: string,
-	days: DayInput[],
-	confirm = false
+	days: DayInput[]
 ): Promise<MutationResult> {
-	return mutate(event, `${path(id)}/hours`, 'PATCH', { days, confirm });
+	return mutate(event, `${path(id)}/hours`, 'PATCH', { days });
 }
 
 export function createProfessionalException(
 	event: RequestEvent,
 	id: string,
-	input: { data: string; nome: string; tipo: string; periods: Period[] },
-	confirm = false
+	input: { data: string; nome: string; tipo: string; periods: Period[] }
 ): Promise<MutationResult> {
-	return mutate(event, `${path(id)}/exceptions`, 'POST', { ...input, confirm });
+	return mutate(event, `${path(id)}/exceptions`, 'POST', input);
 }
 
 export function deleteProfessionalException(
@@ -220,8 +218,7 @@ export async function syncProfessionalExceptions(
 	event: RequestEvent,
 	id: string,
 	desired: ExceptionInput[],
-	originalIds: string[],
-	confirm = false
+	originalIds: string[]
 ): Promise<MutationResult> {
 	const keep = new Set(desired.filter((e) => e.id).map((e) => e.id as string));
 
@@ -231,12 +228,12 @@ export async function syncProfessionalExceptions(
 	}
 
 	for (const e of desired.filter((e) => !e.id)) {
-		const res = await createProfessionalException(
-			event,
-			id,
-			{ data: e.data, nome: e.nome, tipo: e.tipo, periods: e.periods },
-			confirm
-		);
+		const res = await createProfessionalException(event, id, {
+			data: e.data,
+			nome: e.nome,
+			tipo: e.tipo,
+			periods: e.periods
+		});
 		if (!res.ok) return res;
 	}
 
@@ -264,10 +261,6 @@ export async function runProfessionalSave(
 	| { ok: true }
 	| { ok: false; status: number; error?: string; code?: string; meta?: Record<string, unknown> }
 > {
-	// A3/D12 — a ficha é a QUARTA porta de edição de horário (grade + exceções do profissional).
-	// O `confirm` atravessa a orquestração inteira: sem ele a API recusa a grade (ou a folga) que
-	// deixaria sessão marcada fora do expediente, e o 409 sobe com a lista para a tela desenhar.
-	const confirm = form.get('confirm') === 'true';
 	const parsed = parseProfessionalForm(
 		String(form.get('ficha') ?? ''),
 		String(form.get('days') ?? '')
@@ -280,7 +273,10 @@ export async function runProfessionalSave(
 	const id = opts.professionalId ?? persisted.id;
 	if (!id) return { ok: false, status: 500, error: 'Não foi possível salvar o profissional.' };
 
-	const hours = await updateProfessionalHours(event, id, parsed.days, confirm);
+	// A3/D12 — a ficha é a QUARTA porta de edição de horário (grade + exceções do profissional).
+	// A API recusa a grade (ou a folga) que deixaria sessão marcada fora do expediente, e o 409
+	// sobe com a lista para a tela desenhar.
+	const hours = await updateProfessionalHours(event, id, parsed.days);
 
 	if (!hours.ok) {
 		return {
@@ -296,8 +292,7 @@ export async function runProfessionalSave(
 		event,
 		id,
 		parseExceptions(String(form.get('exceptions') ?? '[]')),
-		opts.originalExceptionIds,
-		confirm
+		opts.originalExceptionIds
 	);
 
 	if (!exc.ok) {

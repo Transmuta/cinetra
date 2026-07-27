@@ -37,15 +37,14 @@ export interface ClinicExceptionInput {
 }
 
 /**
- * `confirm` é o A3/D12: sem ele, um feriado sobre um dia com agenda marcada volta **409
- * `future_conflicts`** com a lista no `meta`, e nada é criado.
+ * Um feriado sobre um dia com agenda marcada volta **409 `future_conflicts`** com a lista no
+ * `meta`, e nada é criado (A3/D12 — sem opção de forçar).
  */
 export function createClinicException(
 	event: RequestEvent,
-	input: ClinicExceptionInput,
-	confirm = false
+	input: ClinicExceptionInput
 ): Promise<MutationResult> {
-	return mutate(event, '/api/clinic-exceptions', 'POST', { ...input, confirm });
+	return mutate(event, '/api/clinic-exceptions', 'POST', input);
 }
 
 // Excluir é DELETE de verdade (H4). O id vem de um campo de formulário (cliente): escapado,

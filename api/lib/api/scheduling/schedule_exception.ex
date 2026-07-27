@@ -47,6 +47,10 @@ defmodule Api.Scheduling.ScheduleException do
       # a FK só garante que é um profissional, não que é DESTA clínica.
       accept [:data, :nome, :tipo, :periods, :professional_id]
       change Api.Tenancy.SetTenantGuc
+
+      # A3/D12 — o recheck dentro da ação. **Depois** do `SetTenantGuc`: a análise lê a agenda, e
+      # sem a GUC setada a RLS devolveria zero linhas e ela concluiria que não há conflito nenhum.
+      change Api.Scheduling.ScheduleException.Changes.CheckFutureConflicts
     end
 
     # `require_atomic? false`: o `SetTenantGuc` roda num `before_action` (a GUC precisa estar

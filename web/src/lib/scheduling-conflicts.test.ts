@@ -4,6 +4,7 @@ import {
 	diaCurto,
 	motivoLabel,
 	resumoConflitos,
+	restoNaoListado,
 	type FutureConflict
 } from './scheduling-conflicts';
 
@@ -22,13 +23,10 @@ function conflito(over: Partial<FutureConflict> = {}): FutureConflict {
 
 describe('parseFutureConflicts', () => {
 	it('lê o meta do 409 quando o code é o do conflito futuro', () => {
-		const r = parseFutureConflicts('future_conflicts', {
-			conflicts: [conflito()],
-			truncado: false
-		});
+		const r = parseFutureConflicts('future_conflicts', { conflicts: [conflito()], total: 1 });
 
 		expect(r?.conflicts).toHaveLength(1);
-		expect(r?.truncado).toBe(false);
+		expect(r?.total).toBe(1);
 	});
 
 	it('outro code devolve null — a tela mostra toast, não o modal', () => {
@@ -49,13 +47,14 @@ describe('parseFutureConflicts', () => {
 		expect(r?.conflicts).toHaveLength(1);
 	});
 
-	it('propaga o corte do teto do servidor', () => {
-		const r = parseFutureConflicts('future_conflicts', {
-			conflicts: [conflito()],
-			truncado: true
-		});
+	it('propaga o TOTAL do servidor, que pode ser maior que a lista', () => {
+		const r = parseFutureConflicts('future_conflicts', { conflicts: [conflito()], total: 80 });
+		expect(r?.total).toBe(80);
+	});
 
-		expect(r?.truncado).toBe(true);
+	it('sem total no meta, cai no tamanho da lista — nunca mente para menos', () => {
+		const r = parseFutureConflicts('future_conflicts', { conflicts: [conflito(), conflito()] });
+		expect(r?.total).toBe(2);
 	});
 });
 
@@ -79,15 +78,23 @@ describe('rótulos', () => {
 		expect(motivoLabel(conflito({ periods_depois: [] }))).toBe('Fora do novo expediente');
 	});
 
-	it('o resumo conta e avisa quando a lista foi cortada', () => {
-		expect(resumoConflitos({ conflicts: [conflito()], truncado: false })).toBe(
+	it('o resumo conta pelo TOTAL, não pelo tamanho da lista', () => {
+		expect(resumoConflitos({ conflicts: [conflito()], total: 1 })).toBe(
 			'1 agendamento futuro ficaria fora do expediente'
 		);
-		expect(resumoConflitos({ conflicts: [conflito(), conflito()], truncado: false })).toBe(
-			'2 agendamentos futuros ficariam fora do expediente'
+		// A lista tem 1, o total é 80: quem manda é o total.
+		expect(resumoConflitos({ conflicts: [conflito()], total: 80 })).toBe(
+			'80 agendamentos futuros ficariam fora do expediente'
 		);
-		expect(resumoConflitos({ conflicts: [conflito()], truncado: true })).toBe(
-			'1 agendamento futuro ficaria fora do expediente (e possivelmente mais)'
+	});
+
+	it('o resto só aparece quando existe resto', () => {
+		expect(restoNaoListado({ conflicts: [conflito()], total: 1 })).toBe('');
+		expect(restoNaoListado({ conflicts: [conflito()], total: 2 })).toBe(
+			'e mais 1 agendamento não listado aqui'
+		);
+		expect(restoNaoListado({ conflicts: [conflito()], total: 71 })).toBe(
+			'e mais 70 agendamentos não listados aqui'
 		);
 	});
 });

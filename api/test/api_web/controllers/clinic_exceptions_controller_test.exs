@@ -252,7 +252,7 @@ defmodule ApiWeb.ClinicExceptionsControllerTest do
                ctx.conn |> get(~p"/api/clinic-exceptions") |> json_response(200)
     end
 
-    test "com confirm cria assim mesmo", ctx do
+    test "nenhum campo do corpo força a criação", ctx do
       assert ctx.conn
              |> post(~p"/api/clinic-exceptions", %{
                "data" => "2027-03-15",
@@ -261,7 +261,7 @@ defmodule ApiWeb.ClinicExceptionsControllerTest do
                "periods" => [],
                "confirm" => true
              })
-             |> json_response(201)
+             |> json_response(409)
     end
 
     test "exceção em dia SEM agenda cria direto", ctx do
