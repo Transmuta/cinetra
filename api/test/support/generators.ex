@@ -41,6 +41,7 @@ defmodule Api.Generators do
   do e-mail. `sign_in!/1` e `sessao_de_membro!/4` são elas, uma vez.
   """
 
+  import Ecto.Query, only: [from: 2]
   import ExUnit.Assertions
 
   alias Api.Accounts
@@ -116,13 +117,63 @@ defmodule Api.Generators do
     escopo(user, ctx.clinic)
   end
 
-  @doc "Mais um profissional na clínica do `ctx`."
-  def profissional!(ctx, nome \\ "Dr. Y"),
-    do: Directory.create_professional!(nome, %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+  @doc """
+  Mais um profissional na clínica do `ctx`.
 
-  @doc "Mais um paciente na clínica do `ctx`."
+  Com telefone pelo mesmo motivo de `paciente!/2`: a `Api.Validations.TelObrigatorio` vale para os
+  dois cadastros (D6), e sem isto toda fábrica do projeto estouraria em validação.
+  """
+  def profissional!(ctx, nome \\ "Dr. Y"),
+    do:
+      Directory.create_professional!(nome, %{tel: telefone_unico()},
+        tenant: ctx.clinic.id,
+        actor: ctx.owner
+      )
+
+  @doc """
+  Mais um paciente na clínica do `ctx`.
+
+  Já nasce com telefone porque ele **é obrigatório** desde a fase 2 da comunicação (doc 52 §9):
+  sem isto, toda fábrica de teste do projeto passaria a estourar em validação. É a razão de esta
+  fábrica existir num lugar só — a mudança que quebraria doze `defp setup_clinic` custou uma linha.
+  """
   def paciente!(ctx, nome \\ "Paciente"),
-    do: Records.create_patient!(nome, %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+    do:
+      Records.create_patient!(nome, %{tel: telefone_unico()},
+        tenant: ctx.clinic.id,
+        actor: ctx.owner
+      )
+
+  @doc """
+  Um celular brasileiro válido e globalmente único (`+5511 9XXXX-XXXX`).
+
+  Celular, e não fixo, porque é o que faz o paciente ser alcançável por WhatsApp — teste que
+  precise do contrário (fixo cai para o e-mail) escreve o número na mão, e o faz de propósito.
+  """
+  def telefone_unico do
+    sufixo = unico() |> rem(100_000_000) |> Integer.to_string() |> String.pad_leading(8, "0")
+
+    "+55119" <> sufixo
+  end
+
+  @doc """
+  Um paciente **sem telefone** — a ficha legada que existia antes de o campo virar obrigatório.
+
+  Escreve direto pelo repo, contornando a ação: é o único jeito de produzir a linha que o D6(b)
+  deixa viva no banco e cobra no próximo save. Sem isto não haveria como testar o `:sem_canal`
+  nem a própria cobrança da validação, porque a ação recusa criar o caso.
+  """
+  def paciente_legado_sem_tel!(ctx, attrs \\ %{}) do
+    paciente = paciente_com(ctx, attrs)
+
+    {1, _} =
+      Api.Repo.update_all(
+        from(p in "patients", where: p.id == type(^paciente.id, :binary_id)),
+        set: [tel: nil]
+      )
+
+    %{paciente | tel: nil}
+  end
 
   @doc """
   Um tipo de atendimento. Os defaults são os do individual de 50 min; `[grupo: true, capacidade: 4]`
