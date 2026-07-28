@@ -128,7 +128,18 @@
 		Array.from({ length: Math.floor((range.end - range.start) / 60) + 1 }, (_, i) => range.start + i * 60)
 	);
 
-	const gridH = $derived(PAD + (range.end - range.start) * PPM + 10);
+	// Folga abaixo da última hora. Os 10px originais só evitavam que a borda cortasse a linha
+	// final; com o card alto do AN-01 (uma sessão de 30 min ocupa 76px), o agendamento que termina
+	// na última hora encostava no fim do scroll e ficava espremido contra a borda — sem respiro
+	// para ler as quatro linhas nem para o hover/arraste sobrar. Uma hora de folga (60 × PPM) dá
+	// ao último card o mesmo espaço em volta que qualquer outro tem.
+	//
+	// É espaço VISUAL apenas: a faixa de horas continua sendo `range`, então nem `topDe`, nem a
+	// hachura, nem a linha do agora mudam, e clicar aqui embaixo cai no clamp de `emptyClick`
+	// (último slot da faixa), como já caía nos 10px.
+	const TAIL = 60 * PPM;
+
+	const gridH = $derived(PAD + (range.end - range.start) * PPM + TAIL);
 
 	const colunas = $derived(
 		visiveis.map((prof) => {
