@@ -72,6 +72,11 @@ defmodule Api.MixProject do
       {:phoenix, "~> 1.8.9"},
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_poller, "~> 1.0"},
+      # Log em JSON, uma linha por evento (doc 62 §7.1). É a única dep aqui que poderia ter sido
+      # escrita à mão — e não foi, de propósito: o formatter precisa encodar metadata arbitrária
+      # (pid, ref, tupla, função) sem estourar, e um formatter que levanta derruba o logger, que
+      # é o pior lugar do sistema para ter um bug próprio.
+      {:logger_json, "~> 7.0"},
       {:gettext, "~> 1.0"},
       {:jason, "~> 1.2"},
       {:dns_cluster, "~> 0.2.0"},

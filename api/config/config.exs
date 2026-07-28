@@ -163,7 +163,14 @@ config :api, ApiWeb.Endpoint,
 # Configure Elixir's Logger
 config :logger, :default_formatter,
   format: "$time $metadata[$level] $message\n",
-  metadata: [:request_id]
+  # `clinic_id`/`actor_id` são carimbados pelo `LoadScope`; `route`/`status`/`duration_ms` vêm do
+  # `ApiWeb.RequestLogger`. Em dev isto sai como texto legível; em prod, como JSON (prod.exs).
+  metadata: [:request_id, :clinic_id, :actor_id, :method, :route, :status, :duration_ms]
+
+# **Desliga o logger de requisição do Phoenix** (doc 62 §7.1). Ele emite duas linhas por
+# requisição (`GET /rota` + `Sent 200 in Xµs`) — medido: 41 linhas para 21 requisições. Quem loga
+# no lugar é o `ApiWeb.RequestLogger`, com um evento só e os campos todos juntos.
+config :phoenix, :logger, false
 
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason

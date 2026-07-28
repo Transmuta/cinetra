@@ -17,6 +17,8 @@ defmodule ApiWeb.Plugs.LoadScope do
   @behaviour Plug
   import Plug.Conn
 
+  require Logger
+
   alias Api.Accounts
   alias Api.Accounts.Membership
   alias Api.Scope
@@ -32,6 +34,17 @@ defmodule ApiWeb.Plugs.LoadScope do
 
       user ->
         scope = user |> resolve_membership(conn) |> to_scope(user)
+
+        # Carimbo de contexto do log (doc 62 §7.1). Este é o ponto certo do sistema para isso:
+        # já resolveu ator e tenant, e **toda rota de domínio passa por aqui**. A metadata fica
+        # no dicionário do processo da requisição, então todo `Logger.*` emitido daqui para
+        # frente — inclusive os do domínio, que hoje não têm contexto nenhum — sai com
+        # `clinic_id` e `actor_id` de graça.
+        #
+        # Só id: nome e e-mail do usuário NÃO entram (doc 05 §1.3). `clinic_id` é chave
+        # operacional e agrupa incidente por clínica; `actor_id` é opaco e não identifica
+        # titular de dado de saúde — paciente nunca é ator.
+        Logger.metadata(clinic_id: scope.clinic_id, actor_id: user.id)
 
         conn
         |> assign(:scope, scope)

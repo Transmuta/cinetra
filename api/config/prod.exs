@@ -13,7 +13,20 @@ import Config
 # WebSocket do browser, e HSTS em resposta de WebSocket não protege navegação nenhuma.
 
 # Do not print debug messages in production
+#
+# **O nível `:info` é o que torna 30 dias de retenção barato** (doc 62 §1). O Ecto loga query em
+# `:debug`, então em produção o SQL não aparece — e uma tela de agenda dispara dezenas de queries.
+# Baixar isto para `:debug` multiplicaria o volume por uma ordem de grandeza e estouraria o
+# dimensionamento do doc 62 §2. Se um dia for preciso ver SQL em produção, que seja por amostragem
+# temporária, nunca por nível global.
 config :logger, level: :info
+
+# Log em JSON, uma linha por evento (doc 62 §7.1) — é o que o agente coleta e o Loki indexa.
+# Só em produção: em dev, texto colorido é melhor para humano.
+config :logger, :default_handler,
+  formatter:
+    {LoggerJSON.Formatters.Basic,
+     metadata: [:request_id, :clinic_id, :actor_id, :method, :route, :status, :duration_ms]}
 
 # Liga o rate limiting dos endpoints de auth (auditoria doc 13, causa A). Só em produção:
 # o `ApiWeb.Plugs.RateLimitAuth` é no-op quando esta flag é falsa (dev/test).

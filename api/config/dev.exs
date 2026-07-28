@@ -69,8 +69,13 @@ config :api, :google_oauth,
 # Frontend (BFF SvelteKit) — destino do redirect após login bem-sucedido.
 config :api, :web_app_url, System.get_env("WEB_APP_URL", "http://localhost:5173")
 
-# Do not include metadata nor timestamps in development logs
-config :logger, :default_formatter, format: "[$level] $message\n"
+# Sem timestamp em dev (o terminal já tem), mas **com** metadata: desde o doc 62 §7.1 a
+# informação da requisição mora nos campos (`route`, `status`, `duration_ms`), não na mensagem.
+# Sem `$metadata` aqui, o dev veria só `[info] requisição` e concluiria que o log regrediu —
+# quando na verdade ele é o mesmo que vira JSON em produção.
+config :logger, :default_formatter,
+  format: "[$level] $message $metadata\n",
+  metadata: [:request_id, :clinic_id, :actor_id, :method, :route, :status, :duration_ms]
 
 # Set a higher stacktrace during development. Avoid configuring such
 # in production as building large stacktraces may be expensive.

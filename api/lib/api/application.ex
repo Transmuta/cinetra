@@ -7,6 +7,14 @@ defmodule Api.Application do
 
   @impl true
   def start(_type, _args) do
+    # Log estruturado (doc 62 §7.1). Os dois handlers são anexados antes da árvore subir, para
+    # que nenhuma requisição ou job do boot escape sem registro.
+    ApiWeb.RequestLogger.attach()
+
+    # O Oban era MUDO — `attach_default_logger/1` nunca havia sido chamado. Com o Pruner apagando
+    # `oban_jobs` em 7 dias, "por que o lembrete não saiu na terça" não tinha como ser respondido.
+    Oban.Telemetry.attach_default_logger(level: :info, encode: false)
+
     children = [
       ApiWeb.Telemetry,
       {DNSCluster, query: Application.get_env(:api, :dns_cluster_query) || :ignore},
