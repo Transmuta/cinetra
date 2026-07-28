@@ -478,6 +478,31 @@
 				</a>
 			{/snippet}
 
+			<!-- Ordem dos eixos: PERÍODO e AUTOR primeiro. "quando" e "quem" são as duas perguntas
+			     com que se chega na trilha ("o que houve esta semana", "o que fulano fez"); o
+			     recorte por registro e por ação é refinamento de quem já está olhando. -->
+			<div class="px-2 pb-1.5 pt-3 text-[10.5px] font-bold uppercase tracking-[.06em] text-faint">
+				Período
+			</div>
+			{#each PERIOD_OPTIONS as per (per.key)}
+				{@render filtro(
+					audHref({ periodo: per.key === 'tudo' ? null : per.key }),
+					per.label,
+					audPeriod === per.key,
+					per.key === 'tudo' ? Clock4 : CalendarRange
+				)}
+			{/each}
+
+			{#if audAutores.length}
+				<div class="px-2 pb-1.5 pt-3 text-[10.5px] font-bold uppercase tracking-[.06em] text-faint">
+					Autor
+				</div>
+				{@render filtro(audHref({ autor: null }), 'Todos', !audAutor, Users)}
+				{#each audAutores as autor (autor.id)}
+					{@render filtro(audHref({ autor: autor.id }), autor.nome, audAutor === autor.id, User)}
+				{/each}
+			{/if}
+
 			<div class="px-2 pb-1.5 pt-3 text-[10.5px] font-bold uppercase tracking-[.06em] text-faint">
 				Registro
 			</div>
@@ -501,34 +526,12 @@
 			{/each}
 
 			<div class="px-2 pb-1.5 pt-3 text-[10.5px] font-bold uppercase tracking-[.06em] text-faint">
-				Período
-			</div>
-			{#each PERIOD_OPTIONS as per (per.key)}
-				{@render filtro(
-					audHref({ periodo: per.key === 'tudo' ? null : per.key }),
-					per.label,
-					audPeriod === per.key,
-					per.key === 'tudo' ? Clock4 : CalendarRange
-				)}
-			{/each}
-
-			<div class="px-2 pb-1.5 pt-3 text-[10.5px] font-bold uppercase tracking-[.06em] text-faint">
 				Ação
 			</div>
 			{@render filtro(audHref({ acao: null }), 'Todas', !audAction, SlidersHorizontal)}
 			{#each audActions as opt (opt.key)}
 				{@render filtro(audHref({ acao: opt.key }), opt.label, audAction === opt.key, null)}
 			{/each}
-
-			{#if audAutores.length}
-				<div class="px-2 pb-1.5 pt-3 text-[10.5px] font-bold uppercase tracking-[.06em] text-faint">
-					Autor
-				</div>
-				{@render filtro(audHref({ autor: null }), 'Todos', !audAutor, Users)}
-				{#each audAutores as autor (autor.id)}
-					{@render filtro(audHref({ autor: autor.id }), autor.nome, audAutor === autor.id, User)}
-				{/each}
-			{/if}
 		</div>
 	{/if}
 

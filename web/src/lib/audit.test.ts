@@ -420,7 +420,7 @@ describe('activeChips', () => {
 		expect(activeChips(base)).toEqual([]);
 	});
 
-	it('um chip por eixo ativo, com a chave que o limpa', () => {
+	it('um chip por eixo ativo, na ordem da sidebar, com a chave que o limpa', () => {
 		const chips = activeChips({
 			...base,
 			period: '7d',
@@ -429,11 +429,11 @@ describe('activeChips', () => {
 			recordId: 'a1'
 		});
 
-		expect(chips.map((c) => c.key)).toEqual(['periodo', 'acao', 'autor', 'record_id']);
+		expect(chips.map((c) => c.key)).toEqual(['periodo', 'autor', 'acao', 'record_id']);
 		expect(chips.map((c) => c.label)).toEqual([
 			'Últimos 7 dias',
-			'Cancelou',
 			'Por Ana Gestora',
+			'Cancelou',
 			'Um registro só'
 		]);
 	});

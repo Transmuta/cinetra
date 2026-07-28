@@ -775,6 +775,18 @@ export function activeChips(state: {
 }): FilterChip[] {
 	const chips: FilterChip[] = [];
 
+	// A ordem dos chips segue a da sidebar (período e autor primeiro): eco fora de ordem faz o
+	// leitor procurar duas vezes qual controle desfaz qual chip.
+	if (state.period !== 'tudo') {
+		const label = PERIOD_OPTIONS.find((p) => p.key === state.period)?.label ?? state.period;
+		chips.push({ key: 'periodo', label });
+	}
+
+	if (state.autor) {
+		const nome = state.autores.find((a) => a.id === state.autor)?.nome ?? 'Autor';
+		chips.push({ key: 'autor', label: `Por ${nome}` });
+	}
+
 	// O grupo de registro virou chip porque deixou de ser um eixo obrigatório: agora existe o
 	// estado "sem recorte" (a clínica inteira), e sem o chip não haveria como perceber — nem
 	// desfazer — que se está olhando só um pedaço.
@@ -783,19 +795,9 @@ export function activeChips(state: {
 		chips.push({ key: 'resource', label });
 	}
 
-	if (state.period !== 'tudo') {
-		const label = PERIOD_OPTIONS.find((p) => p.key === state.period)?.label ?? state.period;
-		chips.push({ key: 'periodo', label });
-	}
-
 	if (state.action) {
 		const opcao = actionOptions(state.resource).find((o) => o.key === state.action);
 		chips.push({ key: 'acao', label: opcao?.label ?? state.action });
-	}
-
-	if (state.autor) {
-		const nome = state.autores.find((a) => a.id === state.autor)?.nome ?? 'Autor';
-		chips.push({ key: 'autor', label: `Por ${nome}` });
 	}
 
 	if (state.recordId) chips.push({ key: 'record_id', label: 'Um registro só' });
