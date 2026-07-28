@@ -40,6 +40,7 @@
 	import { validateDayPeriods, formatDate, formatPeriods, type Period } from '$lib/scheduling';
 	import { maskCpf, maskTel, maskCep, maskCnpj, maskAno, maskUf } from '$lib/masks';
 	import { lookupCep, type CepStatus } from '$lib/cep';
+	import { telefoneValido } from '$lib/telefone';
 
 	let {
 		professional = null,
@@ -161,8 +162,11 @@
 		runCepLookup(f.cep);
 	}
 
-	// ---- Validação: nome e horário obrigatórios ----
+	// ---- Validação: nome, telefone e horário obrigatórios ----
 	const nomeOk = $derived(f.nome.trim().length > 0);
+	// D6 (doc 64): o telefone entrou no mínimo, aqui e no paciente. A regra é a do servidor
+	// (`TelObrigatorio` → `Dispatch.normalizar`), não uma segunda opinião — ver `telefoneValido`.
+	const telOk = $derived(telefoneValido(f.tel));
 	const attendanceOk = $derived(hasAttendingDay(segue, grade, clinicHours));
 	const gradeInvalid = $derived(
 		!segue &&
@@ -173,7 +177,7 @@
 				return !validateDayPeriods(day).ok || !periodsWithinClinic(day as Period[], clinic);
 			})
 	);
-	const canSave = $derived(nomeOk && attendanceOk && !gradeInvalid && !newExceptionInvalid);
+	const canSave = $derived(nomeOk && telOk && attendanceOk && !gradeInvalid && !newExceptionInvalid);
 
 	function fichaPayload() {
 		const clean = Object.fromEntries(
@@ -393,7 +397,7 @@
 					{@render cardHead(MapPin, SECTIONS[1].t, SECTIONS[1].sub, counts.contato, SECTIONS[1].total)}
 					<div class="grid grid-cols-1 gap-3 md:grid-cols-2">
 						<label class="block">
-							{@render label('Celular / WhatsApp')}
+							{@render label('Celular / WhatsApp', true)}
 							<input value={f.tel} oninput={(e) => (f.tel = maskTel(e.currentTarget.value))} inputmode="tel" placeholder="(11) 90000-0000" class="{inputCls} font-mono" />
 						</label>
 						<label class="block">
@@ -697,8 +701,13 @@
 				<TriangleAlert size={14} /> Há horários fora do funcionamento da clínica.
 			{:else if !attendanceOk}
 				<TriangleAlert size={14} /> Defina ao menos um dia de atendimento.
+			{:else if !telOk && f.tel.trim() !== ''}
+				<TriangleAlert size={14} /> Telefone incompleto — use DDD + número.
 			{:else}
-				Apenas o nome é obrigatório — salve e complete depois.
+				<!-- D6: o mínimo deixou de ser só o nome. A frase antiga ("apenas o nome") passou a
+				     mentir no instante em que a validação entrou, e uma dica que mente é pior que
+				     nenhuma: manda a pessoa clicar em salvar para descobrir o contrário. -->
+				Nome e telefone são obrigatórios — o resto pode ficar para depois.
 			{/if}
 		</span>
 		<div class="flex-1 md:hidden"></div>

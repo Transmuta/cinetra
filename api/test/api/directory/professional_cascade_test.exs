@@ -15,7 +15,12 @@ defmodule Api.Directory.ProfessionalCascadeTest do
     email = "cascade-#{System.unique_integer([:positive])}@example.com"
     user = Accounts.register_user!("Dono", email, authorize?: false)
     clinic = Accounts.onboard_clinic!("Clínica Cascade", %{}, actor: user)
-    prof = Directory.create_professional!("Dra. Y", %{}, tenant: clinic.id, actor: user)
+
+    prof =
+      Directory.create_professional!("Dra. Y", %{tel: Api.Generators.telefone_unico()},
+        tenant: clinic.id,
+        actor: user
+      )
 
     prof_exists? = fn ->
       Repo.exists?(from(p in "professionals", where: p.id == ^Ecto.UUID.dump!(prof.id)))

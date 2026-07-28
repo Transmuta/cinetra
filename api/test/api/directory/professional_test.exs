@@ -38,6 +38,11 @@ defmodule Api.Directory.ProfessionalTest do
     Api.Scope.with_membership(user, membership)
   end
 
+  # O cadastro mínimo que a D6 (doc 64) passou a exigir: nome + telefone. Usado por todo teste
+  # cujo assunto NÃO é o telefone — assim a regra nova aparece num lugar só, e um ajuste futuro
+  # nela não vira caça a dez literais espalhados.
+  @min %{tel: "(11) 98123-4451"}
+
   @full %{
     nome_exibicao: "Dra. Marina",
     nascimento: ~D[1988-03-12],
@@ -94,21 +99,64 @@ defmodule Api.Directory.ProfessionalTest do
       assert prof.segue_horario_clinica
     end
 
-    test "só o nome é obrigatório — cadastro mínimo passa" do
+    # O mínimo era só o nome; a D6 (doc 64) somou o telefone — em paciente **e** profissional.
+    # O resto da ficha (CREFITO, especialidade, vínculo) continua opcional de propósito: a D-H5
+    # cobrou telefone e nada mais.
+    test "o mínimo é nome + telefone" do
       {owner, clinic} = owner_and_clinic()
 
-      prof = Directory.create_professional!("Dr. Só Nome", %{}, tenant: clinic.id, actor: owner)
+      prof =
+        Directory.create_professional!("Dr. Só Nome", %{tel: "(11) 98123-4451"},
+          tenant: clinic.id,
+          actor: owner
+        )
 
       assert prof.nome == "Dr. Só Nome"
       assert is_nil(prof.crefito)
       assert prof.cor_indice == 1
     end
 
+    test "sem telefone é recusado, com a mensagem no campo certo" do
+      {owner, clinic} = owner_and_clinic()
+
+      # `%{}` é o ponto do teste: sem telefone. Passar um número aqui faria o teste afirmar o
+      # contrário do que o nome dele diz.
+      assert {:error, %Ash.Error.Invalid{} = erro} =
+               Directory.create_professional("Dr. Sem Contato", %{},
+                 tenant: clinic.id,
+                 actor: owner
+               )
+
+      assert %{field: :tel, message: "Telefone é obrigatório"} =
+               Enum.find(erro.errors, &(Map.get(&1, :field) == :tel))
+    end
+
+    test "telefone que não é número brasileiro é recusado" do
+      {owner, clinic} = owner_and_clinic()
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               Directory.create_professional("Dr. X", %{tel: "123"},
+                 tenant: clinic.id,
+                 actor: owner
+               )
+    end
+
+    # Fixo passa: exigir celular faria a recepção inventar número para salvar quem só tem fixo.
+    test "fixo de 10 dígitos passa" do
+      {owner, clinic} = owner_and_clinic()
+
+      assert %{} =
+               Directory.create_professional!("Dr. Fixo", %{tel: "(11) 3123-4567"},
+                 tenant: clinic.id,
+                 actor: owner
+               )
+    end
+
     test "nome vazio é recusado" do
       {owner, clinic} = owner_and_clinic()
 
       assert {:error, %Ash.Error.Invalid{}} =
-               Directory.create_professional("", %{}, tenant: clinic.id, actor: owner)
+               Directory.create_professional("", @min, tenant: clinic.id, actor: owner)
     end
 
     test "vínculo fora do enum é recusado" do
@@ -154,6 +202,37 @@ defmodule Api.Directory.ProfessionalTest do
       assert updated.crefito == "CREFITO 3/123456-F"
       assert updated.vinculo == :pj
     end
+
+    # D6 opção (b): a cobrança vale no update também, e é ela que corrige o legado no fluxo
+    # natural — sem backfill e sem `NOT NULL` numa coluna que tem linha nula.
+    test "editar ficha legada sem telefone cobra o telefone" do
+      {owner, clinic} = owner_and_clinic()
+
+      prof =
+        Directory.create_professional!("Dr. Legado", %{tel: "(11) 98123-4451"},
+          tenant: clinic.id,
+          actor: owner
+        )
+
+      # Escreve direto pelo repo, contornando a ação — que é o único jeito de produzir a linha
+      # que o D6(b) deixa viva no banco: a própria validação recusa criá-la pela ação. Mesmo
+      # recurso do `paciente_legado_sem_tel!` do gerador, pelo mesmo motivo.
+      import Ecto.Query, only: [from: 2]
+
+      {1, _} =
+        Api.Repo.update_all(
+          from(p in "professionals", where: p.id == type(^prof.id, :binary_id)),
+          set: [tel: nil]
+        )
+
+      legado = %{prof | tel: nil}
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               Directory.update_professional(legado, %{sub: "Osteopatia"},
+                 tenant: clinic.id,
+                 actor: owner
+               )
+    end
   end
 
   describe "RBAC (ADR-016)" do
@@ -161,20 +240,20 @@ defmodule Api.Directory.ProfessionalTest do
       {owner, clinic} = owner_and_clinic()
       admin = member_with_role(clinic, :admin)
 
-      assert %{} = Directory.create_professional!("A", %{}, tenant: clinic.id, actor: owner)
-      assert %{} = Directory.create_professional!("B", %{}, tenant: clinic.id, actor: admin)
+      assert %{} = Directory.create_professional!("A", @min, tenant: clinic.id, actor: owner)
+      assert %{} = Directory.create_professional!("B", @min, tenant: clinic.id, actor: admin)
     end
 
     test "recepção e profissional NÃO criam, atualizam nem arquivam (Forbidden)" do
       {owner, clinic} = owner_and_clinic()
-      prof = Directory.create_professional!("Alvo", %{}, tenant: clinic.id, actor: owner)
+      prof = Directory.create_professional!("Alvo", @min, tenant: clinic.id, actor: owner)
 
       for papel <- [:recepcao, :profissional] do
         user = member_with_role(clinic, papel)
         opts = [tenant: clinic.id, actor: user]
 
         assert {:error, %Ash.Error.Forbidden{}} =
-                 Directory.create_professional("X", %{}, opts)
+                 Directory.create_professional("X", @min, opts)
 
         assert {:error, %Ash.Error.Forbidden{}} =
                  Directory.update_professional(prof, %{sub: "Hack"}, opts)
@@ -186,7 +265,7 @@ defmodule Api.Directory.ProfessionalTest do
 
     test "owner, admin e recepção leem o diretório inteiro" do
       {owner, clinic} = owner_and_clinic()
-      Directory.create_professional!("Visível", %{}, tenant: clinic.id, actor: owner)
+      Directory.create_professional!("Visível", @min, tenant: clinic.id, actor: owner)
 
       for papel <- [:admin, :recepcao] do
         user = member_with_role(clinic, papel)
@@ -215,8 +294,8 @@ defmodule Api.Directory.ProfessionalTest do
   describe "P1 — profissional só vê o próprio registro" do
     test "profissional vê só a si e NÃO vê o colega" do
       {owner, clinic} = owner_and_clinic()
-      eu = Directory.create_professional!("Eu", %{}, tenant: clinic.id, actor: owner)
-      _colega = Directory.create_professional!("Colega", %{}, tenant: clinic.id, actor: owner)
+      eu = Directory.create_professional!("Eu", @min, tenant: clinic.id, actor: owner)
+      _colega = Directory.create_professional!("Colega", @min, tenant: clinic.id, actor: owner)
 
       user = member_with_role(clinic, :profissional, eu.id)
 
@@ -228,7 +307,7 @@ defmodule Api.Directory.ProfessionalTest do
 
     test "FAIL-CLOSED: profissional SEM professional_id não vê ninguém" do
       {owner, clinic} = owner_and_clinic()
-      Directory.create_professional!("Alguém", %{}, tenant: clinic.id, actor: owner)
+      Directory.create_professional!("Alguém", @min, tenant: clinic.id, actor: owner)
 
       # `Membership.professional_id` é allow_nil? true — o "UUID mole". Fail-open aqui daria
       # a lista inteira ao profissional sem vínculo; tem de fechar.
@@ -251,7 +330,7 @@ defmodule Api.Directory.ProfessionalTest do
 
     test "reactivate volta ativo: true" do
       {owner, clinic} = owner_and_clinic()
-      prof = Directory.create_professional!("X", %{}, tenant: clinic.id, actor: owner)
+      prof = Directory.create_professional!("X", @min, tenant: clinic.id, actor: owner)
 
       restaurado =
         prof
@@ -274,7 +353,12 @@ defmodule Api.Directory.ProfessionalTest do
       {owner, clinic} = owner_and_clinic()
       scope = scope_for(owner, clinic)
 
-      prof = Directory.create_clinic_professional(scope, %{nome: "Dra. Beatriz", crefito: "C-1"})
+      prof =
+        Directory.create_clinic_professional(
+          scope,
+          Map.merge(@min, %{nome: "Dra. Beatriz", crefito: "C-1"})
+        )
+
       assert {:ok, %{nome: "Dra. Beatriz"}} = prof
       {:ok, prof} = prof
 
@@ -292,7 +376,7 @@ defmodule Api.Directory.ProfessionalTest do
       {owner_b, clinic_b} = owner_and_clinic()
       scope_a = scope_for(owner_a, clinic_a)
 
-      alheio = Directory.create_professional!("Alheio", %{}, tenant: clinic_b.id, actor: owner_b)
+      alheio = Directory.create_professional!("Alheio", @min, tenant: clinic_b.id, actor: owner_b)
 
       assert {:ok, nil} = Directory.fetch_clinic_professional(scope_a, alheio.id)
     end

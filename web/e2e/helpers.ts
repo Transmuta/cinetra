@@ -192,7 +192,13 @@ export async function criarProfissional(api: APIRequestContext, nome: string): P
 }
 
 export async function criarPaciente(api: APIRequestContext, nome: string): Promise<Ref> {
-	const body = await post<{ patient: Ref }>(api, '/api/patients', { nome });
+	// O telefone não é decoração: desde a `TelObrigatorio` (D-H5/D6) o cadastro **exige** um
+	// número brasileiro válido, e sem ele o `montarClinica` morre antes da primeira asserção —
+	// derrubando todo cenário autenticado, não só os que olham para paciente.
+	const body = await post<{ patient: Ref }>(api, '/api/patients', {
+		nome,
+		tel: '11987654321'
+	});
 	return body.patient;
 }
 

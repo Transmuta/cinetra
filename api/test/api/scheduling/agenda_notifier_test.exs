@@ -18,7 +18,11 @@ defmodule Api.Scheduling.AgendaNotifierTest do
     {:ok, clinic} =
       Accounts.onboard_clinic("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
 
-    prof = Directory.create_professional!("Dra. X", %{}, tenant: clinic.id, actor: owner)
+    prof =
+      Directory.create_professional!("Dra. X", %{tel: Api.Generators.telefone_unico()},
+        tenant: clinic.id,
+        actor: owner
+      )
 
     tipo =
       Directory.create_appointment_type!(
@@ -32,7 +36,12 @@ defmodule Api.Scheduling.AgendaNotifierTest do
         actor: owner
       )
 
-    paciente = Records.create_patient!("Paciente", %{}, tenant: clinic.id, actor: owner)
+    paciente =
+      Records.create_patient!("Paciente", %{tel: Api.Generators.telefone_unico()},
+        tenant: clinic.id,
+        actor: owner
+      )
+
     {:ok, membership} = Accounts.get_active_membership(owner.id, clinic.id, authorize?: false)
 
     %{

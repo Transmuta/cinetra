@@ -40,7 +40,10 @@ defmodule Api.Waitlist.WaitlistEntryTest do
   end
 
   defp patient(clinic, owner, nome \\ "Paciente") do
-    Records.create_patient!(nome, %{}, tenant: clinic.id, actor: owner)
+    Records.create_patient!(nome, %{tel: Api.Generators.telefone_unico()},
+      tenant: clinic.id,
+      actor: owner
+    )
   end
 
   defp semana(dows, periodos), do: %{tipo: :semana, dows: dows, periodos: periodos}
@@ -316,7 +319,12 @@ defmodule Api.Waitlist.WaitlistEntryTest do
 
       # Segunda 2026-07-20, 07:00 local (10:00Z): o expediente 08–12/13–18 ainda está no futuro.
       scope = Api.Scope.with_membership(owner, membership, now: ~U[2026-07-20 10:00:00Z])
-      Directory.create_professional!("Dra. X", %{}, tenant: clinic.id, actor: owner)
+
+      Directory.create_professional!("Dra. X", %{tel: Api.Generators.telefone_unico()},
+        tenant: clinic.id,
+        actor: owner
+      )
+
       {:ok, entry} = Waitlist.enqueue_entry(scope, %{patient_id: patient(clinic, owner).id})
 
       segunda =
@@ -331,7 +339,12 @@ defmodule Api.Waitlist.WaitlistEntryTest do
       {owner, clinic} = owner_and_clinic()
       membership = Accounts.get_active_membership!(owner.id, clinic.id, authorize?: false)
       scope = Api.Scope.with_membership(owner, membership, now: ~U[2026-07-20 10:00:00Z])
-      Directory.create_professional!("Dra. X", %{}, tenant: clinic.id, actor: owner)
+
+      Directory.create_professional!("Dra. X", %{tel: Api.Generators.telefone_unico()},
+        tenant: clinic.id,
+        actor: owner
+      )
+
       {:ok, a} = Waitlist.enqueue_entry(scope, %{patient_id: patient(clinic, owner, "A").id})
       {:ok, b} = Waitlist.enqueue_entry(scope, %{patient_id: patient(clinic, owner, "B").id})
 
@@ -356,8 +369,18 @@ defmodule Api.Waitlist.WaitlistEntryTest do
       {owner, clinic} = owner_and_clinic()
       membership = Accounts.get_active_membership!(owner.id, clinic.id, authorize?: false)
       scope = Api.Scope.with_membership(owner, membership, now: ~U[2026-07-20 10:00:00Z])
-      prof_a = Directory.create_professional!("Dra. A", %{}, tenant: clinic.id, actor: owner)
-      prof_b = Directory.create_professional!("Dr. B", %{}, tenant: clinic.id, actor: owner)
+
+      prof_a =
+        Directory.create_professional!("Dra. A", %{tel: Api.Generators.telefone_unico()},
+          tenant: clinic.id,
+          actor: owner
+        )
+
+      prof_b =
+        Directory.create_professional!("Dr. B", %{tel: Api.Generators.telefone_unico()},
+          tenant: clinic.id,
+          actor: owner
+        )
 
       # Cabe: sem preferência, janela qualquer.
       {:ok, _} = Waitlist.enqueue_entry(scope, %{patient_id: patient(clinic, owner, "Cabe").id})

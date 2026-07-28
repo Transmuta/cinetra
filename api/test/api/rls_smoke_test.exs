@@ -32,6 +32,8 @@ defmodule Api.RlsSmokeTest do
   """
   use Api.DataCase, async: false
 
+  require Ash.Query
+
   @moduletag :rls
 
   alias Api.Accounts
@@ -53,7 +55,11 @@ defmodule Api.RlsSmokeTest do
     membership = Accounts.get_active_membership!(owner.id, clinic.id, authorize?: false)
     scope = Api.Scope.with_membership(owner, membership)
 
-    prof = Directory.create_professional!("Dra. RLS", %{}, tenant: clinic.id, actor: owner)
+    prof =
+      Directory.create_professional!("Dra. RLS", %{tel: Api.Generators.telefone_unico()},
+        tenant: clinic.id,
+        actor: owner
+      )
 
     tipo =
       Directory.create_appointment_type!(
@@ -67,7 +73,11 @@ defmodule Api.RlsSmokeTest do
         actor: owner
       )
 
-    paciente = Records.create_patient!("Paciente RLS", %{}, tenant: clinic.id, actor: owner)
+    paciente =
+      Records.create_patient!("Paciente RLS", %{tel: Api.Generators.telefone_unico()},
+        tenant: clinic.id,
+        actor: owner
+      )
 
     %{owner: owner, clinic: clinic, scope: scope, prof: prof, tipo: tipo, paciente: paciente}
   end
@@ -224,7 +234,10 @@ defmodule Api.RlsSmokeTest do
         )
 
       outro =
-        Records.create_patient!("Paciente 2 RLS", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+        Records.create_patient!("Paciente 2 RLS", %{tel: Api.Generators.telefone_unico()},
+          tenant: ctx.clinic.id,
+          actor: ctx.owner
+        )
 
       base = %{
         starts_at: at("11:00"),
@@ -442,7 +455,11 @@ defmodule Api.RlsSmokeTest do
           actor: ctx.owner
         )
 
-      colega = Records.create_patient!("Colega RLS", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+      colega =
+        Records.create_patient!("Colega RLS", %{tel: Api.Generators.telefone_unico()},
+          tenant: ctx.clinic.id,
+          actor: ctx.owner
+        )
 
       {:ok, pkg} =
         Packages.create_package(
@@ -504,7 +521,10 @@ defmodule Api.RlsSmokeTest do
         )
 
       colega =
-        Records.create_patient!("Colega 2 RLS", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+        Records.create_patient!("Colega 2 RLS", %{tel: Api.Generators.telefone_unico()},
+          tenant: ctx.clinic.id,
+          actor: ctx.owner
+        )
 
       {:ok, pkg} =
         Packages.create_package(
@@ -780,7 +800,7 @@ defmodule Api.RlsSmokeTest do
       assert {:ok, %{url: _}} = Records.attachment_download(ctx.scope, anexo)
 
       eventos = Records.list_clinic_attachment_events(ctx.scope, anexo.id)
-      assert Enum.any?(eventos, &(&1.acao == :visualizou)), "a trilha LGPD não foi gravada"
+      assert Enum.any?(eventos, &(&1.action == "visualizou")), "a trilha LGPD não foi gravada"
     end
   end
 
@@ -864,6 +884,81 @@ defmodule Api.RlsSmokeTest do
                |> elem(1)
 
       assert achada.id == message.id, "a resposta do paciente não acha a mensagem sob RLS"
+    end
+
+    test "a resposta 'quer remarcar' escreve na caixa da recepção sob movimento_app (doc 65 §5)" do
+      # O fan-out da resposta do paciente roda a partir de uma rota **pública**: não há sessão,
+      # não há GUC do request, e ele escreve N linhas em `notifications` (por-tenant, sob RLS).
+      # Sem a GUC certa, a escrita não erra alto — a caixa fica vazia e ninguém descobre que o
+      # paciente pediu remarcação. É a mesma classe de silêncio que este arquivo existe para pegar.
+      ctx = fixture()
+      message = mensagem(ctx)
+
+      respondida =
+        Api.Repo.with_clinic(ctx.clinic.id, fn ->
+          Api.Messaging.do_record_reply!(message, %{resposta: :quer_remarcar},
+            tenant: ctx.clinic.id,
+            authorize?: false
+          )
+        end)
+        |> elem(1)
+
+      :ok = sem_guc()
+
+      assert :ok = Api.Notifications.Fanout.patient_wants_reschedule(respondida)
+
+      assert [%{kind: :patient_wants_reschedule}] =
+               Api.Notifications.list_inbox(ctx.scope).results
+    end
+
+    test "o aviso da massa por pacote alcança o paciente sob movimento_app" do
+      # `avisa_o_paciente/6` acha a âncora, lê a clínica e grava a mensagem — três leituras
+      # por-tenant depois do commit da massa. Sem GUC, a âncora volta `nil` e a mensagem some em
+      # silêncio: a massa "funciona" e o paciente não é avisado.
+      #
+      # As sessões são criadas **pela porta de agendar**, e não pelo materializador do pacote, de
+      # propósito: o caminho do materializador está vermelho na árvore por outra causa (doc 60 §5,
+      # trabalho de outra fatia), e um teste que depende dele não prova o que este quer provar.
+      ctx = fixture()
+
+      paciente =
+        Records.update_patient!(ctx.paciente, %{comunicacao: true, email: "massa@example.com"},
+          tenant: ctx.clinic.id,
+          actor: ctx.owner
+        )
+
+      {:ok, pkg} = Packages.create_series(ctx.scope, package_params(ctx, total: 2), forcar: false)
+
+      for hora <- ["13:00", "14:00"] do
+        {:ok, _} =
+          Scheduling.schedule_appointment(
+            %{
+              starts_at: proxima_segunda(hora),
+              professional_id: ctx.prof.id,
+              appointment_type_id: ctx.tipo.id,
+              patient_ids: [paciente.id],
+              package_id: pkg.id
+            },
+            scope: ctx.scope
+          )
+      end
+
+      :ok = sem_guc()
+
+      assert {:ok, %{afetadas: afetadas}} =
+               Packages.bulk_cancel(ctx.scope, pkg.id, %{escopo: :todas})
+
+      assert afetadas == 2
+
+      avisos =
+        Api.Tenancy.in_clinic(ctx.clinic.id, fn ->
+          Api.Messaging.Message
+          |> Ash.Query.for_read(:read, %{}, tenant: ctx.clinic.id, authorize?: false)
+          |> Ash.Query.filter(kind == :pacote_cancelado)
+          |> Ash.read!(authorize?: false)
+        end)
+
+      assert length(avisos) == 1, "o aviso da massa não saiu — a GUC não chegou na âncora"
     end
 
     test "o opt-out global é legível e gravável sem GUC" do

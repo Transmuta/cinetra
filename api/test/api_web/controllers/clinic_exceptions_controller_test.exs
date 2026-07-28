@@ -203,7 +203,12 @@ defmodule ApiWeb.ClinicExceptionsControllerTest do
   describe "POST /api/clinic-exceptions — conflitos futuros (A3/D12)" do
     setup %{owner: owner, clinic: clinic} do
       scope = escopo(owner, clinic)
-      prof = Api.Directory.create_professional!("Dra. X", %{}, tenant: clinic.id, actor: owner)
+
+      prof =
+        Api.Directory.create_professional!("Dra. X", %{tel: Api.Generators.telefone_unico()},
+          tenant: clinic.id,
+          actor: owner
+        )
 
       tipo =
         Api.Directory.create_appointment_type!(
@@ -212,7 +217,11 @@ defmodule ApiWeb.ClinicExceptionsControllerTest do
           actor: owner
         )
 
-      paciente = Api.Records.create_patient!("Paciente", %{}, tenant: clinic.id, actor: owner)
+      paciente =
+        Api.Records.create_patient!("Paciente", %{tel: Api.Generators.telefone_unico()},
+          tenant: clinic.id,
+          actor: owner
+        )
 
       {:ok, starts_at} =
         Api.Scheduling.LocalTime.to_utc(~D[2027-03-15], "14:00", "America/Sao_Paulo")

@@ -50,7 +50,10 @@ defmodule ApiWeb.PatientsControllerTest do
     end
   end
 
+  # Telefone por default: ele virou obrigatório (doc 52 §9). Quem testa o campo passa o seu.
   defp create_patient(clinic, nome \\ "Mariana Alves", overrides \\ %{}) do
+    overrides = Map.merge(%{tel: Api.Generators.telefone_unico()}, Map.new(overrides))
+
     Records.create_patient!(nome, overrides, tenant: clinic.id, authorize?: false)
   end
 
@@ -163,11 +166,75 @@ defmodule ApiWeb.PatientsControllerTest do
     end
   end
 
+  describe "telefone obrigatório (doc 52 §9 / D6b)" do
+    test "criar sem telefone é 422, com o campo apontado", %{conn: conn} do
+      # A regra atravessa a fronteira, então o teste também: do domínio chega átomo, daqui chega
+      # string, e é aqui que a recepção vê a mensagem (a lição do doc 49).
+      body =
+        conn
+        |> post(~p"/api/patients", %{"nome" => "Sem Telefone"})
+        |> json_response(422)
+
+      assert %{"field" => "tel", "message" => "Telefone é obrigatório"} in body["details"]
+    end
+
+    test "telefone que não é telefone é 422 e diz o que fazer", %{conn: conn} do
+      body =
+        conn
+        |> post(~p"/api/patients", %{"nome" => "Torto", "tel" => "1234"})
+        |> json_response(422)
+
+      assert %{"field" => "tel", "message" => "Telefone inválido — use DDD + número"} in body[
+               "details"
+             ]
+    end
+
+    test "a máscara do formulário é aceita e guardada em E.164", %{conn: conn} do
+      body =
+        conn
+        |> post(~p"/api/patients", %{"nome" => "Com Máscara", "tel" => "(11) 98765-4321"})
+        |> json_response(201)
+
+      assert body["patient"]["tel"] == "+5511987654321"
+    end
+
+    test "fixo é aceito — quem não recebe WhatsApp cai para o e-mail", %{conn: conn} do
+      # Exigir celular empurraria a recepção a inventar número para conseguir salvar. Quem decide
+      # que o fixo não serve para WhatsApp é o envio, não o cadastro.
+      body =
+        conn
+        |> post(~p"/api/patients", %{"nome" => "Só Fixo", "tel" => "(11) 3456-7890"})
+        |> json_response(201)
+
+      assert body["patient"]["tel"] == "+551134567890"
+    end
+
+    test "a ficha LEGADA sem telefone só é cobrada quando alguém a edita", %{
+      conn: conn,
+      clinic: clinic,
+      owner: owner
+    } do
+      # D6 opção (b): sem backfill e sem `NOT NULL` numa tabela com linhas nulas. A linha antiga
+      # continua legível; o próximo save é que cobra.
+      legado = paciente_legado_sem_tel!(%{clinic: clinic, owner: owner}, %{})
+
+      assert conn |> get(~p"/api/patients/#{legado.id}") |> json_response(200)
+
+      body =
+        conn
+        |> patch(~p"/api/patients/#{legado.id}", %{"medico" => "Dr. Novo"})
+        |> json_response(422)
+
+      assert %{"field" => "tel", "message" => "Telefone é obrigatório"} in body["details"]
+    end
+  end
+
   describe "POST /api/patients" do
     test "owner cria (201) e o corpo NÃO define clinic_id", %{conn: conn, clinic: clinic} do
       params = %{
         "nome" => "Novo Paciente",
         "cpf" => "123.456.789-00",
+        "tel" => "(11) 98765-4321",
         "clinic_id" => Ecto.UUID.generate()
       }
 
@@ -188,7 +255,7 @@ defmodule ApiWeb.PatientsControllerTest do
       body =
         base
         |> authed(admin)
-        |> post(~p"/api/patients", %{"nome" => "Pela Admin"})
+        |> post(~p"/api/patients", %{"nome" => "Pela Admin", "tel" => "11987650001"})
         |> json_response(201)
 
       assert body["patient"]["nome"] == "Pela Admin"
@@ -260,7 +327,9 @@ defmodule ApiWeb.PatientsControllerTest do
       # todo mundo pagar por um dado que só uma tela lê — inclusive a ESCRITA.
       {_, sql_patch} =
         com_sql(fn ->
-          conn |> patch(~p"/api/patients/#{p.id}", %{"tel" => "11999"}) |> json_response(200)
+          conn
+          |> patch(~p"/api/patients/#{p.id}", %{"tel" => "11999998888"})
+          |> json_response(200)
         end)
 
       refute Enum.any?(sql_patch, &(&1 =~ "attendances"))
@@ -299,7 +368,9 @@ defmodule ApiWeb.PatientsControllerTest do
         |> patch(~p"/api/patients/#{p.id}", %{"tel" => "(11) 98888-7777", "medico" => "Dr. Novo"})
         |> json_response(200)
 
-      assert body["patient"]["tel"] == "(11) 98888-7777"
+      # Guardado em E.164 (a forma canônica que o opt-out e o envio comparam); a máscara volta
+      # na tela, por `web/src/lib/telefone.ts`.
+      assert body["patient"]["tel"] == "+5511988887777"
       assert body["patient"]["medico"] == "Dr. Novo"
     end
 
@@ -370,7 +441,11 @@ defmodule ApiWeb.PatientsControllerTest do
     end
 
     defp sessao_para(clinic, owner, paciente, starts_at) do
-      prof = Api.Directory.create_professional!("Dra. H", %{}, tenant: clinic.id, actor: owner)
+      prof =
+        Api.Directory.create_professional!("Dra. H", %{tel: Api.Generators.telefone_unico()},
+          tenant: clinic.id,
+          actor: owner
+        )
 
       tipo =
         Api.Directory.create_appointment_type!(
@@ -487,7 +562,12 @@ defmodule ApiWeb.PatientsControllerTest do
       clinic: clinic
     } do
       paciente = create_patient(clinic, "Muitas sessões")
-      prof = Api.Directory.create_professional!("Dra. H", %{}, tenant: clinic.id, actor: owner)
+
+      prof =
+        Api.Directory.create_professional!("Dra. H", %{tel: Api.Generators.telefone_unico()},
+          tenant: clinic.id,
+          actor: owner
+        )
 
       tipo =
         Api.Directory.create_appointment_type!(

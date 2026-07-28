@@ -131,7 +131,12 @@ defmodule ApiWeb.ClinicHoursControllerTest do
   describe "PATCH /api/clinic-hours — conflitos futuros (A3/D12)" do
     setup %{owner: owner, clinic: clinic} do
       scope = escopo(owner, clinic)
-      prof = Api.Directory.create_professional!("Dra. X", %{}, tenant: clinic.id, actor: owner)
+
+      prof =
+        Api.Directory.create_professional!("Dra. X", %{tel: Api.Generators.telefone_unico()},
+          tenant: clinic.id,
+          actor: owner
+        )
 
       tipo =
         Api.Directory.create_appointment_type!(
@@ -140,7 +145,11 @@ defmodule ApiWeb.ClinicHoursControllerTest do
           actor: owner
         )
 
-      paciente = Api.Records.create_patient!("Paciente", %{}, tenant: clinic.id, actor: owner)
+      paciente =
+        Api.Records.create_patient!("Paciente", %{tel: Api.Generators.telefone_unico()},
+          tenant: clinic.id,
+          actor: owner
+        )
 
       # Uma segunda-feira bem no futuro, às 14h — fora da janela 08–12 que o teste vai propor.
       {:ok, starts_at} =

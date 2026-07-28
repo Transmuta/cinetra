@@ -321,7 +321,13 @@ defmodule Api.Packages.PackageTest do
     test "cancelar o pacote de um paciente não cancela a turma dos colegas" do
       ctx = setup_clinic()
       tipo = turma_tipo(ctx)
-      colega = Records.create_patient!("Colega", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+
+      colega =
+        Records.create_patient!("Colega", %{tel: Api.Generators.telefone_unico()},
+          tenant: ctx.clinic.id,
+          actor: ctx.owner
+        )
+
       {:ok, pkg} = create_package(ctx, %{appointment_type_id: tipo.id})
       appt = sessao_de_turma(ctx, tipo, [ctx.paciente, colega], pkg.id)
 
@@ -340,7 +346,13 @@ defmodule Api.Packages.PackageTest do
     test "uma presença já cancelada não arrasta o bloco de ninguém" do
       ctx = setup_clinic()
       tipo = turma_tipo(ctx)
-      colega = Records.create_patient!("Colega", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+
+      colega =
+        Records.create_patient!("Colega", %{tel: Api.Generators.telefone_unico()},
+          tenant: ctx.clinic.id,
+          actor: ctx.owner
+        )
+
       {:ok, pkg} = create_package(ctx, %{appointment_type_id: tipo.id})
       appt = sessao_de_turma(ctx, tipo, [ctx.paciente, colega], pkg.id)
 

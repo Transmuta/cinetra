@@ -59,7 +59,12 @@ defmodule Api.Waitlist.ConvertTest do
 
     test "horário já tomado → propaga o conflito e mantém o item na fila" do
       ctx = setup_clinic()
-      outro = Records.create_patient!("Outro", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+
+      outro =
+        Records.create_patient!("Outro", %{tel: Api.Generators.telefone_unico()},
+          tenant: ctx.clinic.id,
+          actor: ctx.owner
+        )
 
       {:ok, _} =
         Scheduling.schedule_appointment(

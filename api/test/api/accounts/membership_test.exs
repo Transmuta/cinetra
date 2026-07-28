@@ -97,7 +97,10 @@ defmodule Api.Accounts.MembershipTest do
       {_owner_b, clinic_b} = owner_and_clinic()
 
       {:ok, prof_b} =
-        Api.Directory.create_professional("Prof B", %{}, tenant: clinic_b.id, authorize?: false)
+        Api.Directory.create_professional("Prof B", %{tel: Api.Generators.telefone_unico()},
+          tenant: clinic_b.id,
+          authorize?: false
+        )
 
       assert {:error, %Ash.Error.Invalid{}} =
                Accounts.invite_member_by_email(
@@ -111,7 +114,10 @@ defmodule Api.Accounts.MembershipTest do
       {owner, clinic} = owner_and_clinic()
 
       {:ok, prof} =
-        Api.Directory.create_professional("Prof A", %{}, tenant: clinic.id, authorize?: false)
+        Api.Directory.create_professional("Prof A", %{tel: Api.Generators.telefone_unico()},
+          tenant: clinic.id,
+          authorize?: false
+        )
 
       assert {:ok, m} =
                Accounts.invite_member_by_email(

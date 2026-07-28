@@ -26,6 +26,7 @@
 	import { profColor, type Professional } from '$lib/professionals';
 	import { maskCpf, maskTel, maskCep, maskMy, maskUf } from '$lib/masks';
 	import { lookupCep, type CepStatus } from '$lib/cep';
+	import { recebeWhatsapp, telefoneValido } from '$lib/telefone';
 
 	let {
 		patient = null,
@@ -211,8 +212,11 @@
 		runCepLookup(f.cep);
 	}
 
-	// ---- Validação: só o nome é obrigatório ----
+	// ---- Validação: nome e telefone são obrigatórios ----
 	const nomeOk = $derived(f.nome.trim().length > 0);
+	// D6 (doc 64) / `TelObrigatorio`: o rótulo já trazia o asterisco, mas o botão salvava assim
+	// mesmo e o 422 só aparecia depois da viagem. A regra é a do servidor — ver `telefoneValido`.
+	const telOk = $derived(telefoneValido(f.tel));
 
 	function fichaPayload() {
 		const clean = Object.fromEntries(
@@ -375,8 +379,17 @@
 					</label>
 					<div class="grid grid-cols-1 gap-3 md:grid-cols-2">
 						<label class="block">
-							{@render label('Telefone / WhatsApp')}
+							{@render label('Telefone / WhatsApp', true)}
 							<input value={f.tel} oninput={(e) => { f.tel = maskTel(e.currentTarget.value); scheduleDupCheck(); }} inputmode="tel" placeholder="(11) 90000-0000" class="{inputCls} font-mono" />
+							<!-- Obrigatório desde a fase 2 da comunicação (doc 52 §9): é o telefone que faz o
+							     paciente ser alcançável por WhatsApp. Fixo é aceito, e aí o aviso abaixo explica
+							     por que a mensagem vai sair por e-mail — dizer isso aqui evita a pergunta
+							     "mandei confirmação e ele não recebeu" três dias depois. -->
+							{#if f.tel && !recebeWhatsapp(f.tel)}
+								<span class="mt-1 block text-[11.5px] text-muted">
+									Parece um fixo — este paciente receberá por e-mail, não por WhatsApp.
+								</span>
+							{/if}
 						</label>
 						<label class="block">
 							{@render label('CPF')}
@@ -680,8 +693,13 @@
 		<span class="hidden flex-1 items-center gap-1.5 text-[12px] md:flex {error ? 'text-danger' : 'text-faint'}">
 			{#if error}
 				<TriangleAlert size={14} /> {error}
+			{:else if !telOk && f.tel.trim() !== ''}
+				<TriangleAlert size={14} /> Telefone incompleto — use DDD + número.
 			{:else}
-				Nenhum campo é obrigatório — salve a qualquer momento e complete depois.
+				<!-- Era "nenhum campo é obrigatório", e a frase sobreviveu à `TelObrigatorio`: o
+				     asterisco já estava no rótulo do telefone e o rodapé seguia prometendo o
+				     contrário, na mesma tela. -->
+				Nome e telefone são obrigatórios — o resto pode ficar para depois.
 			{/if}
 		</span>
 		<div class="flex-1 md:hidden"></div>
@@ -692,7 +710,7 @@
 		>
 		<button
 			type="submit"
-			disabled={!nomeOk || submitting}
+			disabled={!nomeOk || !telOk || submitting}
 			class="rounded-lg bg-primary px-5 py-2 text-[13px] font-semibold text-on-primary hover:bg-primary-hover disabled:opacity-60"
 		>
 			{editing ? 'Salvar' : 'Cadastrar paciente'}

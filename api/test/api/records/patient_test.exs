@@ -103,7 +103,9 @@ defmodule Api.Records.PatientTest do
       {owner, clinic} = owner_and_clinic()
 
       p =
-        Records.create_patient!("Consent", %{lgpd: true, comunicacao: false},
+        Records.create_patient!(
+          "Consent",
+          %{lgpd: true, comunicacao: false, tel: Api.Generators.telefone_unico()},
           tenant: clinic.id,
           actor: owner
         )
@@ -115,7 +117,11 @@ defmodule Api.Records.PatientTest do
     test "só o nome é obrigatório — cadastro mínimo passa com defaults" do
       {owner, clinic} = owner_and_clinic()
 
-      p = Records.create_patient!("Só Nome", %{}, tenant: clinic.id, actor: owner)
+      p =
+        Records.create_patient!("Só Nome", %{tel: Api.Generators.telefone_unico()},
+          tenant: clinic.id,
+          actor: owner
+        )
 
       assert p.nome == "Só Nome"
       assert is_nil(p.cpf)
@@ -163,7 +169,9 @@ defmodule Api.Records.PatientTest do
           actor: owner
         )
 
-      assert updated.tel == "(11) 91111-2222"
+      # Guardado em E.164 — a forma canônica que o opt-out e o envio comparam (doc 52 §9). A
+      # máscara volta na tela, por `web/src/lib/telefone.ts`.
+      assert updated.tel == "+5511911112222"
       assert updated.cor_indice == 5
       # não tocados
       assert updated.medico == "Dr. Silva"
@@ -176,22 +184,41 @@ defmodule Api.Records.PatientTest do
       {owner, clinic} = owner_and_clinic()
       admin = member_with_role(clinic, :admin)
 
-      assert %{} = Records.create_patient!("A", %{}, tenant: clinic.id, actor: owner)
-      assert %{} = Records.create_patient!("B", %{}, tenant: clinic.id, actor: admin)
+      assert %{} =
+               Records.create_patient!("A", %{tel: Api.Generators.telefone_unico()},
+                 tenant: clinic.id,
+                 actor: owner
+               )
+
+      assert %{} =
+               Records.create_patient!("B", %{tel: Api.Generators.telefone_unico()},
+                 tenant: clinic.id,
+                 actor: admin
+               )
     end
 
     test "recepção e profissional NÃO criam, atualizam nem arquivam (Forbidden)" do
       {owner, clinic} = owner_and_clinic()
-      alvo = Records.create_patient!("Alvo", %{}, tenant: clinic.id, actor: owner)
+
+      alvo =
+        Records.create_patient!("Alvo", %{tel: Api.Generators.telefone_unico()},
+          tenant: clinic.id,
+          actor: owner
+        )
 
       for papel <- [:recepcao, :profissional] do
         user = member_with_role(clinic, papel)
         opts = [tenant: clinic.id, actor: user]
 
-        assert {:error, %Ash.Error.Forbidden{}} = Records.create_patient("X", %{}, opts)
-
+        # Com telefone VÁLIDO de propósito: sem ele a ação para na validação e devolve
+        # `Invalid` antes de chegar à policy — o teste passaria a provar outra coisa.
         assert {:error, %Ash.Error.Forbidden{}} =
-                 Records.update_patient(alvo, %{tel: "hack"}, opts)
+                 Records.create_patient("X", %{tel: Api.Generators.telefone_unico()}, opts)
+
+        # Telefone VÁLIDO aqui também: "hack" agora é recusado pela validação, e o teste
+        # passaria a provar "campo inválido" em vez de "papel sem permissão".
+        assert {:error, %Ash.Error.Forbidden{}} =
+                 Records.update_patient(alvo, %{tel: Api.Generators.telefone_unico()}, opts)
 
         assert {:error, %Ash.Error.Forbidden{}} = Records.deactivate_patient(alvo, %{}, opts)
       end
@@ -230,7 +257,12 @@ defmodule Api.Records.PatientTest do
 
     test "reactivate volta ativo: true" do
       {owner, clinic} = owner_and_clinic()
-      p = Records.create_patient!("X", %{}, tenant: clinic.id, actor: owner)
+
+      p =
+        Records.create_patient!("X", %{tel: Api.Generators.telefone_unico()},
+          tenant: clinic.id,
+          actor: owner
+        )
 
       arquivado = Records.deactivate_patient!(p, %{}, tenant: clinic.id, actor: owner)
       restaurado = Records.reactivate_patient!(arquivado, %{}, tenant: clinic.id, actor: owner)
@@ -240,8 +272,19 @@ defmodule Api.Records.PatientTest do
 
     test "a lista traz ativos E arquivados (a sidebar filtra por status)" do
       {owner, clinic} = owner_and_clinic()
-      ativo = Records.create_patient!("Ativo", %{}, tenant: clinic.id, actor: owner)
-      arq = Records.create_patient!("Arquivado", %{}, tenant: clinic.id, actor: owner)
+
+      ativo =
+        Records.create_patient!("Ativo", %{tel: Api.Generators.telefone_unico()},
+          tenant: clinic.id,
+          actor: owner
+        )
+
+      arq =
+        Records.create_patient!("Arquivado", %{tel: Api.Generators.telefone_unico()},
+          tenant: clinic.id,
+          actor: owner
+        )
+
       Records.deactivate_patient!(arq, %{}, tenant: clinic.id, actor: owner)
 
       ids =

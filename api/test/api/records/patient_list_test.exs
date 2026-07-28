@@ -23,7 +23,11 @@ defmodule Api.Records.PatientListTest do
     Api.Scope.with_membership(user, membership)
   end
 
+  # O telefone entra por default porque virou obrigatório (doc 52 §9); quem testa o campo
+  # passa o seu em `attrs` e sobrescreve.
   defp create(clinic, nome, attrs \\ %{}) do
+    attrs = Map.merge(%{tel: Api.Generators.telefone_unico()}, Map.new(attrs))
+
     Records.create_patient!(nome, attrs, tenant: clinic.id, authorize?: false)
   end
 

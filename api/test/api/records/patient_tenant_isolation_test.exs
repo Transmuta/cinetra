@@ -23,8 +23,17 @@ defmodule Api.Records.PatientTenantIsolationTest do
     {user_a, clinic_a} = owner_of_clinic("Clínica A")
     {user_b, clinic_b} = owner_of_clinic("Clínica B")
 
-    pac_a = Records.create_patient!("Ana A", %{}, tenant: clinic_a.id, actor: user_a)
-    pac_b = Records.create_patient!("Bruno B", %{}, tenant: clinic_b.id, actor: user_b)
+    pac_a =
+      Records.create_patient!("Ana A", %{tel: Api.Generators.telefone_unico()},
+        tenant: clinic_a.id,
+        actor: user_a
+      )
+
+    pac_b =
+      Records.create_patient!("Bruno B", %{tel: Api.Generators.telefone_unico()},
+        tenant: clinic_b.id,
+        actor: user_b
+      )
 
     lista_a = Records.list_patients!(tenant: clinic_a.id, actor: user_a)
     lista_b = Records.list_patients!(tenant: clinic_b.id, actor: user_b)
@@ -38,7 +47,11 @@ defmodule Api.Records.PatientTenantIsolationTest do
     {user_a, clinic_a} = owner_of_clinic("Clínica A")
     {_user_b, clinic_b} = owner_of_clinic("Clínica B")
 
-    pac_a = Records.create_patient!("Ana A", %{}, tenant: clinic_a.id, actor: user_a)
+    pac_a =
+      Records.create_patient!("Ana A", %{tel: Api.Generators.telefone_unico()},
+        tenant: clinic_a.id,
+        actor: user_a
+      )
 
     assert {:ok, nil} =
              Records.get_patient(pac_a.id,

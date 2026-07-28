@@ -18,7 +18,11 @@ defmodule ApiWeb.ReportsControllerTest do
     {:ok, clinic} =
       Accounts.onboard_clinic("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
 
-    prof = Directory.create_professional!("Dra. X", %{}, tenant: clinic.id, actor: owner)
+    prof =
+      Directory.create_professional!("Dra. X", %{tel: Api.Generators.telefone_unico()},
+        tenant: clinic.id,
+        actor: owner
+      )
 
     tipo =
       Directory.create_appointment_type!(
@@ -32,7 +36,12 @@ defmodule ApiWeb.ReportsControllerTest do
         actor: owner
       )
 
-    paciente = Records.create_patient!("Paciente", %{}, tenant: clinic.id, actor: owner)
+    paciente =
+      Records.create_patient!("Paciente", %{tel: Api.Generators.telefone_unico()},
+        tenant: clinic.id,
+        actor: owner
+      )
+
     %{owner: owner, clinic: clinic, prof: prof, tipo: tipo, paciente: paciente}
   end
 
@@ -129,7 +138,10 @@ defmodule ApiWeb.ReportsControllerTest do
       ctx = fixture()
 
       outro =
-        Directory.create_professional!("Dr. Y", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+        Directory.create_professional!("Dr. Y", %{tel: Api.Generators.telefone_unico()},
+          tenant: ctx.clinic.id,
+          actor: ctx.owner
+        )
 
       create_appt(conn, ctx, ctx.owner, "2026-07-20T11:00:00Z", ctx.prof.id)
 

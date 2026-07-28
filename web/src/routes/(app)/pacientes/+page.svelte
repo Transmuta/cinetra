@@ -9,6 +9,7 @@
 	import ChevronLeft from '@lucide/svelte/icons/chevron-left';
 	import ChevronRight from '@lucide/svelte/icons/chevron-right';
 	import { initials } from '$lib/format';
+	import { formatarTelefone } from '$lib/telefone';
 	import {
 		canManagePatients,
 		patientColor,
@@ -144,7 +145,7 @@
 						<span class="block font-mono text-[10px] text-faint">{p.cpf ?? '—'}</span>
 					</span>
 				</span>
-				<span class="truncate font-mono text-[11px] text-muted">{p.tel ?? '—'}</span>
+				<span class="truncate font-mono text-[11px] text-muted">{formatarTelefone(p.tel) ?? '—'}</span>
 				<span class="truncate text-[12.5px] text-muted">{prefLabel(p)}</span>
 				<span class="flex flex-wrap gap-1">
 					{#if p.tags.length}
@@ -178,7 +179,7 @@
 					</div>
 				</div>
 				<div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-muted">
-					{#if p.tel}<span class="inline-flex items-center gap-1.5 font-mono"><Phone size={12} /> {p.tel}</span>{/if}
+					{#if p.tel}<span class="inline-flex items-center gap-1.5 font-mono"><Phone size={12} /> {formatarTelefone(p.tel)}</span>{/if}
 					{#if prefLabel(p) !== '—'}<span class="inline-flex min-w-0 items-center gap-1.5"><Stethoscope size={12} /> <span class="truncate">{prefLabel(p)}</span></span>{/if}
 				</div>
 				{#if p.tags.length}

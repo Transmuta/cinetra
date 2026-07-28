@@ -40,7 +40,10 @@ defmodule Api.Scheduling.ProfessionalHoursTest do
   end
 
   defp professional(clinic, owner, nome \\ "Dra. X") do
-    Directory.create_professional!(nome, %{}, tenant: clinic.id, actor: owner)
+    Directory.create_professional!(nome, %{tel: Api.Generators.telefone_unico()},
+      tenant: clinic.id,
+      actor: owner
+    )
   end
 
   defp grade(scope, prof_id) do

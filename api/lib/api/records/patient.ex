@@ -120,6 +120,11 @@ defmodule Api.Records.Patient do
     create :create do
       primary? true
       accept @campos
+
+      # Telefone obrigatório e canônico (doc 52 §9). A validação vem antes da normalização de
+      # propósito: é ela que produz a mensagem de erro com o valor que a pessoa digitou.
+      validate Api.Validations.TelObrigatorio
+      change Api.Records.Patient.Changes.NormalizeTel
     end
 
     # `require_atomic? false` nas escritas: o `SetTenantGuc` seta a GUC de tenant num
@@ -129,6 +134,11 @@ defmodule Api.Records.Patient do
       primary? true
       accept @campos
       require_atomic? false
+
+      # Também no update, e é o D6 opção (b): é assim que a ficha antiga sem telefone se corrige
+      # no fluxo natural, sem backfill e sem `NOT NULL` numa tabela que tem linhas nulas.
+      validate Api.Validations.TelObrigatorio
+      change Api.Records.Patient.Changes.NormalizeTel
     end
 
     # Arquivar (não apagar): só a transição de estado, como `Professional.deactivate`.

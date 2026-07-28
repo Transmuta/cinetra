@@ -99,6 +99,7 @@ defmodule Api.Directory.Professional do
     create :create do
       primary? true
       accept @campos
+      validate Api.Validations.TelObrigatorio
     end
 
     # `require_atomic? false` nas escritas: o `SetTenantGuc` seta a GUC de tenant num
@@ -108,6 +109,7 @@ defmodule Api.Directory.Professional do
       primary? true
       accept @campos
       require_atomic? false
+      validate Api.Validations.TelObrigatorio
     end
 
     # Arquivar (não apagar): só a transição de estado, como `AppointmentType.archive`.

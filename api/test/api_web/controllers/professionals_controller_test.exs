@@ -18,7 +18,11 @@ defmodule ApiWeb.ProfessionalsControllerTest do
     {owner, clinic}
   end
 
+  # Telefone por default: ele virou obrigatório também no profissional (D6). Quem testa o campo
+  # passa o seu.
   defp create_prof(clinic, nome \\ "Dra. Marina", overrides \\ %{}) do
+    overrides = Map.merge(%{tel: Api.Generators.telefone_unico()}, Map.new(overrides))
+
     Directory.create_professional!(nome, overrides, tenant: clinic.id, authorize?: false)
   end
 
@@ -52,9 +56,12 @@ defmodule ApiWeb.ProfessionalsControllerTest do
   end
 
   describe "POST /api/professionals" do
-    test "cria com só o nome e devolve 201", %{conn: conn} do
+    test "cria com nome e telefone e devolve 201", %{conn: conn} do
+      # Deixou de ser "só o nome": o telefone virou obrigatório nos dois cadastros (D6).
       body =
-        conn |> post(~p"/api/professionals", %{"nome" => "Dr. Novo"}) |> json_response(201)
+        conn
+        |> post(~p"/api/professionals", %{"nome" => "Dr. Novo", "tel" => "(11) 98765-4321"})
+        |> json_response(201)
 
       assert body["professional"]["nome"] == "Dr. Novo"
       assert body["professional"]["ativo"] == true
@@ -71,7 +78,11 @@ defmodule ApiWeb.ProfessionalsControllerTest do
 
       body =
         conn
-        |> post(~p"/api/professionals", %{"nome" => "X", "clinic_id" => other})
+        |> post(~p"/api/professionals", %{
+          "nome" => "X",
+          "tel" => "11987650002",
+          "clinic_id" => other
+        })
         |> json_response(201)
 
       # foi criado na clínica do escopo, não na do corpo.
@@ -242,7 +253,12 @@ defmodule ApiWeb.ProfessionalsControllerTest do
   # Bate-volta da Onda 6 (doc 49) — a fronteira manda string, e o `modo` é escolha do cliente.
   describe "grade e folga pela fronteira (A3/D12 + doc 49)" do
     test "modo inventado devolve 422, não 500", %{conn: conn, owner: owner, clinic: clinic} do
-      prof = Directory.create_professional!("Dra. X", %{}, tenant: clinic.id, actor: owner)
+      prof =
+        Directory.create_professional!("Dra. X", %{tel: Api.Generators.telefone_unico()},
+          tenant: clinic.id,
+          actor: owner
+        )
+
       _ = owner
 
       assert conn
@@ -253,7 +269,12 @@ defmodule ApiWeb.ProfessionalsControllerTest do
     end
 
     test "modo ausente também é 422", %{conn: conn, owner: owner, clinic: clinic} do
-      prof = Directory.create_professional!("Dra. X", %{}, tenant: clinic.id, actor: owner)
+      prof =
+        Directory.create_professional!("Dra. X", %{tel: Api.Generators.telefone_unico()},
+          tenant: clinic.id,
+          actor: owner
+        )
+
       _ = owner
 
       assert conn
@@ -271,7 +292,12 @@ defmodule ApiWeb.ProfessionalsControllerTest do
       clinic: clinic
     } do
       scope = escopo(owner, clinic)
-      prof = Directory.create_professional!("Dra. X", %{}, tenant: clinic.id, actor: owner)
+
+      prof =
+        Directory.create_professional!("Dra. X", %{tel: Api.Generators.telefone_unico()},
+          tenant: clinic.id,
+          actor: owner
+        )
 
       tipo =
         Directory.create_appointment_type!(
@@ -280,7 +306,11 @@ defmodule ApiWeb.ProfessionalsControllerTest do
           actor: owner
         )
 
-      paciente = Api.Records.create_patient!("Paciente", %{}, tenant: clinic.id, actor: owner)
+      paciente =
+        Api.Records.create_patient!("Paciente", %{tel: Api.Generators.telefone_unico()},
+          tenant: clinic.id,
+          actor: owner
+        )
 
       {:ok, starts_at} =
         Api.Scheduling.LocalTime.to_utc(~D[2027-03-15], "14:00", "America/Sao_Paulo")

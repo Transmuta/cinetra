@@ -19,7 +19,10 @@ defmodule ApiWeb.MembersControllerTest do
   describe "GET /api/members" do
     test "lista membros da clínica e profissionais", %{conn: conn, clinic: clinic} do
       {:ok, _prof} =
-        Api.Directory.create_professional("Dra. Ana", %{}, tenant: clinic.id, authorize?: false)
+        Api.Directory.create_professional("Dra. Ana", %{tel: Api.Generators.telefone_unico()},
+          tenant: clinic.id,
+          authorize?: false
+        )
 
       body = conn |> get(~p"/api/members") |> json_response(200)
 
@@ -125,7 +128,7 @@ defmodule ApiWeb.MembersControllerTest do
       clinic: clinic
     } do
       {:ok, prof} =
-        Api.Directory.create_professional("Dr. Vínculo", %{},
+        Api.Directory.create_professional("Dr. Vínculo", %{tel: Api.Generators.telefone_unico()},
           tenant: clinic.id,
           authorize?: false
         )
@@ -187,7 +190,10 @@ defmodule ApiWeb.MembersControllerTest do
       clinic: clinic
     } do
       {:ok, prof} =
-        Api.Directory.create_professional("Dra. Liga", %{}, tenant: clinic.id, authorize?: false)
+        Api.Directory.create_professional("Dra. Liga", %{tel: Api.Generators.telefone_unico()},
+          tenant: clinic.id,
+          authorize?: false
+        )
 
       {:ok, m} =
         Accounts.invite_member_by_email(

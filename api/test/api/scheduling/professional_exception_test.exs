@@ -26,7 +26,10 @@ defmodule Api.Scheduling.ProfessionalExceptionTest do
   end
 
   defp professional(clinic, owner, nome \\ "Dra. X") do
-    Directory.create_professional!(nome, %{}, tenant: clinic.id, actor: owner)
+    Directory.create_professional!(nome, %{tel: Api.Generators.telefone_unico()},
+      tenant: clinic.id,
+      actor: owner
+    )
   end
 
   test "cria folga (fechado) e horário pontual do profissional" do

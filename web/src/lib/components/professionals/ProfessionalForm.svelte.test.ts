@@ -42,12 +42,19 @@ describe('ProfessionalForm — novo', () => {
 		expect(getByRole('button', { name: 'Cadastrar profissional' })).toBeInTheDocument();
 	});
 
-	it('salvar fica desabilitado sem nome e habilita ao preencher', async () => {
-		const { getByRole, getByPlaceholderText } = render(ProfessionalForm, { props: { clinicHours } });
+	// D6 (doc 64): o telefone entrou no mínimo do profissional também — a decisão foi "nos dois
+	// cadastros", não só no paciente.
+	it('salvar só habilita com nome E telefone', async () => {
+		const { getByRole, getByPlaceholderText, getByLabelText } = render(ProfessionalForm, { props: { clinicHours } });
 		const save = getByRole('button', { name: 'Cadastrar profissional' });
 		expect(save).toBeDisabled();
 
 		await fireEvent.input(getByPlaceholderText('Nome do profissional'), { target: { value: 'Marina' } });
+		expect(save).toBeDisabled();
+
+		await fireEvent.input(getByLabelText(/Celular \/ WhatsApp/), {
+			target: { value: '11987654321' }
+		});
 		expect(save).toBeEnabled();
 	});
 

@@ -25,6 +25,7 @@
 	import PatientHistory from '$lib/components/patients/PatientHistory.svelte';
 	import PatientAttachments from '$lib/components/patients/PatientAttachments.svelte';
 	import type { Package as Pkg } from '$lib/packages';
+	import { formatarTelefone } from '$lib/telefone';
 	import type { PageData, ActionData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -85,7 +86,7 @@
 			icon: Phone,
 			title: 'Contato',
 			campos: [
-				{ l: 'Telefone / WhatsApp', v: p.tel, mono: true },
+				{ l: 'Telefone / WhatsApp', v: formatarTelefone(p.tel), mono: true },
 				{ l: 'E-mail', v: p.email },
 				// "Responsável legal" veio de Identificação: paciente menor de idade é caso de
 				// ATENDIMENTO (a lista tem até o segmento "Com responsável"), e atrás de um clique

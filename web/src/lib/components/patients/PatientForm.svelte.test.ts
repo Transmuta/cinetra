@@ -38,13 +38,28 @@ describe('PatientForm — novo', () => {
 		expect(getByRole('button', { name: 'Cadastrar paciente' })).toBeInTheDocument();
 	});
 
-	it('salvar fica desabilitado sem nome e habilita ao preencher', async () => {
-		const { getByRole, getByPlaceholderText } = render(PatientForm, { props: { professionals } });
+	// D6 (doc 64): o mínimo passou a ser nome **e** telefone. O nome sozinho não habilita mais —
+	// antes habilitava, e o 422 do servidor só aparecia depois de clicar.
+	it('salvar só habilita com nome E telefone', async () => {
+		const { getByRole, getByPlaceholderText, getByLabelText } = render(PatientForm, { props: { professionals } });
 		const save = getByRole('button', { name: 'Cadastrar paciente' });
 		expect(save).toBeDisabled();
 
 		await fireEvent.input(getByPlaceholderText('Nome do paciente'), { target: { value: 'Mariana' } });
+		expect(save).toBeDisabled();
+
+		await fireEvent.input(getByLabelText(/Telefone \/ WhatsApp/), {
+			target: { value: '11987654321' }
+		});
 		expect(save).toBeEnabled();
+	});
+
+	it('telefone incompleto não habilita', async () => {
+		const { getByRole, getByPlaceholderText, getByLabelText } = render(PatientForm, { props: { professionals } });
+		await fireEvent.input(getByPlaceholderText('Nome do paciente'), { target: { value: 'Mariana' } });
+		await fireEvent.input(getByLabelText(/Telefone \/ WhatsApp/), { target: { value: '119876' } });
+
+		expect(getByRole('button', { name: 'Cadastrar paciente' })).toBeDisabled();
 	});
 
 	it('a ficha (hidden) reflete nome e os defaults (particular, sem consentimento)', async () => {

@@ -28,8 +28,17 @@ defmodule ApiWeb.AgendaChannelTest do
     {:ok, clinic} =
       Accounts.onboard_clinic("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
 
-    prof = Directory.create_professional!("Dra. X", %{}, tenant: clinic.id, actor: owner)
-    outra = Directory.create_professional!("Dr. Y", %{}, tenant: clinic.id, actor: owner)
+    prof =
+      Directory.create_professional!("Dra. X", %{tel: Api.Generators.telefone_unico()},
+        tenant: clinic.id,
+        actor: owner
+      )
+
+    outra =
+      Directory.create_professional!("Dr. Y", %{tel: Api.Generators.telefone_unico()},
+        tenant: clinic.id,
+        actor: owner
+      )
 
     tipo =
       Directory.create_appointment_type!(
@@ -43,7 +52,11 @@ defmodule ApiWeb.AgendaChannelTest do
         actor: owner
       )
 
-    paciente = Records.create_patient!("Paciente Fulano", %{}, tenant: clinic.id, actor: owner)
+    paciente =
+      Records.create_patient!("Paciente Fulano", %{tel: Api.Generators.telefone_unico()},
+        tenant: clinic.id,
+        actor: owner
+      )
 
     %{owner: owner, clinic: clinic, prof: prof, outra: outra, tipo: tipo, paciente: paciente}
   end
@@ -499,7 +512,12 @@ defmodule ApiWeb.AgendaChannelTest do
           actor: ctx.owner
         )
 
-      outro = Records.create_patient!("Segundo", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+      outro =
+        Records.create_patient!("Segundo", %{tel: Api.Generators.telefone_unico()},
+          tenant: ctx.clinic.id,
+          actor: ctx.owner
+        )
+
       scope = scope_for(ctx.owner, ctx.clinic)
 
       {:ok, turma} =

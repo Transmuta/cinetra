@@ -24,8 +24,17 @@ defmodule Api.Directory.ProfessionalTenantIsolationTest do
     {user_a, clinic_a} = owner_of_clinic("Clínica A")
     {user_b, clinic_b} = owner_of_clinic("Clínica B")
 
-    prof_a = Directory.create_professional!("Dra. A", %{}, tenant: clinic_a.id, actor: user_a)
-    prof_b = Directory.create_professional!("Dr. B", %{}, tenant: clinic_b.id, actor: user_b)
+    prof_a =
+      Directory.create_professional!("Dra. A", %{tel: Api.Generators.telefone_unico()},
+        tenant: clinic_a.id,
+        actor: user_a
+      )
+
+    prof_b =
+      Directory.create_professional!("Dr. B", %{tel: Api.Generators.telefone_unico()},
+        tenant: clinic_b.id,
+        actor: user_b
+      )
 
     lista_a = Directory.list_professionals!(tenant: clinic_a.id, actor: user_a)
     lista_b = Directory.list_professionals!(tenant: clinic_b.id, actor: user_b)
