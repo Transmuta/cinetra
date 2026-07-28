@@ -48,6 +48,7 @@ defmodule Api.Scheduling do
 
     resource Api.Scheduling.Attendance do
       define :list_attendances, action: :read
+      define :get_attendance, action: :read, get_by: [:id]
 
       # Segura/solta a presença na pausa do pacote (doc 43 §5c) — cascata interna de `Api.Packages`.
       define :set_attendance_pkg_hold, action: :set_pkg_hold
@@ -413,8 +414,11 @@ defmodule Api.Scheduling do
   defp dispatch_participant(:complete, attendance, _input, scope),
     do: mark_attendance_present(attendance, %{}, scope: scope)
 
-  defp dispatch_participant(:no_show, attendance, _input, scope),
-    do: mark_attendance_absent(attendance, %{}, scope: scope)
+  # `input` (e não `%{}`) porque a falta passou a carregar `motivo` (D-H3/D5) — é o único dos
+  # quatro verbos de presença que recebe algo do corpo além do próprio verbo. O `justify` já
+  # fazia igual, pelo mesmo motivo.
+  defp dispatch_participant(:no_show, attendance, input, scope),
+    do: mark_attendance_absent(attendance, input, scope: scope)
 
   defp dispatch_participant(:reopen, attendance, _input, scope),
     do: reopen_attendance_slot(attendance, %{}, scope: scope)

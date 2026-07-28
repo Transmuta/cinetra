@@ -227,7 +227,7 @@ export function transitionParticipant(
 	id: string,
 	patientId: string,
 	kind: ParticipantKind,
-	input: { expected_version: number; justificada?: boolean }
+	input: { expected_version: number; justificada?: boolean; motivo?: string }
 ): Promise<MutationResult> {
 	// Ids escapados: um id forjado não sai do caminho do recurso (defesa de `server/waitlist.ts`).
 	const path = `/api/appointments/${encodeURIComponent(id)}/participants/${encodeURIComponent(patientId)}/${kind}`;

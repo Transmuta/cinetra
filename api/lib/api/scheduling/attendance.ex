@@ -124,8 +124,18 @@ defmodule Api.Scheduling.Attendance do
       change Api.Scheduling.Attendance.Changes.RollupBlockStatus
     end
 
+    # Faltar aceita `motivo` — opcional, texto livre (D-H3 com o D5 do doc 64).
+    #
+    # O motivo é **da presença, não do bloco**: depois da A2 a falta é por participante, e um
+    # campo único no bloco mentiria numa turma onde três faltaram por razões diferentes. É o
+    # mesmo raciocínio do D13, aplicado ao texto em vez de ao rótulo.
+    #
+    # E é **opcional por decisão**, não por esquecimento: apresentar não é exigir. A consequência
+    # aceita no §8 é que qualquer relatório por causa nasce incompleto — se a gestão quiser o
+    # número confiável, aí vira obrigatório, com ADR novo.
     update :mark_absent do
       require_atomic? false
+      accept [:motivo]
       validate {Api.Scheduling.Appointment.Validations.StatusIn, from: [:prevista]}
       change set_attribute(:status, :faltou)
       change Api.Scheduling.Attendance.Changes.RollupBlockStatus
@@ -138,6 +148,10 @@ defmodule Api.Scheduling.Attendance do
       validate {Api.Scheduling.Appointment.Validations.StatusIn, from: [:concluida, :faltou]}
       change set_attribute(:status, :prevista)
       change set_attribute(:falta_justificada, false)
+      # Zera o motivo junto: reabrir é desfazer um clique errado, e um motivo de falta pendurado
+      # numa presença que voltou a `:prevista` seria explicação de algo que não aconteceu — o
+      # mesmo cuidado que o `reopen` do bloco tem com o `cancel_reason`.
+      change set_attribute(:motivo, nil)
       change Api.Scheduling.Attendance.Changes.RollupBlockStatus
     end
 
@@ -227,6 +241,11 @@ defmodule Api.Scheduling.Attendance do
 
     # Entrega 4 (o bloco "Falta justificada" do drawer). Coluna agora, UI depois.
     attribute :falta_justificada, :boolean, allow_nil?: false, default: false, public?: true
+
+    # Por que faltou — texto livre, opcional (D-H3/D5). Sem taxonomia fechada: o §8 decidiu
+    # explicitamente que categoria não entra agora. O teto acompanha o `cancel_reason` do bloco,
+    # que é o campo irmão deste.
+    attribute :motivo, :string, public?: true, constraints: [max_length: 300]
 
     # `package_id` mudou de casa: virou `belongs_to :package` (H64, Onda 5) — ver `relationships`.
 

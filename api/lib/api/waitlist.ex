@@ -181,7 +181,20 @@ defmodule Api.Waitlist do
   e escolhe outro horário. Não há reserva prévia — ver o ADR do doc 39.
   """
   def convert(%Api.Scope{} = scope, entry, appt_attrs) when is_map(appt_attrs) do
-    attrs = Map.put(appt_attrs, :patient_ids, [entry.patient_id])
+    %{today: today, timezone: tz} = Api.Scheduling.clinic_now(scope)
+
+    attrs =
+      appt_attrs
+      |> Map.put(:patient_ids, [entry.patient_id])
+      # D-H10: o carimbo de origem tem de ser aplicado **aqui**, porque logo abaixo o
+      # `dequeue_entry` apaga a linha da fila — e com ela a única fonte de "esperou quanto".
+      # A mesma conta do `dias_na_fila` que a tela da fila mostra (`WaitlistJSON.entry/3`),
+      # no fuso da clínica e pelo relógio do escopo (ADR-009).
+      |> Map.put(:veio_da_fila, true)
+      |> Map.put(
+        :dias_na_fila,
+        Date.diff(today, Api.Scheduling.LocalTime.to_local_date(entry.inserted_at, tz))
+      )
 
     with {:ok, appointment} <- Api.Scheduling.schedule_appointment(attrs, scope: scope) do
       # O paciente saiu da fila. Best-effort: o agendamento é o

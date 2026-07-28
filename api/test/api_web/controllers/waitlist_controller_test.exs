@@ -16,7 +16,11 @@ defmodule ApiWeb.WaitlistControllerTest do
     {:ok, clinic} =
       Accounts.onboard_clinic("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
 
-    prof = Directory.create_professional!("Dra. X", %{}, tenant: clinic.id, actor: owner)
+    prof =
+      Directory.create_professional!("Dra. X", %{tel: Api.Generators.telefone_unico()},
+        tenant: clinic.id,
+        actor: owner
+      )
 
     tipo =
       Directory.create_appointment_type!(
@@ -30,7 +34,12 @@ defmodule ApiWeb.WaitlistControllerTest do
         actor: owner
       )
 
-    paciente = Records.create_patient!("Paciente", %{}, tenant: clinic.id, actor: owner)
+    paciente =
+      Records.create_patient!("Paciente", %{tel: Api.Generators.telefone_unico()},
+        tenant: clinic.id,
+        actor: owner
+      )
+
     %{owner: owner, clinic: clinic, prof: prof, tipo: tipo, paciente: paciente}
   end
 
@@ -84,7 +93,13 @@ defmodule ApiWeb.WaitlistControllerTest do
   describe "GET /api/waitlist" do
     test "lista ordenada por prioridade + os profissionais" do
       ctx = fixture()
-      p2 = Records.create_patient!("Outro", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+
+      p2 =
+        Records.create_patient!("Outro", %{tel: Api.Generators.telefone_unico()},
+          tenant: ctx.clinic.id,
+          actor: ctx.owner
+        )
+
       enqueue(ctx, %{"prio" => "baixa"})
       enqueue(Map.put(ctx, :paciente, p2), %{"prio" => "urgente"})
 
@@ -137,7 +152,13 @@ defmodule ApiWeb.WaitlistControllerTest do
   describe "GET /api/waitlist/slots (batch)" do
     test "mapeia entry_id → vagas, e bate com o endpoint por-item" do
       ctx = fixture()
-      p2 = Records.create_patient!("Outro", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+
+      p2 =
+        Records.create_patient!("Outro", %{tel: Api.Generators.telefone_unico()},
+          tenant: ctx.clinic.id,
+          actor: ctx.owner
+        )
+
       a = enqueue(ctx)
       b = enqueue(Map.put(ctx, :paciente, p2), %{"prio" => "alta"})
 
@@ -194,6 +215,68 @@ defmodule ApiWeb.WaitlistControllerTest do
       assert appt["patient_ids"] == [ctx.paciente.id]
       assert json_response(as(ctx.owner) |> get("/api/waitlist"), 200)["waitlist"] == []
     end
+
+    # D-H10 (doc 64): o `dequeue` é um `destroy` de verdade, então a origem precisa ser carimbada
+    # no agendamento **antes** de a linha da fila sumir. Sem isto, "quantos vieram da fila?" e
+    # "esperaram quanto?" ficam sem resposta no instante seguinte à conversão.
+    test "o agendamento nasce carimbado com a origem na fila" do
+      ctx = fixture()
+      entry = enqueue(ctx)
+
+      conn =
+        as(ctx.owner)
+        |> post("/api/waitlist/#{entry["id"]}/convert", %{
+          "starts_at" => "2026-07-20T12:00:00Z",
+          "professional_id" => ctx.prof.id,
+          "appointment_type_id" => ctx.tipo.id
+        })
+
+      appt = json_response(conn, 201)["appointment"]
+      assert appt["veio_da_fila"] == true
+
+      # Entrou na fila hoje e foi atendido hoje: zero é informação (esperou nada), não ausência
+      # de informação — é por isso que a coluna não tem default 0.
+      assert appt["dias_na_fila"] == 0
+    end
+
+    test "agendamento comum não é confundido com origem na fila" do
+      ctx = fixture()
+
+      conn =
+        as(ctx.owner)
+        |> post("/api/appointments", %{
+          "starts_at" => "2026-07-20T13:00:00Z",
+          "professional_id" => ctx.prof.id,
+          "appointment_type_id" => ctx.tipo.id,
+          "patient_ids" => [ctx.paciente.id]
+        })
+
+      appt = json_response(conn, 201)["appointment"]
+      assert appt["veio_da_fila"] == false
+      assert is_nil(appt["dias_na_fila"])
+    end
+
+    # A fronteira HTTP não expõe o carimbo: quem tenta forjá-lo pelo corpo é ignorado pelo
+    # `whitelist` do controller de agendamento. Se um dia alguém acrescentar o campo à lista,
+    # este teste cai — que é o ponto.
+    test "não dá para forjar a origem pelo corpo do POST /appointments" do
+      ctx = fixture()
+
+      conn =
+        as(ctx.owner)
+        |> post("/api/appointments", %{
+          "starts_at" => "2026-07-20T14:00:00Z",
+          "professional_id" => ctx.prof.id,
+          "appointment_type_id" => ctx.tipo.id,
+          "patient_ids" => [ctx.paciente.id],
+          "veio_da_fila" => true,
+          "dias_na_fila" => 99
+        })
+
+      appt = json_response(conn, 201)["appointment"]
+      assert appt["veio_da_fila"] == false
+      assert is_nil(appt["dias_na_fila"])
+    end
   end
 
   # F6: a fila deixou de vir inteira. O que a fronteira acrescenta ao que o domínio já garante é
@@ -242,7 +325,9 @@ defmodule ApiWeb.WaitlistControllerTest do
   # Um item por paciente (a fila faz upsert por paciente), então cada chamada cria o seu.
   defp enfileira(ctx, prio \\ "normal") do
     paciente =
-      Records.create_patient!("Paciente #{System.unique_integer([:positive])}", %{},
+      Records.create_patient!(
+        "Paciente #{System.unique_integer([:positive])}",
+        %{tel: Api.Generators.telefone_unico()},
         tenant: ctx.clinic.id,
         actor: ctx.owner
       )

@@ -75,7 +75,7 @@ defmodule ApiWeb.AppointmentsController do
         scope,
         id,
         :reschedule,
-        whitelist(params, [:starts_at, :professional_id, :encaixe]),
+        whitelist(params, [:starts_at, :professional_id, :encaixe, :reschedule_reason]),
         params
       )
     end)
@@ -118,7 +118,7 @@ defmodule ApiWeb.AppointmentsController do
 
   # POST /api/appointments/:id/participants/:patient_id/no_show
   def participant_no_show(conn, %{"id" => id, "patient_id" => pid} = params),
-    do: participant(conn, id, pid, :no_show, %{}, params)
+    do: participant(conn, id, pid, :no_show, whitelist(params, [:motivo]), params)
 
   # POST /api/appointments/:id/participants/:patient_id/reopen
   def participant_reopen(conn, %{"id" => id, "patient_id" => pid} = params),

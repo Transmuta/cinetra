@@ -21,6 +21,9 @@ defmodule ApiWeb.AgendaJSON do
       encaixe: appt.encaixe,
       obs: appt.obs,
       cancel_reason: appt.cancel_reason,
+      reschedule_reason: appt.reschedule_reason,
+      veio_da_fila: appt.veio_da_fila,
+      dias_na_fila: appt.dias_na_fila,
       professional_id: appt.professional_id,
       appointment_type_id: appt.appointment_type_id,
       version: appt.version,
@@ -82,6 +85,8 @@ defmodule ApiWeb.AgendaJSON do
         patient_id: att.patient_id,
         status: att.status,
         falta_justificada: att.falta_justificada,
+        # O motivo da falta viaja por participante (D-H3/D5) — na turma, cada um tem o seu.
+        motivo: att.motivo,
         package_id: att.package_id
       }
     end)

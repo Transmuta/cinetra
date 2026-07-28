@@ -186,7 +186,19 @@ defmodule Api.Scheduling.Appointment do
 
     create :schedule do
       primary? true
-      accept [:starts_at, :professional_id, :appointment_type_id, :obs, :duration_minutos]
+      # `veio_da_fila`/`dias_na_fila` entram aceitos, e **não** por argumento com policy, porque
+      # não são decisão de ninguém: são o carimbo de origem que `Api.Waitlist.convert/3` aplica.
+      # A fronteira HTTP não os expõe — o `whitelist` do controller de agendamento lista campo a
+      # campo e não os inclui —, então o único caminho até eles é a conversão da fila.
+      accept [
+        :starts_at,
+        :professional_id,
+        :appointment_type_id,
+        :obs,
+        :duration_minutos,
+        :veio_da_fila,
+        :dias_na_fila
+      ]
 
       argument :patient_ids, {:array, :uuid}, allow_nil?: false
       # `encaixe` é argumento e não atributo aceito porque quem pode marcá-lo é decidido por
@@ -277,7 +289,15 @@ defmodule Api.Scheduling.Appointment do
     # sendo do banco (exclusion constraint); "Mover como encaixe" manda `encaixe: true`.
     update :reschedule do
       require_atomic? false
-      accept [:starts_at, :professional_id]
+
+      # `reschedule_reason` entra junto (D-H3/D5): remarcar era a única das três ações críticas
+      # que não deixava rastro de POR QUÊ. Quem/quando/de-onde-para-onde a trilha já guardava;
+      # o motivo, não — e é ele que responde "por que a clínica remarca tanto".
+      #
+      # Opcional, texto livre, como o `cancel_reason`. Fica no bloco (e não na presença, como o
+      # motivo da falta) porque remarcar move o bloco INTEIRO: numa turma, todos os quatro
+      # mudaram de horário pela mesma razão.
+      accept [:starts_at, :professional_id, :reschedule_reason]
       argument :encaixe, :boolean
 
       # Remarcar ESCOLHE profissional (a ação aceita `professional_id`), então vale a mesma
@@ -494,6 +514,25 @@ defmodule Api.Scheduling.Appointment do
       constraints: [min: 5, max: Api.Scheduling.Duration.max_minutos()]
 
     attribute :cancel_reason, :string, public?: true, constraints: [max_length: 300]
+
+    # Por que remarcou — opcional, texto livre (D-H3/D5). Irmão do `cancel_reason`: mesmo teto,
+    # mesma ausência de taxonomia, mesma decisão de apresentar sem exigir. Guarda só o motivo da
+    # ÚLTIMA remarcação; o histórico das anteriores é da trilha, que já registra cada uma.
+    attribute :reschedule_reason, :string, public?: true, constraints: [max_length: 300]
+
+    # A origem na fila de espera (D-H10, doc 64). Duas colunas carimbadas no `convert`, onde a
+    # entry ainda está em mãos antes do `dequeue` — que é um `destroy` de verdade.
+    #
+    # **O que isto resolve, e o que não resolve.** Resolve "quantos agendamentos vieram da fila" e
+    # "quanto tempo esperaram" sem mudar o `dequeue` nem migrar dado. **Não** resolve quem sai da
+    # fila SEM agendar: essa linha continua sendo apagada, e "quantos desistiram?" segue sem
+    # resposta. Foi aceito no §8; se virar pergunta de gestão, `dequeue` vira arquivamento — e
+    # quanto mais tarde, mais caro.
+    attribute :veio_da_fila, :boolean, allow_nil?: false, default: false, public?: true
+
+    # Quantos dias esperou. Nulo quando não veio da fila — e é por isso que não tem default 0:
+    # zero é "entrou e foi atendido no mesmo dia", que é informação, não ausência dela.
+    attribute :dias_na_fila, :integer, public?: true
 
     # Locking otimista — consumido só na Entrega 4, mas a coluna nasce agora.
     attribute :version, :integer, allow_nil?: false, default: 1, public?: true

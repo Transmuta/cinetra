@@ -18,7 +18,11 @@ defmodule ApiWeb.AppointmentsControllerTest do
     {:ok, clinic} =
       Accounts.onboard_clinic("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
 
-    prof = Directory.create_professional!("Dra. X", %{}, tenant: clinic.id, actor: owner)
+    prof =
+      Directory.create_professional!("Dra. X", %{tel: Api.Generators.telefone_unico()},
+        tenant: clinic.id,
+        actor: owner
+      )
 
     tipo =
       Directory.create_appointment_type!(
@@ -32,7 +36,12 @@ defmodule ApiWeb.AppointmentsControllerTest do
         actor: owner
       )
 
-    paciente = Records.create_patient!("Paciente", %{}, tenant: clinic.id, actor: owner)
+    paciente =
+      Records.create_patient!("Paciente", %{tel: Api.Generators.telefone_unico()},
+        tenant: clinic.id,
+        actor: owner
+      )
+
     %{owner: owner, clinic: clinic, prof: prof, tipo: tipo, paciente: paciente}
   end
 
@@ -121,7 +130,10 @@ defmodule ApiWeb.AppointmentsControllerTest do
       ctx = fixture()
 
       colega =
-        Directory.create_professional!("Dr. Y", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+        Directory.create_professional!("Dr. Y", %{tel: Api.Generators.telefone_unico()},
+          tenant: ctx.clinic.id,
+          actor: ctx.owner
+        )
 
       prof_user = sessao_de_membro!(ctx.owner, ctx.clinic, :profissional, ctx.prof.id)
 
@@ -286,7 +298,10 @@ defmodule ApiWeb.AppointmentsControllerTest do
       ctx = fixture()
 
       outro =
-        Directory.create_professional!("Dr. Y", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+        Directory.create_professional!("Dr. Y", %{tel: Api.Generators.telefone_unico()},
+          tenant: ctx.clinic.id,
+          actor: ctx.owner
+        )
 
       prof_user = sessao_de_membro!(ctx.owner, ctx.clinic, :profissional, ctx.prof.id)
 
@@ -325,8 +340,15 @@ defmodule ApiWeb.AppointmentsControllerTest do
     test "o custo não cresce com a janela nem com o nº de profissionais", %{conn: conn} do
       ctx = fixture()
 
-      Directory.create_professional!("Dr. Y", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
-      Directory.create_professional!("Dr. Z", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+      Directory.create_professional!("Dr. Y", %{tel: Api.Generators.telefone_unico()},
+        tenant: ctx.clinic.id,
+        actor: ctx.owner
+      )
+
+      Directory.create_professional!("Dr. Z", %{tel: Api.Generators.telefone_unico()},
+        tenant: ctx.clinic.id,
+        actor: ctx.owner
+      )
 
       # Uma requisição antes de medir: o fuso da clínica é cacheado (D-K) e a PRIMEIRA leitura
       # da clínica-nova paga a falta. Sem esta, a comparação mediria o aquecimento do cache
@@ -407,7 +429,10 @@ defmodule ApiWeb.AppointmentsControllerTest do
       ctx = fixture()
 
       outro =
-        Directory.create_professional!("Dr. Y", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+        Directory.create_professional!("Dr. Y", %{tel: Api.Generators.telefone_unico()},
+          tenant: ctx.clinic.id,
+          actor: ctx.owner
+        )
 
       conn =
         conn
@@ -431,7 +456,10 @@ defmodule ApiWeb.AppointmentsControllerTest do
       ctx = fixture()
 
       outro =
-        Directory.create_professional!("Dr. Y", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+        Directory.create_professional!("Dr. Y", %{tel: Api.Generators.telefone_unico()},
+          tenant: ctx.clinic.id,
+          actor: ctx.owner
+        )
 
       prof_user = sessao_de_membro!(ctx.owner, ctx.clinic, :profissional, ctx.prof.id)
 
@@ -459,7 +487,10 @@ defmodule ApiWeb.AppointmentsControllerTest do
       ctx = fixture()
 
       outro =
-        Directory.create_professional!("Dr. Y", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+        Directory.create_professional!("Dr. Y", %{tel: Api.Generators.telefone_unico()},
+          tenant: ctx.clinic.id,
+          actor: ctx.owner
+        )
 
       conn =
         conn
@@ -481,7 +512,10 @@ defmodule ApiWeb.AppointmentsControllerTest do
       ctx = fixture()
 
       outro =
-        Directory.create_professional!("Dr. Y", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+        Directory.create_professional!("Dr. Y", %{tel: Api.Generators.telefone_unico()},
+          tenant: ctx.clinic.id,
+          actor: ctx.owner
+        )
 
       ids = "#{ctx.prof.id},#{outro.id}"
 
@@ -670,6 +704,41 @@ defmodule ApiWeb.AppointmentsControllerTest do
       assert appt["version"] == version + 1
     end
 
+    # D-H3/D5: remarcar era a única das três ações críticas sem registro de POR QUÊ. O motivo
+    # fica no BLOCO (e não na presença, como o da falta) porque remarcar move a turma inteira —
+    # os quatro mudaram de horário pela mesma razão.
+    test "reschedule guarda o motivo, opcional", %{conn: conn} do
+      ctx = fixture()
+      {id, version} = create_appt(conn, ctx)
+
+      resp =
+        conn
+        |> authed(ctx.owner)
+        |> patch("/api/appointments/#{id}/reschedule", %{
+          "starts_at" => "2026-07-20T12:00:00Z",
+          "reschedule_reason" => "profissional em congresso",
+          "expected_version" => version
+        })
+
+      assert json_response(resp, 200)["appointment"]["reschedule_reason"] ==
+               "profissional em congresso"
+    end
+
+    test "reschedule sem motivo continua passando", %{conn: conn} do
+      ctx = fixture()
+      {id, version} = create_appt(conn, ctx)
+
+      resp =
+        conn
+        |> authed(ctx.owner)
+        |> patch("/api/appointments/#{id}/reschedule", %{
+          "starts_at" => "2026-07-20T12:00:00Z",
+          "expected_version" => version
+        })
+
+      assert is_nil(json_response(resp, 200)["appointment"]["reschedule_reason"])
+    end
+
     test "reschedule para fora do expediente → 422 outside_business_hours (GAP-03)", %{conn: conn} do
       ctx = fixture()
       {id, version} = create_appt(conn, ctx)
@@ -830,7 +899,9 @@ defmodule ApiWeb.AppointmentsControllerTest do
       )
 
     p2 =
-      Records.create_patient!("P2 #{System.unique_integer([:positive])}", %{},
+      Records.create_patient!(
+        "P2 #{System.unique_integer([:positive])}",
+        %{tel: Api.Generators.telefone_unico()},
         tenant: ctx.clinic.id,
         actor: ctx.owner
       )
@@ -908,7 +979,12 @@ defmodule ApiWeb.AppointmentsControllerTest do
     test "paciente fora do bloco → 404", %{conn: conn} do
       ctx = fixture()
       {id, version, _p2} = create_turma(conn, ctx)
-      estranho = Records.create_patient!("Estranho", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+
+      estranho =
+        Records.create_patient!("Estranho", %{tel: Api.Generators.telefone_unico()},
+          tenant: ctx.clinic.id,
+          actor: ctx.owner
+        )
 
       resp = part_post(conn, ctx, id, estranho.id, "complete", %{"expected_version" => version})
       assert json_response(resp, 404)
@@ -928,6 +1004,69 @@ defmodule ApiWeb.AppointmentsControllerTest do
         })
 
       assert json_response(resp, 200)
+    end
+
+    # D-H3/D5 (doc 64): faltar passou a aceitar motivo — opcional, texto livre, e **por
+    # participante**. Numa turma onde três faltaram, um campo único no bloco mentiria.
+    test "no_show guarda o motivo no participante certo", %{conn: conn} do
+      ctx = fixture()
+      {id, version, p2} = create_turma(conn, ctx)
+
+      c1 =
+        part_post(conn, ctx, id, ctx.paciente.id, "no_show", %{
+          "motivo" => "avisou que estava doente",
+          "expected_version" => version
+        })
+
+      v1 = json_response(c1, 200)["appointment"]["version"]
+
+      c2 =
+        part_post(conn, ctx, id, p2, "no_show", %{
+          "motivo" => "não avisou",
+          "expected_version" => v1
+        })
+
+      participantes = json_response(c2, 200)["appointment"]["participants"]
+      por_paciente = Map.new(participantes, &{&1["patient_id"], &1["motivo"]})
+
+      assert por_paciente[ctx.paciente.id] == "avisou que estava doente"
+      assert por_paciente[p2] == "não avisou"
+    end
+
+    test "motivo é opcional — apresentar não é exigir", %{conn: conn} do
+      ctx = fixture()
+      {id, version, _p2} = create_turma(conn, ctx)
+
+      resp =
+        part_post(conn, ctx, id, ctx.paciente.id, "no_show", %{"expected_version" => version})
+
+      assert json_response(resp, 200)
+      participante = hd(json_response(resp, 200)["appointment"]["participants"])
+      assert is_nil(participante["motivo"])
+    end
+
+    # Reabrir é desfazer um clique errado: o motivo tem de sair junto, senão sobra explicação
+    # de uma falta que deixou de existir.
+    test "reopen limpa o motivo", %{conn: conn} do
+      ctx = fixture()
+      {id, version, _p2} = create_turma(conn, ctx)
+
+      c1 =
+        part_post(conn, ctx, id, ctx.paciente.id, "no_show", %{
+          "motivo" => "engano",
+          "expected_version" => version
+        })
+
+      v1 = json_response(c1, 200)["appointment"]["version"]
+
+      resp = part_post(conn, ctx, id, ctx.paciente.id, "reopen", %{"expected_version" => v1})
+
+      alvo =
+        json_response(resp, 200)["appointment"]["participants"]
+        |> Enum.find(&(&1["patient_id"] == ctx.paciente.id))
+
+      assert alvo["status"] == "prevista"
+      assert is_nil(alvo["motivo"])
     end
 
     test "recepção PODE marcar presença (A8)", %{conn: conn} do
