@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
 	parseResource,
+	type AuditResource,
+	RESOURCE_GROUPS,
+	resourcesOf,
+	resourceParam,
 	parsePage,
 	parseAction,
 	parsePeriod,
@@ -31,12 +35,51 @@ const TZ = 'America/Sao_Paulo';
 // `AuditEntry` entra num lugar só.
 const entry = auditEntryFixture;
 
+// A outra ponta da tripwire de `api/test/api/audit/capture_ligado_test.exs`. O enum do Elixir é a
+// autoridade; aqui se afirma que **todo** recurso dele tem lugar numa faceta da sidebar.
+//
+// Sem isto, o bate-volta mediu o buraco: remover `professional_hours` e `schedule_exception` de
+// um grupo deixava os 57 testes verdes — e o efeito em produção era que dois recursos sumiam da
+// sidebar e do filtro de ação, sem que o admin tivesse como saber que existem. O teste que se
+// anunciava como a amarração (`it.each(RESOURCE_GROUPS…)`) era **auto-referente**: iterando os
+// grupos, um recurso que nunca chega a um grupo é invisível a ele.
+describe('cobertura dos grupos de registro', () => {
+	const TODOS: ReadonlyArray<AuditResource> = [
+		'appointment',
+		'attendance',
+		'patient',
+		'professional',
+		'membership',
+		'clinic',
+		'appointment_type',
+		'clinic_hours',
+		'professional_hours',
+		'schedule_exception',
+		'package',
+		'waitlist_entry',
+		'attachment',
+		'seguranca'
+	];
+
+	it('todo recurso da trilha cai em exatamente um grupo', () => {
+		const nos_grupos = RESOURCE_GROUPS.flatMap((g) => g.resources);
+
+		expect([...nos_grupos].sort()).toEqual([...TODOS].sort());
+	});
+
+	it('"tudo" (sem grupo) cobre a lista inteira', () => {
+		expect([...resourcesOf(null)].sort()).toEqual([...TODOS].sort());
+	});
+});
+
 describe('parseResource / parsePage', () => {
 	it('resource cai em appointment para qualquer valor que não seja attendance', () => {
-		expect(parseResource('attendance')).toBe('attendance');
-		expect(parseResource('appointment')).toBe('appointment');
-		expect(parseResource(null)).toBe('appointment');
-		expect(parseResource('lixo')).toBe('appointment');
+		expect(parseResource('agenda')).toBe('agenda');
+		expect(parseResource('cadastros')).toBe('cadastros');
+		// "Tudo" (null) é o DEFAULT: sem grupo o feed é da clínica inteira (doc 63). Era o
+		// contrário — `appointment` era o default e não havia como pedir "tudo".
+		expect(parseResource(null)).toBeNull();
+		expect(parseResource('lixo')).toBeNull();
 	});
 
 	it('page inválida é a página 1', () => {
@@ -50,19 +93,20 @@ describe('parseResource / parsePage', () => {
 
 describe('parseAction', () => {
 	it('aceita só as ações DO RECURSO', () => {
-		expect(parseAction('cancel', 'appointment')).toBe('cancel');
-		expect(parseAction('mark_present', 'attendance')).toBe('mark_present');
+		expect(parseAction('cancel', 'agenda')).toBe('cancel');
+		expect(parseAction('mark_present', 'agenda')).toBe('mark_present');
+		expect(parseAction('deactivate', 'cadastros')).toBe('deactivate');
 	});
 
-	// O eixo que mais engana: `cancel` existe no bloco e não na presença. Sem esta validação a
-	// tela mostraria o chip "Cancelou" sobre uma lista que a API devolveu SEM filtro (a whitelist
-	// de lá também vira filtro nulo, não 422).
-	it('recusa a ação do OUTRO recurso e o lixo', () => {
-		expect(parseAction('cancel', 'attendance')).toBeNull();
-		expect(parseAction('mark_present', 'appointment')).toBeNull();
-		expect(parseAction('nao_existe', 'appointment')).toBeNull();
-		expect(parseAction(null, 'appointment')).toBeNull();
-		expect(parseAction('', 'appointment')).toBeNull();
+	// Sem esta validação a tela mostraria o chip "Cancelou" sobre um recorte que não corresponde
+	// ao grupo aberto. Do lado da API isso deixou de devolver o feed inteiro (doc 63: `action` é
+	// coluna de texto, nome desconhecido devolve vazio) — mas o chip mentiroso continuaria.
+	it('recusa a ação de OUTRO grupo e o lixo', () => {
+		expect(parseAction('cancel', 'anexos')).toBeNull();
+		expect(parseAction('mark_present', 'cadastros')).toBeNull();
+		expect(parseAction('nao_existe', 'agenda')).toBeNull();
+		expect(parseAction(null, 'agenda')).toBeNull();
+		expect(parseAction('', 'agenda')).toBeNull();
 	});
 });
 
@@ -144,26 +188,54 @@ describe('actionLabel / actionOptions', () => {
 		expect(actionLabel({ resource, action })).not.toBe(action);
 	});
 
-	it('as opções do filtro são as do recurso', () => {
-		const keys = actionOptions('attendance').map((o) => o.key);
-		expect(keys).toContain('mark_present');
-		expect(keys).not.toContain('cancel');
+	it('as opções do filtro são as do grupo', () => {
+		const agenda = actionOptions('agenda').map((o) => o.key);
+		expect(agenda).toContain('mark_present');
+		expect(agenda).toContain('cancel');
+
+		const anexos = actionOptions('anexos').map((o) => o.key);
+		expect(anexos).toContain('visualizou');
+		expect(anexos).not.toContain('cancel');
+	});
+
+	// Sem grupo, o filtro oferece as ações de TODOS os recursos — é o feed da clínica inteira,
+	// que passou a ser o default (doc 63).
+	it('sem grupo, oferece as ações de todos os recursos', () => {
+		const keys = actionOptions(null).map((o) => o.key);
+		expect(keys).toContain('cancel');
+		expect(keys).toContain('visualizou_ficha');
+		expect(keys).toContain('revoke_access');
 	});
 
 	// As duas tabelas (verbo curto do filtro × frase do feed) são mantidas à mão, lado a lado.
 	// O bate-volta provou o buraco: apagar UMA headline deixava 135 testes verdes, e o efeito em
 	// produção era a sidebar oferecendo "Reserva de pacote" enquanto a linha do feed mostrava o
 	// átomo cru `set_pkg_hold`. Este teste é a amarração — e não uma terceira lista digitada.
-	it.each(['appointment', 'attendance'] as const)(
-		'toda ação de %s tem verbo curto E frase de feed',
-		(resource) => {
-			const semFrase = actionOptions(resource)
-				.map((o) => o.key)
-				.filter((action) => {
-					const headline = entryHeadline({ resource, action, patient: { id: 'p', nome: 'X' } });
-					// Sem entrada na tabela de frases, `entryHeadline` cai no átomo cru.
-					return headline === action || headline.startsWith(`${action} ·`);
-				});
+	//
+	// Agora varre os TREZE recursos, não os dois de antes: cada um que entra na trilha precisa
+	// das duas entradas, e é aqui que "liguei a trilha e esqueci de traduzir" fica vermelho.
+	it.each(RESOURCE_GROUPS.map((g) => g.key))(
+		'toda ação do grupo %s tem verbo curto E frase de feed',
+		(group) => {
+			const semFrase: string[] = [];
+
+			for (const resource of resourcesOf(group)) {
+				for (const { key: action } of actionOptions(group)) {
+					// Só as ações QUE SÃO deste recurso (o grupo pode reunir vários).
+					if (actionLabel({ resource, action }) === action) continue;
+
+					const headline = entryHeadline({
+						resource,
+						action,
+						action_type: 'update',
+						label: 'X',
+						patient: { id: 'p', nome: 'X' }
+					});
+
+					// Sem entrada na tabela de frases, `entryHeadline` cai no verbo genérico do tipo.
+					if (headline === 'Alterou um registro') semFrase.push(`${resource}/${action}`);
+				}
+			}
 
 			expect(semFrase).toEqual([]);
 		}
@@ -205,7 +277,7 @@ describe('entryContext', () => {
 	});
 
 	it('sem contexto resolvido, volta vazio (a linha não mostra a segunda linha)', () => {
-		expect(entryContext(entry({ professional: null, starts_at: null }), TZ)).toBe('');
+		expect(entryContext(entry({ professional: null, meta: {} }), TZ)).toBe('');
 	});
 });
 
@@ -315,28 +387,28 @@ describe('groupByDay', () => {
 describe('estado na URL', () => {
 	// A armadilha: manter a ação ao trocar de recurso devolve um feed LEGITIMAMENTE vazio (as
 	// tabelas de ação não se cruzam), e isso lê como defeito.
-	it('trocar de recurso zera ação, registro e página', () => {
-		expect(resourcePatch('attendance')).toEqual({
-			resource: 'attendance',
+	it('trocar de grupo zera ação, registro e página', () => {
+		expect(resourcePatch('agenda')).toEqual({
+			resource: 'agenda',
 			acao: null,
 			record_id: null,
 			page: null
 		});
-		// O default sai da URL, para o link ficar limpo.
-		expect(resourcePatch('appointment').resource).toBeNull();
+		// "Tudo" é o default e sai da URL, para o link ficar limpo.
+		expect(resourcePatch(null).resource).toBeNull();
 	});
 
 	it('auditHref remenda a query preservando o resto', () => {
-		const params = new URLSearchParams('resource=attendance&periodo=7d&page=3');
+		const params = new URLSearchParams('resource=agenda&periodo=7d&page=3');
 		expect(auditHref(params, { acao: 'mark_present', page: null })).toBe(
-			'/auditoria?resource=attendance&periodo=7d&acao=mark_present'
+			'/auditoria?resource=agenda&periodo=7d&acao=mark_present'
 		);
 	});
 });
 
 describe('activeChips', () => {
 	const base = {
-		resource: 'appointment' as const,
+		resource: null,
 		action: null,
 		period: 'tudo' as const,
 		autor: null,

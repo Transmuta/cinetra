@@ -2,13 +2,16 @@
 	import CalendarSearch from '@lucide/svelte/icons/calendar-search';
 	import CirclePlus from '@lucide/svelte/icons/circle-plus';
 	import CircleMinus from '@lucide/svelte/icons/circle-minus';
+	import Eye from '@lucide/svelte/icons/eye';
 	import History from '@lucide/svelte/icons/history';
+	import ShieldAlert from '@lucide/svelte/icons/shield-alert';
 	import RefreshCw from '@lucide/svelte/icons/refresh-cw';
 	import {
 		auditHref,
 		dayKey,
 		entryContext,
 		entryHeadline,
+		entrySessionAt,
 		formatAt,
 		formatTime,
 		type AuditEntry
@@ -26,8 +29,8 @@
 	// paciente, com o ator como sujeito — "Fulano entrou na turma · Mariana". Quem entrou foi a
 	// Mariana. Hoje o objeto entra dentro da frase (`entryHeadline`) e o ator desce de nível.
 	//
-	// `entry.at` é QUANDO a mudança foi gravada; `entry.starts_at` é o horário do agendamento em
-	// si — os dois são coisas diferentes e por isso aparecem em lugares diferentes.
+	// `entry.at` é QUANDO o evento aconteceu; o horário da SESSÃO (quando há um) vem de `meta` —
+	// os dois são coisas diferentes e por isso aparecem em lugares diferentes.
 	let { entry, timezone }: { entry: AuditEntry; timezone: string } = $props();
 
 	const actorName = $derived(entry.actor?.nome ?? 'Sistema');
@@ -37,31 +40,41 @@
 	// Ícone e cor pelo TIPO da ação: criar, alterar e destruir precisam pesar diferente numa
 	// varredura. Antes as três renderizavam idênticas, e a âncora à esquerda era o avatar do
 	// ator — o dado menos discriminante do feed (num dia típico, todas as linhas têm o mesmo).
+	//
+	// `read` e `deny` entraram com a trilha de leitura e a de autorização negada (doc 63): uma
+	// consulta não é uma alteração, e uma tentativa barrada não é nenhuma das duas — pintá-las
+	// como `update` diria que algo mudou quando nada mudou.
 	const TONE = {
 		create: { icon: CirclePlus, klass: 'text-success' },
 		update: { icon: RefreshCw, klass: 'text-info' },
-		destroy: { icon: CircleMinus, klass: 'text-danger' }
+		destroy: { icon: CircleMinus, klass: 'text-danger' },
+		read: { icon: Eye, klass: 'text-faint' },
+		deny: { icon: ShieldAlert, klass: 'text-warning' }
 	} as const;
 	// `exclude` é soft-delete: é `update` no schema, mas para quem audita é uma exclusão.
 	const tone = $derived(
 		entry.action === 'exclude' || entry.action === 'remove' || entry.action === 'cancel'
 			? TONE.destroy
-			: TONE[entry.action_type]
+			: (TONE[entry.action_type] ?? TONE.update)
 	);
 
 	// "Ver na agenda" leva ao DIA do agendamento (a agenda lê `?date=`). Depende de `starts_at`,
 	// que o participante agora também tem (a API o enriquece a partir do bloco) — some só quando
 	// o bloco não é mais legível, p.ex. depois de excluído.
-	const agendaHref = $derived(entry.starts_at ? `/agenda?date=${dayKey(entry.starts_at, timezone)}` : null);
+	const sessionAt = $derived(entrySessionAt(entry));
+	const agendaHref = $derived(sessionAt ? `/agenda?date=${dayKey(sessionAt, timezone)}` : null);
 
 	// "Ver histórico" isola a cadeia deste registro (`?record_id=`). O filtro sempre existiu na
 	// API e no load; o que faltava era **entrada** para ele — sem este link, só chegava lá quem
 	// digitasse a URL à mão.
+	//
+	// Sem `resource`: `record_id` é um uuid, único no sistema inteiro, e o feed unificado (doc 63)
+	// mostra a vida do registro sem precisar saber de que tipo ele é. Antes era preciso casar o
+	// grupo com o recurso, porque o filtro de recurso era o eixo que trocava a tabela lida.
 	const historyHref = $derived(
-		auditHref(new URLSearchParams(), {
-			resource: entry.resource === 'appointment' ? null : entry.resource,
-			record_id: entry.record_id
-		})
+		entry.record_id
+			? auditHref(new URLSearchParams(), { resource: null, record_id: entry.record_id })
+			: null
 	);
 
 	// O create já se explica pelo verbo ("Criou o agendamento") + o contexto; o diff cheio de
@@ -104,9 +117,11 @@
 					<CalendarSearch size={12} /> Ver na agenda
 				</a>
 			{/if}
-			<a href={historyHref} class={linkClass}>
-				<History size={12} /> Ver histórico
-			</a>
+			{#if historyHref}
+				<a href={historyHref} class={linkClass}>
+					<History size={12} /> Ver histórico
+				</a>
+			{/if}
 		</div>
 	</div>
 </article>

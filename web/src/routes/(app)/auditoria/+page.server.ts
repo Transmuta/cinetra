@@ -2,7 +2,14 @@ import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { fetchAudit } from '$lib/server/audit';
 import { fetchMembers } from '$lib/server/members';
-import { parseResource, parsePage, parseAction, parsePeriod, periodRange } from '$lib/audit';
+import {
+	parseResource,
+	resourceParam,
+	parsePage,
+	parseAction,
+	parsePeriod,
+	periodRange
+} from '$lib/audit';
 import { todayInZone } from '$lib/agenda';
 
 // Tamanho da página do feed. Fica aqui (e não no componente) porque é o load quem traduz
@@ -35,7 +42,9 @@ export const load: PageServerLoad = async (event) => {
 	const membersPromise = fetchMembers(event).catch(() => ({ status: 0, data: null }));
 
 	const res = await fetchAudit(event, {
-		resource,
+		// `resource` na URL é o GRUPO ("agenda", "cadastros"); a API recebe os tipos dele
+		// separados por vírgula. Sem grupo, o feed é da clínica inteira — o default do doc 63.
+		resource: resourceParam(resource),
 		action: action ?? undefined,
 		user_id: autor ?? undefined,
 		record_id: recordId,

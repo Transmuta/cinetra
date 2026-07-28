@@ -13,7 +13,24 @@ import { parsePage, type PageInfo } from './pagination';
 // testes da Auditoria verdes. Duas implementações que ninguém sabia estarem desligadas.
 export { parsePage };
 
-export type AuditResource = 'appointment' | 'attendance';
+// Os treze tipos de registro que a trilha cobre (doc 63, D-Aud3). Espelha
+// `Api.Audit.ResourceKind` — a autoridade é o enum do servidor, que devolve **422** para valor
+// fora da lista; aqui é UX (rótulo, ícone, agrupamento).
+export type AuditResource =
+	| 'appointment'
+	| 'attendance'
+	| 'patient'
+	| 'professional'
+	| 'membership'
+	| 'clinic'
+	| 'appointment_type'
+	| 'clinic_hours'
+	| 'professional_hours'
+	| 'schedule_exception'
+	| 'package'
+	| 'waitlist_entry'
+	| 'attachment'
+	| 'seguranca';
 
 export interface AuditRef {
 	id: string;
@@ -21,29 +38,38 @@ export interface AuditRef {
 }
 
 // Uma linha do diff campo-a-campo. `from`/`to` são os valores JÁ "dumpados" pela trilha
-// (string/número/booleano/null) — o backend monta o par encadeando as versões (:changes_only).
+// (string/número/booleano/null) — o backend resolve o par no momento da ESCRITA (doc 63), não
+// mais encadeando versões na leitura.
+//
+// `redacted` é a D-Aud4: CPF, RG e dados bancários entram na trilha como "este campo mudou" e
+// **sem** os valores. A linha vem sem `from`/`to`, e a tela precisa dizer isso — não fingir que
+// o campo não mudou.
 export interface DiffRow {
 	field: string;
-	from: unknown;
-	to: unknown;
+	from?: unknown;
+	to?: unknown;
+	redacted?: boolean;
 }
 
 export interface AuditEntry {
 	id: string;
 	resource: AuditResource;
-	record_id: string;
+	/** O registro tocado. Nulo em `seguranca` (nem toda tentativa negada mira um registro). */
+	record_id: string | null;
+	/** O nome do registro NO INSTANTE do evento — é o que mantém a linha legível depois que ele
+	 *  deixa de existir ("Removeu o acesso de Carlos", com o Carlos já fora). */
+	label: string | null;
 	action: string;
-	action_type: 'create' | 'update' | 'destroy';
-	// ISO-8601 UTC de QUANDO a mudança foi gravada.
+	/** `read` e `deny` são as duas naturezas que o modelo de versões não tinha (doc 63). */
+	action_type: 'create' | 'update' | 'destroy' | 'read' | 'deny';
+	// ISO-8601 UTC de QUANDO o evento aconteceu (relógio da clínica, ADR-009).
 	at: string;
-	status: string | null;
 	actor: AuditRef | null;
-	// Contexto do BLOCO: no participante os dois vêm do agendamento, enriquecidos pela API.
-	starts_at: string | null;
+	// Resolvidos por nome pela API a partir de `meta`, em lote.
 	professional: AuditRef | null;
-	// Contexto do participante (null no appointment).
 	patient: AuditRef | null;
-	appointment_id: string | null;
+	/** Contexto livre por recurso: `starts_at`, `session_starts_at`, `appointment_id`, `papel`… */
+	meta: Record<string, unknown>;
 	diff: DiffRow[];
 }
 
@@ -57,11 +83,72 @@ export interface AuditData {
 /** A rota da tela. Saiu de `/configuracoes/auditoria` — auditar não é um ajuste da clínica. */
 export const AUDIT_BASE = '/auditoria';
 
-// Filtro de tipo de recurso da tela (o eixo que troca qual `*.Version` a API pagina).
-export type ResourceFilter = AuditResource;
+// ---- Grupos de registro (a faceta "Registro" da sidebar) ----
+//
+// Com dois recursos irmãos, "tipo de registro" era um EIXO: trocar de aba trocava qual tabela de
+// versão a API paginava, e não existia "o que aconteceu na clínica". Com treze, isso não escala —
+// treze abas, treze paginações, e o admin reordenando de cabeça.
+//
+// Agora é uma FACETA sobre um feed só: ausente = a clínica inteira (o default, e a pergunta que
+// de fato se faz). Os grupos abaixo espelham a navegação do próprio app, e não a tabela do banco:
+// quem audita pensa em "mexeram na agenda" / "mexeram nos acessos", não em `schedule_exceptions`.
 
-export function parseResource(value: string | null | undefined): ResourceFilter {
-	return value === 'attendance' ? 'attendance' : 'appointment';
+export type ResourceGroup =
+	| 'agenda'
+	| 'cadastros'
+	| 'acessos'
+	| 'configuracoes'
+	| 'pacotes'
+	| 'anexos'
+	| 'seguranca';
+
+export const RESOURCE_GROUPS: ReadonlyArray<{
+	key: ResourceGroup;
+	label: string;
+	resources: AuditResource[];
+}> = [
+	{ key: 'agenda', label: 'Agenda', resources: ['appointment', 'attendance'] },
+	{ key: 'cadastros', label: 'Pacientes e profissionais', resources: ['patient', 'professional'] },
+	{ key: 'acessos', label: 'Equipe e acessos', resources: ['membership'] },
+	{
+		key: 'configuracoes',
+		label: 'Configurações',
+		resources: [
+			'clinic',
+			'appointment_type',
+			'clinic_hours',
+			'professional_hours',
+			'schedule_exception'
+		]
+	},
+	{ key: 'pacotes', label: 'Pacotes e fila', resources: ['package', 'waitlist_entry'] },
+	{ key: 'anexos', label: 'Anexos', resources: ['attachment'] },
+	{ key: 'seguranca', label: 'Acesso negado', resources: ['seguranca'] }
+];
+
+/** O grupo pedido na URL, ou `null` para "tudo" (o default). Valor desconhecido vira `null`. */
+export function parseResource(value: string | null | undefined): ResourceGroup | null {
+	const grupo = RESOURCE_GROUPS.find((g) => g.key === value);
+	return grupo ? grupo.key : null;
+}
+
+/**
+ * O valor de `?resource=` que o BFF manda à API: os tipos do grupo, separados por vírgula.
+ *
+ * `undefined` para "tudo" — e aí a API devolve o feed da clínica inteira. Um valor desconhecido
+ * **nunca** chega lá: `parseResource` já o transformou em `null`. (Do outro lado a API responde
+ * 422 a tipo inválido, e não filtro nulo: um recorte que silenciosamente devolve tudo é o erro
+ * que a whitelist de ações cometia.)
+ */
+export function resourceParam(group: ResourceGroup | null): string | undefined {
+	if (!group) return undefined;
+	return RESOURCE_GROUPS.find((g) => g.key === group)?.resources.join(',');
+}
+
+/** Os tipos de registro de um grupo (ou todos, quando não há grupo). */
+export function resourcesOf(group: ResourceGroup | null): AuditResource[] {
+	if (!group) return RESOURCE_GROUPS.flatMap((g) => g.resources);
+	return RESOURCE_GROUPS.find((g) => g.key === group)?.resources ?? [];
 }
 
 // ---- Período ----
@@ -99,7 +186,7 @@ export function periodRange(
 	return null;
 }
 
-// ---- Tradução das ações (§11.4) ----
+// ---- Tradução das ações ----
 //
 // Duas tabelas por recurso, porque são dois usos diferentes:
 //
@@ -109,122 +196,281 @@ export function periodRange(
 // A frase importa mais do que parece. Os verbos de `attendance` nasceram na perspectiva do
 // PACIENTE ("Entrou na turma") e eram renderizados com o ATOR como sujeito — o feed dizia
 // literalmente "Fulano entrou na turma · Mariana", afirmando algo falso. Aqui todo verbo é de
-// ator, e o paciente entra como objeto da própria frase.
+// ator, e o objeto entra na própria frase: `{p}` é o paciente, `{n}` é o nome do registro
+// (`label`, gravado no instante do evento).
 //
-// "Turma" também saiu: `Attendance` existe para todo participante, inclusive o de atendimento
-// individual (`:schedule` recebe `patient_ids` sem olhar se o tipo é grupo), e a versão não
-// carrega o `grupo` do tipo para decidir. "Atendimento" é verdadeiro nos dois casos.
+// Recurso sem entrada aqui degrada para o verbo genérico do `action_type` — o feed nunca mostra
+// átomo cru, mesmo que alguém ligue a trilha num recurso novo e esqueça desta tabela.
 
-const APPOINTMENT_ACTION_LABELS: Record<string, string> = {
-	schedule: 'Agendou',
-	add_participant: 'Adicionou participante',
-	remove_participant: 'Removeu participante',
-	reschedule: 'Remarcou',
-	cancel: 'Cancelou',
-	reopen: 'Reabriu',
-	exclude: 'Excluiu',
-	apply_participant_rollup: 'Atualizou pela turma',
-	set_pkg_hold: 'Reserva de pacote',
-	// As três abaixo são de ações **aposentadas** (o eixo de bloco saiu na A2/bate-volta da
-	// Onda 3). Ficam porque a trilha guarda o que aconteceu: linhas antigas de
-	// `appointments_versions` carregam esses nomes, e sem o rótulo a tela mostraria o átomo cru.
-	mark_completed: 'Concluiu',
-	mark_missed: 'Marcou falta',
-	set_falta_justificada: 'Justificou a falta'
+const ACTION_LABELS: Record<string, Record<string, string>> = {
+	appointment: {
+		schedule: 'Agendou',
+		add_participant: 'Adicionou participante',
+		remove_participant: 'Removeu participante',
+		reschedule: 'Remarcou',
+		cancel: 'Cancelou',
+		reopen: 'Reabriu',
+		exclude: 'Excluiu',
+		apply_participant_rollup: 'Atualizou pela turma',
+		set_pkg_hold: 'Reserva de pacote',
+		// Ações APOSENTADAS (o eixo de bloco saiu na A2/bate-volta da Onda 3). Ficam porque a
+		// trilha guarda o que aconteceu: linhas antigas carregam estes nomes, e sem o rótulo a
+		// tela mostraria o átomo cru.
+		mark_completed: 'Concluiu',
+		mark_missed: 'Marcou falta',
+		set_falta_justificada: 'Justificou a falta'
+	},
+	attendance: {
+		create: 'Adicionou ao atendimento',
+		remove: 'Removeu do atendimento',
+		transition: 'Alterou a presença',
+		mark_present: 'Marcou presença',
+		mark_absent: 'Marcou falta',
+		reopen_attendance: 'Reabriu a presença',
+		justify_absence: 'Justificou a falta',
+		set_package: 'Vinculou a um pacote'
+	},
+	patient: {
+		create: 'Cadastrou',
+		update: 'Editou a ficha',
+		deactivate: 'Arquivou',
+		reactivate: 'Reativou',
+		visualizou_ficha: 'Abriu a ficha'
+	},
+	professional: {
+		create: 'Cadastrou',
+		update: 'Editou o cadastro',
+		deactivate: 'Arquivou',
+		reactivate: 'Reativou'
+	},
+	membership: {
+		invite: 'Convidou',
+		invite_by_email: 'Convidou por e-mail',
+		update: 'Mudou o papel',
+		accept_invite: 'Aceitou o convite',
+		revoke_access: 'Revogou o acesso'
+	},
+	clinic: {
+		onboard: 'Criou a clínica',
+		update_settings: 'Mudou os ajustes',
+		update_info: 'Mudou os dados',
+		update_messaging: 'Mudou a comunicação'
+	},
+	appointment_type: {
+		create: 'Criou o tipo',
+		update: 'Editou o tipo',
+		archive: 'Arquivou o tipo',
+		restore: 'Reativou o tipo'
+	},
+	clinic_hours: { set_day: 'Mudou o expediente' },
+	professional_hours: { set_day: 'Mudou a grade' },
+	schedule_exception: { create: 'Lançou exceção', destroy: 'Removeu exceção' },
+	package: {
+		create: 'Criou o pacote',
+		update: 'Editou o pacote',
+		pause: 'Pausou o pacote',
+		resume: 'Retomou o pacote',
+		cancel: 'Cancelou o pacote'
+	},
+	waitlist_entry: {
+		create: 'Colocou na fila',
+		update: 'Editou a fila',
+		destroy: 'Tirou da fila'
+	},
+	attachment: {
+		enviou: 'Enviou o anexo',
+		visualizou: 'Baixou o anexo',
+		renomeou: 'Renomeou o anexo',
+		removeu: 'Removeu o anexo'
+	},
+	seguranca: { acesso_negado: 'Acesso negado' }
 };
 
-const ATTENDANCE_ACTION_LABELS: Record<string, string> = {
-	create: 'Adicionou ao atendimento',
-	remove: 'Removeu do atendimento',
-	transition: 'Alterou a presença',
-	mark_present: 'Marcou presença',
-	mark_absent: 'Marcou falta',
-	reopen_attendance: 'Reabriu a presença',
-	justify_absence: 'Justificou a falta',
-	set_package: 'Vinculou a um pacote'
+const HEADLINES: Record<string, Record<string, string>> = {
+	appointment: {
+		schedule: 'Criou o agendamento',
+		add_participant: 'Adicionou um participante',
+		remove_participant: 'Removeu um participante',
+		reschedule: 'Remarcou o agendamento',
+		cancel: 'Cancelou o agendamento',
+		reopen: 'Reabriu o agendamento',
+		exclude: 'Excluiu o agendamento',
+		apply_participant_rollup: 'Atualizou a situação pela turma',
+		set_pkg_hold: 'Atualizou a reserva do pacote',
+		mark_completed: 'Concluiu o agendamento',
+		mark_missed: 'Marcou falta no agendamento',
+		set_falta_justificada: 'Justificou a falta'
+	},
+	attendance: {
+		create: 'Adicionou {p} ao atendimento',
+		remove: 'Removeu {p} do atendimento',
+		transition: 'Alterou a presença de {p}',
+		mark_present: 'Marcou a presença de {p}',
+		mark_absent: 'Marcou a falta de {p}',
+		reopen_attendance: 'Reabriu a presença de {p}',
+		justify_absence: 'Justificou a falta de {p}',
+		set_package: 'Vinculou a sessão de {p} a um pacote'
+	},
+	patient: {
+		create: 'Cadastrou o paciente {n}',
+		update: 'Editou a ficha de {n}',
+		deactivate: 'Arquivou o paciente {n}',
+		reactivate: 'Reativou o paciente {n}',
+		visualizou_ficha: 'Abriu a ficha de {n}'
+	},
+	professional: {
+		create: 'Cadastrou {n}',
+		update: 'Editou o cadastro de {n}',
+		deactivate: 'Arquivou {n}',
+		reactivate: 'Reativou {n}'
+	},
+	membership: {
+		invite: 'Convidou {n} para a clínica',
+		invite_by_email: 'Convidou {n} por e-mail',
+		update: 'Mudou o papel de {n}',
+		accept_invite: '{n} aceitou o convite',
+		revoke_access: 'Revogou o acesso de {n}'
+	},
+	clinic: {
+		onboard: 'Criou a clínica {n}',
+		update_settings: 'Mudou os ajustes da clínica',
+		update_info: 'Mudou os dados da clínica',
+		update_messaging: 'Mudou a comunicação com o paciente'
+	},
+	appointment_type: {
+		create: 'Criou o tipo {n}',
+		update: 'Editou o tipo {n}',
+		archive: 'Arquivou o tipo {n}',
+		restore: 'Reativou o tipo {n}'
+	},
+	clinic_hours: { set_day: 'Mudou o expediente da clínica' },
+	professional_hours: { set_day: 'Mudou a grade de um profissional' },
+	schedule_exception: {
+		create: 'Lançou a exceção {n}',
+		destroy: 'Removeu a exceção {n}'
+	},
+	package: {
+		create: 'Criou o pacote {n}',
+		update: 'Editou o pacote {n}',
+		pause: 'Pausou o pacote {n}',
+		resume: 'Retomou o pacote {n}',
+		cancel: 'Cancelou o pacote {n}'
+	},
+	waitlist_entry: {
+		create: 'Colocou {p} na fila',
+		update: 'Editou a espera de {p}',
+		destroy: 'Tirou {p} da fila'
+	},
+	attachment: {
+		enviou: 'Enviou o anexo {n}',
+		visualizou: 'Baixou o anexo {n}',
+		renomeou: 'Renomeou o anexo {n}',
+		removeu: 'Removeu o anexo {n}'
+	},
+	seguranca: { acesso_negado: 'Acesso negado em {n}' }
 };
 
-const APPOINTMENT_HEADLINES: Record<string, string> = {
-	schedule: 'Criou o agendamento',
-	add_participant: 'Adicionou um participante',
-	remove_participant: 'Removeu um participante',
-	reschedule: 'Remarcou o agendamento',
-	cancel: 'Cancelou o agendamento',
-	reopen: 'Reabriu o agendamento',
-	exclude: 'Excluiu o agendamento',
-	apply_participant_rollup: 'Atualizou a situação pela turma',
-	set_pkg_hold: 'Atualizou a reserva do pacote',
-	mark_completed: 'Concluiu o agendamento',
-	mark_missed: 'Marcou falta no agendamento',
-	set_falta_justificada: 'Justificou a falta'
+// A rede: recurso ou ação sem entrada nas tabelas nunca vira átomo cru na tela.
+const TYPE_FALLBACK: Record<AuditEntry['action_type'], string> = {
+	create: 'Criou um registro',
+	update: 'Alterou um registro',
+	destroy: 'Removeu um registro',
+	read: 'Consultou um registro',
+	deny: 'Acesso negado'
 };
 
-// `{p}` é o nome do paciente. Sem paciente resolvido (registro apagado), vira "um paciente".
-const ATTENDANCE_HEADLINES: Record<string, string> = {
-	create: 'Adicionou {p} ao atendimento',
-	remove: 'Removeu {p} do atendimento',
-	transition: 'Alterou a presença de {p}',
-	mark_present: 'Marcou a presença de {p}',
-	mark_absent: 'Marcou a falta de {p}',
-	reopen_attendance: 'Reabriu a presença de {p}',
-	justify_absence: 'Justificou a falta de {p}',
-	set_package: 'Vinculou a sessão de {p} a um pacote'
+/** O rótulo humano de um tipo de registro ("Agendamento", "Ficha do paciente"). */
+const RESOURCE_LABELS: Record<AuditResource, string> = {
+	appointment: 'Agendamento',
+	attendance: 'Participante',
+	patient: 'Paciente',
+	professional: 'Profissional',
+	membership: 'Equipe e acessos',
+	clinic: 'Clínica',
+	appointment_type: 'Tipo de atendimento',
+	clinic_hours: 'Expediente',
+	professional_hours: 'Grade do profissional',
+	schedule_exception: 'Exceção de agenda',
+	package: 'Pacote',
+	waitlist_entry: 'Fila de espera',
+	attachment: 'Anexo',
+	seguranca: 'Segurança'
 };
 
-function labelTable(resource: AuditResource): Record<string, string> {
-	return resource === 'attendance' ? ATTENDANCE_ACTION_LABELS : APPOINTMENT_ACTION_LABELS;
+export function resourceLabel(resource: AuditResource): string {
+	return RESOURCE_LABELS[resource] ?? resource;
 }
 
 /** O verbo curto da ação — filtro, chip. Ação desconhecida cai no nome cru (não quebra). */
 export function actionLabel(entry: Pick<AuditEntry, 'resource' | 'action'>): string {
-	return labelTable(entry.resource)[entry.action] ?? entry.action;
-}
-
-/** As ações filtráveis de um recurso, na ordem em que a sidebar as mostra. */
-export function actionOptions(
-	resource: AuditResource
-): ReadonlyArray<{ key: string; label: string }> {
-	return Object.entries(labelTable(resource)).map(([key, label]) => ({ key, label }));
+	return ACTION_LABELS[entry.resource]?.[entry.action] ?? entry.action;
 }
 
 /**
- * A ação vinda da URL, **validada contra o recurso**.
+ * As ações filtráveis de um grupo de registro, sem repetir rótulo.
  *
- * Nome fora da tabela vira `null` (sem filtro). Isso não é preciosismo: a whitelist da API
- * também devolve filtro nulo para nome desconhecido — o feed inteiro volta e quem filtrou não
- * percebe. Validar dos dois lados é o que impede a tela de exibir um chip "Cancelou" sobre uma
- * lista que não está filtrada.
+ * Vários recursos compartilham nomes de ação (`create`, `update`) com rótulos diferentes por
+ * contexto; a chave é `<resource>:<action>` para o filtro não misturar "Cadastrou paciente" com
+ * "Criou o tipo". O `key` que vai para a URL é só o nome da ação, porque o grupo já recorta.
+ */
+export function actionOptions(
+	group: ResourceGroup | null
+): ReadonlyArray<{ key: string; label: string }> {
+	const vistas = new Map<string, string>();
+	for (const resource of resourcesOf(group)) {
+		for (const [key, label] of Object.entries(ACTION_LABELS[resource] ?? {})) {
+			if (!vistas.has(key)) vistas.set(key, label);
+		}
+	}
+	return [...vistas].map(([key, label]) => ({ key, label }));
+}
+
+/**
+ * A ação vinda da URL, **validada contra o grupo**.
+ *
+ * Nome fora da tabela vira `null` (sem filtro). Do lado da API isso mudou: `action` é uma coluna
+ * de texto, então um nome desconhecido devolve **vazio** em vez do feed inteiro (era a falha
+ * silenciosa da whitelist, doc 63). Validar aqui continua valendo por outro motivo: impede a
+ * tela de exibir um chip "Cancelou" sobre um recorte que não corresponde ao grupo aberto.
  */
 export function parseAction(
 	value: string | null | undefined,
-	resource: AuditResource
+	group: ResourceGroup | null
 ): string | null {
 	if (!value) return null;
-	return value in labelTable(resource) ? value : null;
+	return actionOptions(group).some((o) => o.key === value) ? value : null;
 }
 
 /**
  * A frase da linha do feed: verbo de ator + objeto. O ator NÃO entra aqui — ele vai para a
  * terceira linha ("por Fulano"), onde não compete com o fato.
  */
-export function entryHeadline(entry: Pick<AuditEntry, 'resource' | 'action' | 'patient'>): string {
-	if (entry.resource === 'attendance') {
-		const nome = entry.patient?.nome ?? 'um paciente';
-		const template = ATTENDANCE_HEADLINES[entry.action];
-		return template ? template.replace('{p}', nome) : `${entry.action} · ${nome}`;
-	}
-	return APPOINTMENT_HEADLINES[entry.action] ?? entry.action;
+export function entryHeadline(
+	entry: Pick<AuditEntry, 'resource' | 'action' | 'action_type' | 'patient' | 'label'>
+): string {
+	const template = HEADLINES[entry.resource]?.[entry.action];
+	if (!template) return TYPE_FALLBACK[entry.action_type] ?? entry.action;
+
+	return template
+		.replace('{p}', entry.patient?.nome ?? 'um paciente')
+		.replace('{n}', entry.label ?? entry.patient?.nome ?? 'um registro');
 }
 
-/** O contexto do bloco: "Dra. Bea · ter 20/07, 09:00". Vazio quando nada foi resolvido. */
+/** O horário da sessão a que a linha se refere, quando há um. */
+export function entrySessionAt(entry: Pick<AuditEntry, 'meta'>): string | null {
+	const valor = entry.meta?.session_starts_at ?? entry.meta?.starts_at;
+	return typeof valor === 'string' ? valor : null;
+}
+
+/** O contexto do registro: "Dra. Bea · ter 20/07, 09:00". Vazio quando nada foi resolvido. */
 export function entryContext(
-	entry: Pick<AuditEntry, 'professional' | 'starts_at'>,
+	entry: Pick<AuditEntry, 'professional' | 'meta'>,
 	timezone: string
 ): string {
-	const partes = [
-		entry.professional?.nome,
-		entry.starts_at ? formatSession(entry.starts_at, timezone) : null
-	].filter(Boolean);
+	const sessao = entrySessionAt(entry);
+	const partes = [entry.professional?.nome, sessao ? formatSession(sessao, timezone) : null].filter(
+		Boolean
+	);
 	return partes.join(' · ');
 }
 
@@ -239,7 +485,63 @@ const FIELD_LABELS: Record<string, string> = {
 	cancel_reason: 'Motivo do cancelamento',
 	falta_justificada: 'Falta justificada',
 	excluded_at: 'Excluído em',
-	justificativa: 'Justificativa'
+	justificativa: 'Justificativa',
+	// Ficha do paciente e cadastro do profissional (doc 63): os campos que de fato mudam.
+	nome: 'Nome',
+	nome_social: 'Nome social',
+	nome_exibicao: 'Nome de exibição',
+	cpf: 'CPF',
+	rg: 'RG',
+	tel: 'Telefone',
+	email: 'E-mail',
+	nascimento: 'Nascimento',
+	endereco: 'Endereço',
+	cidade: 'Cidade',
+	uf: 'UF',
+	cep: 'CEP',
+	convenio: 'Convênio',
+	carteirinha: 'Carteirinha',
+	medico: 'Médico',
+	crm: 'CRM',
+	crefito: 'CREFITO',
+	especialidades: 'Especialidades',
+	tags: 'Tags',
+	ativo: 'Ativo',
+	// Consentimento — o par que o `06 §4` cobra por nome ("concessão e revogação").
+	lgpd: 'Consentimento LGPD',
+	comunicacao: 'Aceita comunicação',
+	// Dados bancários e contratuais do profissional (todos redigidos, D-Aud4).
+	banco: 'Banco',
+	agencia: 'Agência',
+	conta: 'Conta',
+	conta_tipo: 'Tipo de conta',
+	pix: 'PIX',
+	cnpj: 'CNPJ',
+	razao_social: 'Razão social',
+	vinculo: 'Vínculo',
+	// Equipe e acessos.
+	papel: 'Papel',
+	// Clínica e catálogo.
+	timezone: 'Fuso horário',
+	slot_minutos: 'Passo da grade',
+	cap_turma_padrao: 'Capacidade padrão',
+	duracao_minutos: 'Duração',
+	capacidade: 'Capacidade',
+	grupo: 'Em grupo',
+	cor: 'Cor',
+	icon: 'Ícone',
+	// Expediente e exceções.
+	periods: 'Períodos',
+	dow: 'Dia da semana',
+	modo: 'Modo',
+	data: 'Data',
+	tipo: 'Tipo',
+	// Pacotes e fila.
+	total: 'Total de sessões',
+	falta_punitiva: 'Falta consome sessão',
+	data_inicio: 'Início',
+	prio: 'Prioridade',
+	janela: 'Janela'
 };
 
 export function fieldLabel(field: string): string {
@@ -257,7 +559,10 @@ const ATTENDANCE_STATUS_LABELS: Record<string, string> = {
 
 function statusLabel(resource: AuditResource, value: string): string {
 	if (resource === 'attendance') return ATTENDANCE_STATUS_LABELS[value] ?? value;
-	return STATUS_META[value as AppointmentStatus]?.label ?? value;
+	if (resource === 'appointment') return STATUS_META[value as AppointmentStatus]?.label ?? value;
+	// Os demais recursos têm `status` com vocabulário próprio (pacote, anexo, vínculo) e nenhum
+	// deles é o da agenda — traduzir com `STATUS_META` diria a coisa errada com confiança.
+	return value;
 }
 
 // Formata um VALOR do diff para exibição, ciente do campo e do recurso: datas → hora local da
@@ -272,6 +577,14 @@ export function formatValue(
 	if (field === 'status') return statusLabel(resource, String(value));
 	if (field === 'starts_at' || field === 'excluded_at') return formatAt(String(value), timezone);
 	if (typeof value === 'boolean') return value ? 'Sim' : 'Não';
+	// `especialidades`, `tags`, `prefs` são arrays; `periods` é uma lista de mapas. Sem isto o
+	// `String()` renderizaria "[object Object]" — que é pior do que não mostrar.
+	if (Array.isArray(value)) {
+		return value.every((v) => typeof v === 'string' || typeof v === 'number')
+			? value.join(', ') || '—'
+			: `${value.length} item(ns)`;
+	}
+	if (typeof value === 'object') return '—';
 	return String(value);
 }
 
@@ -396,25 +709,25 @@ export function groupByDay(
 }
 
 /**
- * Rodapé da paginação ("Página 2 · 51–100"). Vazio quando não há resultado.
+ * Rodapé da paginação ("Página 2 · 51–100").
  *
- * **Sem o "de Z" (D-Aud1).** A trilha é a tabela que mais cresce do projeto, e o total custava um
- * `COUNT(*) OVER ()` por request — que lê o recorte inteiro da clínica apesar do `LIMIT` (medido:
- * 10.265 buffers contra 26 na caixa de notificações, doc 44 §2). Quem olha a auditoria quer
- * *o que aconteceu*, não quantas versões a clínica acumulou; o "tem mais" continua vindo do
- * servidor, exato, e é ele que habilita a seta.
+ * **Sem o "de Z" (D-Aud1).** O total chegou a voltar nesta fatia, com o argumento de que a
+ * retenção de 90 dias limitava a tabela — o bate-volta mediu e derrubou o argumento: ele é sobre
+ * tamanho, não sobre custo por request. O `COUNT(*)` sai como uma **segunda query** e lê o
+ * recorte inteiro apesar do `LIMIT`: 23,9 ms · 191 buffers contra 0,090 ms · 9 buffers da própria
+ * página, num recorte de 84 mil linhas (**265×**) — ~99% do tempo de banco da tela.
  *
- * Pacientes e Fila **mantêm** o total: aquelas listas têm teto natural e o número responde uma
- * pergunta que alguém de fato faz.
+ * A função continua aceitando `total` e o usa quando existe: outras listas (Pacientes, Fila) têm
+ * teto natural e pagam a conta de bom grado. O que mudou é que a trilha não manda mais.
  *
  * Nome próprio (`auditPageLabel`) de propósito: chamar-se `pageLabel` como o do
- * `$lib/pagination` — com **assinatura diferente**, um usando `total` e o outro ignorando-o —
- * é o tipo de colisão que passa despercebida num import trocado.
+ * `$lib/pagination` é o tipo de colisão que passa despercebida num import trocado.
  */
 export function auditPageLabel(page: PageInfo, shown: number, current = 1): string {
 	if (!shown) return '';
 	const faixa = `${page.offset + 1}–${page.offset + shown}`;
-	return current > 1 ? `Página ${current} · ${faixa}` : faixa;
+	const total = typeof page.total === 'number' ? `${faixa} de ${page.total}` : faixa;
+	return current > 1 ? `Página ${current} · ${total}` : total;
 }
 
 // Só owner·admin veem a auditoria (RBAC da API; aqui é o gating do menu/UX). Espelha o
@@ -429,19 +742,14 @@ export function auditHref(params: URLSearchParams, patch: QueryPatch): string {
 }
 
 /**
- * O patch que troca de recurso.
+ * O patch que troca de grupo de registro.
  *
- * Zera `acao` e `record_id` junto — e não só a página. As duas tabelas de ação não se cruzam
- * (`cancel` não existe em participante), então manter o filtro ao trocar de aba devolveria um
- * feed **legitimamente** vazio, que lê como defeito. O registro é da mesma forma de um recurso só.
+ * Zera `acao` e `record_id` junto — e não só a página. Os vocabulários de ação não se cruzam
+ * (`cancel` não existe em anexo), então manter o filtro ao trocar de grupo devolveria um feed
+ * **legitimamente** vazio, que lê como defeito. `record_id` é de um recurso só, pela mesma razão.
  */
-export function resourcePatch(resource: ResourceFilter): QueryPatch {
-	return {
-		resource: resource === 'appointment' ? null : resource,
-		acao: null,
-		record_id: null,
-		page: null
-	};
+export function resourcePatch(group: ResourceGroup | null): QueryPatch {
+	return { resource: group, acao: null, record_id: null, page: null };
 }
 
 export interface FilterChip {
@@ -458,7 +766,7 @@ export interface FilterChip {
  * do filtro na caixa de notificações (doc 53).
  */
 export function activeChips(state: {
-	resource: AuditResource;
+	resource: ResourceGroup | null;
 	action: string | null;
 	period: PeriodFilter;
 	autor: string | null;
@@ -467,16 +775,22 @@ export function activeChips(state: {
 }): FilterChip[] {
 	const chips: FilterChip[] = [];
 
+	// O grupo de registro virou chip porque deixou de ser um eixo obrigatório: agora existe o
+	// estado "sem recorte" (a clínica inteira), e sem o chip não haveria como perceber — nem
+	// desfazer — que se está olhando só um pedaço.
+	if (state.resource) {
+		const label = RESOURCE_GROUPS.find((g) => g.key === state.resource)?.label ?? state.resource;
+		chips.push({ key: 'resource', label });
+	}
+
 	if (state.period !== 'tudo') {
 		const label = PERIOD_OPTIONS.find((p) => p.key === state.period)?.label ?? state.period;
 		chips.push({ key: 'periodo', label });
 	}
 
 	if (state.action) {
-		chips.push({
-			key: 'acao',
-			label: actionLabel({ resource: state.resource, action: state.action })
-		});
+		const opcao = actionOptions(state.resource).find((o) => o.key === state.action);
+		chips.push({ key: 'acao', label: opcao?.label ?? state.action });
 	}
 
 	if (state.autor) {

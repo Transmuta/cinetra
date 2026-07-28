@@ -19,12 +19,14 @@
 	import Inbox from '@lucide/svelte/icons/inbox';
 	import BellDot from '@lucide/svelte/icons/bell-dot';
 	import CalendarDays from '@lucide/svelte/icons/calendar-days';
+	import ScrollText from '@lucide/svelte/icons/scroll-text';
 	import CalendarRange from '@lucide/svelte/icons/calendar-range';
 	import User from '@lucide/svelte/icons/user';
 	import { PERIOD_LABELS, professionalName } from '$lib/reports';
 	import { sectionOf, SECTION_TITLES, CONFIG_LINKS } from './nav';
 	import {
 		actionOptions,
+		RESOURCE_GROUPS,
 		auditHref,
 		canViewAudit,
 		parseAction,
@@ -208,13 +210,8 @@
 	const audAutores = $derived((page.data.autores as AuditRef[] | undefined) ?? []);
 	const audActions = $derived(actionOptions(audResource));
 
-	const AUD_RESOURCES = [
-		{ key: 'appointment', label: 'Agendamentos', icon: CalendarDays },
-		{ key: 'attendance', label: 'Participantes', icon: Users }
-	] as const;
-
-	// Trocar de recurso zera ação e registro junto (ver `resourcePatch`): as duas tabelas de
-	// ação não se cruzam, e um filtro órfão devolveria um feed legitimamente vazio.
+	// Trocar de grupo zera ação e registro junto (ver `resourcePatch`): os vocabulários de ação
+	// não se cruzam entre grupos, e um filtro órfão devolveria um feed legitimamente vazio.
 	const audHref = (patch: Record<string, string | null>) =>
 		auditHref(page.url.searchParams, { ...patch, page: null });
 
@@ -484,12 +481,22 @@
 			<div class="px-2 pb-1.5 pt-3 text-[10.5px] font-bold uppercase tracking-[.06em] text-faint">
 				Registro
 			</div>
-			{#each AUD_RESOURCES as r (r.key)}
+			<!-- "Tudo" é o DEFAULT e vem primeiro: com doze recursos auditados, a pergunta que o
+			     admin faz é "o que aconteceu na clínica" — o recorte por grupo é a exceção, não a
+			     porta de entrada. Era o contrário enquanto a trilha tinha dois recursos e cada um
+			     era uma tabela própria (doc 63). -->
+			{@render filtro(
+				auditHref(page.url.searchParams, resourcePatch(null)),
+				'Tudo',
+				!audResource,
+				ScrollText
+			)}
+			{#each RESOURCE_GROUPS as r (r.key)}
 				{@render filtro(
 					auditHref(page.url.searchParams, resourcePatch(r.key)),
 					r.label,
 					audResource === r.key,
-					r.icon
+					null
 				)}
 			{/each}
 

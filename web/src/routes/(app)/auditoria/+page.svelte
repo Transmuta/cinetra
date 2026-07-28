@@ -47,7 +47,7 @@
 	}
 
 	function clearAll() {
-		navigate({ periodo: null, acao: null, autor: null, record_id: null, page: null });
+		navigate({ resource: null, periodo: null, acao: null, autor: null, record_id: null, page: null });
 	}
 
 	const navBtn =
@@ -62,7 +62,7 @@
 			<ScrollText size={19} class="text-teal-text" /> Auditoria
 		</h1>
 		<p class="mt-0.5 text-sm text-muted">
-			Quem mudou o quê, e quando — o histórico de agendamentos e participantes da clínica.
+			Quem mudou o quê, quem abriu o quê, e quando — o histórico da clínica.
 		</p>
 	</header>
 
@@ -122,10 +122,9 @@
 					<button type="button" onclick={clearAll} class="font-medium text-teal-text hover:underline">
 						limpar os filtros
 					</button>.
-				{:else if data.resource === 'attendance'}
-					Nada foi alterado nos participantes desta clínica ainda.
 				{:else}
-					Toda mudança em agendamento aparece aqui, com quem fez e quando.
+					Toda mudança, todo acesso a ficha e toda tentativa negada aparecem aqui, com quem fez
+					e quando.
 				{/if}
 			</p>
 		</div>

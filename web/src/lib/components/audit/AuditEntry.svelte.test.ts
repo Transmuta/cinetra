@@ -13,7 +13,8 @@ function entry(over: Partial<Entry> = {}): Entry {
 	return auditEntryFixture({
 		action: 'cancel',
 		action_type: 'update',
-		status: 'cancelado',
+		// `status` deixou de ser campo da entrada (doc 63): o contexto por recurso viaja em `meta`,
+		// porque a maioria dos catorze recursos não tem "situação" nenhuma.
 		diff: [{ field: 'status', from: 'agendado', to: 'cancelado' }],
 		...over
 	});
@@ -73,7 +74,9 @@ describe('AuditEntry', () => {
 		);
 	});
 
-	it('no participante o link de histórico carrega o recurso', () => {
+	// O link de histórico NÃO carrega mais o recurso: `record_id` é um uuid, único no sistema, e o
+	// feed unificado (doc 63) mostra a vida do registro sem precisar saber de que tipo ele é.
+	it('o link de histórico isola o registro, sem precisar do recurso', () => {
 		const { getByRole } = render(AuditEntry, {
 			props: {
 				entry: entry({ resource: 'attendance', action: 'create', action_type: 'create', record_id: 'at1' }),
@@ -82,7 +85,7 @@ describe('AuditEntry', () => {
 		});
 		expect(getByRole('link', { name: /Ver histórico/ })).toHaveAttribute(
 			'href',
-			'/auditoria?resource=attendance&record_id=at1'
+			'/auditoria?record_id=at1'
 		);
 	});
 
@@ -127,7 +130,7 @@ describe('AuditEntry', () => {
 	it('sem o bloco legível (excluído), some o contexto e o link de agenda', () => {
 		const { queryByRole } = render(AuditEntry, {
 			props: {
-				entry: entry({ resource: 'attendance', starts_at: null, professional: null, diff: [] }),
+				entry: entry({ resource: 'attendance', meta: {}, professional: null, diff: [] }),
 				timezone: TZ
 			}
 		});

@@ -50,29 +50,41 @@ beforeEach(() => {
 });
 
 describe('load', () => {
-	it('200 → entradas + meta, resource default appointment, página 1', async () => {
+	// Sem `?resource=`, o feed é da CLÍNICA INTEIRA (doc 63) — e é o default. Antes o default era
+	// `appointment` e não havia como pedir "tudo": o recurso era o eixo que trocava a tabela lida.
+	it('200 → entradas + meta, sem recorte de registro, página 1', async () => {
 		m.fetchAudit.mockResolvedValueOnce(okData);
 
 		const r = (await load(ev())) as LoadOk;
 		expect(r.entries).toHaveLength(1);
-		expect(r.resource).toBe('appointment');
+		expect(r.resource).toBeNull();
 		expect(r.period).toBe('tudo');
 		expect(r.current).toBe(1);
 		expect(r.pageInfo.more).toBe(false);
 	});
 
-	it('traduz ?page= em offset e repassa resource/record_id', async () => {
+	// O GRUPO da URL vira a lista de tipos que a API entende — a tradução que faz "Agenda" na
+	// sidebar virar `appointment,attendance` no filtro.
+	it('traduz ?page= em offset e o grupo nos tipos da API', async () => {
 		m.fetchAudit.mockResolvedValueOnce(okData);
 
-		await load(ev('?resource=attendance&page=3&record_id=a1'));
+		await load(ev('?resource=agenda&page=3&record_id=a1'));
 
 		const [, params] = m.fetchAudit.mock.calls[0];
 		expect(params).toMatchObject({
-			resource: 'attendance',
+			resource: 'appointment,attendance',
 			record_id: 'a1',
 			limit: 50,
 			offset: 100 // (3 - 1) * 50
 		});
+	});
+
+	it('grupo desconhecido não vira filtro (o feed é o da clínica)', async () => {
+		m.fetchAudit.mockResolvedValueOnce(okData);
+
+		const r = (await load(ev('?resource=lixo'))) as LoadOk;
+		expect(r.resource).toBeNull();
+		expect(m.fetchAudit.mock.calls[0][1].resource).toBeUndefined();
 	});
 
 	// O período viaja como PRESET na URL e vira janela `from`/`to` aqui — a API só entende datas,
@@ -97,12 +109,12 @@ describe('load', () => {
 		expect(params.to).toBeUndefined();
 	});
 
-	// A ação é validada CONTRA O RECURSO: `cancel` não existe em participante, e mandá-la assim
-	// mesmo faria a API devolver o feed inteiro (whitelist → filtro nulo) com o chip ligado.
-	it('descarta ação que não é do recurso', async () => {
+	// A ação é validada CONTRA O GRUPO: `cancel` não é vocabulário de anexo, e o chip mentiria
+	// sobre um recorte que não corresponde ao que está aberto.
+	it('descarta ação que não é do grupo', async () => {
 		m.fetchAudit.mockResolvedValueOnce(okData);
 
-		const r = (await load(ev('?resource=attendance&acao=cancel'))) as LoadOk;
+		const r = (await load(ev('?resource=anexos&acao=cancel'))) as LoadOk;
 		expect(r.action).toBeNull();
 		expect(m.fetchAudit.mock.calls[0][1].action).toBeUndefined();
 	});

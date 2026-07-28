@@ -115,23 +115,31 @@ describe('Sidebar — Auditoria (filtros)', () => {
 
 	// A armadilha: as duas tabelas de ação não se cruzam. Manter `acao=cancel` ao ir para
 	// Participantes devolveria um feed legitimamente vazio, que lê como defeito.
-	it('trocar de registro zera ação, registro e página', () => {
+	it('trocar de grupo zera ação, registro e página', () => {
 		const { getByRole } = renderAudit('?acao=cancel&record_id=a1&page=3');
-		expect(getByRole('link', { name: 'Participantes' })).toHaveAttribute(
+		expect(getByRole('link', { name: 'Pacientes e profissionais' })).toHaveAttribute(
 			'href',
-			'/auditoria?resource=attendance'
+			'/auditoria?resource=cadastros'
 		);
 	});
 
-	it('as ações oferecidas são as do recurso aberto', () => {
-		const bloco = renderAudit();
-		expect(bloco.getByRole('link', { name: 'Cancelou' })).toBeInTheDocument();
-		expect(bloco.queryByRole('link', { name: 'Marcou presença' })).toBeNull();
+	// "Tudo" é o default e o primeiro da lista: com doze recursos auditados, a pergunta é "o que
+	// aconteceu na clínica" (doc 63). O link dele **limpa** a query em vez de escrever um valor.
+	it('oferece "Tudo" como default, e ele limpa o recorte', () => {
+		const { getByRole } = renderAudit('?resource=agenda&acao=cancel&page=2');
+		expect(getByRole('link', { name: 'Tudo' })).toHaveAttribute('href', '/auditoria');
+	});
+
+	it('as ações oferecidas são as do grupo aberto', () => {
+		// Sem grupo, o filtro oferece o vocabulário inteiro — é o feed da clínica.
+		const tudo = renderAudit();
+		expect(tudo.getByRole('link', { name: 'Cancelou' })).toBeInTheDocument();
+		expect(tudo.getByRole('link', { name: 'Baixou o anexo' })).toBeInTheDocument();
 		cleanup();
 
-		const presenca = renderAudit('?resource=attendance');
-		expect(presenca.getByRole('link', { name: 'Marcou presença' })).toBeInTheDocument();
-		expect(presenca.queryByRole('link', { name: 'Cancelou' })).toBeNull();
+		const anexos = renderAudit('?resource=anexos');
+		expect(anexos.getByRole('link', { name: 'Baixou o anexo' })).toBeInTheDocument();
+		expect(anexos.queryByRole('link', { name: 'Cancelou' })).toBeNull();
 	});
 
 	it('o autor sai da equipe carregada pelo load', () => {
