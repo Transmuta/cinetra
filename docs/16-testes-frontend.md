@@ -52,12 +52,28 @@ de servidor do BFF — repasse de cookie, re-emissão de sessão, resposta neutr
 
 ### E2E (Playwright) — só o crítico
 
-- **Entrada passwordless**: em `/entrar`, submeter o e-mail leva ao estado **neutro**
-  "Confira seu e-mail" (funciona mesmo sem a API — o neutro é por design); home
-  desautenticada oferece o caminho de entrar.
-- **Tema sem flash**: alternar o tema e recarregar mantém o `data-theme` — prova a volta
-  inteira (cookie do cliente → `hooks.server` re-estampa no SSR). É o único ponto que só o
-  e2e cobre; o resto é unit/integração.
+O critério de entrada **não é cobrir rota**: é cobrir uma **classe de bug que só o browser
+contra a stack de verdade pega**. Com ~1.500 testes de unidade e ~820 no backend, e2e que
+reafirma regra é custo puro. As classes que sobram, e o cenário que guarda cada uma:
+
+| Spec | A classe de bug que só ele pega |
+| --- | --- |
+| [`login`](../web/e2e/login.spec.ts) | O estado **neutro** do ADR-015 na tela (e o split da auth que some no mobile — regra de media query, que nem o jsdom aplica). |
+| [`theme`](../web/e2e/theme.spec.ts) | Tema sem flash: cookie do cliente → `hooks.server` re-estampa no SSR. Só a volta inteira prova. |
+| [`switch-clinic`](../web/e2e/switch-clinic.spec.ts) | Troca de tenant: cookie + `Membership` + `Api.Scope` + GUC de RLS concordando **na tela seguinte**. |
+| [`agendar`](../web/e2e/agendar.spec.ts) | O caminho mais rico de RLS (leitura + escrita por tenant), e a conversão de fuso do modal — invisível numa máquina que roda em UTC, que é o container. |
+| [`tempo-real`](../web/e2e/tempo-real.spec.ts) | WebSocket de verdade: token no subprotocolo, `check_origin` e **CSP** (que é assada no build e só existe em app buildado). O `realtime.test.ts` faz `vi.mock('phoenix')` — a camada do fio ali é dublê. |
+| [`notificacoes`](../web/e2e/notificacoes.spec.ts) | O badge que cai **sem F5**: `goto` não reexecuta load de layout, e o mock no-op de `enhance` esconde isso da unidade. Regressão de bug visto ao vivo. |
+| [`excluir-agendamento`](../web/e2e/excluir-agendamento.spec.ts) | `requestSubmit()` a partir de um ConfirmDialog — sem `await tick()` o Svelte 5 manda o form **vazio**, e o `fireEvent` da unidade não pega. Sete telas usam esse molde. |
+| [`isolamento`](../web/e2e/isolamento.spec.ts) | Vazamento entre clínicas pelo caminho HTTP inteiro, com o role `movimento_app` (NOBYPASSRLS) — o `mix test` conecta como superusuário e é cego a isso. |
+| [`recepcao`](../web/e2e/recepcao.spec.ts) | RBAC afirmado em três lugares (policy, controller, gating de UX) **concordando**, com contraste owner × recepção na mesma tela. |
+| [`console`](../web/e2e/console.spec.ts) | Varredura do shell: erro de console/CSP em qualquer tela, e `<a>` para endpoint `+server` sem `data-sveltekit-reload` (404 no roteador de cliente). |
+
+**O andaime** ([`e2e/fixtures.ts`](../web/e2e/fixtures.ts)): a fixture `clinica` dá a cada teste
+uma clínica própria — dono autenticado por magic link **de verdade**, e o cenário (profissional,
+paciente, tipo) semeado por HTTP. Semear pela interface custava seis telas por arquivo e fazia a
+falha de qualquer uma delas quebrar todos os testes no lugar errado. Uma clínica por teste é
+também o que deixa a suíte rodar em paralelo: o tenant é o limite de isolamento do sistema.
 
 ## Gate de cobertura (Vitest v8)
 
@@ -76,18 +92,25 @@ Análogo ao `minimum_coverage` do backend. Configurado em
 
 ## Estado
 
-**51 testes Vitest (17 arquivos) + 3 Playwright, todos verdes.** `svelte-check` limpo.
-Cobertura 96,98% (stmts). Todos os 7 componentes e todos os route handlers testados.
+**1.538 testes Vitest (151 arquivos) + 12 Playwright, todos verdes.** `svelte-check` limpo.
 
 ## CI ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml))
 
 - Job **web**: `npm run check` (svelte-check) → `npm run coverage` (testes + gate) → `npm run build`.
-- Job **web-e2e**: `npx playwright install --with-deps chromium` → `npm run test:e2e`
-  (a config sobe o app sozinha); publica o `playwright-report` como artefato em caso de falha.
+- **O e2e não roda no CI** (decisão de 2026-07-27): ele precisa da stack inteira — API, banco e a
+  caixa de e-mail de dev de onde sai o magic link —, e o workflow sobe só o `web`. Roda local,
+  contra o `docker compose`; a receita está em [`web/e2e/README.md`](../web/e2e/README.md).
 
 ## O que ainda falta (ratchet)
 
 - **Cobertura do backend com número por-dimensão**: o Elixir usa um piso único (linha) de 80%;
   aqui temos branch/function/statement separados. Simetria opcional.
-- Mais e2e **só** se surgir jornada crítica nova (arrastar agendamento, oferecer vaga da
-  fila) — quando os motores existirem; hoje eles nem foram portados (07).
+- **`e2e/` fica fora do `svelte-check`**: o `include` do tsconfig gerado cobre `src/`, `test/` e
+  `tests/` — não `e2e/`. O Playwright transpila com esbuild, que **apaga** os tipos sem conferi-los,
+  então um erro de tipo ali só aparece (se aparecer) em tempo de execução. Ampliar o `include` é
+  reescrever a lista herdada inteira; fica anotado como dívida consciente.
+- Jornadas ainda sem e2e, por ordem de valor: **arrastar** um bloco para remarcar (o gesto tem
+  limiar, captura de ponteiro e supressão de clique — nada disso existe fora do browser), **oferecer
+  vaga da fila** e o **upload de anexo** (o `PUT` sai do browser direto para o R2, então preflight
+  de CORS e `connect-src` do bucket só existem ali; precisa de credencial, então entraria com skip
+  quando o R2 não estiver configurado).

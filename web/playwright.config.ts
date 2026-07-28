@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+import { API_ORIGIN } from './e2e/env';
 
 /**
  * E2E só nos cenários críticos (doc 16): dirige o browser real contra o app de verdade. Poucos,
@@ -41,7 +42,14 @@ export default defineConfig({
 				command: `npm run build && npm run preview -- --port ${PORT}`,
 				port: PORT,
 				reuseExistingServer: !process.env.CI,
-				timeout: 120_000
+				timeout: 120_000,
+				// A origem que o BROWSER usa para o WebSocket, alinhada à que o processo do Playwright
+				// usa para falar com a API — as duas rodam na mesma máquina, então é a mesma (ver
+				// `e2e/env.ts`). Vale para o `build` e para o `preview` da linha acima, e é preciso nos
+				// dois: a CSP é assada no build (`connect-src`) e a origem é lida em runtime pelo BFF.
+				// Sem isto, dentro do container o browser herdava `localhost:4010` — o endereço de quem
+				// navega do host — e o socket morria em silêncio, com o motivo só no console.
+				env: { API_PUBLIC_ORIGIN: API_ORIGIN }
 			}
 		: undefined,
 	projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }]

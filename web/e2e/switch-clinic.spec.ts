@@ -1,5 +1,8 @@
-import { test, expect } from '@playwright/test';
-import { emailUnico, entrar, criarClinica, menuDoUsuario, stackCompleta } from './helpers';
+// `test` vem das fixtures (e não do `@playwright/test`) pela guarda compartilhada: com a stack
+// local fora do ar, falhar em vez de pular em silêncio. Este spec não usa a fixture `clinica` —
+// ela é preguiçosa, então não é montada, e aqui as duas clínicas nascem pela tela de propósito.
+import { test, expect } from './fixtures';
+import { emailUnico, entrar, criarClinica, menuDoUsuario } from './helpers';
 
 /**
  * **I66** — o e2e que faltava: a troca de clínica ativa, com sessão de verdade.
@@ -14,9 +17,6 @@ import { emailUnico, entrar, criarClinica, menuDoUsuario, stackCompleta } from '
  */
 test.describe('Troca de clínica ativa', () => {
 	test('duas clínicas do mesmo dono: trocar muda o tenant da tela', async ({ page, request }) => {
-		test.skip(!(await stackCompleta(request)), 'precisa da API + banco (docker compose up)');
-		test.slow();
-
 		const addr = emailUnico('switch');
 
 		await entrar(page, request, addr);
