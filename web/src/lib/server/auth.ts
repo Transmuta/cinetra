@@ -1,10 +1,17 @@
 import { fail, redirect, type RequestEvent } from '@sveltejs/kit';
-import { apiFetch } from './api';
+import { apiFetch, SESSION_COOKIE } from './api';
+import { canonical } from '$lib/seo';
 import type { Me } from '$lib/session';
 
 // Carrega a sessão (`/api/auth/me`) pelo BFF. Retorna `null` quando não há sessão válida.
 // Usado pela home e pelo layout do app (guarda de auth). ADR-005: server-to-server.
 export async function loadMe(event: RequestEvent): Promise<Me | null> {
+	// Sem cookie de sessão não há o que perguntar: o `apiFetch` só identifica o usuário pelo
+	// `_api_key`, então uma ida à API aqui volta 401 por construção. Ela custava um round-trip
+	// server-to-server em CADA visita anônima — e as três páginas que mais recebem visitante
+	// deslogado (landing, /entrar, /criar-conta) são exatamente as que passam por aqui. Doc 57.
+	if (!event.cookies.get(SESSION_COOKIE)) return null;
+
 	try {
 		const res = await apiFetch(event, '/api/auth/me', { headers: { accept: 'application/json' } });
 		if (!res.ok) return null;
@@ -41,6 +48,14 @@ export async function requireSession(event: RequestEvent): Promise<Me> {
 export async function redirectIfAuthenticated(event: RequestEvent): Promise<void> {
 	const me = await loadMe(event);
 	if (me) redirect(303, landingPath(me));
+}
+
+// O `load` das duas páginas de autenticação: a guarda acima mais a canônica que o `<head>`
+// precisa. As duas estão no sitemap (doc 57), e página listada no sitemap sem canônica é
+// convite a conteúdo duplicado — `/entrar?erro=…` e `/criar-conta` chegam com query.
+export async function loadAuthPage(event: RequestEvent): Promise<{ canonical: string }> {
+	await redirectIfAuthenticated(event);
+	return { canonical: canonical(event.url) };
 }
 
 // Action compartilhada por /entrar e /criar-conta: pede o magic link (ADR-015). O BFF só

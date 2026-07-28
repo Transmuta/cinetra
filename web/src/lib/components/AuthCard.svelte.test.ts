@@ -32,4 +32,15 @@ describe('AuthCard', () => {
 
 		expect(queryByRole('link', { name: /Voltar ao site/ })).toBeNull();
 	});
+
+	it('mantém o gancho que colapsa o split no mobile', () => {
+		const { container } = render(AuthCard, {
+			props: { title: 'Entrar', children: snippet('x') }
+		});
+
+		// Só a presença da classe: quem colapsa de fato é a media query de cinetra.css, e o
+		// jsdom não aplica CSS — o comportamento em si está em `e2e/login.spec.ts`. Isto aqui é
+		// o pedaço que roda no CI, para a classe não sumir num refactor e levar a regra junto.
+		expect(container.querySelector('.cn-authsplit')).not.toBeNull();
+	});
 });

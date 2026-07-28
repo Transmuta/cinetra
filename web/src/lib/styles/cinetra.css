@@ -47,14 +47,109 @@
 	background: rgba(255, 255, 255, 0.18) !important;
 }
 
-/* Logo do topo do card de auth só aparece no mobile (quando o painel de marca some). */
-.cn-auth-logo {
+/* Atalho "pular para o conteúdo" (doc 57): fora da tela até receber foco pelo teclado.
+   `left:-9999px` em vez de `display:none` de propósito — o que some do fluxo não é focável,
+   e um atalho que não recebe foco não serve para nada. */
+.cn-skip {
+	position: absolute;
+	left: -9999px;
+	top: 0;
+	z-index: 100;
+}
+.cn-skip:focus-visible {
+	left: 12px;
+	top: 12px;
+	background: #212a37;
+	color: #fff;
+	font-size: 14px;
+	font-weight: 600;
+	padding: 10px 16px;
+	border-radius: 9px;
+}
+
+/* Sanfona de dúvidas (doc 57). `<details>` nativo — o estilo só troca o marcador padrão por um
+   "+" que vira "−", mantendo o teclado e o leitor de tela que o elemento já traz de graça.
+   Mesmas linhas divisórias da seção "as dores", para a página não ganhar uma linguagem nova. */
+.cn-faq details {
+	border-top: 1px solid #dcd8ce;
+}
+.cn-faq details:last-of-type {
+	border-bottom: 1px solid #dcd8ce;
+}
+.cn-faq summary {
+	display: flex;
+	align-items: center;
+	gap: 20px;
+	padding: 24px 0;
+	cursor: pointer;
+	list-style: none; /* Firefox */
+}
+/* O triângulo do WebKit/Blink só some por este pseudo-elemento. */
+.cn-faq summary::-webkit-details-marker {
 	display: none;
 }
-@media (max-width: 900px) {
-	.cn-auth-logo {
-		display: flex !important;
-	}
+.cn-faq summary h3 {
+	flex: 1;
+	margin: 0;
+	font-size: 19px;
+	font-weight: 700;
+	line-height: 1.4;
+	letter-spacing: -0.01em;
+	/* `pretty`, não `balance`: as manchetes centradas da página usam `balance` porque lá as duas
+	   linhas devem ter o mesmo peso. Aqui o texto é alinhado à esquerda numa coluna estreita, e
+	   equilibrar deixava "Como funciona a / confirmação de sessão?" com a primeira linha pela
+	   metade. `pretty` enche a linha e só evita a órfã. Medido a 412px. */
+	text-wrap: pretty;
+}
+.cn-faq summary:hover h3 {
+	color: #4a6e62;
+}
+/* O foco precisa envolver a linha inteira: `summary` é o alvo do teclado, e um anel só no texto
+   deixaria a pessoa sem saber que o item todo é o botão. */
+.cn-faq summary:focus-visible {
+	outline: 2px solid #4e7468;
+	outline-offset: 4px;
+	border-radius: 6px;
+}
+.cn-faq-sinal {
+	position: relative;
+	flex-shrink: 0;
+	width: 22px;
+	height: 22px;
+}
+.cn-faq-sinal::before,
+.cn-faq-sinal::after {
+	content: '';
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	width: 14px;
+	height: 2px;
+	background: #696356;
+	transform: translate(-50%, -50%);
+	transition: transform 0.2s ease;
+}
+/* A barra vertical do "+" gira até deitar sobre a horizontal e virar "−". */
+.cn-faq-sinal::after {
+	transform: translate(-50%, -50%) rotate(90deg);
+}
+.cn-faq details[open] .cn-faq-sinal::after {
+	transform: translate(-50%, -50%) rotate(0deg);
+}
+.cn-faq details[open] .cn-faq-sinal::before,
+.cn-faq details[open] .cn-faq-sinal::after {
+	background: #4a6e62;
+}
+.cn-faq p {
+	margin: 0;
+	padding: 0 0 26px;
+	/* Sem `max-width` próprio: quem limita a linha é a coluna de 680px, que já dá ~76 caracteres.
+	   Um teto em `ch` menor que o container deixaria o parágrafo encostado à esquerda dentro de
+	   um bloco centrado, com um vão à direita que só parece erro de alinhamento. */
+	font-size: 16px;
+	line-height: 1.65;
+	color: #575249;
+	text-wrap: pretty;
 }
 
 /* Colapsos responsivos do protótipo (:35-42). */
@@ -81,6 +176,93 @@
 	.cn-num {
 		grid-template-columns: 1fr !important;
 		gap: 26px !important;
+	}
+}
+
+/* Acabamento da landing no mobile. Tudo abaixo é DESVIO deliberado do protótipo (que só
+   empilhava as colunas e parava por aí) — não sincronizar de volta com ele. */
+@media (max-width: 900px) {
+	/* UMA calha só. `.cn-sect` já dá 22px à seção, e o wrapper interno somava outros 30 —
+	   52px de cada lado, 27% de um celular de 390px gastos em margem. Quem tem `.cn-wrap`
+	   está DENTRO de uma `.cn-sect` e por isso zera a sua; o `header`/`footer` não estão em
+	   seção nenhuma, então recebem a calha diretamente para alinhar com o resto. */
+	.cn-wrap {
+		padding-left: 0 !important;
+		padding-right: 0 !important;
+	}
+	.cn-topbar,
+	.cn-footrow {
+		padding-left: 22px !important;
+		padding-right: 22px !important;
+	}
+
+	/* Topo numa linha só. Com a calha de 30px e o gap de 34px do desktop, "Começar grátis"
+	   quebrava em duas linhas e o header (que é sticky) inchava para 89px de altura. */
+	.cn-topbar {
+		gap: 12px !important;
+	}
+	.cn-topbar a {
+		white-space: nowrap;
+	}
+
+	/* Títulos. Só o `h1` tinha tamanho de mobile; os `h2` seguiam em 44–56px e gastavam cinco
+	   linhas cada um. `clamp` em vez de um valor fixo porque este mesmo breakpoint atende do
+	   celular de 320px ao tablet de 900px — um número só ficaria grande demais numa ponta ou
+	   pequeno demais na outra. */
+	.cn-landing h2 {
+		font-size: clamp(30px, 8.5vw, 40px) !important;
+	}
+	.cn-quote {
+		font-size: clamp(21px, 5.6vw, 27px) !important;
+	}
+
+	/* Empilhado, o gap de 36px era distância ENTRE COLUNAS virada em buraco vertical. */
+	.cn-dorow {
+		gap: 16px !important;
+	}
+
+	/* Os números: as bordas do meio separavam COLUNAS. Empilhadas viravam dois traços verticais
+	   soltos ao lado do "+12h"; aqui elas viram o que sempre quiseram ser — régua entre linhas. */
+	.cn-num > div {
+		border: 0 !important;
+	}
+	.cn-num > div + div {
+		border-top: 1px solid rgba(22, 36, 30, 0.18) !important;
+		padding-top: 26px;
+	}
+}
+
+/* Celular estreito (o piso de 320px: iPhone SE 1). O `nowrap` acima resolve a quebra feia do
+   botão, mas sozinho ele trocaria a quebra por SCROLL HORIZONTAL — nesta largura a marca por
+   extenso mais os dois links não cabem numa linha no tamanho de sempre. Então a linha continua
+   inteira e quem cede é o tamanho: calha menor, marca um pouco menor, links mais justos.
+   Medido: 320px sem transbordo e ainda com folga. */
+@media (max-width: 380px) {
+	.cn-sect,
+	.cn-topbar,
+	.cn-footrow {
+		padding-left: 16px !important;
+		padding-right: 16px !important;
+	}
+	.cn-topbar svg {
+		height: 20px !important;
+	}
+	.cn-topbar .cn-hover-nav,
+	.cn-topbar .cn-hover-dark {
+		font-size: 13px !important;
+		padding-left: 9px !important;
+		padding-right: 9px !important;
+	}
+}
+
+/* DESVIO deliberado do protótipo — não sincronizar de volta com ele.
+   O split da auth é `grid-template-columns:1fr 1fr` inline, e a regra acima só esconde o painel
+   de marca; a COLUNA dele continuava lá. Resultado medido a 390px: o formulário preso em 195px,
+   metade da tela vazia à direita e todo rótulo quebrado em duas linhas. Esconder o painel exige
+   colapsar a coluna junto. `!important` porque o valor a vencer é inline (convenção do arquivo). */
+@media (max-width: 900px) {
+	.cn-authsplit {
+		grid-template-columns: 1fr !important;
 	}
 }
 

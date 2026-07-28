@@ -17,9 +17,13 @@
 	} = $props();
 </script>
 
-<!-- Auth em split (Cinetra Landing.dc.html): painel de marca navy à esquerda (some <900px)
-     + painel de formulário papel à direita. -->
-<div class="cn-root" style="min-height:100dvh;display:grid;grid-template-columns:1fr 1fr">
+<!-- Auth em split (Cinetra Landing.dc.html): painel de marca navy à esquerda + painel de
+     formulário papel à direita. Até 900px sobra só o formulário, ocupando a tela inteira —
+     `cn-authsplit` é o gancho que colapsa a coluna vazia (cinetra.css). -->
+<div
+	class="cn-root cn-authsplit"
+	style="min-height:100dvh;display:grid;grid-template-columns:1fr 1fr"
+>
 	<!-- painel de marca -->
 	<div
 		class="cn-brandpanel"

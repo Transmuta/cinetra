@@ -24,6 +24,21 @@ export default defineConfig(({ mode }) => ({
 			connectSrc(loadEnv(mode, '.', '').API_PUBLIC_ORIGIN)
 		)
 	},
+	build: {
+		// Fonte NUNCA vira `data:` no CSS. O default do Vite embute qualquer asset com menos de
+		// 4 KB, e as fatias pequenas do Fontsource (cirílico, vietnamita) caem abaixo disso — o
+		// build vinha embutindo 4 delas, 18 KB de base64 (26% do CSS render-blocking) que a
+		// **nossa própria CSP** (`font-src 'self'`, svelte.config.js) bloqueia no browser.
+		//
+		// Ou seja: peso que atrasa o primeiro paint de TODA página do app, e nunca desenha
+		// glifo nenhum — só enche o console de violação de CSP. Como arquivo, a fatia sai do
+		// caminho crítico (carrega em paralelo, só se o texto pedir aquele alfabeto) e passa
+		// pelo `self`. Medido no baseline do doc 57.
+		//
+		// Só fontes: os outros assets pequenos (o favicon SVG, por ex.) continuam no default.
+		assetsInlineLimit: (filePath: string) =>
+			/\.(woff2?|ttf|otf|eot)$/i.test(filePath) ? false : undefined
+	},
 	plugins: [
 		// Tailwind v4 via plugin de Vite (ADR-010): a config é o próprio app.css.
 		tailwindcss(),

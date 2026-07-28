@@ -31,3 +31,30 @@ test.describe('Entrada passwordless', () => {
 		await expect(page.getByLabel('E-mail')).toBeVisible();
 	});
 });
+
+// O split da auth some no mobile e sobra só o formulário. Precisa de e2e: a regra é uma media
+// query, e nem o jsdom do Vitest aplica CSS nem haveria viewport para ela consultar.
+test.describe('Auth no mobile', () => {
+	test.use({ viewport: { width: 390, height: 844 } });
+
+	test('/entrar: sem painel de marca, e o formulário ocupa a tela inteira', async ({ page }) => {
+		await page.goto('/entrar');
+		await expect(page.getByRole('heading', { name: 'Bem-vindo de volta' })).toBeVisible();
+
+		// O painel de marca (o bloco navy da esquerda) não existe nesta largura.
+		await expect(page.getByText('Dra. Marina Lopes')).toBeHidden();
+
+		// E a coluna dele foi junto: o card usa a largura toda (390 − 2×28 de padding = 334).
+		// Quando só o painel sumia, a coluna vazia ficava e o botão caía para 139px.
+		const botao = page.getByRole('button', { name: 'Enviar link de acesso' });
+		const caixa = await botao.boundingBox();
+		expect(caixa?.width).toBeGreaterThan(300);
+
+		// Nada transborda na horizontal.
+		const { scroll, tela } = await page.evaluate(() => ({
+			scroll: document.documentElement.scrollWidth,
+			tela: window.innerWidth
+		}));
+		expect(scroll).toBe(tela);
+	});
+});

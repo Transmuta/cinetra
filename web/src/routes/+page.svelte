@@ -4,7 +4,12 @@
 	import Logo from '$lib/components/Logo.svelte';
 	import Mark from '$lib/components/Mark.svelte';
 	import FlowArt from '$lib/components/cinetra/FlowArt.svelte';
+	import { SITE, FAQ, jsonLd } from '$lib/seo';
 	import '$lib/styles/cinetra.css';
+
+	// `canonical` e `origem` vêm do servidor (+page.server.ts): dependem do `ORIGIN`, que o
+	// cliente não conhece.
+	let { data }: { data: { canonical: string; origem: string } } = $props();
 
 	// Toggle de cobrança do bloco de planos (mensal/anual), como no protótipo.
 	let billing = $state<'mensal' | 'anual'>('anual');
@@ -59,7 +64,9 @@
 		'1 profissional',
 		'Agenda e pacotes',
 		'Confirmação no WhatsApp',
-		'Prontuário do paciente'
+		// "Prontuário" era promessa de v2 (doc 08, Fatia 6): o que a v1 entrega — e o que a tela
+		// mostra — é a ficha. Corrigido junto com o FAQ, que responde sobre a mesma coisa.
+		'Ficha do paciente'
 	];
 	const clinicaFeatures = [
 		'Até 8 profissionais',
@@ -80,15 +87,46 @@
 	const tabOn =
 		'font-size:14px;font-weight:700;padding:8px 18px;border-radius:9px;border:none;cursor:pointer;background:#fff;color:#212A37;box-shadow:0 2px 6px rgba(33,42,55,.12)';
 	const tabOff =
-		'font-size:14px;font-weight:600;padding:8px 18px;border-radius:9px;border:none;cursor:pointer;background:transparent;color:#6A6456';
+		'font-size:14px;font-weight:600;padding:8px 18px;border-radius:9px;border:none;cursor:pointer;background:transparent;color:#5E594C';
 </script>
 
 <svelte:head>
-	<title>Cinetra · a agenda que cuida da sua clínica</title>
-	<meta
-		name="description"
-		content="Horários, pacotes e confirmações num lugar só. A Cinetra cuida da papelada para você cuidar de quem chega."
-	/>
+	<title>{SITE.titulo}</title>
+	<meta name="description" content={SITE.descricao} />
+
+	<!-- Canônica: a landing é alcançável por `/` com toda sorte de `?utm_…` de campanha, e sem
+	     esta linha cada campanha vira uma URL concorrente da mesma página no índice. -->
+	<link rel="canonical" href={data.canonical} />
+
+	<!-- Cor da barra do browser no celular — o navy da marca, para a landing não abrir com uma
+	     faixa branca em cima do herói escuro. -->
+	<meta name="theme-color" content="#212A37" />
+
+	<!-- Open Graph (WhatsApp, Facebook, LinkedIn). O título aqui é a MANCHETE, não o título de
+	     busca: quem vê um card já veio pelo link, não por uma consulta — vende-se a promessa,
+	     não a palavra-chave. A imagem é gerada por `scripts/og-image.mjs`. -->
+	<meta property="og:type" content="website" />
+	<meta property="og:site_name" content={SITE.nome} />
+	<meta property="og:locale" content={SITE.locale} />
+	<meta property="og:url" content={data.canonical} />
+	<meta property="og:title" content={SITE.manchete} />
+	<meta property="og:description" content={SITE.descricao} />
+	<meta property="og:image" content={`${data.origem}/og.png`} />
+	<meta property="og:image:width" content="1200" />
+	<meta property="og:image:height" content="630" />
+	<meta property="og:image:alt" content="Cinetra: agenda e gestão para clínicas de fisioterapia" />
+
+	<meta name="twitter:card" content="summary_large_image" />
+	<meta name="twitter:title" content={SITE.manchete} />
+	<meta name="twitter:description" content={SITE.descricao} />
+	<meta name="twitter:image" content={`${data.origem}/og.png`} />
+
+	<!-- Dados estruturados (schema.org). Sem `aggregateRating`: ver a justificativa em
+	     `$lib/seo.ts` — declarar nota agregada sem review verificável é spam estrutural. -->
+	{@html `<script type="application/ld+json">${JSON.stringify(jsonLd(data.origem)).replace(
+		/</g,
+		'\\u003c'
+	)}<\/script>`}
 </svelte:head>
 
 {#snippet check(stroke: string, size: number)}
@@ -103,22 +141,31 @@
 	>
 {/snippet}
 
-<div class="cn-root" style="min-height:100dvh">
+<div class="cn-root cn-landing" style="min-height:100dvh">
+	<!-- Atalho de teclado: a nav é curta, mas o herói tem arte e dois CTAs antes do conteúdo.
+	     Só aparece ao receber foco (`.cn-skip`, cinetra.css). -->
+	<a href="#conteudo" class="cn-skip">Pular para o conteúdo</a>
+
 	<!-- NAV -->
 	<header
 		style="position:sticky;top:0;z-index:60;background:#F6F4EF;border-bottom:1px solid #E6E2D8"
 	>
 		<div
+			class="cn-topbar"
 			style="max-width:1160px;margin:0 auto;padding:13px 30px;display:flex;align-items:center;gap:34px"
 		>
-			<a href="/" style="display:flex;align-items:center"><Logo class="h-5.75 w-auto" /></a>
+			<a href="/" aria-label="Cinetra, página inicial" style="display:flex;align-items:center"
+				><Logo class="h-5.75 w-auto" /></a
+			>
 			<nav
 				class="cn-navlinks"
+				aria-label="Seções da página"
 				style="display:flex;gap:26px;margin-left:8px;font-size:14.5px;font-weight:500;color:#5A5448"
 			>
 				<a href="#dores" style="transition:color .2s">As dores</a>
 				<a href="#recursos" style="transition:color .2s">Recursos</a>
 				<a href="#precos" style="transition:color .2s">Planos</a>
+				<a href="#duvidas" style="transition:color .2s">Dúvidas</a>
 			</nav>
 			<div style="margin-left:auto;display:flex;align-items:center;gap:6px">
 				<a
@@ -136,6 +183,10 @@
 		</div>
 	</header>
 
+	<!-- A página não tinha landmark nenhum: todo o conteúdo era filho direto de uma `div`. As
+	     seções abaixo NÃO foram reindentadas de propósito — recuar 630 linhas por um wrapper
+	     esconderia o resto da mudança no diff. -->
+	<main id="conteudo">
 	<!-- HERO -->
 	<section style="position:relative;overflow:hidden;background:#212A37">
 		<div style="position:absolute;inset:0"><FlowArt k="hero" /></div>
@@ -227,10 +278,10 @@
 		<div
 			style="position:absolute;top:-90px;right:-70px;width:380px;height:380px;background:radial-gradient(circle at 40% 40%,rgba(127,165,154,.42),rgba(127,165,154,0) 70%);animation:cnBlob 16s ease-in-out infinite;pointer-events:none"
 		></div>
-		<div style="position:relative;max-width:1160px;margin:0 auto;padding:0 30px">
+		<div class="cn-wrap" style="position:relative;max-width:1160px;margin:0 auto;padding:0 30px">
 			<div style="max-width:780px">
 				<div
-					style="font-family:'Martian Mono',monospace;font-size:13px;letter-spacing:.16em;text-transform:uppercase;color:#4E7468;margin-bottom:22px"
+					style="font-family:'Martian Mono',monospace;font-size:13px;letter-spacing:.16em;text-transform:uppercase;color:#4A6E62;margin-bottom:22px"
 				>
 					Talvez soe familiar
 				</div>
@@ -240,7 +291,7 @@
 					A rotina da clínica não deveria doer mais que o paciente.
 				</h2>
 				<p
-					style="font-size:19px;line-height:1.55;color:#736E63;margin:22px 0 0;max-width:560px;text-wrap:pretty"
+					style="font-size:19px;line-height:1.55;color:#696356;margin:22px 0 0;max-width:560px;text-wrap:pretty"
 				>
 					Três problemas que roubam tempo e dinheiro todo dia. Veja como a Cinetra resolve cada um.
 				</p>
@@ -254,12 +305,15 @@
 							? 'border-bottom:1px solid #DCD8CE'
 							: ''}"
 					>
-						<div style="font-family:'Martian Mono',monospace;font-size:15px;color:#B4AE9F">{dor.n}</div>
+						<div style="font-family:'Martian Mono',monospace;font-size:15px;color:#696356">{dor.n}</div>
 						<div>
-							<div style="font-size:26px;font-weight:700;line-height:1.25;letter-spacing:-.01em">
+							<!-- `h3` e não `div`: são as três subseções do `h2` desta seção. Como div, o índice
+							     do buscador (e o leitor de tela) via um bloco de 52px seguido de texto solto,
+							     sem saber que ali começa um assunto novo. -->
+							<h3 style="font-size:26px;font-weight:700;line-height:1.25;letter-spacing:-.01em;margin:0">
 								{dor.title}
-							</div>
-							<p style="font-size:16px;color:#736E63;margin:10px 0 0;line-height:1.55">{dor.desc}</p>
+							</h3>
+							<p style="font-size:16px;color:#696356;margin:10px 0 0;line-height:1.55">{dor.desc}</p>
 						</div>
 						<div style="display:flex;gap:12px;align-items:flex-start">
 							<span style="margin-top:2px">{@render check('#7FA59A', 22)}</span>
@@ -294,7 +348,7 @@
 			style="position:absolute;bottom:-130px;left:-90px;width:440px;height:440px;background:radial-gradient(circle at 50% 50%,rgba(58,90,120,.55),transparent 70%);animation:cnBlob 18s ease-in-out infinite;pointer-events:none"
 		></div>
 		<div
-			class="cn-grid2"
+			class="cn-grid2 cn-wrap"
 			style="position:relative;max-width:1160px;margin:0 auto;padding:0 30px;display:grid;grid-template-columns:1fr 1.05fr;gap:64px;align-items:center"
 		>
 			<div>
@@ -327,7 +381,7 @@
 					<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
 						<div>
 							<div
-								style="font-size:12px;font-family:'Martian Mono',monospace;color:#8A929B;text-transform:uppercase"
+								style="font-size:12px;font-family:'Martian Mono',monospace;color:#697077;text-transform:uppercase"
 							>
 								Terça · 14 jul
 							</div>
@@ -338,7 +392,7 @@
 								style="width:29px;height:29px;border-radius:50%;background:#3A5A78;color:#fff;display:grid;place-items:center;font-size:11px;font-weight:700;border:2px solid #fff"
 								>ML</span
 							><span
-								style="width:29px;height:29px;border-radius:50%;background:#7FA59A;color:#fff;display:grid;place-items:center;font-size:11px;font-weight:700;border:2px solid #fff;margin-left:-8px"
+								style="width:29px;height:29px;border-radius:50%;background:#4A6E62;color:#fff;display:grid;place-items:center;font-size:11px;font-weight:700;border:2px solid #fff;margin-left:-8px"
 								>RC</span
 							>
 						</div>
@@ -347,15 +401,15 @@
 						<div
 							style="display:flex;gap:11px;align-items:center;padding:11px 12px;border-radius:12px;background:#F1F6F4"
 						>
-							<div style="font-family:'Martian Mono',monospace;font-size:11px;color:#4E7468;width:40px">
+							<div style="font-family:'Martian Mono',monospace;font-size:11px;color:#4A6E62;width:40px">
 								08:00
 							</div>
 							<div style="flex:1">
 								<div style="font-size:13px;font-weight:700">Mariana Alves</div>
-								<div style="font-size:11px;color:#77828C">Sessão · Dra. Marina</div>
+								<div style="font-size:11px;color:#697077">Sessão · Dra. Marina</div>
 							</div>
 							<span
-								style="font-size:10px;font-weight:700;color:#4E7468;background:rgba(127,165,154,.2);padding:3px 7px;border-radius:6px"
+								style="font-size:10px;font-weight:700;color:#3E5C52;background:rgba(127,165,154,.2);padding:3px 7px;border-radius:6px"
 								>9/10</span
 							>
 						</div>
@@ -367,26 +421,26 @@
 							</div>
 							<div style="flex:1">
 								<div style="font-size:13px;font-weight:700">Carlos Eduardo</div>
-								<div style="font-size:11px;color:#77828C">Avaliação · Dr. Rafael</div>
+								<div style="font-size:11px;color:#697077">Avaliação · Dr. Rafael</div>
 							</div>
 						</div>
 						<div
 							style="display:flex;gap:11px;align-items:center;padding:11px 12px;border-radius:12px;background:#fff;border:1px dashed #D5DCDE"
 						>
-							<div style="font-family:'Martian Mono',monospace;font-size:11px;color:#9AA3AC;width:40px">
+							<div style="font-family:'Martian Mono',monospace;font-size:11px;color:#697077;width:40px">
 								10:00
 							</div>
-							<div style="flex:1;font-size:12px;color:#9AA3AC">Horário livre</div>
+							<div style="flex:1;font-size:12px;color:#697077">Horário livre</div>
 						</div>
 						<div
 							style="display:flex;gap:11px;align-items:center;padding:11px 12px;border-radius:12px;background:#F1F6F4"
 						>
-							<div style="font-family:'Martian Mono',monospace;font-size:11px;color:#4E7468;width:40px">
+							<div style="font-family:'Martian Mono',monospace;font-size:11px;color:#4A6E62;width:40px">
 								11:00
 							</div>
 							<div style="flex:1">
 								<div style="font-size:13px;font-weight:700">Turma de Pilates</div>
-								<div style="font-size:11px;color:#77828C">4 pacientes · Dra. Carla</div>
+								<div style="font-size:11px;color:#697077">4 pacientes · Dra. Carla</div>
 							</div>
 						</div>
 					</div>
@@ -398,12 +452,12 @@
 	<!-- RECURSO 2 · Pacotes -->
 	<section class="cn-sect" style="padding:110px 0;background:#F6F4EF">
 		<div
-			class="cn-grid2"
+			class="cn-grid2 cn-wrap"
 			style="max-width:1160px;margin:0 auto;padding:0 30px;display:grid;grid-template-columns:1.05fr 1fr;gap:64px;align-items:center"
 		>
 			<div style="order:2">
 				<div
-					style="font-family:'Martian Mono',monospace;font-size:13px;letter-spacing:.16em;text-transform:uppercase;color:#4E7468;margin-bottom:20px"
+					style="font-family:'Martian Mono',monospace;font-size:13px;letter-spacing:.16em;text-transform:uppercase;color:#4A6E62;margin-bottom:20px"
 				>
 					Recurso · Pacotes
 				</div>
@@ -412,18 +466,18 @@
 				>
 					Acompanhe cada sessão como uma trilha.
 				</h2>
-				<p style="font-size:18px;line-height:1.6;color:#736E63;margin:22px 0 30px;max-width:460px">
+				<p style="font-size:18px;line-height:1.6;color:#696356;margin:22px 0 30px;max-width:460px">
 					Monte o pacote, distribua a grade fixa da semana e enxergue de longe quando ele está
 					acabando. O aviso de renovação chega antes de você perder a próxima sessão.
 				</p>
 				<div style="display:flex;gap:32px">
 					<div>
 						<div style="font-size:34px;font-weight:800;letter-spacing:-.02em">1 clique</div>
-						<div style="font-size:14px;color:#8A8577">para renovar o pacote</div>
+						<div style="font-size:14px;color:#696356">para renovar o pacote</div>
 					</div>
 					<div>
-						<div style="font-size:34px;font-weight:800;color:#4E7468;letter-spacing:-.02em">zero</div>
-						<div style="font-size:14px;color:#8A8577">sessões esquecidas</div>
+						<div style="font-size:34px;font-weight:800;color:#4A6E62;letter-spacing:-.02em">zero</div>
+						<div style="font-size:14px;color:#696356">sessões esquecidas</div>
 					</div>
 				</div>
 			</div>
@@ -434,7 +488,7 @@
 					<span
 						style="font-family:'Martian Mono',monospace;font-size:11px;font-weight:700;color:#3A5A78;background:rgba(58,90,120,.1);padding:3px 9px;border-radius:6px"
 						>FISIO ORTOPÉDICA</span
-					><span style="font-size:13px;color:#8A929B">10 sessões</span>
+					><span style="font-size:13px;color:#697077">10 sessões</span>
 				</div>
 				<div style="font-size:15px;font-weight:700;margin-bottom:16px">
 					Mariana Alves · 9 de 10 concluídas
@@ -443,7 +497,7 @@
 					{#each trilha as i (i)}
 						{#if i === 3}
 							<span
-								style="width:22px;height:22px;border-radius:50%;background:#E5B94E;display:grid;place-items:center;font-size:11px;color:#fff;font-weight:700"
+								style="width:22px;height:22px;border-radius:50%;background:#E5B94E;display:grid;place-items:center;font-size:11px;color:#4A3B0C;font-weight:700"
 								>!</span
 							>
 						{:else}
@@ -461,7 +515,7 @@
 					style="display:flex;align-items:center;justify-content:space-between;padding:13px 15px;border-radius:12px;background:#FBF6EA;border:1px solid #F0E4C6"
 				>
 					<div style="display:flex;gap:10px;align-items:center">
-						<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#B98A1E" stroke-width="2"
+						<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#8A6A14" stroke-width="2"
 							><circle cx="12" cy="12" r="10"></circle><path
 								d="M12 8v4l3 2"
 								stroke-linecap="round"
@@ -505,7 +559,7 @@
 					style="display:inline-flex;align-items:center;gap:11px;margin-top:28px;background:#fff;border-radius:14px;padding:13px 17px;box-shadow:0 20px 40px -20px rgba(0,0,0,.5)"
 				>
 					<span
-						style="width:36px;height:36px;border-radius:9px;background:rgba(127,165,154,.16);color:#4E7468;display:grid;place-items:center"
+						style="width:36px;height:36px;border-radius:9px;background:rgba(127,165,154,.16);color:#4A6E62;display:grid;place-items:center"
 						><svg
 							width="19"
 							height="19"
@@ -520,7 +574,7 @@
 					>
 					<div style="color:#212A37">
 						<div style="font-size:13px;font-weight:700">"Confirmo minha sessão 👍"</div>
-						<div style="font-size:11px;color:#8A929B">Mariana · há 2 min</div>
+						<div style="font-size:11px;color:#697077">Mariana · há 2 min</div>
 					</div>
 				</div>
 			</div>
@@ -530,22 +584,22 @@
 	<!-- NÚMEROS -->
 	<section class="cn-sect" style="background:#7FA59A;padding:96px 0;color:#16241E">
 		<div
-			class="cn-num"
+			class="cn-num cn-wrap"
 			style="max-width:1160px;margin:0 auto;padding:0 30px;display:grid;grid-template-columns:repeat(3,1fr);gap:40px;text-align:center"
 		>
 			<div>
 				<div style="font-size:64px;font-weight:800;letter-spacing:-.03em">−40%</div>
-				<div style="font-size:16px;color:#243c34;margin-top:6px">de faltas já no primeiro mês</div>
+				<div style="font-size:16px;color:#1E332C;margin-top:6px">de faltas já no primeiro mês</div>
 			</div>
 			<div
 				style="border-left:1px solid rgba(22,36,30,.18);border-right:1px solid rgba(22,36,30,.18)"
 			>
 				<div style="font-size:64px;font-weight:800;letter-spacing:-.03em">+12h</div>
-				<div style="font-size:16px;color:#243c34;margin-top:6px">economizadas por semana</div>
+				<div style="font-size:16px;color:#1E332C;margin-top:6px">economizadas por semana</div>
 			</div>
 			<div>
 				<div style="font-size:64px;font-weight:800;letter-spacing:-.03em">4,9/5</div>
-				<div style="font-size:16px;color:#243c34;margin-top:6px">avaliação das clínicas</div>
+				<div style="font-size:16px;color:#1E332C;margin-top:6px">avaliação das clínicas</div>
 			</div>
 		</div>
 	</section>
@@ -553,7 +607,7 @@
 	<!-- DEPOIMENTO -->
 	<section class="cn-sect" style="padding:110px 0;background:#F6F4EF">
 		<div
-			class="cn-depo"
+			class="cn-depo cn-wrap"
 			style="max-width:1160px;margin:0 auto;padding:0 30px;display:grid;grid-template-columns:340px 1fr;gap:56px;align-items:center"
 		>
 			<div
@@ -563,6 +617,7 @@
 			</div>
 			<div>
 				<div
+					class="cn-quote"
 					style="font-size:34px;line-height:1.35;font-weight:700;letter-spacing:-.015em;text-wrap:balance"
 				>
 					"A recepção parou de viver na planilha e as faltas despencaram. A Cinetra devolveu o tempo
@@ -575,7 +630,7 @@
 					>
 					<div>
 						<div style="font-weight:700">Dra. Marina Lopes</div>
-						<div style="font-size:14px;color:#8A8577">Clínica Reabilitar · São Paulo</div>
+						<div style="font-size:14px;color:#696356">Clínica Reabilitar · São Paulo</div>
 					</div>
 				</div>
 			</div>
@@ -584,10 +639,10 @@
 
 	<!-- PLANOS -->
 	<section id="precos" class="cn-sect" style="padding:110px 0;background:#F0EEE7">
-		<div style="max-width:1160px;margin:0 auto;padding:0 30px">
+		<div class="cn-wrap" style="max-width:1160px;margin:0 auto;padding:0 30px">
 			<div style="text-align:center;max-width:600px;margin:0 auto 20px">
 				<div
-					style="font-family:'Martian Mono',monospace;font-size:13px;letter-spacing:.16em;text-transform:uppercase;color:#4E7468;margin-bottom:16px"
+					style="font-family:'Martian Mono',monospace;font-size:13px;letter-spacing:.16em;text-transform:uppercase;color:#4A6E62;margin-bottom:16px"
 				>
 					Planos
 				</div>
@@ -596,15 +651,26 @@
 				>
 					Cresça no seu ritmo.
 				</h2>
-				<p style="font-size:17px;color:#736E63;margin:0">
+				<p style="font-size:17px;color:#696356;margin:0">
 					14 dias grátis em qualquer plano. Cancele quando quiser.
 				</p>
 			</div>
+			<!-- Os dois botões são um par de escolha exclusiva, não dois comandos independentes: sem
+			     `group` + `aria-pressed` o leitor de tela anuncia "Mensal, botão / Anual, botão" e
+			     não diz qual está valendo — a única pista era a cor do fundo. -->
 			<div style="display:flex;justify-content:center;margin:26px 0 40px">
-				<div style="display:inline-flex;background:#E2DFD5;border-radius:12px;padding:4px;gap:2px">
-					<button onclick={() => (billing = 'mensal')} style={anual ? tabOff : tabOn}>Mensal</button>
-					<button onclick={() => (billing = 'anual')} style={anual ? tabOn : tabOff}
-						>Anual&nbsp;<span style="font-size:11px;color:#4E7468;font-weight:700">−20%</span></button
+				<div
+					role="group"
+					aria-label="Periodicidade da cobrança"
+					style="display:inline-flex;background:#E2DFD5;border-radius:12px;padding:4px;gap:2px"
+				>
+					<button
+						onclick={() => (billing = 'mensal')}
+						aria-pressed={!anual}
+						style={anual ? tabOff : tabOn}>Mensal</button
+					>
+					<button onclick={() => (billing = 'anual')} aria-pressed={anual} style={anual ? tabOn : tabOff}
+						>Anual&nbsp;<span style="font-size:11px;color:#4A6E62;font-weight:700">−20%</span></button
 					>
 				</div>
 			</div>
@@ -614,16 +680,17 @@
 			>
 				<!-- Profissional -->
 				<div style="background:#fff;border:1px solid #E6E2D8;border-radius:20px;padding:30px">
-					<div
-						style="font-size:14px;font-weight:700;font-family:'Martian Mono',monospace;letter-spacing:.04em;color:#5C6670;text-transform:uppercase"
+					<!-- `h3`: o nome do plano é o título do card, subordinado ao `h2` "Cresça no seu ritmo". -->
+					<h3
+						style="font-size:14px;font-weight:700;font-family:'Martian Mono',monospace;letter-spacing:.04em;color:#5C6670;text-transform:uppercase;margin:0"
 					>
 						Profissional
-					</div>
-					<div style="font-size:14px;color:#8A8577;margin:8px 0 20px">
+					</h3>
+					<div style="font-size:14px;color:#696356;margin:8px 0 20px">
 						Para autônomos e consultórios individuais.
 					</div>
 					<div style="font-size:40px;font-weight:800;letter-spacing:-.02em">R$&nbsp;{precoPro}</div>
-					<div style="font-size:13px;color:#9A9486;margin:4px 0 22px">{periodo}</div>
+					<div style="font-size:13px;color:#696356;margin:4px 0 22px">{periodo}</div>
 					<a
 						href="/criar-conta"
 						class="cn-hover-border"
@@ -644,11 +711,11 @@
 						style="position:absolute;top:20px;right:20px;font-size:11px;font-weight:700;font-family:'Martian Mono',monospace;letter-spacing:.06em;text-transform:uppercase;background:#7FA59A;color:#16241E;padding:4px 10px;border-radius:999px"
 						>Popular</span
 					>
-					<div
-						style="font-size:14px;font-weight:700;font-family:'Martian Mono',monospace;letter-spacing:.04em;color:#7FA59A;text-transform:uppercase"
+					<h3
+						style="font-size:14px;font-weight:700;font-family:'Martian Mono',monospace;letter-spacing:.04em;color:#7FA59A;text-transform:uppercase;margin:0"
 					>
 						Clínica
-					</div>
+					</h3>
 					<div style="font-size:14px;color:#AEB8C0;margin:8px 0 20px">
 						Para clínicas com equipe e recepção.
 					</div>
@@ -670,16 +737,16 @@
 				</div>
 				<!-- Rede -->
 				<div style="background:#fff;border:1px solid #E6E2D8;border-radius:20px;padding:30px">
-					<div
-						style="font-size:14px;font-weight:700;font-family:'Martian Mono',monospace;letter-spacing:.04em;color:#5C6670;text-transform:uppercase"
+					<h3
+						style="font-size:14px;font-weight:700;font-family:'Martian Mono',monospace;letter-spacing:.04em;color:#5C6670;text-transform:uppercase;margin:0"
 					>
 						Rede
-					</div>
-					<div style="font-size:14px;color:#8A8577;margin:8px 0 20px">
+					</h3>
+					<div style="font-size:14px;color:#696356;margin:8px 0 20px">
 						Para redes com múltiplas unidades.
 					</div>
 					<div style="font-size:32px;font-weight:800;letter-spacing:-.02em">Sob consulta</div>
-					<div style="font-size:13px;color:#9A9486;margin:4px 0 22px">plano personalizado</div>
+					<div style="font-size:13px;color:#696356;margin:4px 0 22px">plano personalizado</div>
 					<a
 						href="/criar-conta"
 						class="cn-hover-border"
@@ -692,6 +759,51 @@
 						{/each}
 					</div>
 				</div>
+			</div>
+		</div>
+	</section>
+
+	<!-- DÚVIDAS (doc 57) — depois do preço e antes do último pedido: é onde a objeção aparece.
+	     `<details>` nativo, não sanfona de JavaScript: funciona sem hidratar, o teclado já sabe
+	     operar, o buscador lê a resposta mesmo fechada e não há altura a reservar (logo, nenhum
+	     risco de voltar a mexer no CLS que esta entrega zerou). -->
+	<section id="duvidas" class="cn-sect" style="padding:110px 0;background:#F6F4EF">
+		<div class="cn-wrap" style="max-width:1160px;margin:0 auto;padding:0 30px">
+			<!-- Cabeçalho centrado, como o dos planos logo acima — as duas seções fecham a página
+			     e falavam com alinhamentos diferentes. -->
+			<div style="max-width:680px;margin:0 auto;text-align:center">
+				<div
+					style="font-family:'Martian Mono',monospace;font-size:13px;letter-spacing:.16em;text-transform:uppercase;color:#4A6E62;margin-bottom:22px"
+				>
+					Dúvidas
+				</div>
+				<h2
+					style="font-size:44px;line-height:1.1;letter-spacing:-.03em;font-weight:800;margin:0;text-wrap:balance"
+				>
+					O que perguntam antes de assinar.
+				</h2>
+			</div>
+			<!-- A coluna é centrada, mas pergunta e resposta seguem alinhadas à esquerda: texto
+			     corrido centrado obriga o olho a procurar o início de cada linha. E a largura caiu
+			     de 860 para 680 (a mesma do cabeçalho) porque agora é o container que limita a
+			     medida da resposta — daí o `max-width` em `ch` ter saído do CSS. -->
+			<div class="cn-faq" style="margin:52px auto 0;max-width:680px">
+				{#each FAQ as item, i (item.id)}
+					<details open={i === 0}>
+						<summary>
+							<h3>{item.pergunta}</h3>
+							<span class="cn-faq-sinal" aria-hidden="true"></span>
+						</summary>
+						<p>{item.resposta}</p>
+					</details>
+				{/each}
+			</div>
+			<div style="margin-top:40px;font-size:16px;color:#696356;text-align:center">
+				Ficou outra dúvida? <a
+					href="/criar-conta"
+					style="color:#212A37;font-weight:600;text-decoration:underline;text-underline-offset:3px"
+					>Comece o teste grátis</a
+				> e fale com a gente durante os 14 dias.
 			</div>
 		</div>
 	</section>
@@ -749,18 +861,22 @@
 		</div>
 	</section>
 
+	</main>
+
 	<!-- FOOTER -->
 	<footer class="cn-foot" style="border-top:1px solid #E6E2D8;padding:44px 0;background:#F6F4EF">
 		<div
+			class="cn-footrow"
 			style="max-width:1160px;margin:0 auto;padding:0 30px;display:flex;flex-wrap:wrap;gap:24px;align-items:center;justify-content:space-between"
 		>
 			<Logo class="h-6.5 w-auto" />
-			<div style="display:flex;gap:24px;font-size:14px;color:#736E63;flex-wrap:wrap">
+			<div style="display:flex;gap:24px;font-size:14px;color:#696356;flex-wrap:wrap">
 				<a href="#recursos" style="transition:color .2s">Recursos</a>
 				<a href="#precos" style="transition:color .2s">Planos</a>
+				<a href="#duvidas" style="transition:color .2s">Dúvidas</a>
 				<a href="/entrar" style="transition:color .2s">Entrar</a>
 			</div>
-			<div style="font-size:13px;color:#A39D8F">© 2026 Cinetra · Feito para clínicas de fisioterapia</div>
+			<div style="font-size:13px;color:#696356">© 2026 Cinetra · Feito para clínicas de fisioterapia</div>
 		</div>
 	</footer>
 </div>

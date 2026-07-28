@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 vi.mock('$env/dynamic/private', () => ({ env: {} }));
 
 import {
+	loadMe,
 	requestMagicLink,
 	landingPath,
 	requireSession,
@@ -18,9 +19,15 @@ function json(body: unknown, status = 200) {
 	});
 }
 
-// Evento com o /me (via loadMe) resolvendo para `res`. Sem cookie de sessão no repasse.
+// Evento com o /me (via loadMe) resolvendo para `res`. Precisa carregar o cookie de sessão:
+// sem ele o `loadMe` responde `null` sem tocar na API (doc 57), que é o caminho do visitante
+// anônimo — coberto em separado no describe do loadMe abaixo.
 function meEvent(res: Response) {
-	return { fetch: vi.fn().mockResolvedValue(res), cookies: { get: () => undefined } } as never;
+	const fetch = vi.fn().mockResolvedValue(res);
+	return {
+		fetch,
+		cookies: { get: (name: string) => (name === SESSION_COOKIE ? 'tok' : undefined) }
+	} as never;
 }
 
 function fakeEvent(email: string, fetchImpl?: ReturnType<typeof vi.fn>, nome?: string) {
@@ -116,6 +123,25 @@ describe('requestMagicLink (action compartilhada, resposta neutra)', () => {
 		await requestMagicLink(event);
 		expect((fetch.mock.calls[0][1].headers as Headers).get('cookie')).toBeNull();
 		expect(SESSION_COOKIE).toBe('_api_key');
+	});
+});
+
+describe('loadMe (sessão pelo BFF)', () => {
+	it('sem cookie de sessão: devolve null SEM ir à API (visitante anônimo, doc 57)', async () => {
+		const fetch = vi.fn();
+		const event = { fetch, cookies: { get: () => undefined } } as never;
+
+		expect(await loadMe(event)).toBeNull();
+		expect(fetch).not.toHaveBeenCalled();
+	});
+
+	it('com cookie: pergunta ao /me e devolve o corpo', async () => {
+		const me = await loadMe(meEvent(json({ user: { nome: 'Ana' }, active_clinic_id: 'c1' })));
+		expect(me).toMatchObject({ active_clinic_id: 'c1' });
+	});
+
+	it('com cookie mas resposta sem `user`: null', async () => {
+		expect(await loadMe(meEvent(json({ active_clinic_id: 'c1' })))).toBeNull();
 	});
 });
 

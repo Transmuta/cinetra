@@ -1,20 +1,23 @@
 import { describe, it, expect, vi } from 'vitest';
 import { handle } from './hooks.server';
 
-function fakeEvent(themeCookie?: string, url = 'http://localhost:5173/') {
+// `aceita` = o Accept-Encoding do cliente. Por padrão nenhum, para os testes de header lerem a
+// resposta crua; os testes de compressão pedem gzip explicitamente.
+function fakeEvent(themeCookie?: string, url = 'http://localhost:5173/', aceita?: string) {
 	return {
 		cookies: { get: (n: string) => (n === 'mv-theme' ? themeCookie : undefined) },
-		url: new URL(url)
+		url: new URL(url),
+		request: new Request(url, { headers: aceita ? { 'accept-encoding': aceita } : {} })
 	} as never;
 }
 
 // resolve mock: captura o transformPageChunk e devolve uma Response real — o `handle` seta
 // os headers de segurança nela (doc 03 §4.4 + auditoria doc 13).
-function fakeResolve() {
+function fakeResolve(corpo = 'RESOLVED', tipo?: string) {
 	let transform!: (opts: { html: string }) => string;
 	const resolve = vi.fn((_e: unknown, opts: { transformPageChunk: typeof transform }) => {
 		transform = opts.transformPageChunk;
-		return new Response('RESOLVED');
+		return new Response(corpo, tipo ? { headers: { 'content-type': tipo } } : undefined);
 	});
 	return { resolve, getTransform: () => transform };
 }
@@ -98,5 +101,35 @@ describe('handle (o que decide o HSTS é o ORIGIN, não o fio)', () => {
 		expect(res.headers.get('Strict-Transport-Security')).toBe(
 			'max-age=63072000; includeSubDomains'
 		);
+	});
+});
+
+// Doc 57. O HTML do SSR saía cru — o `adapter-node` pré-comprime só os arquivos do build, e a
+// edge do Fly não comprime nada (mesma lição do HSTS acima).
+describe('handle (compressão do HTML do SSR)', () => {
+	const html = '<!doctype html>'.padEnd(3000, 'x');
+
+	it('cliente que aceita gzip recebe gzip, e os headers de segurança sobrevivem', async () => {
+		const { resolve } = fakeResolve(html, 'text/html');
+		const res = await handle({
+			event: fakeEvent(undefined, 'https://cinetra.app/', 'gzip, deflate, br'),
+			resolve
+		} as never);
+
+		expect(res.headers.get('content-encoding')).toBe('gzip');
+		expect(res.headers.get('vary')).toBe('accept-encoding');
+		// A compressão é o ÚLTIMO passo; se ela trocasse a resposta antes dos headers, sumiriam.
+		expect(res.headers.get('X-Content-Type-Options')).toBe('nosniff');
+		expect(res.headers.get('Strict-Transport-Security')).toBe(
+			'max-age=63072000; includeSubDomains'
+		);
+	});
+
+	it('cliente sem gzip recebe o HTML legível', async () => {
+		const { resolve } = fakeResolve(html, 'text/html');
+		const res = await handle({ event: fakeEvent(undefined, 'http://localhost:5173/'), resolve } as never);
+
+		expect(res.headers.get('content-encoding')).toBeNull();
+		expect(await res.text()).toBe(html);
 	});
 });

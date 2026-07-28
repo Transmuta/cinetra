@@ -1,6 +1,7 @@
 import type { Handle } from '@sveltejs/kit';
 import { conferirOrigem } from '$lib/csp.js';
 import { apiPublicOrigin } from '$lib/server/api';
+import { gzipResponse } from '$lib/server/compress';
 
 // D2 (doc 47) — a guarda entre o build e o runtime, no boot do servidor.
 //
@@ -53,5 +54,9 @@ export const handle: Handle = async ({ event, resolve }) => {
 		response.headers.set('Strict-Transport-Security', 'max-age=63072000; includeSubDomains');
 	}
 
-	return response;
+	// Compressão do HTML do SSR (doc 57). Os assets de `_app/` já saem pré-comprimidos do build
+	// e nem chegam aqui (o sirv do adapter-node os serve antes); o que falta é o HTML gerado por
+	// request. Fica por ÚLTIMO de propósito: os headers acima precisam ser lidos e escritos na
+	// resposta original, e daqui para frente o corpo vira stream de gzip.
+	return gzipResponse(response, event.request.headers.get('accept-encoding'));
 };

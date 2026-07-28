@@ -4,7 +4,7 @@ vi.mock('$env/dynamic/private', () => ({ env: {} }));
 
 import { actions as entrarActions, load as entrarLoad } from './entrar/+page.server';
 import { actions as criarContaActions, load as criarContaLoad } from './criar-conta/+page.server';
-import { requestMagicLink, redirectIfAuthenticated } from '$lib/server/auth';
+import { requestMagicLink, loadAuthPage } from '$lib/server/auth';
 
 // Evento com o email `addr` no formData e um fetch espião que devolve {ok:true}.
 function fakeEvent(addr: string) {
@@ -38,8 +38,22 @@ describe('fiação de /entrar e /criar-conta', () => {
 		});
 	});
 
-	it('ambos os loads apontam para redirectIfAuthenticated', () => {
-		expect(entrarLoad).toBe(redirectIfAuthenticated);
-		expect(criarContaLoad).toBe(redirectIfAuthenticated);
+	it('ambos os loads apontam para loadAuthPage (guarda de sessão + canônica)', () => {
+		expect(entrarLoad).toBe(loadAuthPage);
+		expect(criarContaLoad).toBe(loadAuthPage);
+	});
+
+	// As duas estão no sitemap (doc 57): sem canônica, `/entrar?erro=…` vira uma segunda URL da
+	// mesma página no índice.
+	it('os dois loads devolvem a canônica da própria página', async () => {
+		const visitante = (href: string) =>
+			({ fetch: vi.fn(), url: new URL(href), cookies: { get: () => undefined } }) as never;
+
+		expect(await entrarLoad(visitante('https://cinetra.app/entrar?erro=expirado'))).toEqual({
+			canonical: 'https://cinetra.app/entrar'
+		});
+		expect(await criarContaLoad(visitante('https://cinetra.app/criar-conta'))).toEqual({
+			canonical: 'https://cinetra.app/criar-conta'
+		});
 	});
 });
