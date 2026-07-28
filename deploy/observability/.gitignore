@@ -1,0 +1,5 @@
+# Segredo NUNCA vai para o repositório (mesma regra do compose.dokploy.yml).
+# Em produção estes valores vêm da aba Environment do Dokploy, não de arquivo.
+.env
+.env.*
+!.env.exemplo

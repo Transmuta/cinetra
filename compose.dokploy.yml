@@ -29,6 +29,18 @@
 # BACKUP (docs/59 §13, deploy/backup/): `backup` roda 1x ANTES do migrate (fail-closed);
 # `backup-cron` a cada 1h. Bucket R2 PRÓPRIO, separado do de anexos; cifra age opcional.
 
+# Rotação do log local (docs/62 §7.4). O default do Docker é `json-file` **sem limite**: o arquivo
+# cresce até o disco acabar, e no A1 do docs/59 disco é o recurso escasso (risco #5 de lá).
+#
+# Isto vale mesmo com o Alloy embarcando os logs para o Loki — é o PISO, não a alternativa. Se o
+# agente morrer, parar de embarcar não pode virar encher o disco da máquina que serve os pacientes.
+# 3 arquivos × 20 MB = 60 MB por container no pior caso.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "3"
+
 # Env compartilhada dos serviços de backup (âncora YAML).
 x-backup-env: &backup-env
   PGHOST: db
@@ -57,6 +69,7 @@ services:
   db:
     image: postgres:16
     restart: unless-stopped
+    logging: *logging
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -74,6 +87,7 @@ services:
     build:
       context: ./deploy/backup
     restart: "no"
+    logging: *logging
     depends_on:
       db:
         condition: service_healthy
@@ -86,6 +100,7 @@ services:
       dockerfile: Dockerfile.prod
     command: ["bin/api", "eval", "Api.Release.setup()"]
     restart: "no"
+    logging: *logging
     depends_on:
       db:
         condition: service_healthy
@@ -106,6 +121,7 @@ services:
       context: ./api
       dockerfile: Dockerfile.prod
     restart: unless-stopped
+    logging: *logging
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -125,6 +141,10 @@ services:
       R2_BUCKET: ${R2_BUCKET}
       R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID}
       R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY}
+      # Heartbeat dos crons do Oban (docs/62 §9). Roda AQUI, no container da API — não no do
+      # backup, que tem o seu próprio. Mesma raiz, um slug por job (ver runtime.exs). Vazio =
+      # desligado; faltar a env aqui faria os seis checks alarmarem "não rodou" para sempre.
+      HEARTBEAT_BASE_URL: ${HEARTBEAT_BASE_URL:-}
       PHX_SERVER: "true"
       PORT: "4000"
     labels:
@@ -180,12 +200,20 @@ services:
       - traefik.http.routers.movimento-web-${STACK}.tls.certresolver=letsencrypt
       - traefik.http.routers.movimento-web-${STACK}.priority=1
       - traefik.http.services.movimento-web-${STACK}.loadbalancer.server.port=3000
+      # Health do BFF, que não existia. Aponta para **/health** (liveness), NÃO para /ready: o
+      # /ready depende da API, e tirar o BFF da rotação quando a API pisca faz o site deixar de
+      # servir até a página de erro. Degradar é melhor que desaparecer.
+      # Quem precisa saber se o PRODUTO está usável é o monitor externo, e esse bate em /ready
+      # (doc 62 §9.4) — mesmos dois endpoints, consumidores e semânticas diferentes.
+      - traefik.http.services.movimento-web-${STACK}.loadbalancer.healthcheck.path=/health
+      - traefik.http.services.movimento-web-${STACK}.loadbalancer.healthcheck.interval=10s
 
   # Backup AGENDADO 1/1h (o pré-deploy cobre t=0).
   backup-cron:
     build:
       context: ./deploy/backup
     restart: unless-stopped
+    logging: *logging
     command: ["sh", "-c", "while true; do sleep 3600; /backup.sh || echo '[backup-cron] falhou'; done"]
     depends_on:
       db:
