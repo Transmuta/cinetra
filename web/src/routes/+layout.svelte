@@ -17,6 +17,11 @@
 
 <svelte:head>
 	<link rel="icon" href={favicon} />
+	<!-- Ícone de app e manifest, gerados do MESMO favicon.svg por `scripts/icons.mjs`.
+	     Caminhos crus (de `static/`), sem hash do Vite, porque o iOS procura o apple-touch-icon
+	     num caminho fixo e o manifest referencia os ícones por URL absoluta. -->
+	<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+	<link rel="manifest" href="/manifest.webmanifest" />
 	<!-- Preload da fonte de texto (doc 57). O @font-face só é descoberto depois que o CSS baixa
 	     E o layout casa um nó de texto com a família — tarde demais: a página pintava na fonte
 	     de sistema e trocava depois, e essa troca era 100% do CLS de 0,177 medido na landing

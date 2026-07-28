@@ -138,6 +138,38 @@ vem com o Playwright (devDependency) e a Hanken de `node_modules`: nenhuma depen
 > em Arial e só se percebe olhando a imagem. A fonte vai embutida em base64. É o oposto exato da
 > regra do site (B1), e pela mesma razão de sempre: ali há origem para cruzar, aqui não.
 
+### Ícone de app e manifest
+
+`apple-touch-icon.png` (180), `icon-192`, `icon-512`, `icon-maskable-512` e
+`manifest.webmanifest`, todos gerados de **`favicon.svg`** por
+[`scripts/icons.mjs`](../web/scripts/icons.mjs) — a mesma arte, para não existirem duas versões da
+marca que divergem na próxima troca. Mesmo motor do card OG: o Chromium do Playwright, sem
+dependência nova.
+
+Três coisas que o formato impõe, e que um "exporta em 4 tamanhos" erra:
+
+* **fundo opaco, sempre.** O iOS não respeita transparência em `apple-touch-icon`: PNG com alpha
+  ganha fundo **preto** atrás da marca. O papel (`#F6F4EF`) é o único fundo em que os dois traços
+  se leem — sobre o navy o traço azul quase some;
+* **folga nas bordas**, porque iOS e Android recortam o quadrado no "squircle";
+* **`maskable` é outro ícone, não o mesmo.** A área garantida é o círculo central de 80% do lado,
+  onde cabe um quadrado de ~56%. Por isso o maskable leva a marca a 50% e o comum a 66% — reusar
+  o comum como maskable é o que produz o logo cortado nos cantos.
+
+O manifest sai **do mesmo script**, derivado da mesma lista que gera os arquivos: não há como
+declarar um ícone que ninguém gerou, nem o contrário. Por isso não há teste — a invariante é da
+construção, não de runtime.
+
+`start_url` é `/agenda`, não `/`: quem instalou o app não quer abrir na página de vendas. Sem
+sessão, a guarda do layout do `(app)` já manda para `/entrar`, e a regra não precisa ser repetida
+no manifest.
+
+Verificado pedindo ao próprio Chrome que o interpretasse (`Page.getAppManifest` via CDP, o mesmo
+caminho do painel Application do DevTools): **`errors: []`**, `display: kStandalone`,
+`startUrl: /agenda`, `themeColor rgba(33,42,55,1)`, três ícones resolvidos. O `.webmanifest` sai
+com `application/manifest+json` (o `mrmime` do sirv já conhece a extensão) e a CSP não o barra —
+`manifest-src` cai no `default-src 'self'`.
+
 ### `robots.txt` e `sitemap.xml`
 
 O `robots.txt` era um arquivo em `static/` que liberava tudo e **não apontava sitemap**; sitemap
@@ -357,6 +389,13 @@ E o toggle de cobrança ganhou `role="group"` + `aria-pressed`: sem isso o leito
   `app.css` mora no layout raiz. Movê-lo para o layout do `(app)` cortaria mais uns 30 KB da
   landing, mas mexe em todas as telas autenticadas e nas de auth por um ganho que, comprimido
   (~16 KB), não aparece na nota. Não vale o risco agora.
+* **OG nas páginas de autenticação.** `/entrar` e `/criar-conta` têm title, description e canônica,
+  mas nenhuma tag Open Graph: compartilhar `/criar-conta` — que é o alvo de todos os CTAs, e o que
+  iria num anúncio — gera card sem imagem. É o gap mais provável de doer.
+* **`logo` e `sameAs` na `Organization` do JSON-LD.** O Google usa `logo` no painel de
+  conhecimento; `sameAs` são os perfis sociais, que ainda não existem.
+* **`theme-color` só na landing**, e não no layout raiz — o shell interno tem tema claro/escuro, e
+  um navy fixo ali brigaria com o escuro.
 * **`placeholder` dos formulários de auth** (`.cn-root input::placeholder`, `#B0AA9C` sobre branco
   = 2,31:1). É a mesma folha, mas é tela de autenticação, não a landing — conserto de uma linha
   para quando alguém mexer ali.
