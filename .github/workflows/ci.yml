@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]   # main -> deploy prod; develop -> deploy HML (job `deploy`)
   pull_request:
 
 # Um run por branch/PR; cancela os anteriores ainda rodando.
@@ -173,6 +173,36 @@ jobs:
       # test unit/integração + gate de cobertura (thresholds em vite.config.ts).
       - run: npm run coverage
       - run: npm run build
+
+  # ---------------------------------------------------------------------------
+  # Deploy: dispara o webhook do Dokploy, que builda a imagem no A1 (ARM). Só em
+  # PUSH para main (prod) ou develop (HML), e SÓ depois dos gates passarem (needs).
+  # Nunca em PR. A URL de cada ambiente vem de um GitHub Secret, criada no painel
+  # do Dokploy (Deployments → Webhook). Enquanto o Dokploy não existir, o secret
+  # está ausente e o passo é PULADO sem falhar o CI. Ver docs/59 §2.
+  # ---------------------------------------------------------------------------
+  deploy:
+    name: Deploy — webhook do Dokploy
+    needs: [api, api-rls, web]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Disparar deploy no ambiente da branch
+        env:
+          WEBHOOK_PROD: ${{ secrets.DOKPLOY_DEPLOY_WEBHOOK_PROD }}
+          WEBHOOK_HML: ${{ secrets.DOKPLOY_DEPLOY_WEBHOOK_HML }}
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            URL="$WEBHOOK_PROD"; ALVO="prod"
+          else
+            URL="$WEBHOOK_HML"; ALVO="hml"
+          fi
+          if [ -z "$URL" ]; then
+            echo "Webhook de $ALVO ausente (Dokploy ainda não provisionado) — pulando deploy."
+            exit 0
+          fi
+          echo "Disparando deploy de $ALVO no Dokploy…"
+          curl -fsS -X POST "$URL"
 
   # O e2e **saiu do CI** (decisão de 2026-07-27). Ele precisa da stack inteira — API, banco e a
   # caixa de e-mail de dev, para consumir o magic link —, e este workflow sobe só o web. Um job

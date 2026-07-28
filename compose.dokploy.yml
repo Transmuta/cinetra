@@ -1,0 +1,194 @@
+# DEPLOY no Dokploy (Oracle Cloud A1 / VPS, ARM ou x86) — deploy de produção E de HML.
+# Diferente do compose.prod.yml (só SMOKE LOCAL), este é o que o Dokploy consome no modo "Compose".
+# Runbook completo: docs/59-deploy-dokploy-oci.md. Teste local do roteamento: compose.bff-test.yml.
+#
+# UM arquivo, DOIS stacks no Dokploy (mesmo host):
+#   - PROD  (branch main):     WEB_HOST=cinetra.com.br      STACK=prod
+#   - HML   (branch develop):  WEB_HOST=hml.cinetra.com.br  STACK=hml
+# HML é IDÊNTICO a prod (mesmo build, mesmo migrate); só muda o que vem por env.
+#
+# BFF-ONLY (Option B, docs/59 §3.1): UM domínio só (WEB_HOST). A API **não tem host público
+# próprio** — o subdomínio api.* foi removido. Só dois paths de WEB_HOST chegam na API pelo Traefik:
+#   /socket    -> WebSocket (o único caminho que o browser toca direto na API)
+#   /webhooks  -> provedores externos (Resend hoje; genérico p/ os próximos)
+# Todo o resto de WEB_HOST vai para o web (BFF), que fala com a API por http interno. As rotas da
+# API têm prioridade maior que o catch-all do web, senão /socket cairia no web.
+#
+# COMO O DOKPLOY USA ISTO
+#   - Os ${VAR} são injetados pelo Dokploy (aba Environment de cada stack) — NUNCA comite segredo.
+#   - HML tem SEUS segredos, SEU banco e SEU bucket R2. Nunca aponte HML p/ dado de produção (LGPD).
+#   - ${STACK} deixa os nomes de router/service do Traefik únicos entre os dois stacks.
+#
+# ISOLAMENTO DE REDE (só a API fala com o banco)
+#   - `data` : db + migrate + api. O `web` NÃO entra — não alcança o banco nem por TCP.
+#   - `app`  : web <-> api (http://api:4000).
+#   - `dokploy-network` (externa): Traefik -> api (só /socket e /webhooks) e web.
+#
+# ORDEM: db (healthy) -> backup (pré-deploy) -> migrate -> api + web.
+#
+# BACKUP (docs/59 §13, deploy/backup/): `backup` roda 1x ANTES do migrate (fail-closed);
+# `backup-cron` a cada 1h. Bucket R2 PRÓPRIO, separado do de anexos; cifra age opcional.
+
+# Env compartilhada dos serviços de backup (âncora YAML).
+x-backup-env: &backup-env
+  PGHOST: db
+  PGUSER: postgres
+  PGPASSWORD: ${POSTGRES_PASSWORD}
+  PGDATABASE: ${POSTGRES_DB}
+  STACK: ${STACK}
+  BACKUP_BUCKET: ${BACKUP_BUCKET}
+  HOURLY_RETENTION: ${BACKUP_HOURLY_RETENTION:-48h}
+  DAILY_RETENTION: ${BACKUP_DAILY_RETENTION:-30d}
+  BACKUP_AGE_RECIPIENT: ${BACKUP_AGE_RECIPIENT:-}
+  RCLONE_CONFIG_R2_TYPE: s3
+  RCLONE_CONFIG_R2_PROVIDER: Cloudflare
+  RCLONE_CONFIG_R2_ENDPOINT: https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com
+  RCLONE_CONFIG_R2_ACCESS_KEY_ID: ${BACKUP_R2_ACCESS_KEY_ID}
+  RCLONE_CONFIG_R2_SECRET_ACCESS_KEY: ${BACKUP_R2_SECRET_ACCESS_KEY}
+  RCLONE_CONFIG_R2_NO_CHECK_BUCKET: "true"
+
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks: [data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backup:
+    build:
+      context: ./deploy/backup
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [data]
+    environment: *backup-env
+
+  migrate:
+    build:
+      context: ./api
+      dockerfile: Dockerfile.prod
+    command: ["bin/api", "eval", "Api.Release.setup()"]
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+      backup:
+        condition: service_completed_successfully
+    networks: [data]
+    environment:
+      DATABASE_ADMIN_URL: "ecto://postgres:${POSTGRES_PASSWORD}@db/${POSTGRES_DB}"
+      DATABASE_URL: "ecto://${DATABASE_APP_USER}:${DATABASE_APP_PASSWORD}@db/${POSTGRES_DB}"
+      DATABASE_APP_USER: ${DATABASE_APP_USER}
+      DATABASE_APP_PASSWORD: ${DATABASE_APP_PASSWORD}
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE}
+      TOKEN_SIGNING_SECRET: ${TOKEN_SIGNING_SECRET}
+      PHX_SERVER: "false"
+
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile.prod
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks: [data, app, dokploy-network]
+    environment:
+      DATABASE_URL: "ecto://${DATABASE_APP_USER}:${DATABASE_APP_PASSWORD}@db/${POSTGRES_DB}"
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE}
+      TOKEN_SIGNING_SECRET: ${TOKEN_SIGNING_SECRET}
+      # Host público da API = o domínio único (só /socket e /webhooks chegam nela).
+      PHX_HOST: ${WEB_HOST}
+      # check_origin do WebSocket = origem do WEB (o Origin do upgrade é a página do web).
+      WEB_APP_URL: "https://${WEB_HOST}"
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      GOOGLE_REDIRECT_URI: "https://${WEB_HOST}/auth"
+      R2_ACCOUNT_ID: ${R2_ACCOUNT_ID}
+      R2_BUCKET: ${R2_BUCKET}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY}
+      PHX_SERVER: "true"
+      PORT: "4000"
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=dokploy-network
+      # /socket -> API (WebSocket do browser). Prioridade > catch-all do web.
+      - traefik.http.routers.movimento-api-socket-${STACK}.rule=Host(`${WEB_HOST}`) && PathPrefix(`/socket`)
+      - traefik.http.routers.movimento-api-socket-${STACK}.entrypoints=websecure
+      - traefik.http.routers.movimento-api-socket-${STACK}.tls.certresolver=letsencrypt
+      - traefik.http.routers.movimento-api-socket-${STACK}.priority=100
+      - traefik.http.routers.movimento-api-socket-${STACK}.service=movimento-api-${STACK}
+      # /webhooks -> API (provedores externos: Resend e os próximos).
+      - traefik.http.routers.movimento-api-webhooks-${STACK}.rule=Host(`${WEB_HOST}`) && PathPrefix(`/webhooks`)
+      - traefik.http.routers.movimento-api-webhooks-${STACK}.entrypoints=websecure
+      - traefik.http.routers.movimento-api-webhooks-${STACK}.tls.certresolver=letsencrypt
+      - traefik.http.routers.movimento-api-webhooks-${STACK}.priority=100
+      - traefik.http.routers.movimento-api-webhooks-${STACK}.service=movimento-api-${STACK}
+      # Serviço (compartilhado pelos dois routers) + health pelo Traefik (a imagem não tem curl).
+      # A rota é /api/health (router.ex: `get "/health"` dentro de `scope "/api"`), e responde 200
+      # sem sessão (LoadScope assigna scope:nil e segue) — apontar p/ /health puro daria 404.
+      - traefik.http.services.movimento-api-${STACK}.loadbalancer.server.port=4000
+      - traefik.http.services.movimento-api-${STACK}.loadbalancer.healthcheck.path=/api/health
+      - traefik.http.services.movimento-api-${STACK}.loadbalancer.healthcheck.interval=10s
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile.prod
+      args:
+        # CSP build-time (kit.csp). Agora o socket é wss://${WEB_HOST}/socket — a origem pública
+        # da API colapsou no domínio único. Guarda de boot derruba o container se runtime divergir.
+        API_PUBLIC_ORIGIN: "https://${WEB_HOST}"
+        R2_ACCOUNT_ID: ${R2_ACCOUNT_ID}
+    restart: unless-stopped
+    depends_on:
+      - api
+    networks: [app, dokploy-network]
+    environment:
+      API_URL: "http://api:4000"                # BFF -> API pela rede interna (app)
+      API_PUBLIC_ORIGIN: "https://${WEB_HOST}"  # socket wss no mesmo domínio
+      ORIGIN: "https://${WEB_HOST}"             # CSRF, URLs absolutas, decide o HSTS
+      ADDRESS_HEADER: "X-Forwarded-For"         # sob Traefik (era Fly-Client-IP)
+      PORT: "3000"
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=dokploy-network
+      # Catch-all do domínio: tudo que não for /socket nem /webhooks. Prioridade < a da API.
+      - traefik.http.routers.movimento-web-${STACK}.rule=Host(`${WEB_HOST}`)
+      - traefik.http.routers.movimento-web-${STACK}.entrypoints=websecure
+      - traefik.http.routers.movimento-web-${STACK}.tls.certresolver=letsencrypt
+      - traefik.http.routers.movimento-web-${STACK}.priority=1
+      - traefik.http.services.movimento-web-${STACK}.loadbalancer.server.port=3000
+
+  # Backup AGENDADO 1/1h (o pré-deploy cobre t=0).
+  backup-cron:
+    build:
+      context: ./deploy/backup
+    restart: unless-stopped
+    command: ["sh", "-c", "while true; do sleep 3600; /backup.sh || echo '[backup-cron] falhou'; done"]
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [data]
+    environment: *backup-env
+
+volumes:
+  pgdata:
+
+networks:
+  data: # só db + migrate + api — o web NÃO entra (só a API fala com o banco)
+  app: # web <-> api, interno
+  dokploy-network:
+    external: true

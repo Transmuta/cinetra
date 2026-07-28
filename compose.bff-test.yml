@@ -1,0 +1,116 @@
+# TESTE LOCAL do roteamento BFF-only — NÃO é deploy. Prova, na sua máquina, que o Traefik
+# roteia só /socket e /webhooks para a API e todo o resto para o web, num DOMÍNIO ÚNICO —
+# antes de subir no VPS. Reproduz o compose.dokploy.yml, mas em http (sem TLS/Let's Encrypt).
+#
+#   docker compose -p bff-test -f compose.bff-test.yml up --build
+#   # abre  http://cinetra.localhost   (navegadores resolvem *.localhost para 127.0.0.1)
+#
+# O QUE PROVAR:
+#   1. A app carrega em http://cinetra.localhost (catch-all -> web).
+#   2. Logar e abrir a agenda: o WebSocket conecta em ws://cinetra.localhost/socket
+#      (DevTools > Network > WS). Isso valida /socket -> API pelo Traefik + check_origin.
+#   3. Nenhum erro de CSP no console (API_PUBLIC_ORIGIN colapsado no domínio único).
+#
+# O que NÃO cobre: TLS/wss real e a rede exata do provedor — partes de baixo risco. Credenciais
+# abaixo são LOCAIS e descartáveis.
+
+services:
+  # Traefik por FILE PROVIDER (deploy/bff-test/traefik-dynamic.yml). O provider DOCKER (labels),
+  # usado em produção, não funciona no Docker Desktop/WSL (socket-proxy). Ver o header do dynamic.
+  traefik:
+    image: traefik:v3.1
+    command:
+      - --providers.file.filename=/etc/traefik/dynamic.yml
+      - --providers.file.watch=true
+      - --entrypoints.web.address=:80
+    ports:
+      - "80:80"
+    volumes:
+      - ./deploy/bff-test/traefik-dynamic.yml:/etc/traefik/dynamic.yml:ro
+    networks: [edge]
+
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: movimento_bff_test
+    networks: [data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    build:
+      context: ./api
+      dockerfile: Dockerfile.prod
+    command: ["bin/api", "eval", "Api.Release.setup()"]
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [data]
+    environment:
+      DATABASE_ADMIN_URL: "ecto://postgres:postgres@db/movimento_bff_test"
+      DATABASE_URL: "ecto://movimento_app:movimento_app@db/movimento_bff_test"
+      DATABASE_APP_USER: movimento_app
+      DATABASE_APP_PASSWORD: movimento_app
+      SECRET_KEY_BASE: "bff-test-secret-key-base-com-64-bytes-xxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      TOKEN_SIGNING_SECRET: "bff-test-token-signing-secret"
+      PHX_SERVER: "false"
+
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile.prod
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks: [data, edge]
+    environment:
+      DATABASE_URL: "ecto://movimento_app:movimento_app@db/movimento_bff_test"
+      SECRET_KEY_BASE: "bff-test-secret-key-base-com-64-bytes-xxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      TOKEN_SIGNING_SECRET: "bff-test-token-signing-secret"
+      PHX_HOST: "cinetra.localhost"
+      WEB_APP_URL: "http://cinetra.localhost"   # check_origin do WS = origem do web
+      PHX_SERVER: "true"
+      PORT: "4000"
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.t-api-socket.rule=Host(`cinetra.localhost`) && PathPrefix(`/socket`)
+      - traefik.http.routers.t-api-socket.entrypoints=web
+      - traefik.http.routers.t-api-socket.priority=100
+      - traefik.http.routers.t-api-socket.service=t-api
+      - traefik.http.routers.t-api-webhooks.rule=Host(`cinetra.localhost`) && PathPrefix(`/webhooks`)
+      - traefik.http.routers.t-api-webhooks.entrypoints=web
+      - traefik.http.routers.t-api-webhooks.priority=100
+      - traefik.http.routers.t-api-webhooks.service=t-api
+      - traefik.http.services.t-api.loadbalancer.server.port=4000
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile.prod
+      args:
+        API_PUBLIC_ORIGIN: "http://cinetra.localhost"   # build-time (CSP); bate com o runtime
+    depends_on:
+      - api
+    networks: [edge]
+    environment:
+      API_URL: "http://api:4000"                # BFF -> API interno
+      API_PUBLIC_ORIGIN: "http://cinetra.localhost"
+      ORIGIN: "http://cinetra.localhost"
+      ADDRESS_HEADER: "X-Forwarded-For"
+      PORT: "3000"
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.t-web.rule=Host(`cinetra.localhost`)
+      - traefik.http.routers.t-web.entrypoints=web
+      - traefik.http.routers.t-web.priority=1
+      - traefik.http.services.t-web.loadbalancer.server.port=3000
+
+networks:
+  data:
+  edge:
