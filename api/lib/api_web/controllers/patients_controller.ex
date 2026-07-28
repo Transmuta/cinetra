@@ -42,8 +42,24 @@ defmodule ApiWeb.PatientsController do
   def show(conn, %{"id" => id}) do
     with_member_scope(conn, fn scope ->
       case Records.fetch_clinic_patient(scope, id, load: [:faltas]) do
-        {:ok, %{} = patient} -> json(conn, %{patient: patient_json(patient)})
-        {:ok, nil} -> not_found(conn)
+        {:ok, %{} = patient} ->
+          # A trilha de LEITURA (doc 63, D-Aud6). O `06 §4` pede isto por nome — "abrir a ficha
+          # completa de um paciente" — e escrita nenhuma responde a essa pergunta.
+          #
+          # Aqui na fronteira, e não no domínio: o que se audita é o acesso da PESSOA à ficha. As
+          # leituras internas de `Patient` (a agenda resolvendo nomes, o relatório contando
+          # faltas) passam pelo domínio e não são isso; auditá-las afogaria o sinal em ruído de
+          # máquina.
+          #
+          # Deduplicado em 30 min por (usuário, paciente): vira um índice-hit em vez de um
+          # `INSERT` por abertura de tela — que era a objeção contra auditar a leitura na tela
+          # mais usada da recepção.
+          Api.Audit.Acesso.ficha_visualizada(scope, patient)
+
+          json(conn, %{patient: patient_json(patient)})
+
+        {:ok, nil} ->
+          not_found(conn)
       end
     end)
   end

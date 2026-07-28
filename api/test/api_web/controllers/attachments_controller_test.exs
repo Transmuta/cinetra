@@ -26,7 +26,10 @@ defmodule ApiWeb.AttachmentsControllerTest do
   end
 
   defp paciente(clinic, nome \\ "Mariana Alves") do
-    Records.create_patient!(nome, %{}, tenant: clinic.id, authorize?: false)
+    Records.create_patient!(nome, %{tel: Api.Generators.telefone_unico()},
+      tenant: clinic.id,
+      authorize?: false
+    )
   end
 
   # O ciclo completo, do jeito que a tela faz: abre o upload, "sobe" os bytes, confirma.
@@ -321,7 +324,7 @@ defmodule ApiWeb.AttachmentsControllerTest do
       # ao R2 — auditoria poluída e amplificação de rede, ambas acionáveis por quem já está
       # autenticado.
       eventos = Records.list_clinic_attachment_events(escopo(owner, clinic), id)
-      assert Enum.count(eventos, &(&1.acao == :enviou)) == 1
+      assert Enum.count(eventos, &(&1.action == "enviou")) == 1
     end
 
     test "confirmar de novo não reabre a janela de verificação sobre bytes trocados", %{
@@ -382,9 +385,9 @@ defmodule ApiWeb.AttachmentsControllerTest do
       scope = escopo(owner, clinic)
       eventos = Records.list_clinic_attachment_events(scope, id)
 
-      assert Enum.count(eventos, &(&1.acao == :visualizou)) == 2
-      assert Enum.any?(eventos, &(&1.acao == :enviou))
-      assert Enum.all?(eventos, &(&1.user_id == owner.id))
+      assert Enum.count(eventos, &(&1.action == "visualizou")) == 2
+      assert Enum.any?(eventos, &(&1.action == "enviou"))
+      assert Enum.all?(eventos, &(&1.actor.id == owner.id))
     end
 
     test "a trilha guarda o nome, para continuar legível depois da remoção", %{
@@ -398,8 +401,8 @@ defmodule ApiWeb.AttachmentsControllerTest do
 
       eventos = Records.list_clinic_attachment_events(escopo(owner, clinic), id)
 
-      assert Enum.any?(eventos, &(&1.acao == :removeu))
-      assert Enum.all?(eventos, &(&1.nome == "laudo.pdf"))
+      assert Enum.any?(eventos, &(&1.action == "removeu"))
+      assert Enum.all?(eventos, &(&1.label == "laudo.pdf"))
     end
 
     test "recepção não audita — a trilha é owner/admin", %{

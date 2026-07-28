@@ -293,7 +293,24 @@ defmodule ApiWeb.TenantScope do
     end)
   end
 
-  defp forbidden(conn), do: conn |> put_status(:forbidden) |> json(%{error: "forbidden"})
+  # Todo 403 do projeto passa por aqui — as três guardas de escopo e o `error_response/2` que
+  # traduz `Ash.Error.Forbidden`. Por isso é AQUI que a autorização negada entra na trilha
+  # (doc 61 §3b, doc 63): um por controller seria uma lista para esquecer, e é exatamente o que
+  # aconteceu com a whitelist de ações da auditoria.
+  #
+  # Deduplicado em 30 min por (usuário, caminho): sem isso um cliente em laço transforma a trilha
+  # num log de acesso, e a poda passa a ser a única coisa que a segura.
+  #
+  # Sem escopo com tenant (401, ou membro sem clínica ativa) não há onde gravar — a trilha é
+  # por-clínica. `Acesso.acesso_negado/2` trata esse caso devolvendo `:ok`.
+  defp forbidden(conn) do
+    case conn.assigns[:scope] do
+      %Scope{} = scope -> Api.Audit.Acesso.acesso_negado(scope, conn.request_path)
+      _ -> :ok
+    end
+
+    conn |> put_status(:forbidden) |> json(%{error: "forbidden"})
+  end
 
   defp error_messages(%{errors: errors}) when is_list(errors) do
     Enum.map(errors, fn err ->
