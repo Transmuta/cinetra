@@ -83,6 +83,13 @@
 	// que a tela pequena não tem de sobra (protótipo :1720 usa 34px).
 	const GUTTER = $derived(only ? 34 : 54);
 
+	// O rótulo tem de CABER na calha, e é por isso que ele encolhe junto com ela. Martian Mono
+	// avança 0.7em: "08:00" a 10.5px mede 36.8px e, com os 8px de `right-2`, pede 44.8 — cabe
+	// nos 54 do modo largo, estoura os 34 do estreito. O que sobra some no `overflow-auto` do
+	// grid, e a tela mostrava "8:00" (o protótipo desenhava só a hora ali, :1720).
+	// Como `gridRange` fecha a faixa na hora, todo rótulo é "HH:00" e o ":00" não informa nada.
+	const rotuloHora = (min: number) => (only ? m2t(min).slice(0, 2) : m2t(min));
+
 	const visiveis = $derived(
 		professionals.filter((p) => !hidden.includes(p.id)).filter((p) => !only || p.id === only)
 	);
@@ -296,7 +303,7 @@
 					{#each horas as h (h)}
 						<span
 							class="absolute right-2 -translate-y-1/2 font-mono text-[10.5px] tabular-nums text-faint"
-							style="top:{topDe(h)}px">{m2t(h)}</span
+							style="top:{topDe(h)}px">{rotuloHora(h)}</span
 						>
 					{/each}
 				</div>
@@ -411,8 +418,13 @@
 				style="top:{HEADER + topDe(agoraMin)}px; left:{GUTTER}px; right:0"
 			>
 				<div class="absolute inset-x-0 top-0 border-t-2 border-teal"></div>
+				<!-- O selo recua para dentro da calha (protótipo :1620 recua 44px fixos). Fixo ele
+				     também estourava a calha estreita — começava em -10px e era cortado —, então o
+				     recuo é limitado pela calha: 44 no modo largo, 34 no estreito. Aqui o ":00" não
+				     pode sumir (é o minuto do agora), o selo é que se ajusta. -->
 				<span
-					class="absolute -top-2.25 left-[-44px] rounded bg-teal px-1.25 font-mono text-[10px] font-semibold text-white"
+					class="absolute -top-2.25 rounded bg-teal px-1.25 font-mono text-[10px] font-semibold text-white"
+					style="left:{-Math.min(GUTTER, 44)}px"
 				>
 					{m2t(agoraMin)}
 				</span>

@@ -227,6 +227,35 @@ describe('DayGrid — linha do agora', () => {
 	});
 });
 
+// A calha de horas do modo de coluna única (mobile) é ESTREITA — 34px, herdados do protótipo
+// (:1720). O rótulo tem de caber nela, e "08:00" não cabe: Martian Mono avança 0.7em, logo
+// 5 caracteres a 10.5px medem 36.8px, mais os 8px de `right-2` dão 44.8px — 10.8px além da
+// calha. Quem sobra é cortado pelo `overflow-auto` do grid, e a tela mostrava "8:00".
+// Como a faixa é sempre fechada na hora (`gridRange` faz floor/ceil), os ":00" não informam
+// nada: no modo estreito o rótulo é só a hora, que é o que o protótipo desenhava ali.
+describe('DayGrid — calha de horas do modo de coluna única', () => {
+	it('mostra só a hora, que é o que cabe nos 34px', () => {
+		render(DayGrid, { props: { ...base, only: 'p1' } });
+		const gutter = within(screen.getByTestId('hour-gutter'));
+		expect(gutter.getByText('08')).toBeInTheDocument();
+		expect(gutter.queryByText('08:00')).not.toBeInTheDocument();
+	});
+
+	it('com todas as colunas a calha é larga e o rótulo continua completo', () => {
+		render(DayGrid, { props: base });
+		const gutter = within(screen.getByTestId('hour-gutter'));
+		expect(gutter.getByText('08:00')).toBeInTheDocument();
+	});
+
+	// O selo da linha do agora mora na mesma calha e sofria do mesmo corte: recuado 44px fixos,
+	// ele começava em -10px numa calha de 34. O recuo tem de sair da calha, não de um número solto.
+	it('o selo do agora não recua além da calha estreita', () => {
+		render(DayGrid, { props: { ...base, only: 'p1' } });
+		const selo = screen.getByText('11:42');
+		expect(selo).toHaveStyle({ left: '-34px' });
+	});
+});
+
 describe('DayGrid — criar em vazio', () => {
 	it('clicar no corpo da coluna abre o modal com profissional e hora', async () => {
 		const onEmptyClick = vi.fn();
