@@ -307,15 +307,9 @@
 		transform: scale(1.06);
 	}
 }
-@keyframes cnFloat {
-	0%,
-	100% {
-		transform: translateY(0);
-	}
-	50% {
-		transform: translateY(-13px);
-	}
-}
+/* `cnFloat` morava aqui: fazia o mock da agenda flutuar. Saiu com o último uso (doc 57) —
+   keyframe sem quem a referencie é peso que nenhuma ferramenta do projeto remove, porque o
+   `animation:` que a chamava era inline e o Tailwind não varre valor de atributo `style`. */
 @keyframes cnScrollcue {
 	0%,
 	100% {

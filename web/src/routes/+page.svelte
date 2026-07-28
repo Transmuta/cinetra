@@ -374,74 +374,75 @@
 					{/each}
 				</div>
 			</div>
-			<div style="animation:cnFloat 7s ease-in-out infinite">
-				<div
-					style="background:#fff;border-radius:20px;box-shadow:0 40px 80px -40px rgba(0,0,0,.6);padding:20px;color:#212A37"
-				>
-					<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
-						<div>
-							<div
-								style="font-size:12px;font-family:'Martian Mono',monospace;color:#697077;text-transform:uppercase"
-							>
-								Terça · 14 jul
-							</div>
-							<div style="font-size:18px;font-weight:700;margin-top:2px">Agenda da clínica</div>
+			<!-- O mock ficava subindo e descendo (`cnFloat`, 7s infinitos), do lado de um texto que
+			     a pessoa está lendo. Sem a animação, o `<div>` que só existia para carregá-la virava
+			     invólucro vazio; saiu junto, e o card passou a ser o próprio item do grid. -->
+			<div
+				style="background:#fff;border-radius:20px;box-shadow:0 40px 80px -40px rgba(0,0,0,.6);padding:20px;color:#212A37"
+			>
+				<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+					<div>
+						<div
+							style="font-size:12px;font-family:'Martian Mono',monospace;color:#697077;text-transform:uppercase"
+						>
+							Terça · 14 jul
 						</div>
-						<div style="display:flex">
-							<span
-								style="width:29px;height:29px;border-radius:50%;background:#3A5A78;color:#fff;display:grid;place-items:center;font-size:11px;font-weight:700;border:2px solid #fff"
-								>ML</span
-							><span
-								style="width:29px;height:29px;border-radius:50%;background:#4A6E62;color:#fff;display:grid;place-items:center;font-size:11px;font-weight:700;border:2px solid #fff;margin-left:-8px"
-								>RC</span
-							>
+						<div style="font-size:18px;font-weight:700;margin-top:2px">Agenda da clínica</div>
+					</div>
+					<div style="display:flex">
+						<span
+							style="width:29px;height:29px;border-radius:50%;background:#3A5A78;color:#fff;display:grid;place-items:center;font-size:11px;font-weight:700;border:2px solid #fff"
+							>ML</span
+						><span
+							style="width:29px;height:29px;border-radius:50%;background:#4A6E62;color:#fff;display:grid;place-items:center;font-size:11px;font-weight:700;border:2px solid #fff;margin-left:-8px"
+							>RC</span
+						>
+					</div>
+				</div>
+				<div style="display:flex;flex-direction:column;gap:8px">
+					<div
+						style="display:flex;gap:11px;align-items:center;padding:11px 12px;border-radius:12px;background:#F1F6F4"
+					>
+						<div style="font-family:'Martian Mono',monospace;font-size:11px;color:#4A6E62;width:40px">
+							08:00
+						</div>
+						<div style="flex:1">
+							<div style="font-size:13px;font-weight:700">Mariana Alves</div>
+							<div style="font-size:11px;color:#697077">Sessão · Dra. Marina</div>
+						</div>
+						<span
+							style="font-size:10px;font-weight:700;color:#3E5C52;background:rgba(127,165,154,.2);padding:3px 7px;border-radius:6px"
+							>9/10</span
+						>
+					</div>
+					<div
+						style="display:flex;gap:11px;align-items:center;padding:11px 12px;border-radius:12px;background:#EEF3F7"
+					>
+						<div style="font-family:'Martian Mono',monospace;font-size:11px;color:#3A5A78;width:40px">
+							09:00
+						</div>
+						<div style="flex:1">
+							<div style="font-size:13px;font-weight:700">Carlos Eduardo</div>
+							<div style="font-size:11px;color:#697077">Avaliação · Dr. Rafael</div>
 						</div>
 					</div>
-					<div style="display:flex;flex-direction:column;gap:8px">
-						<div
-							style="display:flex;gap:11px;align-items:center;padding:11px 12px;border-radius:12px;background:#F1F6F4"
-						>
-							<div style="font-family:'Martian Mono',monospace;font-size:11px;color:#4A6E62;width:40px">
-								08:00
-							</div>
-							<div style="flex:1">
-								<div style="font-size:13px;font-weight:700">Mariana Alves</div>
-								<div style="font-size:11px;color:#697077">Sessão · Dra. Marina</div>
-							</div>
-							<span
-								style="font-size:10px;font-weight:700;color:#3E5C52;background:rgba(127,165,154,.2);padding:3px 7px;border-radius:6px"
-								>9/10</span
-							>
+					<div
+						style="display:flex;gap:11px;align-items:center;padding:11px 12px;border-radius:12px;background:#fff;border:1px dashed #D5DCDE"
+					>
+						<div style="font-family:'Martian Mono',monospace;font-size:11px;color:#697077;width:40px">
+							10:00
 						</div>
-						<div
-							style="display:flex;gap:11px;align-items:center;padding:11px 12px;border-radius:12px;background:#EEF3F7"
-						>
-							<div style="font-family:'Martian Mono',monospace;font-size:11px;color:#3A5A78;width:40px">
-								09:00
-							</div>
-							<div style="flex:1">
-								<div style="font-size:13px;font-weight:700">Carlos Eduardo</div>
-								<div style="font-size:11px;color:#697077">Avaliação · Dr. Rafael</div>
-							</div>
+						<div style="flex:1;font-size:12px;color:#697077">Horário livre</div>
+					</div>
+					<div
+						style="display:flex;gap:11px;align-items:center;padding:11px 12px;border-radius:12px;background:#F1F6F4"
+					>
+						<div style="font-family:'Martian Mono',monospace;font-size:11px;color:#4A6E62;width:40px">
+							11:00
 						</div>
-						<div
-							style="display:flex;gap:11px;align-items:center;padding:11px 12px;border-radius:12px;background:#fff;border:1px dashed #D5DCDE"
-						>
-							<div style="font-family:'Martian Mono',monospace;font-size:11px;color:#697077;width:40px">
-								10:00
-							</div>
-							<div style="flex:1;font-size:12px;color:#697077">Horário livre</div>
-						</div>
-						<div
-							style="display:flex;gap:11px;align-items:center;padding:11px 12px;border-radius:12px;background:#F1F6F4"
-						>
-							<div style="font-family:'Martian Mono',monospace;font-size:11px;color:#4A6E62;width:40px">
-								11:00
-							</div>
-							<div style="flex:1">
-								<div style="font-size:13px;font-weight:700">Turma de Pilates</div>
-								<div style="font-size:11px;color:#697077">4 pacientes · Dra. Carla</div>
-							</div>
+						<div style="flex:1">
+							<div style="font-size:13px;font-weight:700">Turma de Pilates</div>
+							<div style="font-size:11px;color:#697077">4 pacientes · Dra. Carla</div>
 						</div>
 					</div>
 				</div>
