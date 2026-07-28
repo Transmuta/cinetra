@@ -1,52 +1,47 @@
 defmodule ApiWeb.AuditController do
   @moduledoc """
-  A trilha de auditoria da clínica ativa (doc 25 §11.4) — o backend da tela `/auditoria`
-  (que saiu de `/configuracoes/auditoria`, hoje um 308). Um `GET` só, paginado, com os
-  filtros do §11.4.
+  A trilha de auditoria da clínica ativa (doc 63) — o backend da tela `/auditoria`. Um `GET` só,
+  paginado, com os filtros da tela.
 
   RBAC **owner·admin**: ao contrário das outras leituras de gestão (que são de todo membro), a
-  trilha guarda o histórico inteiro da clínica e é o pedido literal — "tela de auditoria pro
-  admin". A guarda `with_admin_scope` recusa recepção/profissional com **403** (não uma lista
-  vazia, que leria como "sem atividade"). É defesa-em-profundidade: as policies do recurso de
-  versão (`TrailMixin`) já filtram para owner·admin de qualquer forma.
+  trilha guarda o histórico inteiro da clínica — a agenda, os papéis concedidos, o diff da ficha
+  e quem leu qual laudo. A guarda `with_admin_scope` recusa recepção/profissional com **403**
+  (não uma lista vazia, que leria como "sem atividade"). É defesa-em-profundidade: as policies do
+  `Api.Audit.Event` já filtram para owner·admin de qualquer forma.
 
   `clinic_id` sempre do escopo (09 §8); a janela `from`/`to` é local à clínica (mesmo fuso da
   agenda, `LocalTime.window!`).
+
+  ## O que mudou com a tabela de eventos única
+
+  O feed **não é mais por recurso**. Antes, `?resource=` trocava qual tabela de versão era
+  paginada, e não existia "o que aconteceu na clínica hoje"; agora é uma **faceta** — ausente,
+  o feed é da clínica inteira; presente (um valor ou vários), recorta.
+
+  E a whitelist de nomes de ação **deixou de existir**. Ela era obrigatória enquanto o filtro
+  virava átomo (`String.to_existing_atom` sobre string de query é como se cria átomo a partir de
+  entrada não confiável), e era o ponto frágil documentado: nome fora dela virava filtro `nil`,
+  o feed inteiro voltava e quem filtrou não percebia — a primeira versão deixou de fora **dez**
+  nomes. Em `audit_events` a coluna `action` é **texto**, então o filtro é comparação de string:
+  nome desconhecido devolve zero linhas, que é a resposta honesta, e não há lista para
+  desatualizar.
   """
   use ApiWeb, :controller
 
   import ApiWeb.TenantScope
 
+  alias Api.Audit
   alias Api.Scheduling
   alias Api.Scheduling.LocalTime
 
-  # As ações que geram versão — `Appointment` e `Attendance`. Whitelist antes do
-  # `to_existing_atom` (nunca converter string crua de query em átomo), no molde do
-  # `parse_status` de `PatientsController`.
-  #
-  # A lista precisa ser **completa**, não representativa: nome fora dela vira filtro `nil`, ou
-  # seja, o feed inteiro volta e quem filtrou não percebe (não há 422). A primeira versão
-  # deixou de fora **dez** nomes que o banco tem — `remove_participant`, `set_pkg_hold`,
-  # `apply_participant_rollup` e `exclude` no bloco; `set_package`, `mark_present`,
-  # `mark_absent`, `reopen_attendance`, `justify_absence` e `remove` na presença.
-  #
-  # Mantê-la à mão é o risco: o bate-volta reduziu a lista a dois nomes e os 1177 testes
-  # ficaram verdes. Quem a segura agora é o teste "toda ação de escrita dos recursos é
-  # filtrável de fato", que tira a verdade de `Ash.Resource.Info.actions/1` — ação nova cai lá
-  # sem ninguém lembrar. Os nomes APOSENTADOS (`mark_completed`, `mark_missed`,
-  # `set_falta_justificada`, `set_package`) ficam: sumiram do recurso, não da trilha.
-  @audit_actions ~w(schedule add_participant remove_participant reschedule mark_completed
-                    mark_missed cancel reopen set_falta_justificada set_pkg_hold
-                    apply_participant_rollup exclude
-                    create transition set_package mark_present mark_absent reopen_attendance
-                    justify_absence remove)
+  @nomes_de_recurso Enum.map(Api.Audit.ResourceKind.values(), &Atom.to_string/1)
 
   # GET /api/audit?resource=&record_id=&user_id=&action=&from=&to=&limit=&offset=
   def index(conn, params) do
     with_admin_scope(conn, fn scope ->
       case build_opts(scope, params) do
         {:ok, opts} ->
-          result = Scheduling.list_audit_log(scope, opts)
+          result = Audit.list_events(scope, opts)
           json(conn, %{entries: Enum.map(result.entries, &entry_json/1), page: result.page})
 
         {:error, message} ->
@@ -60,13 +55,14 @@ defmodule ApiWeb.AuditController do
   defp build_opts(scope, params) do
     with {:ok, record_id} <- parse_uuid(params["record_id"], "record_id"),
          {:ok, user_id} <- parse_uuid(params["user_id"], "user_id"),
+         {:ok, resource} <- parse_resource(params["resource"]),
          {:ok, from_dt, to_dt} <- audit_window(scope, params) do
       {:ok,
        [
-         resource: parse_resource(params["resource"]),
+         resource: resource,
          record_id: record_id,
          user_id: user_id,
-         action_name: parse_action(params["action"]),
+         action: presence(params["action"]),
          from: from_dt,
          to: to_dt,
          limit: parse_int(params["limit"]),
@@ -77,8 +73,8 @@ defmodule ApiWeb.AuditController do
 
   # `record_id`/`user_id` são filtros sobre colunas UUID. Sem validar, um valor não-uuid chega
   # cru em `Ash.Query.filter(coluna == ^valor)` e o `Ecto.Query.CastError` sobe até virar **500**
-  # (bate-volta, segurança). Validar aqui devolve 422 — o mesmo contrato de `from`/`to`. Ausente/
-  # vazio é filtro nulo (não é erro).
+  # (bate-volta doc 32, segurança). Validar aqui devolve 422 — o mesmo contrato de `from`/`to`.
+  # Ausente/vazio é filtro nulo (não é erro).
   defp parse_uuid(nil, _label), do: {:ok, nil}
   defp parse_uuid("", _label), do: {:ok, nil}
 
@@ -89,9 +85,28 @@ defmodule ApiWeb.AuditController do
     end
   end
 
+  # Ausente = feed da clínica inteira (o default, e a pergunta que o admin de fato faz). Aceita
+  # vários separados por vírgula, para a tela poder agrupar ("cadastros" = paciente+profissional).
+  #
+  # Valor desconhecido é **422**, não filtro nulo: aqui a lista fechada existe de verdade (é o
+  # enum do recurso) e um `?resource=pacinete` que devolvesse o feed inteiro repetiria o erro
+  # que a whitelist de ações cometia — a tela mostraria um chip de filtro sobre uma lista não
+  # filtrada.
+  defp parse_resource(nil), do: {:ok, nil}
+  defp parse_resource(""), do: {:ok, nil}
+
+  defp parse_resource(value) when is_binary(value) do
+    valores = value |> String.split(",", trim: true) |> Enum.map(&String.trim/1)
+
+    case Enum.reject(valores, &(&1 in @nomes_de_recurso)) do
+      [] -> {:ok, Enum.map(valores, &String.to_existing_atom/1)}
+      [invalido | _] -> {:error, "resource inválido: #{invalido}"}
+    end
+  end
+
   # A janela é OPCIONAL (o feed default é offset-paginado, sem recorte de data — o índice
-  # `(clinic_id, version_inserted_at DESC)` já limita o que se lê). Quando vem, é local à
-  # clínica e limitada a 31 dias, reusando `parse_window` (a mesma regra da agenda).
+  # `(clinic_id, at DESC)` já limita o que se lê). Quando vem, é local à clínica e limitada a 31
+  # dias, reusando `parse_window` (a mesma regra da agenda).
   defp audit_window(scope, params) do
     if is_nil(params["from"]) and is_nil(params["to"]) do
       {:ok, nil, nil}
@@ -104,35 +119,29 @@ defmodule ApiWeb.AuditController do
     end
   end
 
-  defp parse_resource("attendance"), do: :attendance
-  defp parse_resource(_), do: :appointment
-
-  defp parse_action(action) when action in @audit_actions, do: String.to_existing_atom(action)
-  defp parse_action(_), do: nil
+  defp presence(nil), do: nil
+  defp presence(""), do: nil
+  defp presence(value) when is_binary(value), do: value
 
   # ---- serialização ----
 
-  # Átomos (`action`, `status`) o Jason emite como string; DateTime vai em ISO-8601 explícito
-  # (o resto do projeto faz assim — `appointments_controller`). Campos de contexto que não se
-  # aplicam ao recurso vêm `null`: `patient` no appointment, e `appointment_id` no attendance.
-  # `starts_at`/`professional` vêm nos DOIS — no participante a versão não os guarda (são do
-  # bloco), e `Api.Scheduling` os enriquece lendo o agendamento; só faltam quando o bloco não é
-  # mais legível (excluído/segurado), e aí a tela degrada para "sem o horário".
+  # Átomos (`resource`, `action_type`) o Jason emite como string; DateTime vai em ISO-8601
+  # explícito (o resto do projeto faz assim). `patient`/`professional` vêm `null` quando a linha
+  # não fala de nenhum — é o contexto de `meta`, não um campo de todo recurso.
   defp entry_json(e) do
     %{
       id: e.id,
       resource: e.resource,
       record_id: e.record_id,
+      label: e.label,
       action: e.action,
       action_type: e.action_type,
       at: iso(e.at),
-      status: e.status,
       actor: e.actor,
-      starts_at: iso(e.starts_at),
-      professional: e.professional,
       patient: e.patient,
-      appointment_id: e.appointment_id,
-      diff: e.diff
+      professional: e.professional,
+      diff: e.diff,
+      meta: e.meta
     }
   end
 

@@ -116,13 +116,18 @@ defmodule Api.Directory.AppointmentType do
     # `Api.Repo.on_transaction_begin/1` só alcança leitura, e sem GUC a RLS barra o
     # INSERT/UPDATE. Ver o moduledoc do change — é sutil e a suíte não pega (BYPASSRLS).
     change Api.Tenancy.SetTenantGuc
+
+    # A trilha (doc 63). Mudar a duração ou o preço de um tipo reverbera em todo agendamento
+    # futuro e no que a recepção cobra; arquivar tira a opção da tela sem dizer quem.
+    change {Api.Audit.Capture, resource: :appointment_type, label: :nome},
+      on: [:create, :update, :destroy]
   end
 
   validations do
     # Paleta fechada. Só em create/update: `archive`/`restore` não tocam nesses campos, e a
     # linha já gravada é válida por construção.
-    validate one_of(:cor, @cores), on: [:create, :update]
-    validate one_of(:icon, @icones), on: [:create, :update]
+    validate one_of(:cor, @cores), on: [:create, :update, :destroy]
+    validate one_of(:icon, @icones), on: [:create, :update, :destroy]
 
     # Capacidade presente **sse** grupo (01:474). Sem isso caberia turma sem teto ou
     # atendimento individual com "capacidade 6", que a agenda não saberia interpretar.

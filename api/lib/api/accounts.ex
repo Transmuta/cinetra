@@ -10,8 +10,10 @@ defmodule Api.Accounts do
     resource Api.Accounts.User do
       define :register_user, action: :register, args: [:nome, :email]
       define :get_user, action: :read, get_by: [:id]
-      # Lote de usuários por id — o enriquecimento do autor no feed de auditoria
-      # (`Api.Scheduling.list_audit_log/2`) resolve nomes de N atores numa leitura só.
+
+      # Lote de usuários por id. O feed de auditoria não o usa mais para o autor — desde o doc 63
+      # a trilha grava o nome de quem agiu junto com o evento (`user_label`), para a linha
+      # continuar legível depois que a pessoa deixa a clínica.
       define :list_users, action: :read
       define :get_user_by_email, action: :get_by_email, args: [:email]
       # Auth sem senha (ADR-015): usados pelo ApiWeb.AuthController.

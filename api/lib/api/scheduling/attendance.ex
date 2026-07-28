@@ -19,7 +19,6 @@ defmodule Api.Scheduling.Attendance do
     domain: Api.Scheduling,
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer],
-    extensions: [AshPaperTrail.Resource],
     # Só o da caixa de notificações, e só para a falta por participante (#46, doc 41 etapa 5): o
     # `AgendaNotifier` continua **fora** daqui de propósito, senão o evento de tempo real sairia
     # duas vezes (a presença muda e o rollup escreve o bloco). Ver o moduledoc do `Appointment`.
@@ -88,34 +87,6 @@ defmodule Api.Scheduling.Attendance do
       # achado (h)).
       index [:package_id], all_tenants?: true
     end
-  end
-
-  # A-D14: a trilha cobre `Appointment` **e** `Attendance`. Sem esta, "quem tirou o paciente
-  # da turma?" fica sem resposta — adicionar/remover participante é escrita aqui, não lá.
-  paper_trail do
-    change_tracking_mode :changes_only
-    store_action_name? true
-    store_action_inputs? false
-    ignore_attributes [:inserted_at, :updated_at]
-    attributes_as_attributes [:clinic_id, :appointment_id, :patient_id, :status]
-    # `on_delete: :nilify` (H64, Onda 5): o default do AshPaperTrail é `:nothing`, que faz a
-    # trilha **travar** o `DELETE` do usuário — a versão guarda quem mexeu, e é justamente o
-    # registro que a eliminação da LGPD (F8) precisará apagar. Perder o vínculo com o ator não
-    # apaga a versão: o diff continua lá, só sem o `belongs_to` resolvendo o nome.
-    belongs_to_actor :user, Api.Accounts.User, domain: Api.Accounts, on_delete: :nilify
-
-    # O recurso de versão nasceria SEM authorizer — e `authorize?: true` sobre ele seria um
-    # no-op, a porta dos fundos da A7. As duas opções abaixo são do DSL do AshPaperTrail:
-    # `version_extensions` injeta o authorizer no `use Ash.Resource` gerado, `mixin` injeta no
-    # corpo dele as policies (ler é owner·admin; escrever, ninguém) E a leitura paginada
-    # `:audit_log` da tela de auditoria (§11.4). Ver `Api.Scheduling.TrailMixin`.
-    version_extensions authorizers: [Ash.Policy.Authorizer]
-    mixin Api.Scheduling.TrailMixin
-
-    # Mesmo motivo do `Appointment` (achado (c) do doc 26) — e aqui é ainda mais direto: a FK
-    # de `attendances_versions` foi a que estourou de verdade ao limpar o banco. A trilha
-    # sobrevive órfã em vez de bloquear a exclusão ou ser levada junto.
-    reference_source? false
   end
 
   actions do
@@ -229,6 +200,12 @@ defmodule Api.Scheduling.Attendance do
 
   changes do
     change Api.Tenancy.SetTenantGuc
+
+    # A trilha (doc 63) — ver a nota gêmea em `Appointment` sobre a saída do `AshPaperTrail`.
+    change {Api.Audit.Capture,
+            resource: :attendance,
+            meta: [:patient_id, :appointment_id, :package_id, :status, :session_starts_at]},
+           on: [:create, :update, :destroy]
   end
 
   multitenancy do

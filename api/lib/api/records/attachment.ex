@@ -147,6 +147,18 @@ defmodule Api.Records.Attachment do
     # servidor real com `''::uuid`, e a suíte não via: a GUC do `autorizar/3` fica pendurada no
     # sandbox, que roda o teste inteiro numa transação só.
     change Api.Tenancy.SetTenantGuc, on: [:create, :update, :destroy]
+
+    # **Sem `Api.Audit.Capture` aqui, e é decisão.** O anexo é o único recurso cuja trilha é
+    # escrita pelo caminho de ACESSO (`Api.Audit.Acesso.anexo_tocado/3`, chamado de
+    # `Api.Records`), por duas razões que o change não alcança:
+    #
+    #   * a `:visualizou` — a emissão da URL assinada, o instante em que o acesso é de fato
+    #     concedido — **não passa por changeset nenhum**. Leitura não gera versão;
+    #   * a remoção apaga os bytes ANTES da linha, e a trilha precisa do `nome` do anexo já
+    #     carregado para a entrada continuar legível depois que ele não existe mais.
+    #
+    # Ligar os dois gravava cada envio e cada remoção DUAS vezes — foi o que o teste da poda
+    # pegou (2 eventos esperados, 4 encontrados).
   end
 
   multitenancy do

@@ -157,6 +157,25 @@ defmodule Api.Accounts.Membership do
     end
   end
 
+  changes do
+    # A trilha (doc 63) — e este é o recurso mais sensível dos doze. "Quem promoveu Fulano a
+    # admin?" e "quem revogou o acesso de Sicrana?" não tinham resposta: `:update` (troca de
+    # papel) e `:revoke_access` não deixavam rastro nenhum.
+    #
+    # O `destroy` agrava: sem a trilha o registro some **inteiro**, e não sobra nem o estado
+    # final do qual inferir o que houve — ao contrário de um update. Por isso o `label` sai de
+    # `user.nome` com uma leitura: a linha precisa continuar dizendo de quem era o acesso depois
+    # que o vínculo não existe mais.
+    #
+    # `Membership` não tem bloco `multitenancy` (é a tabela que atravessa tenants), então o
+    # `changeset.tenant` é nulo e o `clinic_id` do próprio registro é a fonte do tenant da linha.
+    change {Api.Audit.Capture,
+            resource: :membership,
+            label: {:load, :user, :nome},
+            meta: [:user_id, :professional_id, :papel, :status]},
+           on: [:create, :update, :destroy]
+  end
+
   # ADR-016 — invariante ">=1 owner por tenant" (não-atômica; ver o módulo). Global em
   # update/destroy: é no-op no `accept_invite` (não mexe em papel). A hierarquia de gestão
   # (RoleManagement) NÃO fica aqui — é específica das ações de gestão de papel

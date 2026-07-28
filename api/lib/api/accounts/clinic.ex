@@ -38,6 +38,12 @@ defmodule Api.Accounts.Clinic do
 
     update :update_settings do
       accept [:nome, :timezone, :cap_turma_padrao, :slot_minutos]
+
+      # A trilha (`Api.Audit.Capture`) grava num `after_action`, e hook de after_action é
+      # incompatível com update atômico. Custo nulo: o controller já busca a clínica antes de
+      # escrever (fetch-then-update para poder devolver 404) — é o mesmo motivo pelo qual todo
+      # recurso por-tenant deste projeto já roda não-atômico por causa do `SetTenantGuc`.
+      require_atomic? false
     end
 
     # Comunicação com o paciente (doc 52 §7) — a tela /configuracoes/comunicacao.
@@ -53,6 +59,9 @@ defmodule Api.Accounts.Clinic do
         :msg_silencio_inicio,
         :msg_silencio_fim
       ]
+
+      # Ver a nota em `update_settings`: a trilha grava num `after_action`.
+      require_atomic? false
     end
 
     # Dados de identidade da clínica (tela /configuracoes/clinica): nome, CNPJ e endereço.
@@ -88,6 +97,17 @@ defmodule Api.Accounts.Clinic do
                      )
                    )
     end
+  end
+
+  changes do
+    # A trilha (doc 63). Baixo volume, alto impacto: é o que sai em documento (CNPJ, razão
+    # social, endereço) e o que reconfigura a agenda inteira (`timezone`, `slot_minutos`,
+    # `cap_turma_padrao`) e a comunicação com o paciente (janela de silêncio, lembrete).
+    #
+    # `tenant_from: :id` — a `Clinic` é o único recurso em que o tenant é o **próprio registro**,
+    # não um `clinic_id` que ele carrega.
+    change {Api.Audit.Capture, resource: :clinic, label: :nome, tenant_from: :id},
+      on: [:create, :update, :destroy]
   end
 
   attributes do

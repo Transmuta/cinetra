@@ -40,7 +40,6 @@ defmodule Api.Scheduling.Appointment do
     domain: Api.Scheduling,
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer],
-    extensions: [AshPaperTrail.Resource],
     # RN-56: as mutações viram evento de tempo real. Fica só no `Appointment` — `:add_participant`
     # também cria `Attendance`, e um notifier lá em cima emitiria o mesmo evento duas vezes.
     notifiers: [
@@ -141,49 +140,6 @@ defmodule Api.Scheduling.Appointment do
   fonte única impede que editar o texto quebre o contrato silenciosamente.
   """
   def schedule_conflict_message, do: @schedule_conflict_message
-
-  # A trilha (A-D6c, doc 25 §11). `:changes_only` e não o default `:snapshot`: snapshot grava
-  # o registro inteiro a cada escrita, e com o `obs` isso multiplicaria dado potencialmente
-  # clínico pelo número de edições (A-D13).
-  paper_trail do
-    change_tracking_mode :changes_only
-    store_action_name? true
-    # Guardaria os inputs da ação — incluindo `obs` — numa segunda coluna. Ver a nota de
-    # retenção em doc 25 §11.3.
-    store_action_inputs? false
-    ignore_attributes [:inserted_at, :updated_at]
-
-    # `clinic_id` PRECISA ser coluna real na tabela de versões: é o que a RLS filtra. Sem
-    # isto ele ficaria enterrado no mapa `changes` e a tabela de versões seria um buraco por
-    # fora do isolamento por clínica — com o histórico inteiro dentro (doc 25 §11.2).
-    attributes_as_attributes [:clinic_id, :professional_id, :starts_at, :status]
-
-    # `on_delete: :nilify` (H64, Onda 5): o default do AshPaperTrail é `:nothing`, que faz a
-    # trilha **travar** o `DELETE` do usuário — a versão guarda quem mexeu, e é justamente o
-    # registro que a eliminação da LGPD (F8) precisará apagar. Perder o vínculo com o ator não
-    # apaga a versão: o diff continua lá, só sem o `belongs_to` resolvendo o nome.
-    belongs_to_actor :user, Api.Accounts.User, domain: Api.Accounts, on_delete: :nilify
-
-    # O recurso de versão nasceria SEM authorizer — e `authorize?: true` sobre ele seria um
-    # no-op, a porta dos fundos da A7. As duas opções abaixo são do DSL do AshPaperTrail:
-    # `version_extensions` injeta o authorizer no `use Ash.Resource` gerado, `mixin` injeta no
-    # corpo dele as policies (ler é owner·admin; escrever, ninguém) E a leitura paginada
-    # `:audit_log` da tela de auditoria (§11.4). Ver `Api.Scheduling.TrailMixin`.
-    version_extensions authorizers: [Ash.Policy.Authorizer]
-    mixin Api.Scheduling.TrailMixin
-
-    # Achado (c) do doc 26: com a FK padrão (`version_source_id` → `appointments`, sem
-    # `ON DELETE`), apagar um agendamento estourava
-    # `violates foreign key constraint "appointments_versions_version_source_id_fkey"` — a
-    # trilha tornava o agendamento **indeletável**. Não morde na Entrega 1 (não há destroy, por
-    # decisão), mas é o mecanismo concreto pelo qual um pedido de exclusão não se resolve.
-    #
-    # `false` é a saída que o próprio AshPaperTrail documenta para "allowing actual deletion of
-    # data", e é a que preserva o histórico: a versão sobrevive órfã em vez de ser levada junto
-    # por um cascade. Trilha que some quando o registro some não é trilha — e o doc 26 §6
-    # registra um apagamento acidental de linhas de versão justamente para não repetir isso.
-    reference_source? false
-  end
 
   actions do
     defaults [:read]
@@ -487,6 +443,20 @@ defmodule Api.Scheduling.Appointment do
     # A-D6: coluna denormalizada para exibir "criado por" sem consultar a trilha. A trilha
     # continua sendo a autoridade sobre o histórico.
     change relate_actor(:created_by, allow_nil?: true), on: [:create]
+
+    # A trilha (doc 63). Substitui o `AshPaperTrail`, que saiu daqui junto com o
+    # `Api.Scheduling.TrailMixin`: a trilha deixou de ser uma tabela de versões por recurso e
+    # passou a ser `audit_events`, uma linha por evento de qualquer um dos doze recursos.
+    # As linhas já gravadas em `appointments_versions` foram migradas (doc 63 §4).
+    change {
+             Api.Audit.Capture,
+             # `ends_at` é derivado (`starts_at` + duração do tipo) e dobraria a linha de todo
+             # remarcar; `pkg_hold` é gancho interno da série, não decisão de ninguém.
+             resource: :appointment,
+             meta: [:professional_id, :appointment_type_id, :starts_at, :status],
+             ignore: [:ends_at, :pkg_hold]
+           },
+           on: [:create, :update, :destroy]
   end
 
   validations do

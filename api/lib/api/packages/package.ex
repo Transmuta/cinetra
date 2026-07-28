@@ -134,6 +134,16 @@ defmodule Api.Packages.Package do
 
   changes do
     change Api.Tenancy.SetTenantGuc
+
+    # A trilha (doc 63). Pausar, cancelar e retomar mudam o que o paciente tem direito a
+    # receber. Dano contido em relação aos demais (o pacote é parcialmente reconstituível pelas
+    # `Attendance` que ele materializa, que também são auditadas), mas é escrita de negócio e
+    # entra pela mesma porta.
+    change {Api.Audit.Capture,
+            resource: :package,
+            label: :nome,
+            meta: [:patient_id, :appointment_type_id, :status, :total]},
+           on: [:create, :update, :destroy]
   end
 
   multitenancy do

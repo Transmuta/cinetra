@@ -133,6 +133,12 @@ defmodule Api.Waitlist.WaitlistEntry do
 
   changes do
     change Api.Tenancy.SetTenantGuc
+
+    # A trilha (doc 63). A fila tem prioridade e `obs` operacional — quem subiu alguém na fila
+    # é a pergunta que a recepção faz, e é a mesma classe do `obs` do agendamento (A-D7).
+    change {Api.Audit.Capture,
+            resource: :waitlist_entry, meta: [:patient_id, :prio, :professional_ids]},
+           on: [:create, :update, :destroy]
   end
 
   multitenancy do

@@ -152,6 +152,16 @@ defmodule Api.Directory.Professional do
     # Toda escrita seta a GUC de tenant dentro da própria transação: sem ela a RLS barra o
     # INSERT/UPDATE no servidor real (NOBYPASSRLS). Ver o moduledoc do change.
     change Api.Tenancy.SetTenantGuc
+
+    # A trilha (doc 63). Os dados bancários (`banco`, `agencia`, `conta`, `pix`) e `cpf`/`rg`/
+    # `cnpj` entram REDIGIDOS (`Api.Audit.Sensiveis`, D-Aud4).
+    #
+    # É o caso que o `06 §4` cita nominalmente ("alterar dados bancários do profissional") e o
+    # único campo do sistema onde a alteração tem efeito financeiro direto — o repasse cai em
+    # outra conta. "Quem trocou o PIX" passa a ser respondível; "para qual conta", não, e essa
+    # troca é a D-Aud4.
+    change {Api.Audit.Capture, resource: :professional, label: [:nome_exibicao, :nome]},
+      on: [:create, :update, :destroy]
   end
 
   # Por-tenant por atributo: o tenant é o `clinic_id`. Toda ação exige o tenant no

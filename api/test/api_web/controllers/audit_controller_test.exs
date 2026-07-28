@@ -19,7 +19,11 @@ defmodule ApiWeb.AuditControllerTest do
     {:ok, clinic} =
       Accounts.onboard_clinic("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
 
-    prof = Directory.create_professional!("Dra. Bea", %{}, tenant: clinic.id, actor: owner)
+    prof =
+      Directory.create_professional!("Dra. Bea", %{tel: Api.Generators.telefone_unico()},
+        tenant: clinic.id,
+        actor: owner
+      )
 
     tipo =
       Directory.create_appointment_type!(
@@ -33,7 +37,12 @@ defmodule ApiWeb.AuditControllerTest do
         actor: owner
       )
 
-    paciente = Records.create_patient!("Caio", %{}, tenant: clinic.id, actor: owner)
+    paciente =
+      Records.create_patient!("Caio", %{tel: Api.Generators.telefone_unico()},
+        tenant: clinic.id,
+        actor: owner
+      )
+
     scope = scope_for(owner, clinic)
 
     {:ok, appt} =
@@ -69,19 +78,26 @@ defmodule ApiWeb.AuditControllerTest do
 
       body = json_response(conn, 200)
       assert %{"entries" => entries, "page" => page} = body
-      assert length(entries) == 3
-      # Sem `total` no corpo: a trilha não paga `COUNT(*)` por request (D-Aud1).
+
+      # Sem `?resource=`, o feed é da CLÍNICA INTEIRA (doc 63, D-Aud3) — não mais só a agenda.
+      # É a pergunta que o modelo anterior não respondia; por isso a fixture (que mexe em
+      # clínica, profissional, paciente, tipo e agenda) rende mais que as 3 versões do bloco.
+      recursos = entries |> Enum.map(& &1["resource"]) |> Enum.uniq()
+      assert "appointment" in recursos
+      assert "attendance" in recursos
+
+      # **Sem `total` no corpo** (D-Aud1): medido em 265× o custo da própria página, ~99% do
+      # tempo de banco da request. O `more` é exato e é o que habilita a paginação.
       refute Map.has_key?(page, "total")
       assert page["more"] == false
 
-      # A entrada mais recente é o cancelamento: quem · quando · ação · registro · diff.
-      [first | _] = entries
-      assert first["resource"] == "appointment"
-      assert first["action"] == "cancel"
-      assert first["actor"]["nome"] == ctx.owner.nome
-      assert first["professional"]["nome"] == "Dra. Bea"
-      assert is_binary(first["at"])
-      assert Enum.any?(first["diff"], &(&1["field"] == "status" and &1["to"] == "cancelado"))
+      # Quem · quando · ação · registro · diff, na entrada do cancelamento.
+      cancel = Enum.find(entries, &(&1["action"] == "cancel"))
+      assert cancel["resource"] == "appointment"
+      assert cancel["actor"]["nome"] == ctx.owner.nome
+      assert cancel["professional"]["nome"] == "Dra. Bea"
+      assert is_binary(cancel["at"])
+      assert Enum.any?(cancel["diff"], &(&1["field"] == "status" and &1["to"] == "cancelado"))
     end
 
     test "admin também lê", %{conn: conn} do
@@ -90,6 +106,28 @@ defmodule ApiWeb.AuditControllerTest do
 
       conn = conn |> authed(admin) |> get("/api/audit")
       assert %{"entries" => [_ | _]} = json_response(conn, 200)
+    end
+
+    # Bate-volta (causa C3): o 403 é registrado pelo `TenantScope.forbidden/1`, que é o ponto por
+    # onde TODO 403 do projeto passa. Este teste atravessa o pipeline do Router de verdade — é a
+    # única forma de provar a fiação, porque o domínio sozinho não passa por ali.
+    #
+    # A dedup **não existia**: `record_id` é nulo em `:seguranca` e a guarda curto-circuitava,
+    # então cada resposta negada virava uma linha (medido: 100 requests → 100 linhas). Um cliente
+    # em laço afogava o sinal que a trilha existe para dar.
+    test "403 repetido não vira uma linha por request na trilha" do
+      ctx = fixture()
+      recepcao = sessao_de_membro!(ctx.owner, ctx.clinic, :recepcao)
+
+      for _ <- 1..5 do
+        assert build_conn() |> authed(recepcao) |> get("/api/audit") |> json_response(403)
+      end
+
+      scope = scope_for(ctx.owner, ctx.clinic)
+      %{entries: entries} = Api.Audit.list_events(scope, resource: :seguranca)
+
+      assert [evento] = entries
+      assert evento.label == "/api/audit"
     end
 
     test "recepção recebe 403 (não lista vazia)", %{conn: conn} do
@@ -139,10 +177,14 @@ defmodule ApiWeb.AuditControllerTest do
       conn = conn |> authed(ctx.owner) |> get("/api/audit?resource=attendance")
 
       assert [entry | _] = json_response(conn, 200)["entries"]
-      assert entry["appointment_id"] == ctx.appt.id
-      # O agendamento foi remarcado para 12:00 — o contexto reflete o estado ATUAL do bloco.
-      assert entry["starts_at"] == "2026-07-20T12:00:00Z"
-      assert entry["professional"]["nome"] == "Dra. Bea"
+
+      # O contexto do participante viaja em `meta` (doc 63): `appointment_id` para o link "ver na
+      # agenda" e `session_starts_at` — o espelho denormalizado do horário do bloco (doc 43) —
+      # para a linha dizer DE QUAL sessão se fala. O modelo anterior fazia duas leituras a mais
+      # por página para descobrir os dois; agora eles são gravados junto com o evento.
+      assert entry["meta"]["appointment_id"] == ctx.appt.id
+      assert is_binary(entry["meta"]["session_starts_at"])
+      assert entry["patient"]["nome"] == "Caio"
     end
 
     # A whitelist de `parse_action` decide o que é filtrável; nome fora dela vira filtro **nulo**
@@ -184,6 +226,42 @@ defmodule ApiWeb.AuditControllerTest do
                "filtro action=#{acao} (#{recurso}) foi ignorado: voltou " <>
                  inspect(Enum.map(entries, & &1["action"]) |> Enum.uniq())
       end
+    end
+
+    # A whitelist de `parse_action` **deixou de existir** (doc 63). Ela era mantida à mão e
+    # falhava em silêncio: nome fora dela virava filtro `nil` — o feed inteiro voltava com 200 e
+    # quem filtrou não percebia. O bate-volta provou que ela estava desprotegida (reduzi-la de 20
+    # nomes para dois deixou os 1177 testes verdes), e nasceu já sem dez nomes que o banco tinha.
+    #
+    # Em `audit_events` a coluna `action` é TEXTO: o filtro é comparação de string, e nome
+    # desconhecido devolve **vazio** — a resposta honesta — em vez do feed inteiro. É o que este
+    # teste trava, e é uma garantia mais forte que a lista era capaz de dar.
+    test "ação desconhecida devolve VAZIO, não o feed inteiro", %{conn: conn} do
+      ctx = fixture()
+      conn = conn |> authed(ctx.owner) |> get("/api/audit?action=acao_que_nunca_existiu")
+
+      assert %{"entries" => []} = json_response(conn, 200)
+    end
+
+    # A lista fechada que SOBROU é a de recursos — e essa é o enum do próprio recurso, não uma
+    # lista digitada. Valor fora dela é 422, e não filtro nulo: um `?resource=pacinete` que
+    # devolvesse o feed inteiro repetiria exatamente o erro da whitelist de ações.
+    test "resource desconhecido é 422 (não o feed inteiro sem filtro)", %{conn: conn} do
+      ctx = fixture()
+      conn = conn |> authed(ctx.owner) |> get("/api/audit?resource=pacinete")
+
+      assert json_response(conn, 422)
+    end
+
+    test "resource aceita vários, separados por vírgula", %{conn: conn} do
+      ctx = fixture()
+
+      conn =
+        conn |> authed(ctx.owner) |> get("/api/audit?resource=appointment,attendance")
+
+      assert %{"entries" => entries} = json_response(conn, 200)
+      assert entries != []
+      assert Enum.all?(entries, &(&1["resource"] in ["appointment", "attendance"]))
     end
 
     test "filtra por uma ação que não estava na whitelist original", %{conn: conn} do
@@ -253,7 +331,7 @@ defmodule ApiWeb.AuditControllerTest do
       amanha = Date.add(hoje, 1)
 
       conn = conn |> authed(ctx.owner) |> get("/api/audit?from=#{ontem}&to=#{amanha}")
-      assert %{"entries" => [_, _, _]} = json_response(conn, 200)
+      assert %{"entries" => [_ | _]} = json_response(conn, 200)
 
       # Uma janela no passado distante não vê nada — a conversão local→UTC segurou a borda.
       conn2 = build_conn() |> authed(ctx.owner) |> get("/api/audit?from=2020-01-01&to=2020-01-02")

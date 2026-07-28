@@ -2,7 +2,8 @@ defmodule Api.Records do
   @moduledoc """
   Domínio dos cadastros de paciente da clínica — recursos **por-tenant** por atributo
   (`strategy :attribute` sobre `clinic_id`, ADR-017): `Patient` (a ficha cadastral da v1),
-  `Attachment` (anexos) e `AttachmentEvent` (a trilha de acesso a eles).
+  `Attachment` (anexos). A trilha de acesso a eles mora em `Api.Audit` desde o doc 63 —
+  era um recurso próprio aqui (`AttachmentEvent`) que nenhuma rota expunha.
 
   `ClinicalTag` cifrado e `Consent` versionado seguem em v2 (D16). **`Attachment` saiu do v2**
   em 2026-07-27 — o ADR-013 o listava explicitamente entre os adiados, e a emenda está no
@@ -45,11 +46,6 @@ defmodule Api.Records do
       define :confirm_attachment_row, action: :confirm
       define :rename_attachment_row, action: :rename
       define :destroy_attachment_row, action: :destroy
-    end
-
-    resource Api.Records.AttachmentEvent do
-      define :list_attachment_events, action: :read
-      define :create_attachment_event, action: :create
     end
   end
 
@@ -398,14 +394,17 @@ defmodule Api.Records do
     end
   end
 
-  @doc "A trilha de um anexo (owner/admin) — quem tocou, o quê e quando."
+  @doc """
+  A trilha de um anexo (owner/admin) — quem tocou, o quê e quando.
+
+  Delega para `Api.Audit`: a trilha do anexo deixou de ser uma tabela própria (doc 63). Fica como
+  atalho nomeado porque "o histórico deste anexo" é uma pergunta da ficha, não do feed.
+  """
   def list_clinic_attachment_events(%Api.Scope{} = scope, attachment_id) do
-    in_clinic(scope, fn ->
-      list_attachment_events!(
-        scope: scope,
-        query: [filter: [attachment_id: attachment_id], sort: [inserted_at: :desc]]
-      )
-    end)
+    %{entries: entries} =
+      Api.Audit.list_events(scope, resource: :attachment, record_id: attachment_id)
+
+    entries
   end
 
   # ---- interno ----
@@ -451,21 +450,13 @@ defmodule Api.Records do
     {:error, motivo}
   end
 
-  defp registrar_evento(scope, acao, anexo) do
-    create_attachment_event(evento(scope, acao, anexo), scope: scope, authorize?: false)
-  end
+  # A trilha do anexo mora em `audit_events` desde o doc 63 — a mesma tabela do resto do
+  # sistema, e por isso a mesma tela. Antes era `Api.Records.AttachmentEvent`, uma tabela de
+  # eventos própria: o desenho estava certo (PaperTrail não registra leitura), mas ela **não
+  # tinha rota nenhuma** — o `:visualizou` era gravado a cada download e a resposta a "quem leu
+  # o laudo da Maria?" só saía por `psql`.
+  defp registrar_evento(scope, acao, anexo), do: Api.Audit.Acesso.anexo_tocado(scope, acao, anexo)
 
-  defp registrar_evento!(scope, acao, anexo) do
-    create_attachment_event!(evento(scope, acao, anexo), scope: scope, authorize?: false)
-  end
-
-  defp evento(%Api.Scope{user: user}, acao, anexo) do
-    %{
-      acao: acao,
-      attachment_id: anexo.id,
-      patient_id: anexo.patient_id,
-      user_id: user && user.id,
-      nome: anexo.nome
-    }
-  end
+  defp registrar_evento!(scope, acao, anexo),
+    do: Api.Audit.Acesso.anexo_tocado(scope, acao, anexo)
 end

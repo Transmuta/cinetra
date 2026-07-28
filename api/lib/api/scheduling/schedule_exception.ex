@@ -78,6 +78,15 @@ defmodule Api.Scheduling.ScheduleException do
     prepare build(sort: [data: :asc])
   end
 
+  changes do
+    # A trilha (doc 63). Feriado da clínica e folga de profissional mudam a disponibilidade de
+    # um dia inteiro; o `destroy` (desfazer a exceção) é tão auditável quanto o create, e é por
+    # isso que o `on:` inclui `:destroy` — o default do Ash o omitiria.
+    change {Api.Audit.Capture,
+            resource: :schedule_exception, label: :nome, meta: [:data, :tipo, :professional_id]},
+           on: [:create, :update, :destroy]
+  end
+
   validations do
     # `periods` coerente com o `tipo` (horário exige períodos; fechado não tem), e a forma dos
     # períodos. Ver `ExceptionPeriods`.

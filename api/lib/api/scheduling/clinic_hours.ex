@@ -68,6 +68,15 @@ defmodule Api.Scheduling.ClinicHours do
     prepare build(sort: [dow: :asc])
   end
 
+  changes do
+    # A trilha (doc 63). Mudar o expediente **reescreve o que é conflito e o que é fora de
+    # expediente** para a clínica inteira, e o motor de pacotes trata fora-de-expediente como
+    # bloqueio absoluto (D14). Uma materialização "que deu errado" quase sempre é uma mudança de
+    # expediente que ninguém lembra de ter feito — e sem trilha a conversa não tinha prova.
+    change {Api.Audit.Capture, resource: :clinic_hours, meta: [:dow]},
+      on: [:create, :update, :destroy]
+  end
+
   validations do
     validate {Api.Scheduling.Validations.ValidPeriods, attribute: :periods}, on: [:create]
   end

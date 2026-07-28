@@ -81,7 +81,8 @@ config :api,
     Api.Waitlist,
     Api.Packages,
     Api.Notifications,
-    Api.Messaging
+    Api.Messaging,
+    Api.Audit
   ],
   ash_authentication: [return_error_on_invalid_magic_link_token?: true]
 
@@ -135,9 +136,15 @@ config :api, Api.Notifications.SessionSoonJob, antecedencia_min: 15
 # trabalho pendente — ver `Api.Housekeeping.PruneNotifications`. Mudar aqui é decisão humana.
 config :api, Api.Housekeeping.PruneNotifications, reter_lidas_dias: 90, reter_dias: 365
 
-# Quanto tempo a trilha de auditoria fica. Decisão humana (doc 43 §5f): um ano cobre o horizonte
-# que a tela `/configuracoes/auditoria` serve. Aumentar é trocar este número.
-config :api, Api.Housekeeping.PruneTrail, reter_dias: 365
+# Quanto tempo a trilha de auditoria fica. **90 dias** (D-Aud5, doc 63), revogando os 365 do doc
+# 43 §5f: com doze recursos auditados a trilha passou a ser a tabela que mais cresce, e a maior
+# parte do que ela guarda nunca é lida.
+#
+# A consequência está registrada para a revisão com o jurídico: 90 dias vale igual para "quem teve
+# acesso administrativo" e "quem leu o laudo", que são os registros que uma auditoria externa
+# costuma pedir de anos anteriores. Por isso o número mora em `Api.Audit.retencao_dias/0` e esta
+# linha é só o override — mudar a retenção é editar um número, não caçar constantes.
+config :api, Api.Audit, retencao_dias: 90
 
 # Magic link sem página de interação: o callback GET assina a sessão direto (09 §8).
 config :ash_authentication, bypass_require_interaction_for_magic_link?: true

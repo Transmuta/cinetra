@@ -74,6 +74,14 @@ defmodule Api.Scheduling.ProfessionalHours do
     prepare build(sort: [dow: :asc])
   end
 
+  changes do
+    # A trilha (doc 63). A grade do profissional é o outro lado do expediente: `modo`
+    # (herda/custom/fechado) decide se o dia dele existe na agenda.
+    change {Api.Audit.Capture,
+            resource: :professional_hours, meta: [:professional_id, :dow, :modo]},
+           on: [:create, :update, :destroy]
+  end
+
   validations do
     validate {Api.Scheduling.Validations.ProfessionalDayPeriods, []}, on: [:create]
   end

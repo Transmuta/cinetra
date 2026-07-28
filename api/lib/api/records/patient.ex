@@ -175,6 +175,17 @@ defmodule Api.Records.Patient do
     # INSERT/UPDATE no servidor real (NOBYPASSRLS). O change é compartilhado pelos três
     # domínios por-tenant — mora em `Api.Tenancy`, que é de ninguém.
     change Api.Tenancy.SetTenantGuc
+
+    # A trilha (doc 63). Vale para create/update/deactivate/reactivate — toda escrita na ficha.
+    # `cpf` e `rg` entram REDIGIDOS (`Api.Audit.Sensiveis`, D-Aud4): a linha diz que o campo
+    # mudou e quem mudou, não para qual valor.
+    #
+    # O que isto destrava, e não era possível antes: o **consentimento** (`lgpd`, `comunicacao`)
+    # é um booleano nesta tabela, e o `06 §4` cobra "concessão e revogação" pelo nome. Sem trilha
+    # existia só o valor atual — um `false → true` era indistinguível de nunca ter sido tocado,
+    # que é justamente o que se apresenta para provar a base legal.
+    change {Api.Audit.Capture, resource: :patient, label: :nome},
+      on: [:create, :update, :destroy]
   end
 
   # Por-tenant por atributo: o tenant é o `clinic_id`. Toda ação exige o tenant no escopo; o

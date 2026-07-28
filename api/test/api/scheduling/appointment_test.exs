@@ -133,7 +133,10 @@ defmodule Api.Scheduling.AppointmentTest do
       {:ok, _} = schedule(ctx, %{})
 
       outro =
-        Directory.create_professional!("Dr. Y", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+        Directory.create_professional!("Dr. Y", %{tel: Api.Generators.telefone_unico()},
+          tenant: ctx.clinic.id,
+          actor: ctx.owner
+        )
 
       assert {:ok, _} = schedule(ctx, %{professional_id: outro.id})
     end
@@ -193,7 +196,10 @@ defmodule Api.Scheduling.AppointmentTest do
       {:ok, _} = schedule(ctx, %{})
 
       outro =
-        Directory.create_professional!("Dr. Y", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+        Directory.create_professional!("Dr. Y", %{tel: Api.Generators.telefone_unico()},
+          tenant: ctx.clinic.id,
+          actor: ctx.owner
+        )
 
       {:ok, _} = schedule(ctx, %{professional_id: outro.id, starts_at: at("10:00")})
 
@@ -246,7 +252,10 @@ defmodule Api.Scheduling.AppointmentTest do
       ctx = setup_clinic()
 
       colega =
-        Directory.create_professional!("Dr. Y", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+        Directory.create_professional!("Dr. Y", %{tel: Api.Generators.telefone_unico()},
+          tenant: ctx.clinic.id,
+          actor: ctx.owner
+        )
 
       scope = escopo_de_membro!(ctx, :profissional, ctx.prof.id)
 
@@ -299,7 +308,10 @@ defmodule Api.Scheduling.AppointmentTest do
       {:ok, _} = schedule(ctx, %{})
 
       colega =
-        Directory.create_professional!("Dr. Y", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+        Directory.create_professional!("Dr. Y", %{tel: Api.Generators.telefone_unico()},
+          tenant: ctx.clinic.id,
+          actor: ctx.owner
+        )
 
       {:ok, _} = schedule(ctx, %{professional_id: colega.id, starts_at: at("10:00")})
 
@@ -338,7 +350,10 @@ defmodule Api.Scheduling.AppointmentTest do
       {:ok, _} = schedule(ctx, %{})
 
       colega =
-        Directory.create_professional!("Dr. Y", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+        Directory.create_professional!("Dr. Y", %{tel: Api.Generators.telefone_unico()},
+          tenant: ctx.clinic.id,
+          actor: ctx.owner
+        )
 
       {:ok, _} = schedule(ctx, %{professional_id: colega.id, starts_at: at("10:00")})
 
@@ -551,8 +566,8 @@ defmodule Api.Scheduling.AppointmentTest do
       {:ok, _} =
         schedule(ctx, %{appointment_type_id: turma.id, patient_ids: [novo_paciente(ctx).id]})
 
-      versions = Scheduling.list_attendance_versions!(tenant: ctx.clinic.id, authorize?: false)
-      assert [_, _] = versions
+      %{entries: entries} = Api.Audit.list_events(ctx.scope, resource: :attendance)
+      assert [_, _] = entries
     end
   end
 
@@ -712,120 +727,31 @@ defmodule Api.Scheduling.AppointmentTest do
     end
   end
 
+  # A trilha deixou de ser uma tabela de versões por recurso (`AshPaperTrail`) e passou a ser
+  # `audit_events` — uma linha por evento de qualquer um dos doze recursos (doc 63). O grosso do
+  # que este bloco afirmava mudou de casa para `test/api/audit/audit_log_test.exs`; o que fica
+  # aqui é o que é sobre o AGENDAMENTO: que agendar deixa rastro com ação e autor, e que o
+  # participante deixa o seu.
   describe "trilha de auditoria (A-D6c)" do
-    test "criar um agendamento grava uma versão com a ação e o autor" do
+    test "criar um agendamento grava um evento com a ação e o autor" do
       ctx = setup_clinic()
       {:ok, appt} = schedule(ctx, %{})
 
-      versions =
-        Scheduling.list_appointment_versions!(
-          tenant: ctx.clinic.id,
-          authorize?: false,
-          query: [filter: [version_source_id: appt.id]]
-        )
+      %{entries: entries} =
+        Api.Audit.list_events(ctx.scope, resource: :appointment, record_id: appt.id)
 
-      assert [version] = versions
-      assert version.version_action_name == :schedule
-      assert version.user_id == ctx.owner.id
-      assert version.clinic_id == ctx.clinic.id
+      assert [evento] = entries
+      assert evento.action == "schedule"
+      assert evento.action_type == :create
+      assert evento.actor.id == ctx.owner.id
     end
 
-    test "a versão de Attendance também é gravada (A-D14)" do
+    test "o participante também gera evento (A-D14)" do
       ctx = setup_clinic()
       {:ok, _appt} = schedule(ctx, %{})
 
-      versions =
-        Scheduling.list_attendance_versions!(tenant: ctx.clinic.id, authorize?: false)
-
-      assert [_] = versions
-    end
-
-    # O recurso `*.Version` nasce SEM authorizer, o que torna `authorize?: true` um no-op —
-    # era a porta dos fundos da A7. Nota sobre a forma do resultado: leitura barrada por
-    # policy devolve `{:ok, []}`, não `Forbidden` (o default do Ash é aplicar a policy como
-    # filtro, `return_forbidden_error?: false`). O que se afirma aqui é o que importa: nenhuma
-    # linha da trilha atravessa.
-    test "a trilha é owner·admin: profissional NÃO lê versão (§11.4)" do
-      ctx = setup_clinic()
-      {:ok, _appt} = schedule(ctx, %{})
-
-      user = escopo_de_membro!(ctx, :profissional, ctx.prof.id).user
-
-      for ler <- [
-            &Scheduling.list_appointment_versions/1,
-            &Scheduling.list_attendance_versions/1
-          ] do
-        assert {:ok, []} = ler.(tenant: ctx.clinic.id, actor: user, authorize?: true)
-      end
-    end
-
-    test "recepção também NÃO lê a trilha" do
-      ctx = setup_clinic()
-      {:ok, _appt} = schedule(ctx, %{})
-
-      user = escopo_de_membro!(ctx, :recepcao).user
-
-      assert {:ok, []} =
-               Scheduling.list_appointment_versions(
-                 tenant: ctx.clinic.id,
-                 actor: user,
-                 authorize?: true
-               )
-    end
-
-    test "owner lê a trilha" do
-      ctx = setup_clinic()
-      {:ok, _appt} = schedule(ctx, %{})
-
-      assert {:ok, [_]} =
-               Scheduling.list_appointment_versions(
-                 tenant: ctx.clinic.id,
-                 actor: ctx.owner,
-                 authorize?: true
-               )
-    end
-
-    test "a trilha é imutável pela aplicação: nem owner escreve nela" do
-      ctx = setup_clinic()
-      {:ok, appt} = schedule(ctx, %{})
-
-      [version] =
-        Scheduling.list_appointment_versions!(tenant: ctx.clinic.id, authorize?: false)
-
-      # Input completo de propósito: um changeset inválido pararia nas validações e nunca
-      # chegaria à policy — o teste passaria sem provar nada.
-      forjado = %{
-        version_source_id: appt.id,
-        version_action_type: :update,
-        version_action_name: :schedule,
-        starts_at: appt.starts_at,
-        professional_id: appt.professional_id,
-        status: :cancelado,
-        changes: %{}
-      }
-
-      assert {:error, %Ash.Error.Forbidden{}} =
-               Api.Scheduling.Appointment.Version
-               |> Ash.Changeset.for_create(:create, forjado,
-                 tenant: ctx.clinic.id,
-                 actor: ctx.owner,
-                 authorize?: true
-               )
-               |> Ash.create()
-
-      assert {:error, %Ash.Error.Forbidden{}} =
-               version
-               |> Ash.Changeset.for_update(:update, %{status: :cancelado},
-                 tenant: ctx.clinic.id,
-                 actor: ctx.owner,
-                 authorize?: true
-               )
-               |> Ash.update()
-
-      # Apagar versão nem ação tem: o AshPaperTrail gera só `read`/`create`/`update` no
-      # recurso de versão. Registrado como asserção para que ganhar um `:destroy` no futuro
-      # (por default novo do pacote, por exemplo) não passe calado.
-      assert Ash.Resource.Info.action(Api.Scheduling.Appointment.Version, :destroy) == nil
+      %{entries: entries} = Api.Audit.list_events(ctx.scope, resource: :attendance)
+      assert [_] = entries
     end
   end
 
@@ -1081,10 +1007,10 @@ defmodule Api.Scheduling.AppointmentTest do
 
       refute is_nil(stamp)
 
-      # ...e a trilha registrou o "excluir" (a versão sobrevive; a tela de auditoria a lê).
+      # ...e a trilha registrou o "excluir" (o evento sobrevive; a tela de auditoria o lê).
       assert %{rows: [[n]]} =
                Api.Repo.query!(
-                 "SELECT count(*) FROM appointments_versions WHERE version_source_id = $1 AND version_action_name = 'exclude'",
+                 "SELECT count(*) FROM audit_events WHERE record_id = $1 AND action = 'exclude'",
                  [Ecto.UUID.dump!(appt.id)]
                )
 
@@ -1200,7 +1126,10 @@ defmodule Api.Scheduling.AppointmentTest do
       ctx = setup_clinic()
 
       colega =
-        Directory.create_professional!("Dr. Colega", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+        Directory.create_professional!("Dr. Colega", %{tel: Api.Generators.telefone_unico()},
+          tenant: ctx.clinic.id,
+          actor: ctx.owner
+        )
 
       appt = agendado(ctx)
 
@@ -1483,7 +1412,10 @@ defmodule Api.Scheduling.AppointmentTest do
       ctx = setup_clinic()
 
       colega =
-        Directory.create_professional!("Dr. Y", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+        Directory.create_professional!("Dr. Y", %{tel: Api.Generators.telefone_unico()},
+          tenant: ctx.clinic.id,
+          actor: ctx.owner
+        )
 
       for hhmm <- ~w(08:00 09:00 10:00) do
         {:ok, _} = schedule(ctx, %{starts_at: at(hhmm)})
