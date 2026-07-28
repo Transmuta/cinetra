@@ -28,9 +28,15 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
 const raiz = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const svg = readFileSync(`${raiz}/src/lib/assets/favicon.svg`, 'utf8')
-	// O arquivo traz `width`/`height` fixos (272×265) que venceriam o tamanho do container.
-	.replace(/\s(width|height)="[^"]*"/g, '');
+
+/** Tira `width`/`height` fixos do SVG — senão vencem o tamanho do container e o ícone sai torto. */
+const semDimensoes = (caminho) =>
+	readFileSync(caminho, 'utf8').replace(/\s(width|height)="[^"]*"/g, '');
+
+const svg = semDimensoes(`${raiz}/src/lib/assets/favicon.svg`);
+// O wordmark mora em `interface/`, que é a especificação de origem da marca (ADR-001) e é
+// versionado. Ler de lá, e não recortar de `Logo.svelte`, evita uma terceira cópia dos paths.
+const wordmark = semDimensoes(`${raiz}/../interface/uploads/cinetra-logo.svg`);
 
 const PAPEL = '#F6F4EF';
 
@@ -60,6 +66,26 @@ for (const { arquivo, lado, escala } of ICONES) {
 	await pagina.screenshot({ path: `${raiz}/static/${arquivo}`, omitBackground: false });
 	await pagina.close();
 	console.log(`${arquivo}  ${lado}×${lado}  marca a ${Math.round(escala * 100)}%`);
+}
+
+// O logo da `Organization` do JSON-LD — é o WORDMARK, não o símbolo: quem o consome é o painel
+// de conhecimento do Google, que mostra a marca para alguém que ainda não a reconhece. Fundo
+// opaco pela mesma razão dos ícones. Retangular, e bem acima do mínimo de 112px que o Google pede.
+{
+	const [largura, altura] = [1024, 360];
+	const pagina = await navegador.newPage({ viewport: { width: largura, height: altura } });
+	await pagina.setContent(
+		`<!doctype html><html><head><meta charset="utf-8"><style>
+		   *{margin:0;padding:0}
+		   body{width:${largura}px;height:${altura}px;background:${PAPEL};
+		        display:grid;place-items:center;overflow:hidden}
+		   svg{width:${Math.round(largura * 0.84)}px;height:auto;display:block}
+		 </style></head><body>${wordmark}</body></html>`,
+		{ waitUntil: 'load' }
+	);
+	await pagina.screenshot({ path: `${raiz}/static/logo.png` });
+	await pagina.close();
+	console.log(`logo.png  ${largura}×${altura}  wordmark`);
 }
 
 await navegador.close();

@@ -44,16 +44,19 @@ describe('fiação de /entrar e /criar-conta', () => {
 	});
 
 	// As duas estão no sitemap (doc 57): sem canônica, `/entrar?erro=…` vira uma segunda URL da
-	// mesma página no índice.
-	it('os dois loads devolvem a canônica da própria página', async () => {
+	// mesma página no índice. A `origem` vai junto porque o `og:image` do `Seo.svelte` exige URL
+	// absoluta, e ela só existe no servidor.
+	it('os dois loads devolvem a canônica e a origem da própria página', async () => {
 		const visitante = (href: string) =>
 			({ fetch: vi.fn(), url: new URL(href), cookies: { get: () => undefined } }) as never;
 
 		expect(await entrarLoad(visitante('https://cinetra.app/entrar?erro=expirado'))).toEqual({
-			canonical: 'https://cinetra.app/entrar'
+			canonical: 'https://cinetra.app/entrar',
+			origem: 'https://cinetra.app'
 		});
 		expect(await criarContaLoad(visitante('https://cinetra.app/criar-conta'))).toEqual({
-			canonical: 'https://cinetra.app/criar-conta'
+			canonical: 'https://cinetra.app/criar-conta',
+			origem: 'https://cinetra.app'
 		});
 	});
 });

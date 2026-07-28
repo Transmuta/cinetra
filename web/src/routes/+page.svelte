@@ -4,6 +4,7 @@
 	import Logo from '$lib/components/Logo.svelte';
 	import Mark from '$lib/components/Mark.svelte';
 	import FlowArt from '$lib/components/cinetra/FlowArt.svelte';
+	import Seo from '$lib/components/Seo.svelte';
 	import { SITE, FAQ, jsonLd } from '$lib/seo';
 	import '$lib/styles/cinetra.css';
 
@@ -90,39 +91,20 @@
 		'font-size:14px;font-weight:600;padding:8px 18px;border-radius:9px;border:none;cursor:pointer;background:transparent;color:#5E594C';
 </script>
 
+<!-- Título, descrição, canônica e cards sociais: `Seo.svelte`, compartilhado com /entrar e
+     /criar-conta. `ogTitulo` é a manchete porque em card social vende-se a promessa. -->
+<Seo
+	titulo={SITE.titulo}
+	descricao={SITE.descricao}
+	canonical={data.canonical}
+	origem={data.origem}
+	ogTitulo={SITE.manchete}
+/>
+
 <svelte:head>
-	<title>{SITE.titulo}</title>
-	<meta name="description" content={SITE.descricao} />
-
-	<!-- Canônica: a landing é alcançável por `/` com toda sorte de `?utm_…` de campanha, e sem
-	     esta linha cada campanha vira uma URL concorrente da mesma página no índice. -->
-	<link rel="canonical" href={data.canonical} />
-
-	<!-- Cor da barra do browser no celular — o navy da marca, para a landing não abrir com uma
-	     faixa branca em cima do herói escuro. -->
-	<meta name="theme-color" content="#212A37" />
-
-	<!-- Open Graph (WhatsApp, Facebook, LinkedIn). O título aqui é a MANCHETE, não o título de
-	     busca: quem vê um card já veio pelo link, não por uma consulta — vende-se a promessa,
-	     não a palavra-chave. A imagem é gerada por `scripts/og-image.mjs`. -->
-	<meta property="og:type" content="website" />
-	<meta property="og:site_name" content={SITE.nome} />
-	<meta property="og:locale" content={SITE.locale} />
-	<meta property="og:url" content={data.canonical} />
-	<meta property="og:title" content={SITE.manchete} />
-	<meta property="og:description" content={SITE.descricao} />
-	<meta property="og:image" content={`${data.origem}/og.png`} />
-	<meta property="og:image:width" content="1200" />
-	<meta property="og:image:height" content="630" />
-	<meta property="og:image:alt" content="Cinetra: agenda e gestão para clínicas de fisioterapia" />
-
-	<meta name="twitter:card" content="summary_large_image" />
-	<meta name="twitter:title" content={SITE.manchete} />
-	<meta name="twitter:description" content={SITE.descricao} />
-	<meta name="twitter:image" content={`${data.origem}/og.png`} />
-
-	<!-- Dados estruturados (schema.org). Sem `aggregateRating`: ver a justificativa em
-	     `$lib/seo.ts` — declarar nota agregada sem review verificável é spam estrutural. -->
+	<!-- Dados estruturados (schema.org) — só a landing os tem. Sem `aggregateRating`: ver a
+	     justificativa em `$lib/seo.ts` — declarar nota agregada sem review verificável é spam
+	     estrutural. -->
 	{@html `<script type="application/ld+json">${JSON.stringify(jsonLd(data.origem)).replace(
 		/</g,
 		'\\u003c'

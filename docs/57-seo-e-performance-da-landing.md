@@ -138,6 +138,26 @@ vem com o Playwright (devDependency) e a Hanken de `node_modules`: nenhuma depen
 > em Arial e só se percebe olhando a imagem. A fonte vai embutida em base64. É o oposto exato da
 > regra do site (B1), e pela mesma razão de sempre: ali há origem para cruzar, aqui não.
 
+### O `<head>` público num componente só
+
+As tags nasceram inline na landing e, quando `/entrar` e `/criar-conta` também precisaram delas,
+viraram [`Seo.svelte`](../web/src/lib/components/Seo.svelte). São ~15 tags × 3 páginas: copiadas,
+divergem calado — a que some é a que ninguém vê faltar, porque nada quebra. Só o card do WhatsApp
+fica sem imagem e a canônica aponta para outro lugar.
+
+`<svelte:head>` dentro de componente funciona (o SvelteKit iça o conteúdo para o `<head>` no SSR).
+O JSON-LD **não** entrou: é específico da landing, e enfiá-lo ali obrigaria a passar um objeto que
+só uma das três páginas usa.
+
+`ogTitulo` é prop separada do `titulo` porque as duas frases têm públicos diferentes: quem vê o
+`<title>` veio de uma consulta e precisa reconhecer o termo que digitou; quem vê o card já veio
+pelo link e precisa da promessa. A landing manda a manchete; `/criar-conta` manda a oferta
+("14 dias grátis na Cinetra, sem cartão de crédito"); `/entrar` não tem manchete e cai no título.
+
+> GOTCHA do Svelte 5: `const imagem = \`${origem}/og.png\`` acende `state_referenced_locally` —
+> `origem` é prop, e o `const` capturaria só o valor inicial. Vira `$derived`. O `svelte-check` é
+> gate de CI no projeto, então warning não passa.
+
 ### Ícone de app e manifest
 
 `apple-touch-icon.png` (180), `icon-192`, `icon-512`, `icon-maskable-512` e
@@ -389,13 +409,13 @@ E o toggle de cobrança ganhou `role="group"` + `aria-pressed`: sem isso o leito
   `app.css` mora no layout raiz. Movê-lo para o layout do `(app)` cortaria mais uns 30 KB da
   landing, mas mexe em todas as telas autenticadas e nas de auth por um ganho que, comprimido
   (~16 KB), não aparece na nota. Não vale o risco agora.
-* **OG nas páginas de autenticação.** `/entrar` e `/criar-conta` têm title, description e canônica,
-  mas nenhuma tag Open Graph: compartilhar `/criar-conta` — que é o alvo de todos os CTAs, e o que
-  iria num anúncio — gera card sem imagem. É o gap mais provável de doer.
-* **`logo` e `sameAs` na `Organization` do JSON-LD.** O Google usa `logo` no painel de
-  conhecimento; `sameAs` são os perfis sociais, que ainda não existem.
-* **`theme-color` só na landing**, e não no layout raiz — o shell interno tem tema claro/escuro, e
-  um navy fixo ali brigaria com o escuro.
+* **`sameAs` na `Organization`** — são os perfis sociais, que ainda não existem. Apontar para um
+  perfil que não é da empresa é pior do que não declarar dono nenhum.
+* **Card próprio para `/criar-conta`.** Hoje as três páginas compartilham `og.png`. Um card com a
+  oferta ("14 dias grátis, sem cartão") converteria melhor no destino dos anúncios — o `og:title`
+  já diz isso, a imagem ainda não.
+* **`theme-color` no shell interno.** As três páginas públicas passaram a ter (é do `Seo.svelte`),
+  mas o layout do `(app)` não: lá há tema claro/escuro, e um navy fixo brigaria com o escuro.
 * **`placeholder` dos formulários de auth** (`.cn-root input::placeholder`, `#B0AA9C` sobre branco
   = 2,31:1). É a mesma folha, mas é tela de autenticação, não a landing — conserto de uma linha
   para quando alguém mexer ali.

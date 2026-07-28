@@ -50,12 +50,15 @@ export async function redirectIfAuthenticated(event: RequestEvent): Promise<void
 	if (me) redirect(303, landingPath(me));
 }
 
-// O `load` das duas páginas de autenticação: a guarda acima mais a canônica que o `<head>`
-// precisa. As duas estão no sitemap (doc 57), e página listada no sitemap sem canônica é
-// convite a conteúdo duplicado — `/entrar?erro=…` e `/criar-conta` chegam com query.
-export async function loadAuthPage(event: RequestEvent): Promise<{ canonical: string }> {
+// O `load` das duas páginas de autenticação: a guarda acima mais o que o `<head>` precisa
+// (`Seo.svelte`). As duas estão no sitemap (doc 57), e página listada no sitemap sem canônica é
+// convite a conteúdo duplicado — `/entrar?erro=…` e `/criar-conta` chegam com query. A `origem`
+// vai junto porque o `og:image` exige URL absoluta, e ela só existe no servidor (vem do ORIGIN).
+export async function loadAuthPage(
+	event: RequestEvent
+): Promise<{ canonical: string; origem: string }> {
 	await redirectIfAuthenticated(event);
-	return { canonical: canonical(event.url) };
+	return { canonical: canonical(event.url), origem: event.url.origin };
 }
 
 // Action compartilhada por /entrar e /criar-conta: pede o magic link (ADR-015). O BFF só

@@ -3,17 +3,17 @@
 	import AuthForm from '$lib/components/AuthForm.svelte';
 	import type { PageData, ActionData } from './$types';
 
+	import Seo from '$lib/components/Seo.svelte';
+
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 </script>
 
-<svelte:head>
-	<title>Entrar · Cinetra</title>
-	<meta
-		name="description"
-		content="Acesse a agenda da sua clínica na Cinetra. Entrada por link mágico no e-mail ou pela conta Google — sem senha para lembrar."
-	/>
-	<link rel="canonical" href={data.canonical} />
-</svelte:head>
+<Seo
+	titulo="Entrar · Cinetra"
+	descricao="Acesse a agenda da sua clínica na Cinetra. Entrada por link mágico no e-mail ou pela conta Google, sem senha para lembrar."
+	canonical={data.canonical}
+	origem={data.origem}
+/>
 
 <AuthCard
 	title="Bem-vindo de volta"

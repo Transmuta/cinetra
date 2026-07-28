@@ -158,7 +158,12 @@ export function jsonLd(origem: string) {
 		'@id': `${origem}/#organizacao`,
 		name: SITE.nome,
 		url: `${origem}/`,
-		description: SITE.descricao
+		description: SITE.descricao,
+		// O WORDMARK (`scripts/icons.mjs` → `static/logo.png`), não o símbolo: quem consome este
+		// campo é o painel de conhecimento do Google, que mostra a marca a quem ainda não a
+		// reconhece. Sem `sameAs` — os perfis sociais não existem, e apontar para perfil que não
+		// é da empresa é pior do que não declarar dono nenhum.
+		logo: `${origem}/logo.png`
 	};
 
 	return {
