@@ -75,6 +75,32 @@ defmodule ApiWeb.MessagesControllerTest do
       assert Enum.any?(linhas, &(&1["mensagens"] != []))
     end
 
+    test "o motivo do provider chega traduzido — inglês na tela vira chamado de suporte", %{
+      ctx: ctx,
+      sessao: sessao
+    } do
+      paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
+      appt = agendamento!(ctx, paciente: paciente)
+      [message] = mensagens_do(ctx, appt)
+
+      Api.Tenancy.in_clinic(ctx.clinic.id, fn ->
+        Api.Messaging.do_advance_message!(
+          message,
+          %{novo_status: :falhou, erro: "mailbox does not exist"},
+          tenant: ctx.clinic.id,
+          authorize?: false
+        )
+      end)
+
+      %{"participantes" => [linha]} = get_json(sessao, appt)
+      [m] = linha["mensagens"]
+
+      # O cru continua disponível para o suporte investigar…
+      assert m["erro"] == "mailbox does not exist"
+      # …e o que a tela mostra é a AÇÃO, em português.
+      assert m["erroTexto"] =~ "confira o endereço na ficha"
+    end
+
     test "agendamento de outra clínica responde 404", %{sessao: sessao} do
       outra = clinica()
       appt = agendamento!(outra)
@@ -142,4 +168,13 @@ defmodule ApiWeb.MessagesControllerTest do
   end
 
   defp clinica_turma(ctx), do: Api.Generators.tipo!(ctx, grupo: true, capacidade: 4)
+
+  defp mensagens_do(ctx, appt) do
+    Api.Tenancy.in_clinic(ctx.clinic.id, fn ->
+      Api.Messaging.list_messages_for_appointment!(appt.id,
+        tenant: ctx.clinic.id,
+        authorize?: false
+      )
+    end)
+  end
 end

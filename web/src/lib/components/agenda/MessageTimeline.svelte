@@ -95,8 +95,8 @@
 									{#if m.automatico}
 										· automático
 									{/if}
-									{#if m.erro}
-										<span class="text-danger"> · {m.erro}</span>
+									{#if m.erroTexto}
+										<span class="text-danger"> · {m.erroTexto}</span>
 									{/if}
 								</span>
 							</li>

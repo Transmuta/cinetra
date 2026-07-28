@@ -25,6 +25,7 @@ defmodule ApiWeb.MessagesController do
 
   alias Api.Messaging
   alias Api.Messaging.Dispatch
+  alias Api.Messaging.Falhas
   alias Api.Messaging.Templates
 
   @papeis_que_disparam [:owner, :admin, :recepcao, :profissional]
@@ -99,7 +100,11 @@ defmodule ApiWeb.MessagesController do
       kind: message.kind,
       status: message.status,
       destino: message.destino,
+      # Os dois: o cru fica para o suporte investigar, o traduzido é o que a tela mostra. O
+      # provider fala inglês técnico, e quem lê a timeline é a recepção no balcão — texto em
+      # inglês ali não informa, gera chamado (`Api.Messaging.Falhas`).
       erro: message.erro,
+      erroTexto: Falhas.para_tela(message.erro),
       resposta: message.resposta,
       # Nulo = automático. É a distinção que a recepção usa para saber se precisa fazer algo (§6).
       automatico: is_nil(message.disparado_por_id),

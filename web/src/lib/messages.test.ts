@@ -21,6 +21,7 @@ function msg(over: Partial<Message> = {}): Message {
 		status: 'enviado',
 		destino: 'ana@example.com',
 		erro: null,
+		erroTexto: null,
 		resposta: null,
 		automatico: true,
 		enfileiradoEm: '2026-08-10T12:00:00Z',

@@ -12,7 +12,14 @@ export interface Message {
 	kind: 'confirmacao' | 'lembrete' | 'remarcacao' | 'cancelamento';
 	status: MessageStatus;
 	destino: string;
+	/** O motivo cru do provider — fica para o suporte, **não** é o que se mostra. */
 	erro: string | null;
+	/**
+	 * O mesmo motivo em português e acionável ("E-mail não existe — confira o endereço na ficha").
+	 * É este que vai para a tela: o provider fala inglês técnico, e quem lê a timeline é a recepção
+	 * no balcão. Texto em inglês ali não informa — gera chamado de suporte.
+	 */
+	erroTexto: string | null;
 	resposta: 'confirmou' | 'quer_remarcar' | null;
 	/** Nulo do lado da API = ninguém clicou. É o que distingue "automático" de "alguém mandou". */
 	automatico: boolean;

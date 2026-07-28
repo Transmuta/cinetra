@@ -17,6 +17,7 @@ const msg = (over: Partial<Message> = {}): Message => ({
 	status: 'entregue',
 	destino: 'ana@example.com',
 	erro: null,
+	erroTexto: null,
 	resposta: null,
 	automatico: true,
 	enfileiradoEm: '2026-08-10T12:00:00Z',
@@ -81,10 +82,24 @@ describe('MessageTimeline', () => {
 	it('mostra o motivo da falha', () => {
 		render(
 			MessageTimeline,
-			props({ participantes: [p({ mensagens: [msg({ status: 'falhou', erro: 'mailbox does not exist' })] })] })
+			props({
+				participantes: [
+					p({
+						mensagens: [
+							msg({
+								status: 'falhou',
+								erro: 'mailbox does not exist',
+								erroTexto: 'E-mail não existe — confira o endereço na ficha'
+							})
+						]
+					})
+				]
+			})
 		);
 
-		expect(screen.getByText(/mailbox does not exist/)).toBeInTheDocument();
+		// O que a recepção lê é a ação em português; o cru do provider fica só para o suporte.
+		expect(screen.getByText(/confira o endereço na ficha/)).toBeInTheDocument();
+		expect(screen.queryByText(/mailbox does not exist/)).not.toBeInTheDocument();
 	});
 
 	it('só nomeia o participante quando há mais de um', () => {

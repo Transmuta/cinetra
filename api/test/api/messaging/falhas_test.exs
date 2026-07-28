@@ -1,0 +1,68 @@
+defmodule Api.Messaging.FalhasTest do
+  @moduledoc """
+  O motivo de falha que a **recepção** lê (doc 52 §6).
+
+  O que este arquivo protege não é tradução: é a tela não devolver inglês técnico para quem está
+  no balcão. Texto em inglês ali não informa — gera chamado de suporte sobre uma coisa que a
+  própria recepção resolveria em dez segundos se a frase dissesse o que fazer.
+  """
+  use ExUnit.Case, async: true
+
+  alias Api.Messaging.Falhas
+
+  describe "para_tela/1" do
+    test "endereço que não existe vira a AÇÃO, não a tradução literal" do
+      # "caixa de correio não existe" seria tradução. A recepção precisa é de "confira a ficha".
+      assert Falhas.para_tela("mailbox does not exist") =~ "confira o endereço na ficha"
+      assert Falhas.para_tela("550 5.1.1 User unknown") =~ "confira o endereço na ficha"
+      assert Falhas.para_tela("Recipient not found") =~ "confira o endereço na ficha"
+    end
+
+    test "caixa cheia é problema do paciente, não da ficha" do
+      # Distinção que importa: aqui não adianta corrigir cadastro nenhum.
+      assert Falhas.para_tela("mailbox full") =~ "cheia"
+      assert Falhas.para_tela("552 Quota exceeded") =~ "cheia"
+    end
+
+    test "recusa por spam e falha temporária levam a ações diferentes" do
+      assert Falhas.para_tela("Message rejected as spam") =~ "spam"
+      assert Falhas.para_tela("451 greylisted, try again later") =~ "tente reenviar"
+    end
+
+    test "erro de configuração aponta para o suporte, não para a ficha" do
+      # A recepção não tem o que corrigir num "Invalid API key" — mandar ela conferir a ficha
+      # seria mandá-la procurar defeito onde não há.
+      assert Falhas.para_tela("Invalid API key") =~ "suporte"
+      assert Falhas.para_tela("The domain is not verified") =~ "domínio"
+    end
+
+    test "motivo desconhecido NUNCA vaza o texto cru" do
+      cru = "SMTP 554 5.7.1 [XF-091] delivery halted by upstream relay policy engine"
+
+      traduzido = Falhas.para_tela(cru)
+
+      assert traduzido == "Não conseguimos entregar a mensagem"
+      refute traduzido =~ "XF-091"
+    end
+
+    test "struct inspecionada também não vaza" do
+      assert Falhas.para_tela("%Swoosh.Error{reason: :nxdomain}") ==
+               "Não conseguimos entregar a mensagem"
+    end
+
+    test "o que NÓS escrevemos já é português e passa direto" do
+      # Passá-los pelo genérico perderia informação que já estava certa.
+      assert Falhas.para_tela("destinatário marcou como spam") == "destinatário marcou como spam"
+      assert Falhas.para_tela("template desconhecido: promocao_v7") =~ "template desconhecido"
+      assert Falhas.para_tela("canal whatsapp ainda não tem transporte nesta versão") =~ "canal"
+    end
+
+    test "sem erro, sem linha de erro" do
+      assert Falhas.para_tela(nil) == nil
+    end
+
+    test "casa sem depender de maiúsculas" do
+      assert Falhas.para_tela("MAILBOX DOES NOT EXIST") =~ "confira o endereço na ficha"
+    end
+  end
+end
