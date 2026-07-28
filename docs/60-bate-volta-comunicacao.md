@@ -180,12 +180,13 @@ notifiers → 40 e-mails, sem erro) ficou preso por **teste**.
 
 ## 4. O que ficou para decisão humana
 
-**H — `messages` nasce sem poda.** Não há entrada em `lib/api/housekeeping/` nem no crontab, e o
-moduledoc do próprio recurso chama a tabela de *"a tabela que mais vai crescer no sistema"* —
-argumentando com isso contra o `AshPaperTrail`, e deixando a tabela base sem retenção. O projeto
-tem três podas com precedente (`PruneTrail`, `PruneNotifications`, `PruneAttachments`) e a regra
-delas é a mesma: **o número de dias é decisão humana**. Proponho 365 dias, alinhado com a trilha;
-mas é escolha, não implementação.
+**H — `messages` nasce sem poda.** ✅ **Decidido em 2026-07-28: fica como débito, sem número por
+ora.** Retenção é pergunta transversal e jurídica, e o projeto já tem três réguas decididas em três
+momentos (trilha 365, caixa 90/365, anexos diária); uma quarta decidida isolada seria mais uma que
+ninguém sabe justificar. Vai para uma passada única, com orientação jurídica, valendo para todos os
+casos. Registrado em [`50-debitos-tecnicos.md`](50-debitos-tecnicos.md) como **D-11**, com o volume
+medido (~19 MB/ano/clínica) e a ressalva que importa: a linha **é** a prova de que se avisou, então
+a poda apaga evidência, não lixo.
 
 **B-lote — a query por participante.** Depois do `exists?` custa ~0,06 ms por participante (turma
 de 4 = 4 lookups de índice). Batê-la em lote exige mudar a assinatura de `Dispatch.avaliar/2`, que
