@@ -53,6 +53,11 @@ defmodule ApiWeb.PatientsController do
   # Sai daqui, e não do `AppointmentsController`, porque a pergunta é da FICHA ("o que aconteceu
   # com este paciente?"), não da agenda ("o que acontece neste dia?") — e a resposta é por
   # PRESENÇA: numa turma o bloco pode estar concluído com a presença dele faltando.
+  #
+  # Devolve DUAS listas (doc 56): `sessions` é o histórico (paginável por `?limit=`/`?offset=`) e
+  # `upcoming` é o que ainda vai acontecer. A rota continua uma só porque a ficha quer as duas na
+  # mesma abertura, e o domínio as lê na mesma transação — separar em dois endpoints trocaria uma
+  # query barata por um round-trip.
   def history(conn, %{"patient_id" => patient_id} = params) do
     with_member_scope(conn, fn scope ->
       # Resolve o paciente ANTES — pela mesma porta do `show/2`, que já trata id malformado como
@@ -60,10 +65,23 @@ defmodule ApiWeb.PatientsController do
       # **200 com lista vazia**: o mesmo sucesso silencioso que a massa por pacote corrigiu.
       case Records.fetch_clinic_patient(scope, patient_id) do
         {:ok, %{id: id}} ->
-          %{sessions: sessions, more?: more?} =
-            Api.Scheduling.list_patient_history(scope, id, limit: parse_int(params["limit"]))
+          %{
+            sessions: sessions,
+            more?: more?,
+            upcoming: upcoming,
+            upcoming_more?: upcoming_more?
+          } =
+            Api.Scheduling.list_patient_sessions(scope, id,
+              limit: parse_int(params["limit"]),
+              offset: parse_int(params["offset"])
+            )
 
-          json(conn, %{sessions: Enum.map(sessions, &session_json/1), more: more?})
+          json(conn, %{
+            sessions: Enum.map(sessions, &session_json/1),
+            more: more?,
+            upcoming: Enum.map(upcoming, &session_json/1),
+            upcoming_more: upcoming_more?
+          })
 
         {:ok, nil} ->
           not_found(conn)

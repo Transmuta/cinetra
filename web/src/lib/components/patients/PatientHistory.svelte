@@ -92,8 +92,19 @@
 	</div>
 
 	{#if more}
-		<p class="mt-2.5 text-[11.5px] text-faint">
-			Mostrando as sessões mais recentes — há mais no histórico.
-		</p>
+		<!--
+			Era um `<p>` mudo ("há mais no histórico"): informava a truncagem e não oferecia o
+			caminho. A ficha agora abre com 8 linhas (doc 56) e o resto é este link, que sobe o
+			teto pela URL — sem estado no cliente, funciona sem JS e é compartilhável.
+
+			Sem contagem de propósito: o número exigiria um `COUNT(*)` na maior tabela por ficha
+			aberta, que é justamente o que a trilha de auditoria tirou (doc 55 §6).
+		-->
+		<a
+			href="?historico=200"
+			class="mt-2.5 inline-block text-[11.5px] font-semibold text-primary hover:underline"
+		>
+			Ver histórico completo
+		</a>
 	{/if}
 </section>

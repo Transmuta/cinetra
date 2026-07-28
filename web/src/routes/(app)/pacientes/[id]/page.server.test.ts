@@ -25,6 +25,13 @@ vi.mock('$lib/server/packages', () => k);
 
 import { load, actions } from './+page.server';
 
+// O load lê `?historico=` da URL, então o evento falso precisa de uma.
+const ev = (query = '', id = 'pac1') =>
+	({
+		params: { id },
+		url: new URL(`http://localhost/pacientes/${id}${query}`)
+	}) as never;
+
 beforeEach(() => {
 	[...Object.values(pf), ...Object.values(at), ...Object.values(m), ...Object.values(k)].forEach(
 		(fn) => fn.mockReset()
@@ -54,7 +61,7 @@ describe('load', () => {
 			status: 200,
 			packages: [{ id: 'k1' }]
 		});
-		const r = (await load({ params: { id: 'pac1' } } as never)) as {
+		const r = (await load(ev())) as {
 			patient: { nome: string };
 			appointmentTypes: unknown[];
 			packages: unknown[];
@@ -69,10 +76,12 @@ describe('load', () => {
 		m.fetchPatientHistory.mockResolvedValueOnce({
 			status: 200,
 			sessions: [{ id: 'att1', status: 'faltou' }],
-			more: true
+			more: true,
+			upcoming: [],
+			upcomingMore: false
 		});
 
-		const r = (await load({ params: { id: 'pac1' } } as never)) as {
+		const r = (await load(ev()) ) as {
 			history: unknown[];
 			historyMore: boolean;
 		};
@@ -81,10 +90,56 @@ describe('load', () => {
 		expect(r.historyMore).toBe(true);
 	});
 
+	// doc 56 — as próximas são cartão próprio; antes vinham no topo do histórico com o selo
+	// "Previsto", afirmando como passado o que ainda não aconteceu.
+	it('as próximas entram no load, separadas do histórico', async () => {
+		m.fetchPatient.mockResolvedValueOnce({ status: 200, patient: { id: 'pac1', nome: 'Mari' } });
+		pf.fetchProfessionals.mockResolvedValueOnce({ data: { professionals: [] } });
+		m.fetchPatientHistory.mockResolvedValueOnce({
+			status: 200,
+			sessions: [],
+			more: false,
+			upcoming: [{ id: 'att9' }],
+			upcomingMore: true
+		});
+
+		const r = (await load(ev())) as { upcoming: unknown[]; upcomingMore: boolean };
+
+		expect(r.upcoming).toHaveLength(1);
+		expect(r.upcomingMore).toBe(true);
+	});
+
+	// A ficha abre com poucas linhas de histórico (doc 56: 50 linhas eram ~2.200px num cartão só).
+	// "Ver histórico completo" é um link que sobe o teto pela URL — sem estado no cliente.
+	it('pede 8 sessões por padrão', async () => {
+		m.fetchPatient.mockResolvedValueOnce({ status: 200, patient: { id: 'pac1', nome: 'Mari' } });
+		pf.fetchProfessionals.mockResolvedValueOnce({ data: { professionals: [] } });
+
+		await load(ev());
+
+		expect(m.fetchPatientHistory.mock.calls[0][2]).toBe(8);
+	});
+
+	it('?historico= sobe o teto, respeitando o máximo da API', async () => {
+		m.fetchPatient.mockResolvedValue({ status: 200, patient: { id: 'pac1', nome: 'Mari' } });
+		pf.fetchProfessionals.mockResolvedValue({ data: { professionals: [] } });
+
+		await load(ev('?historico=200'));
+		expect(m.fetchPatientHistory.mock.calls[0][2]).toBe(200);
+
+		m.fetchPatientHistory.mockClear();
+		await load(ev('?historico=9999'));
+		expect(m.fetchPatientHistory.mock.calls[0][2]).toBe(200);
+
+		m.fetchPatientHistory.mockClear();
+		await load(ev('?historico=abacaxi'));
+		expect(m.fetchPatientHistory.mock.calls[0][2]).toBe(8);
+	});
+
 	it('não encontrado → 404', async () => {
 		m.fetchPatient.mockResolvedValueOnce({ status: 404, patient: null });
 		pf.fetchProfessionals.mockResolvedValueOnce({ data: null });
-		await expect(load({ params: { id: 'x' } } as never)).rejects.toMatchObject({
+		await expect(load(ev('', 'x'))).rejects.toMatchObject({
 			status: 404
 		});
 	});

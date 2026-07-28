@@ -10,7 +10,8 @@
 	import User from '@lucide/svelte/icons/user';
 	import Siren from '@lucide/svelte/icons/siren';
 	import Stethoscope from '@lucide/svelte/icons/stethoscope';
-	import ShieldCheck from '@lucide/svelte/icons/shield-check';
+	import Briefcase from '@lucide/svelte/icons/briefcase';
+	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import Archive from '@lucide/svelte/icons/archive';
 	import ArchiveRestore from '@lucide/svelte/icons/archive-restore';
 	import CalendarPlus from '@lucide/svelte/icons/calendar-plus';
@@ -20,6 +21,7 @@
 	import PackageList from '$lib/components/patients/PackageList.svelte';
 	import PackageCreateModal from '$lib/components/patients/PackageCreateModal.svelte';
 	import PackageBulkModal from '$lib/components/patients/PackageBulkModal.svelte';
+	import PatientUpcoming from '$lib/components/patients/PatientUpcoming.svelte';
 	import PatientHistory from '$lib/components/patients/PatientHistory.svelte';
 	import PatientAttachments from '$lib/components/patients/PatientAttachments.svelte';
 	import type { Package as Pkg } from '$lib/packages';
@@ -55,31 +57,160 @@
 		[p.endereco, p.numero && `nº ${p.numero}`, p.complemento].filter(Boolean).join(', ')
 	);
 	const cidadeUf = $derived([p.cidade, p.uf].filter(Boolean).join(' / '));
+
+	// ---- O cadastro, como dado (doc 56) ----
+	//
+	// Era markup: cinco cartões escritos à mão, cada um com um par de snippets (`contatoBody` +
+	// `contatoRows`) e um `kv` por campo, que desenhava um travessão quando o campo era vazio.
+	// Medido ao vivo: **20 dos 27 campos** de um paciente de verdade eram `—`, e a página gastava
+	// ~1.280px reservando espaço para dado que não existe. A ficha mais vazia possível abria com
+	// 1.592px, 2,4 telas.
+	//
+	// Descrever os cartões como dado é o que permite a decisão passar a ser calculada: esconder o
+	// campo vazio, esconder o cartão que ficou sem nenhum campo, e ainda assim saber **quantos**
+	// ficaram de fora para o rodapé não deixar o "falta preencher" invisível.
+	type Campo = { l: string; v: string | null | undefined; mono?: boolean; wide?: boolean };
+
+	const preenchido = (v: string | null | undefined) =>
+		v !== undefined && v !== null && v !== '' && v !== '—';
+
+	// A ORDEM dos cartões é a ordem das perguntas de quem atende ao telefone; `recolhido` marca o
+	// que é conferência cadastral, não atendimento (M4). A hipótese original era recolher o
+	// cadastro inteiro — a medição do M1 a derrubou: com o campo vazio fora, a coluna caiu de
+	// ~1.280px para ~350px num paciente típico, e recolher dado que alguém digitou de propósito
+	// passou a custar mais do que rende. Sobraram os dois cartões que ninguém abre com o paciente
+	// na linha.
+	const cartoes = $derived([
+		{
+			icon: Phone,
+			title: 'Contato',
+			campos: [
+				{ l: 'Telefone / WhatsApp', v: p.tel, mono: true },
+				{ l: 'E-mail', v: p.email },
+				// "Responsável legal" veio de Identificação: paciente menor de idade é caso de
+				// ATENDIMENTO (a lista tem até o segmento "Com responsável"), e atrás de um clique
+				// ele deixaria de ser visto na hora em que importa.
+				{ l: 'Responsável legal', v: p.responsavel, wide: true },
+				{ l: 'Endereço', v: endereco, wide: true },
+				{ l: 'Bairro', v: p.bairro },
+				{ l: 'Cidade / UF', v: cidadeUf },
+				{ l: 'CEP', v: p.cep, mono: true }
+			] as Campo[]
+		},
+		{
+			icon: Stethoscope,
+			title: 'Atendimento & convênio',
+			campos: [
+				// "Tipo de atendimento" saiu: era `convLabel(p)` numa célula colada em "Convênio",
+				// que num paciente de convênio mostra a MESMA string — e o chip do cabeçalho já a
+				// dizia uma terceira vez.
+				{ l: 'Convênio', v: p.convenio },
+				{ l: 'Carteirinha', v: p.carteirinha, mono: true },
+				{ l: 'Validade', v: p.convenio_validade, mono: true },
+				{ l: 'Médico solicitante', v: p.medico },
+				{ l: 'CRM', v: p.crm, mono: true },
+				{ l: 'Profissional preferido', v: prefs.length ? prefs.join(', ') : null }
+			] as Campo[]
+		},
+		{
+			icon: Siren,
+			title: 'Contato de emergência',
+			campos: [
+				{ l: 'Nome', v: p.emergencia_nome },
+				{ l: 'Parentesco', v: p.emergencia_parentesco },
+				{ l: 'Telefone', v: p.emergencia_tel, mono: true, wide: true }
+			] as Campo[]
+		},
+		{
+			icon: User,
+			title: 'Identificação',
+			recolhido: true,
+			campos: [
+				{ l: 'Nascimento', v: p.nascimento, mono: true },
+				// "Idade" saiu daqui: é stat do cabeçalho, e dizer duas vezes na mesma tela o que
+				// se deriva de uma data só é ruído (doc 56, M2).
+				{ l: 'Gênero', v: p.genero },
+				{ l: 'Estado civil', v: p.estado_civil },
+				{ l: 'RG', v: p.rg, mono: true }
+			] as Campo[]
+		},
+		{
+			icon: Briefcase,
+			title: 'Perfil',
+			recolhido: true,
+			campos: [
+				{ l: 'Profissão', v: p.profissao },
+				{ l: 'Empresa', v: p.empresa },
+				{ l: 'Como conheceu', v: p.como_conheceu }
+			] as Campo[]
+		}
+	]);
+
+	// Cartão sem nenhum campo preenchido não é desenhado. "Contato de emergência" vazio custava
+	// 174px para exibir três travessões.
+	const cartoesVisiveis = $derived(
+		cartoes
+			.map((c) => ({ ...c, campos: c.campos.filter((x) => preenchido(x.v)) }))
+			.filter((c) => c.campos.length > 0)
+	);
+
+	// Esconder o vazio esconde junto o "falta preencher". O rodapé devolve isso em uma linha.
+	const naoPreenchidos = $derived(
+		cartoes.flatMap((c) => c.campos).filter((x) => !preenchido(x.v)).length
+	);
 </script>
 
 <svelte:head><title>{p.nome} · Pacientes · Cinetra</title></svelte:head>
 
-{#snippet card(icon: typeof User, title: string, body: import('svelte').Snippet)}
+{#snippet cabecalho(icon: typeof User, title: string)}
 	{@const Icon = icon}
-	<div class="rounded-[14px] border border-edge bg-surface p-5">
-		<div class="mb-4 flex items-center gap-2.5">
-			<span class="grid size-[30px] shrink-0 place-items-center rounded-lg bg-teal-subtle text-teal-text">
-				<Icon size={15} />
-			</span>
-			<div class="text-[14px] font-bold">{title}</div>
-		</div>
-		{@render body()}
+	<span class="grid size-[30px] shrink-0 place-items-center rounded-lg bg-teal-subtle text-teal-text">
+		<Icon size={15} />
+	</span>
+	<div class="text-[14px] font-bold">{title}</div>
+{/snippet}
+
+{#snippet campos(lista: Campo[])}
+	<div class="grid grid-cols-2 gap-x-[18px] gap-y-3.5">
+		{#each lista as c (c.l)}
+			<div class="min-w-0 {c.wide ? 'col-span-2' : ''}">
+				<div class="mb-0.5 text-[11px] text-faint">{c.l}</div>
+				<div class="break-words text-[13.5px] font-medium text-ink {c.mono ? 'font-mono' : ''}">
+					{c.v}
+				</div>
+			</div>
+		{/each}
 	</div>
 {/snippet}
 
-{#snippet kv(l: string, v: string | null | undefined, mono = false)}
-	{@const empty = v === undefined || v === null || v === '' || v === '—'}
-	<div class="min-w-0">
-		<div class="mb-0.5 text-[11px] text-faint">{l}</div>
-		<div class="break-words text-[13.5px] font-medium {empty ? 'text-faint' : 'text-ink'} {mono ? 'font-mono' : ''}">
-			{empty ? '—' : v}
+<!--
+	Um cartão do cadastro. Recebe os campos já filtrados (só os preenchidos) — a decisão de
+	esconder é do `$derived`, não do markup, para o rodapé poder contar o que ficou de fora.
+
+	`recolhido` usa `<details>` nativo, e não um `{#if}` com estado: abre por teclado, o conteúdo
+	continua no DOM (o Chrome expande na busca da página) e não há estado para sincronizar entre
+	as duas instâncias que o layout renderiza. Custo assumido: `<details>` fechado não é achado
+	pelo Ctrl+F de todo navegador — por isso só os dois cartões de conferência entram aqui, nunca
+	telefone, convênio ou emergência.
+-->
+{#snippet card(icon: typeof User, title: string, lista: Campo[], recolhido = false)}
+	{#if recolhido}
+		<details class="group rounded-[14px] border border-edge bg-surface p-5">
+			<summary class="flex cursor-pointer list-none items-center gap-2.5">
+				{@render cabecalho(icon, title)}
+				<ChevronDown
+					size={16}
+					class="ml-auto text-faint transition-transform group-open:rotate-180"
+				/>
+			</summary>
+			<div class="mt-4">{@render campos(lista)}</div>
+		</details>
+	{:else}
+		<div class="rounded-[14px] border border-edge bg-surface p-5">
+			<div class="mb-4 flex items-center gap-2.5">{@render cabecalho(icon, title)}</div>
+			{@render campos(lista)}
 		</div>
-	</div>
+	{/if}
 {/snippet}
 
 <div class="mx-auto max-w-[1180px] px-4 py-4 md:px-[22px] md:py-[18px]">
@@ -120,10 +251,17 @@
 					<span class="inline-flex items-center gap-1.5 rounded-full bg-teal-subtle px-2.5 py-0.5 text-[11.5px] font-semibold text-teal-text">
 						<CreditCard size={12} /> {convLabel(p)}
 					</span>
+					<!-- O que o cartão "Consentimentos" acrescentava a este selo era a COBERTURA de
+					     cada consentimento — texto estático, igual em toda ficha. Virou `title`: o
+					     cartão custava 216px para repetir dois booleanos que o topo já dizia. -->
 					{#if p.comunicacao}
-						<span class="inline-flex items-center gap-1.5 text-[11.5px] text-success"><BellRing size={13} /> Contato autorizado</span>
+						<span
+							title="WhatsApp, ligação e e-mail — lembretes e campanhas"
+							class="inline-flex items-center gap-1.5 text-[11.5px] text-success"><BellRing size={13} /> Contato autorizado</span>
 					{:else}
-						<span class="inline-flex items-center gap-1.5 text-[11.5px] text-faint"><BellOff size={13} /> Sem autorização de contato</span>
+						<span
+							title="WhatsApp, ligação e e-mail — lembretes e campanhas"
+							class="inline-flex items-center gap-1.5 text-[11.5px] text-faint"><BellOff size={13} /> Sem autorização de contato</span>
 					{/if}
 				</div>
 			</div>
@@ -169,8 +307,8 @@
 		{/if}
 
 		<div class="mt-4 grid grid-cols-2 gap-2.5 md:grid-cols-3">
-			{#snippet stat(l: string, v: string, accent: string)}
-				<div class="rounded-[11px] border border-edge bg-surface-2 px-3.5 py-3">
+			{#snippet stat(l: string, v: string, accent: string, hint = '')}
+				<div class="rounded-[11px] border border-edge bg-surface-2 px-3.5 py-3" title={hint}>
 					<div class="mb-1 text-[10.5px] uppercase tracking-[.04em] text-faint">{l}</div>
 					<div class="font-mono text-[16px] font-bold {accent}">{v}</div>
 				</div>
@@ -185,7 +323,12 @@
 				p.faltas != null ? String(p.faltas) : '—',
 				p.faltas ? 'text-danger' : 'text-ink'
 			)}
-			{@render stat('Consentimento LGPD', p.lgpd ? 'OK' : 'Pendente', p.lgpd ? 'text-success' : 'text-faint')}
+			{@render stat(
+				'Consentimento LGPD',
+				p.lgpd ? 'OK' : 'Pendente',
+				p.lgpd ? 'text-success' : 'text-faint',
+				'Prontuário, documentos e assistência'
+			)}
 		</div>
 	</div>
 
@@ -202,89 +345,46 @@
 		breakpoint.
 	-->
 	<div class="flex flex-wrap items-start gap-4">
-	<div class="flex min-w-0 flex-[1.5_1_340px] flex-col gap-4">
-		{#snippet grid2(body: import('svelte').Snippet)}
-			<div class="grid grid-cols-2 gap-x-[18px] gap-y-3.5">{@render body()}</div>
-		{/snippet}
+	<!--
+		A coluna do CADASTRO. Perdeu a proporção maior (era `1.5`) porque, com o campo vazio fora,
+		ela deixou de ser a coluna alta: quem cresce é a atividade, que cresce com o paciente.
+	-->
+	<div class="flex min-w-0 flex-[1_1_320px] flex-col gap-4">
+		{#each cartoesVisiveis as c (c.title)}
+			{@render card(c.icon, c.title, c.campos, c.recolhido)}
+		{/each}
 
-		{#snippet contatoBody()}
-			{@render grid2(contatoRows)}
-		{/snippet}
-		{#snippet contatoRows()}
-			{@render kv('Telefone / WhatsApp', p.tel, true)}
-			{@render kv('E-mail', p.email)}
-			<div class="col-span-2">{@render kv('Endereço', endereco)}</div>
-			{@render kv('Bairro', p.bairro)}
-			{@render kv('Cidade / UF', cidadeUf)}
-			{@render kv('CEP', p.cep, true)}
-		{/snippet}
-		{@render card(Phone, 'Contato', contatoBody)}
-
-		{#snippet identBody()}
-			{@render grid2(identRows)}
-		{/snippet}
-		{#snippet identRows()}
-			{@render kv('Nascimento', p.nascimento, true)}
-			{@render kv('Idade', idadeVal !== null ? `${idadeVal} anos` : '—', true)}
-			{@render kv('Gênero', p.genero)}
-			{@render kv('Estado civil', p.estado_civil)}
-			{@render kv('RG', p.rg, true)}
-			{@render kv('Responsável legal', p.responsavel)}
-		{/snippet}
-		{@render card(User, 'Identificação', identBody)}
-
-		{#snippet emergBody()}
-			{@render grid2(emergRows)}
-		{/snippet}
-		{#snippet emergRows()}
-			{@render kv('Nome', p.emergencia_nome)}
-			{@render kv('Parentesco', p.emergencia_parentesco)}
-			<div class="col-span-2">{@render kv('Telefone', p.emergencia_tel, true)}</div>
-		{/snippet}
-		{@render card(Siren, 'Contato de emergência', emergBody)}
-
-		{#snippet atendBody()}
-			{@render grid2(atendRows)}
-		{/snippet}
-		{#snippet atendRows()}
-			{@render kv('Tipo de atendimento', convLabel(p))}
-			{@render kv('Convênio', p.convenio)}
-			{@render kv('Carteirinha', p.carteirinha, true)}
-			{@render kv('Validade', p.convenio_validade, true)}
-			{@render kv('Médico solicitante', p.medico)}
-			{@render kv('CRM', p.crm, true)}
-			{@render kv('Profissional preferido', prefs.length ? prefs.join(', ') : '—')}
-			{@render kv('Como conheceu', p.como_conheceu)}
-			{@render kv('Profissão', p.profissao)}
-			{@render kv('Empresa', p.empresa)}
-		{/snippet}
-		{@render card(Stethoscope, 'Atendimento & convênio', atendBody)}
-
-		{#snippet consentBody()}
-			<div class="flex flex-col gap-2.5">
-				<div class="flex items-center gap-2.5 rounded-[10px] bg-teal-subtle px-3.5 py-2.5">
-					<ShieldCheck size={17} class="text-teal-text" />
-					<div class="min-w-0 flex-1">
-						<div class="text-[13px] font-semibold">Tratamento de dados (LGPD)</div>
-						<div class="text-[11.5px] text-muted">Prontuário, documentos e assistência</div>
-					</div>
-					<span class="text-[11.5px] font-bold {p.lgpd ? 'text-teal-text' : 'text-faint'}">{p.lgpd ? 'Autorizado' : 'Pendente'}</span>
-				</div>
-				<div class="flex items-center gap-2.5 rounded-[10px] border px-3.5 py-2.5 {p.comunicacao ? 'border-transparent bg-success/10' : 'border-edge bg-surface-2'}">
-					{#if p.comunicacao}<BellRing size={17} class="text-success" />{:else}<BellOff size={17} class="text-faint" />{/if}
-					<div class="min-w-0 flex-1">
-						<div class="text-[13px] font-semibold">Comunicação e marketing</div>
-						<div class="text-[11.5px] text-muted">WhatsApp, ligação e e-mail — lembretes e campanhas</div>
-					</div>
-					<span class="text-[11.5px] font-bold {p.comunicacao ? 'text-success' : 'text-faint'}">{p.comunicacao ? 'Autorizado' : 'Não autorizado'}</span>
-				</div>
-			</div>
-		{/snippet}
-		{@render card(ShieldCheck, 'Consentimentos', consentBody)}
+		<!--
+			O que M1 tirou da tela em silêncio. Sem esta linha, "falta preencher o convênio" deixa de
+			existir como informação: o travessão era feio, mas dizia. Uma linha diz o mesmo.
+			Só para quem pode editar — oferecer o caminho a quem leva 403 é pior que não oferecer.
+		-->
+		{#if naoPreenchidos > 0 && canManage}
+			<a
+				href="/pacientes/{p.id}/editar"
+				class="rounded-[14px] border border-dashed border-edge px-4 py-3 text-[12.5px] text-muted hover:border-primary hover:text-ink"
+			>
+				{naoPreenchidos}
+				{naoPreenchidos === 1 ? 'campo não preenchido' : 'campos não preenchidos'} · Completar
+				cadastro
+			</a>
+		{/if}
 	</div>
 
-	<!-- Coluna da atividade: Pacotes, Histórico e Anexos, na ordem do protótipo ([`:2812`]). -->
-	<div class="flex min-w-0 flex-[1_1_300px] flex-col gap-4">
+	<!--
+		Coluna da ATIVIDADE: próximas, pacotes, histórico e anexos. "Próximas" abre a coluna porque
+		é a pergunta que se faz com o telefone na mão ("quando ele volta?") — e era a única das
+		quatro que a ficha não respondia (doc 56).
+	-->
+	<div class="flex min-w-0 flex-[1.2_1_320px] flex-col gap-4">
+		<!-- Próximas sessões (doc 56). -->
+		<PatientUpcoming
+			sessions={data.upcoming}
+			more={data.upcomingMore}
+			timezone={data.me.timezone ?? 'America/Sao_Paulo'}
+			patientId={p.id}
+		/>
+
 		<!-- Pacotes (Fatia 3): lista + ciclo de vida + criação (modal com prévia ao vivo). -->
 		<PackageList
 			packages={data.packages}
@@ -293,7 +393,7 @@
 			onBulk={(pkg) => (ajustando = pkg)}
 		/>
 
-		<!-- Histórico (C13, Frente 7). -->
+		<!-- Histórico (C13, Frente 7). Abre com 8 linhas; o resto é o "ver histórico completo". -->
 		<PatientHistory
 			sessions={data.history}
 			more={data.historyMore}

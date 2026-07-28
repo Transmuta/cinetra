@@ -67,8 +67,16 @@ describe('PatientHistory', () => {
 		expect(screen.getByText('pacote')).toBeInTheDocument();
 	});
 
-	it('quando o servidor cortou a lista, avisa em vez de mentir', () => {
+	// doc 56: o aviso existia e era um beco sem saída — informava a truncagem e não oferecia o
+	// caminho. Agora a ficha abre com 8 linhas e o resto é um link que sobe o teto pela URL.
+	it('quando o servidor cortou a lista, oferece o caminho para o resto', () => {
 		render(PatientHistory, { sessions: [sessao()], more: true });
-		expect(screen.getByText(/há mais no histórico/i)).toBeInTheDocument();
+		const link = screen.getByRole('link', { name: /ver hist(ó|o)rico completo/i });
+		expect(link).toHaveAttribute('href', '?historico=200');
+	});
+
+	it('lista inteira na tela não oferece "ver mais"', () => {
+		render(PatientHistory, { sessions: [sessao()] });
+		expect(screen.queryByRole('link', { name: /ver hist(ó|o)rico completo/i })).not.toBeInTheDocument();
 	});
 });

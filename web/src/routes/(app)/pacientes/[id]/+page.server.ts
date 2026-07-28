@@ -17,8 +17,16 @@ import {
 } from '$lib/server/packages';
 import { fetchPatientAttachments } from '$lib/server/attachments';
 
+// Quantas sessões o histórico mostra ao abrir. Eram 50 — medido no doc 56: ~2.200px num cartão
+// só, num paciente de agenda cheia. O resto é o "ver histórico completo", que sobe o teto pela
+// URL (`?historico=`) em vez de guardar estado no cliente: funciona sem JS e é compartilhável.
+const HISTORICO_PADRAO = 8;
+// O teto da API (`Api.Pagination`, max 200). Pedir mais devolveria 200 de qualquer forma; cortar
+// aqui evita a mentira de um link que promete mais do que a API entrega.
+const HISTORICO_MAX = 200;
+
 // A ficha (só leitura). Vão junto o diretório (nomes dos profissionais preferidos), os pacotes
-// (Fatia 3), o histórico de sessões (C13, Frente 7) e os anexos (doc 51 — saíram do v2).
+// (Fatia 3), as sessões — histórico e próximas (C13, Frente 7; doc 56) — e os anexos (doc 51).
 //
 // As seis leituras vão em paralelo: nenhuma depende da outra (H61). A dos anexos degrada sozinha
 // — para o `profissional` a API responde 403 e a lista vem vazia, e a tela nem renderiza a seção.
@@ -28,7 +36,7 @@ export const load: PageServerLoad = async (event) => {
 		fetchProfessionals(event),
 		fetchAppointmentTypes(event),
 		fetchPatientPackages(event, event.params.id),
-		fetchPatientHistory(event, event.params.id),
+		fetchPatientHistory(event, event.params.id, historyLimit(event.url)),
 		fetchPatientAttachments(event, event.params.id)
 	]);
 
@@ -41,10 +49,20 @@ export const load: PageServerLoad = async (event) => {
 		packages: pkgs.packages,
 		history: hist.sessions,
 		historyMore: hist.more,
+		upcoming: hist.upcoming,
+		upcomingMore: hist.upcomingMore,
 		attachments: anexos.attachments,
 		attachmentLimits: anexos.limites
 	};
 };
+
+// `?historico=` inválido cai no padrão em vez de 400: é um parâmetro de apresentação, e a ficha
+// não pode deixar de abrir porque alguém editou a URL.
+function historyLimit(url: URL): number {
+	const n = Number(url.searchParams.get('historico'));
+	if (!Number.isInteger(n) || n <= 0) return HISTORICO_PADRAO;
+	return Math.min(n, HISTORICO_MAX);
+}
 
 // Arquivar/reativar vive aqui (não no formulário): é reversível e o `enhance` recarrega a ficha.
 // Owner/admin apenas — a policy da API barra os demais (403 → mensagem).

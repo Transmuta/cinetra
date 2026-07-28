@@ -550,6 +550,104 @@ defmodule ApiWeb.PatientsControllerTest do
       assert linhas <= 12, "leu #{linhas} linhas de attendances para devolver 5"
     end
 
+    # doc 56 — o histórico ordenava `desc` sem recorte de data, então uma sessão AGENDADA para
+    # setembro aparecia no topo de "Histórico de atendimentos" com o selo "Previsto". Medido ao
+    # vivo: as ~10 primeiras linhas de um paciente com pacote eram futuro. Pior, o teto de 50 era
+    # gasto com elas — paciente com muita sessão marcada não enxergava o próprio passado.
+    defp daqui_a(n, hhmm) do
+      data = Date.utc_today() |> Date.add(n) |> avanca_para_util()
+      {:ok, dt} = Api.Scheduling.LocalTime.to_utc(data, hhmm, "America/Sao_Paulo")
+      dt
+    end
+
+    defp avanca_para_util(data) do
+      if Date.day_of_week(data) == 7, do: Date.add(data, 1), else: data
+    end
+
+    test "o que ainda vai acontecer não entra no histórico", %{
+      conn: conn,
+      owner: owner,
+      clinic: clinic
+    } do
+      paciente = create_patient(clinic, "Com sessão marcada")
+      sessao_para(clinic, owner, paciente, dias_atras(7, "08:00"))
+      sessao_para(clinic, owner, paciente, daqui_a(7, "09:00"))
+
+      body = json_response(get(conn, "/api/patients/#{paciente.id}/history"), 200)
+
+      assert [passada] = body["sessions"]
+      assert [proxima] = body["upcoming"]
+      assert passada["starts_at"] < proxima["starts_at"]
+    end
+
+    test "as próximas vêm da mais próxima para a mais distante", %{
+      conn: conn,
+      owner: owner,
+      clinic: clinic
+    } do
+      paciente = create_patient(clinic, "Agenda cheia")
+      sessao_para(clinic, owner, paciente, daqui_a(20, "08:00"))
+      sessao_para(clinic, owner, paciente, daqui_a(3, "08:00"))
+
+      body = json_response(get(conn, "/api/patients/#{paciente.id}/history"), 200)
+
+      # o histórico é do mais novo para o mais velho; as próximas são o contrário — a pergunta
+      # que o cartão responde é "quando ele volta?", e a resposta é a PRIMEIRA linha
+      assert [primeira, segunda] = body["upcoming"]
+      assert primeira["starts_at"] < segunda["starts_at"]
+      assert body["upcoming_more"] == false
+    end
+
+    test "as próximas param em 5 e avisam que há mais", %{
+      conn: conn,
+      owner: owner,
+      clinic: clinic
+    } do
+      paciente = create_patient(clinic, "Pacote longo")
+      Enum.each(1..6, &sessao_para(clinic, owner, paciente, daqui_a(&1 * 2, "08:00")))
+
+      body = json_response(get(conn, "/api/patients/#{paciente.id}/history"), 200)
+
+      assert length(body["upcoming"]) == 5
+      assert body["upcoming_more"] == true
+    end
+
+    test "paginando o histórico, as próximas não voltam junto", %{
+      conn: conn,
+      owner: owner,
+      clinic: clinic
+    } do
+      paciente = create_patient(clinic, "Segunda página")
+      Enum.each(1..3, &sessao_para(clinic, owner, paciente, dias_atras(&1, "08:00")))
+      sessao_para(clinic, owner, paciente, daqui_a(5, "08:00"))
+
+      body =
+        json_response(get(conn, "/api/patients/#{paciente.id}/history?limit=2&offset=2"), 200)
+
+      # a segunda página do histórico é do histórico: recalcular as próximas seria trabalho de
+      # banco para um cartão que já está desenhado na tela
+      assert length(body["sessions"]) == 1
+      assert body["upcoming"] == []
+      assert body["upcoming_more"] == false
+    end
+
+    test "offset pula as sessões já mostradas", %{conn: conn, owner: owner, clinic: clinic} do
+      paciente = create_patient(clinic, "Ver mais")
+      Enum.each(1..3, &sessao_para(clinic, owner, paciente, dias_atras(&1, "08:00")))
+
+      pagina1 = json_response(get(conn, "/api/patients/#{paciente.id}/history?limit=2"), 200)
+
+      pagina2 =
+        json_response(get(conn, "/api/patients/#{paciente.id}/history?limit=2&offset=2"), 200)
+
+      ids = fn body -> Enum.map(body["sessions"], & &1["id"]) end
+
+      assert length(ids.(pagina1)) == 2
+      assert length(ids.(pagina2)) == 1
+      assert ids.(pagina1) -- ids.(pagina2) == ids.(pagina1)
+      assert pagina2["more"] == false
+    end
+
     test "patient_id malformado não estoura 500", %{conn: conn} do
       # O mesmo id em `GET /patients/:id` degrada para 404 (o `fetchPatient` já tratava); a rota
       # nova entrava no read do Ash sem cast e subia `MatchError` — 500 na ficha.

@@ -168,12 +168,49 @@ describe('fetchPatientHistory', () => {
 		expect(apiFetch.mock.calls[0][1]).toBe('/api/patients/pac1/history');
 	});
 
+	// doc 56: a API passou a devolver duas listas. O que ainda vai acontecer não é histórico — e
+	// era ele que encabeçava o cartão, com o selo "Previsto".
+	it('200 → as próximas vêm separadas do histórico', async () => {
+		apiFetch.mockResolvedValueOnce(
+			json({
+				sessions: [{ id: 'att1' }],
+				more: false,
+				upcoming: [{ id: 'att2' }, { id: 'att3' }],
+				upcoming_more: true
+			})
+		);
+
+		const r = await fetchPatientHistory(event, 'pac1');
+
+		expect(r.sessions).toHaveLength(1);
+		expect(r.upcoming).toHaveLength(2);
+		expect(r.upcomingMore).toBe(true);
+	});
+
+	// API antiga (ou 200 sem as chaves novas) não pode virar `undefined.length` na ficha.
+	it('resposta sem as chaves novas degrada para listas vazias', async () => {
+		apiFetch.mockResolvedValueOnce(json({ sessions: [{ id: 'att1' }], more: false }));
+
+		const r = await fetchPatientHistory(event, 'pac1');
+
+		expect(r.upcoming).toEqual([]);
+		expect(r.upcomingMore).toBe(false);
+	});
+
+	it('pede o tamanho de página que a ficha quer', async () => {
+		apiFetch.mockResolvedValueOnce(json({ sessions: [], more: false }));
+		await fetchPatientHistory(event, 'pac1', 8);
+		expect(apiFetch.mock.calls[0][1]).toBe('/api/patients/pac1/history?limit=8');
+	});
+
 	it('erro → lista vazia (a ficha degrada, não quebra)', async () => {
 		apiFetch.mockResolvedValueOnce(json({}, 500));
 		expect(await fetchPatientHistory(event, 'pac1')).toEqual({
 			status: 500,
 			sessions: [],
-			more: false
+			more: false,
+			upcoming: [],
+			upcomingMore: false
 		});
 	});
 

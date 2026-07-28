@@ -93,23 +93,47 @@ export interface HistorySession {
 
 export interface HistoryResult {
 	status: number;
+	/** o que já aconteceu, do mais recente para o mais antigo */
 	sessions: HistorySession[];
 	more: boolean;
+	/** o que ainda vai acontecer, da mais próxima para a mais distante (doc 56) */
+	upcoming: HistorySession[];
+	upcomingMore: boolean;
 }
 
+const HISTORY_VAZIO = { sessions: [], more: false, upcoming: [], upcomingMore: false };
+
+// Uma chamada, duas listas. A API separa por `session_starts_at` contra o relógio do escopo: o
+// que ainda vai acontecer não é histórico, e antes encabeçava o cartão com o selo "Previsto".
 export async function fetchPatientHistory(
 	event: RequestEvent,
-	id: string
+	id: string,
+	limit?: number
 ): Promise<HistoryResult> {
+	const qs = limit ? `?limit=${limit}` : '';
+
 	try {
-		const res = await apiFetch(event, `${path(id)}/history`, {
+		const res = await apiFetch(event, `${path(id)}/history${qs}`, {
 			headers: { accept: 'application/json' }
 		});
-		if (!res.ok) return { status: res.status, sessions: [], more: false };
-		const body = (await res.json()) as { sessions: HistorySession[]; more: boolean };
-		return { status: res.status, sessions: body.sessions ?? [], more: !!body.more };
+		if (!res.ok) return { status: res.status, ...HISTORY_VAZIO };
+
+		const body = (await res.json()) as {
+			sessions?: HistorySession[];
+			more?: boolean;
+			upcoming?: HistorySession[];
+			upcoming_more?: boolean;
+		};
+
+		return {
+			status: res.status,
+			sessions: body.sessions ?? [],
+			more: !!body.more,
+			upcoming: body.upcoming ?? [],
+			upcomingMore: !!body.upcoming_more
+		};
 	} catch {
-		return { status: 0, sessions: [], more: false };
+		return { status: 0, ...HISTORY_VAZIO };
 	}
 }
 

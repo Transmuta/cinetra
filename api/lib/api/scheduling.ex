@@ -446,62 +446,107 @@ defmodule Api.Scheduling do
 
   # ---- Agenda: leitura da tela ----
 
+  # Quantas das próximas o cartão da ficha mostra. É um cartão de resposta ("quando ele volta?"),
+  # não uma listagem: a agenda do paciente inteira já tem tela (`/agenda?paciente=`). Um pacote de
+  # 20 sessões desenharia 20 linhas aqui e recriaria, do outro lado, o problema que o doc 56 veio
+  # resolver.
+  @proximas_na_ficha 5
+
   @doc """
-  O **histórico de sessões de um paciente** (C13, Frente 7): as presenças dele com o bloco, do
-  mais recente para o mais antigo.
+  As **sessões de um paciente** para a ficha (C13, Frente 7): o histórico paginado e as próximas,
+  numa transação só.
 
   É leitura de presença (`Attendance`), não de bloco: numa turma, o que a ficha do paciente conta
   é o que aconteceu **com ele** — o bloco pode estar `:concluido` com a presença dele `:faltou`
   (`attendance.ex:8`). Vem com `package_id` para a ficha distinguir sessão de pacote de sessão
   avulsa.
 
+  **Duas listas, e não uma** (doc 56). Antes era um `sort: :desc` sem recorte de data, e o efeito
+  medido ao vivo foi que uma sessão marcada para setembro encabeçava "Histórico de atendimentos"
+  com o selo "Previsto" — o cartão afirmava como passado o que ainda não tinha acontecido. Pior
+  que o rótulo: as futuras consumiam o teto, então paciente com pacote longo perdia o passado.
+  A fronteira é `scope.now` (o relógio injetável, nunca `DateTime.utc_now/0`):
+
+    * `sessions` — `session_starts_at <= now`, do mais recente para o mais antigo, com `:limit` e
+      `:offset` (é o que o "ver histórico completo" da ficha pagina);
+    * `upcoming` — `session_starts_at > now`, da mais próxima para a mais distante, no teto de
+      `#{@proximas_na_ficha}`. Só na primeira página (`offset == 0`): recalcular as próximas para
+      desenhar a segunda página do histórico é trabalho de banco para um cartão que não mudou.
+
   O recorte A7 vale de graça: a preparation `OwnAgendaOnly, via: :appointment` da `Attendance` já
   esconde do papel `profissional` a sessão que não é da coluna dele.
 
-  **Limitado no SQL** (default 50, teto 200): `sort` e `limit` descem para o banco, e o `limit + 1`
-  responde `more?` sem varrer o resto. A primeira versão aplicava `Enum.sort_by`/`Enum.take`
-  **depois** de ler tudo — medido no bate-volta da Onda 3: 4.003 linhas trafegadas para desenhar
-  50 cartões num paciente de 2.000 sessões, e o plano do papel `profissional` virava nested loop
-  dirigido pela agenda inteira dele (1.595 buffers contra 57).
+  **Limitado no SQL** (default 50, teto 200): `sort`, `limit` e `offset` descem para o banco, e o
+  `limit + 1` responde `more?` sem varrer o resto. A primeira versão aplicava `Enum.sort_by`/
+  `Enum.take` **depois** de ler tudo — medido no bate-volta da Onda 3: 4.003 linhas trafegadas
+  para desenhar 50 cartões num paciente de 2.000 sessões, e o plano do papel `profissional`
+  virava nested loop dirigido pela agenda inteira dele (1.595 buffers contra 57). O índice
+  `(clinic_id, patient_id, session_starts_at)` atende os dois recortes: o filtro de data e a
+  ordem são a mesma terceira coluna, nas duas direções.
 
   `patient_id` que não é UUID devolve vazio em vez de estourar: o read do Ash sobe `{:error, _}` no
   cast e o `MatchError` virava **500** na ficha (a mesma armadilha que a tela de auditoria pegou no
   doc 32, e que o `Bulk` já guardava).
   """
-  def list_patient_history(scope, patient_id, opts \\ [])
+  def list_patient_sessions(scope, patient_id, opts \\ [])
 
-  def list_patient_history(%Api.Scope{} = scope, patient_id, opts) when is_binary(patient_id) do
+  def list_patient_sessions(%Api.Scope{} = scope, patient_id, opts) when is_binary(patient_id) do
     limit = Api.Pagination.limit(Keyword.get(opts, :limit), default: 50, max: 200)
+    offset = Api.Pagination.offset(Keyword.get(opts, :offset))
 
     if uuid?(patient_id) do
       in_clinic(scope, fn ->
-        attendances =
-          list_attendances!(
-            scope: scope,
-            query: [
-              filter: [patient_id: patient_id],
-              # Ordena pela **coluna** `session_starts_at` (cópia do `starts_at` do bloco, mantida
-              # por `ManageParticipants`/`SyncSessionStartsAt`). Era um aggregate: o `ORDER BY …
-              # LIMIT` descia igual, mas a subquery não-correlacionada varria a agenda da clínica
-              # inteira no hash join (doc 43 §4). Com a coluna, o índice
-              # `(clinic_id, patient_id, session_starts_at)` responde sem varrer nem ordenar.
-              sort: [session_starts_at: :desc],
-              # +1 é o que separa "tem mais" de "acabou" sem uma segunda query nem um `COUNT`.
-              limit: limit + 1
-            ],
-            load: [appointment: [:appointment_type, :professional]]
-          )
-          # Sessão segurada (`pkg_hold`) volta com `.appointment` nulo (RN-05) e não é histórico.
-          |> Enum.reject(&is_nil(&1.appointment))
+        {sessions, more?} = read_patient_sessions(scope, patient_id, :passadas, limit, offset)
 
-        %{sessions: Enum.take(attendances, limit), more?: length(attendances) > limit}
+        {upcoming, upcoming_more?} =
+          if offset == 0 do
+            read_patient_sessions(scope, patient_id, :proximas, @proximas_na_ficha, 0)
+          else
+            {[], false}
+          end
+
+        %{sessions: sessions, more?: more?, upcoming: upcoming, upcoming_more?: upcoming_more?}
       end)
     else
-      %{sessions: [], more?: false}
+      vazio()
     end
   end
 
-  def list_patient_history(%Api.Scope{}, _patient_id, _opts), do: %{sessions: [], more?: false}
+  def list_patient_sessions(%Api.Scope{}, _patient_id, _opts), do: vazio()
+
+  defp vazio, do: %{sessions: [], more?: false, upcoming: [], upcoming_more?: false}
+
+  # Um recorte, já cortado em `{página, tem_mais?}`. Ordena pela **coluna** `session_starts_at`
+  # (cópia do `starts_at` do bloco, mantida por `ManageParticipants`/`SyncSessionStartsAt`). Era
+  # um aggregate: o `ORDER BY … LIMIT` descia igual, mas a subquery não-correlacionada varria a
+  # agenda da clínica inteira no hash join (doc 43 §4).
+  defp read_patient_sessions(scope, patient_id, recorte, limit, offset) do
+    {corte, ordem} = recorte(recorte, scope.now)
+
+    attendances =
+      list_attendances!(
+        scope: scope,
+        query: [
+          filter: [patient_id: patient_id, session_starts_at: corte],
+          sort: [session_starts_at: ordem],
+          # +1 é o que separa "tem mais" de "acabou" sem uma segunda query nem um `COUNT`.
+          limit: limit + 1,
+          offset: offset
+        ],
+        load: [appointment: [:appointment_type, :professional]]
+      )
+      # Sessão segurada (`pkg_hold`) volta com `.appointment` nulo (RN-05) e não é sessão do
+      # paciente para efeito de ficha.
+      |> Enum.reject(&is_nil(&1.appointment))
+
+    {Enum.take(attendances, limit), length(attendances) > limit}
+  end
+
+  # A sessão que já começou é passado, mesmo que a presença ainda esteja `:prevista` — quem marca
+  # presença o faz depois da hora, e a linha não pode saltar de cartão a cada F5 durante o
+  # atendimento. Por isso o `<=` fica com o histórico e o futuro é estritamente `>`.
+  defp recorte(:passadas, now), do: {[less_than_or_equal: now], :desc}
+  defp recorte(:proximas, now), do: {[greater_than: now], :asc}
 
   defp uuid?(value) when is_binary(value), do: match?({:ok, _}, Ecto.UUID.cast(value))
   defp uuid?(_value), do: false
