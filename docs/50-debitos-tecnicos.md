@@ -229,6 +229,30 @@ cai junto com outros do mesmo tipo. É refatoração de fundação, não desta f
 
 ---
 
+## D-10 · Sem preview por PR — a revisão é no HML
+
+**O que é.** O deploy no Dokploy/OCI ([`59`](59-deploy-dokploy-oci.md)) tem dois ambientes fixos:
+`main → prod` e `develop → HML`. **Não** há deploy efêmero por Pull Request (o link automático por
+branch que o Dokploy sabe gerar).
+
+**Por que virou débito.** A feature de preview do Dokploy foi desenhada para app de um serviço, e a
+stack aqui tem três atritos que a quebram por padrão: **(a)** a CSP é assada no **build** (`kit.csp`),
+então cada preview precisaria do `API_PUBLIC_ORIGIN` templatizado com o seu próprio domínio, senão
+a guarda de boot derruba o web; **(b)** cada preview precisaria do **próprio Postgres + migrate**,
+senão migrations de branches diferentes se atropelam num banco compartilhado; **(c)** o **Google
+OAuth não aceita redirect URI wildcard**, então login por Google não funciona em domínio efêmero —
+só magic link. É infra de verdade, não um checkbox.
+
+**O que custa hoje.** Nada operacional: o **HML no `develop`** cobre a revisão pré-produção, no
+mesmo ARM e mesmo compose que prod. O que se perde é o conforto de um link isolado por PR aberto —
+duas branches em revisão disputam o mesmo HML.
+
+**O que o paga.** Volume de PRs simultâneos que justifique a complexidade, com as três soluções
+desenhadas de propósito (CSP por domínio de preview, banco efêmero por PR, auth por magic link no
+preview). O HML já mitiga o grosso do risco; o preview entra por cima depois, sem refazer nada.
+
+---
+
 ## D-11 · Retenção de dado: quatro relógios diferentes, e um sem relógio nenhum
 
 **O que é.** Não há política de retenção única. Cada tabela que cresce sozinha ganhou o seu número
