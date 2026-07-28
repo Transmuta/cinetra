@@ -90,10 +90,28 @@
 			.join(' · ')
 	);
 
-	// Escada de degradação (D1 do doc 64). Com `PPM = 2.55` a sessão de 30 min tem 76px e cabe
-	// inteira; a escada existe para o que ainda não cabe — 15 min dá 38px. Sem ela, o card de
-	// sessão curta empilharia quatro linhas em espaço de duas e cortaria no meio.
-	const linhas = $derived(height >= 76 ? 4 : height >= 44 ? 3 : height >= 30 ? 2 : 1);
+	// Escada de degradação (D1 do doc 64), com os limiares **medidos** — não estimados.
+	//
+	// A primeira versão chutou `76/44/30` e a medição ao vivo mostrou que dois deles cortavam
+	// texto: o card é `flex flex-col` com `overflow-hidden`, então quando não cabe os filhos
+	// **encolhem** em vez de estourar. Nada quebra visivelmente; a linha do nome só fica com 9px
+	// em vez de 18 e o texto some pela metade. Medido no browser, cada variante precisa de:
+	//
+	//   compacta →  hora + nome na MESMA linha  + padding(8)          = 24px
+	//   2 linhas →  hora(16) + nome 12px(18)   + padding(8) + gap(2)  = 44px
+	//   3 linhas →  + tipo/pacientes(15) + gap(2)                     = 61px
+	//   4 linhas →  + vagas(15) + gap(2)   (só turma usa a quarta)    = 78px
+	//
+	// Abaixo de 44 nem duas linhas empilhadas cabem — empilhada, a dupla hora+nome pediria 41px.
+	// É por isso que a variante de baixo **não empilha**: ela sobe o nome para a linha da hora e
+	// passa a caber em 24. Sem essa troca, a sessão de 15 min renderizava o nome com 9px.
+	//
+	// A conta é sobre a altura **renderizada**, não a recebida: o `style` abaixo desenha
+	// `height - 2` (a folga entre blocos vizinhos), e comparar a de entrada escolhia a variante
+	// por 2px que não existem na tela — o bastante para o card de 30 min pedir duas linhas num
+	// espaço de uma.
+	const util = $derived(Math.max(height - 2, 18));
+	const linhas = $derived(util >= 78 ? 4 : util >= 61 ? 3 : util >= 44 ? 2 : 1);
 
 	// A cor sai de `color-mix` sobre o token do tema, e não de um hex calculado em JS: o valor
 	// do token muda entre claro e escuro, e um hex congelado quebraria o modo escuro.
@@ -126,7 +144,7 @@
 		e.stopPropagation();
 		onSelect(appt.id);
 	}}
-	style="top:{top}px; height:{Math.max(height - 2, 18)}px; left:{geo.left}; width:{geo.width};
+	style="top:{top}px; height:{util}px; left:{geo.left}; width:{geo.width};
 	       background:var(--color-surface); border-color:{stroke}; border-left-color:{profColor};
 	       opacity:{dragging ? 0.4 : sinal.dim ? 0.72 : 1};
 	       transition:opacity .15s;
@@ -159,7 +177,15 @@
 			</span>
 		{/if}
 
-		{#if linhas > 1}
+		{#if linhas === 1}
+			<!-- Variante compacta: o nome sobe para a MESMA linha da hora. Empilhado ele precisaria
+			     de 41px e aqui há ~20 — o que acontecia era o flex encolher a linha do nome para 9px
+			     e cortar o texto no meio, em silêncio. Numa linha só, cabe. O status vive no ponto,
+			     e o resto no `aria-label`. -->
+			<span class="truncate text-[10.5px] {sinal.strike ? 'text-faint line-through' : 'text-ink'}">
+				{titulo}
+			</span>
+		{:else}
 			<span
 				data-testid="status-badge"
 				class="ml-auto truncate rounded px-1 py-px text-[9px] font-bold"
@@ -179,11 +205,6 @@
 				? 'text-faint line-through'
 				: 'text-ink'}"
 		>
-			{titulo}
-		</div>
-	{:else}
-		<!-- Uma linha só: o badge não cabe, então o status vive no ponto (e no `aria-label`). -->
-		<div class="truncate text-[10.5px] {sinal.strike ? 'text-faint line-through' : 'text-ink'}">
 			{titulo}
 		</div>
 	{/if}

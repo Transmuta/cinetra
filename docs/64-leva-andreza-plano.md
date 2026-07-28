@@ -119,7 +119,7 @@ um compromisso que hoje está escondido.
 | # | Decisão | Escolha |
 | --- | --- | --- |
 | **D13** | Badge numa turma mista | ✅ **Badge de composição** — o bloco de grupo mostra "3 de 4 concluídas" em vez da palavra única; o individual mantém a palavra. Resolve HOM-005 e HOM-010 junto, sem tocar no backend |
-| **D1** | Altura do card | ✅ **PPM 2.55** — a grade sai de ~830px para ~2000px e o card completo passa a caber **até na sessão de 30 min** (76px). Consequência aceita: o dia ocupa ~2,5 telas. Sobra escada só para 15 min (38px) |
+| **D1** | Altura do card | ✅ **PPM 1.6** — revisado para baixo depois de medir (ver [§3.6](#36-o-que-só-a-inspeção-visual-mostrou)). A escolha inicial de `2.55` deixava **65px de folga** num card cujo conteúdo ocupa 61 |
 | **D2** | Um verbo ou dois | ✅ **Só "Registrar status"** — zero regra nova. "Confirmar" exigiria um gatilho novo (janela de N horas) e fica para depois |
 | **D3** | Onde a legenda mora | ✅ **Faixa recolhível abaixo da barra**, aberta por padrão, estado em `localStorage`. Dois blocos: 6 status + 2 marcadores ortogonais (conflito, encaixe) + 1 pendência |
 
@@ -162,13 +162,52 @@ coisas apareceram na imagem e em nenhum teste:
 1. **A linha de vagas estava desgrudada.** Ela tinha `mt-auto`, herdado de quando o card era baixo.
    Com 126px de altura a folga vai toda para o meio, e a linha ficava colada no rodapé — na tela
    parecia legenda do bloco de baixo. Corrigido: as quatro linhas ficam juntas no topo;
-2. **O card de 50 min tem 126px e o conteúdo ocupa ~60.** É o preço do `PPM 2.55`, e está dentro do
-   que a D1 aceitou — mas vale registrar que a sobra é grande e visível. Se incomodar na operação,
-   o ajuste é baixar o PPM para ~2.0 e voltar a um degrau a mais na escada; nada além da constante
-   e da escada muda.
+2. **O card de 50 min tinha 126px para 61 de conteúdo.** Registrado como sobra visível — e foi o
+   que levou à revisão abaixo.
 
-**Medido ao vivo** (sessão de 50 min, clínica semeada): altura 126px · 4 linhas · badge "Agendado"
-· faixa `rgb(15,181,166)` (a cor do profissional) · fundo `rgb(255,255,255)` · grade 1554px.
+### 3.6a. A revisão do PPM: o que a medição mostrou
+
+O `2.55` saiu de uma conta de guardanapo ("o card da Figura 2 pede ~90px"). Medindo a altura
+**natural** de cada variante no browser — soma dos filhos + `py-1` + os `gap-0.5` —, os números
+reais são outros:
+
+| Variante | Precisa | Quem usa |
+| --- | ---: | --- |
+| compacta (hora + nome na mesma linha) | **24px** | 15 min |
+| 2 linhas (hora+badge · nome) | **44px** | 30 min |
+| 3 linhas (+ tipo) | **61px** | individual de 50 e 60 min |
+| 4 linhas (+ vagas) | **78px** | **só turma** — o card individual nunca tem a quarta |
+
+A última linha é a chave: `{#if linhas > 3 && grupo}`. **O card individual nunca usa a quarta
+linha**, então dimensionar a grade inteira por ela inflava tudo por um caso que é minoria.
+
+**Dois defeitos que só a medição pegou**, ambos invisíveis (nada quebra, nada estoura):
+
+1. **dois dos três limiares cortavam texto.** O card é `flex flex-col` com `overflow-hidden`:
+   quando não cabe, os filhos **encolhem** em vez de transbordar. O nome do card de 30 min estava
+   sendo renderizado com **9px em vez de 18** — metade do texto sumia e a tela não denunciava.
+   Os limiares chutados eram `76/44/30`; os medidos são `78/61/44`;
+2. **a escada comparava a altura errada.** O `style` desenha `height - 2` (a folga entre blocos
+   vizinhos) e a conta usava o `height` de entrada — 2px que não existem na tela, o bastante para
+   o card de 30 min pedir duas linhas num espaço de uma.
+
+**Resultado (medido, `PPM = 1.6`):**
+
+| Duração | Altura | Variante | Folga |
+| --- | ---: | --- | ---: |
+| 15 min | 22px | compacta | −2 |
+| 30 min | 46px | 2 linhas | +2 |
+| 50 min | 78px | 3 linhas | +17 |
+| 50 min (turma) | 78px | 4 linhas | +2 |
+| 60 min | 94px | 3 linhas | +33 |
+
+**A grade caiu de 1554px para 984px** (−37%), contra os 830px de antes da fatia — ou seja, o custo
+do redesenho ficou em ~19% de rolagem a mais, e não nos 87% que o `2.55` cobrava. O único déficit
+que sobra são 2px na sessão de 15 min, que é curta demais para qualquer densidade razoável e vive
+do `title`/`aria-label`.
+
+**Por que 1.6 e não 1.5:** a 1.5 o card de 30 min renderiza 43px e cai na variante compacta — perde
+o nome em 12px, que é a informação mais lida da grade. 1.6 é o menor valor em que ele ainda cabe.
 
 ### 3.7 O que herda, e o que fica de fora
 

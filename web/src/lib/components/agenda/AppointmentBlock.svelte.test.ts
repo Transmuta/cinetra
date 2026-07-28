@@ -264,17 +264,33 @@ describe('AppointmentBlock', () => {
 		expect(screen.queryByText('Pilates · 3/4')).not.toBeInTheDocument();
 	});
 
-	// D1 (doc 64): com `PPM = 2.55` a sessão de 30 min tem 76px e cabe inteira. A escada existe
-	// para o que ainda não cabe — 15 min dá 38px.
+	// D1 (doc 64): os limiares são MEDIDOS no browser, não estimados — 78/61/44 é o que cada
+	// variante de fato ocupa. E a conta é sobre a altura RENDERIZADA (`height - 2`), que é a que
+	// existe na tela. A primeira versão errou os dois e o card encolhia o nome em silêncio.
 	describe('escada de degradação por altura', () => {
 		it.each([
-			[76, '4'],
-			[50, '3'],
-			[38, '2'],
-			[20, '1']
+			[80, '4'],
+			[63, '3'],
+			[46, '2'],
+			[30, '1']
 		])('altura %ipx desenha %s linha(s)', (height, linhas) => {
 			render(AppointmentBlock, { props: { ...base, height } });
 			expect(screen.getByRole('button')).toHaveAttribute('data-linhas', linhas);
+		});
+
+		// Os 2px do `height - 2` decidem a variante na fronteira: 46 renderiza 44, que é
+		// exatamente o mínimo de duas linhas; 45 renderiza 43 e não cabe.
+		it('a fronteira é a altura renderizada, não a recebida', () => {
+			render(AppointmentBlock, { props: { ...base, height: 45 } });
+			expect(screen.getByRole('button')).toHaveAttribute('data-linhas', '1');
+		});
+
+		// Na compacta o nome sobe para a linha da hora — empilhado ele seria espremido de 18px
+		// para 9 e cortado no meio, sem nada quebrar.
+		it('a variante compacta mantém o nome legível na linha da hora', () => {
+			render(AppointmentBlock, { props: { ...base, height: 30 } });
+			expect(screen.getByText('Maria Silva')).toBeInTheDocument();
+			expect(screen.queryByTestId('status-badge')).not.toBeInTheDocument();
 		});
 	});
 

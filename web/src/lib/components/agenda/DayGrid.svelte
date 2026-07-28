@@ -88,7 +88,7 @@
 	// ATENÇÃO ao mexer: a constante governa SETE coisas, não só a altura do card — `topDe`, a
 	// altura total da grade (`gridH`), as faixas de indisponibilidade, o fantasma do arraste, o
 	// `dropMinutes` e a linha do agora. Todas precisam de conferência VISUAL, não só de teste.
-	const PPM = 2.55;
+	const PPM = 1.6;
 	// +8px em relação aos 66 originais: o cabeçalho da coluna ganhou a barra de ocupação (AN-01
 	// sub `i`), que é o que o Dia mostrava como contagem crua e as outras visões já desenhavam.
 	const HEADER = 74;
@@ -143,9 +143,13 @@
 			// ÷ minutos de expediente — nunca "N de 9 slots". Reusa `occupancyRate`, a mesma que
 			// Semana e Mês usam, porque foi a divergência entre duas contas que A-D11 chamou de
 			// "gráfico que mente".
-			const ocupados = intervalos
-				.filter((iv) => ocupaGrade(appts.find((a) => a.id === iv.id)!))
-				.reduce((s, iv) => s + (iv.end - iv.start), 0);
+			// `intervalos` é o `map` de `appts` na MESMA ordem, então o par sai do índice — a
+			// primeira versão fazia `appts.find(...)` dentro do filter e reprocurava a lista
+			// inteira por bloco, num `$derived` que o tempo real reexecuta a cada push.
+			const ocupados = intervalos.reduce(
+				(s, iv, i) => (ocupaGrade(appts[i]) ? s + (iv.end - iv.start) : s),
+				0
+			);
 			const expediente = periodos.reduce(
 				(s, [a, b]) => s + Math.abs(timeToMinutes(String(b)) - timeToMinutes(String(a))),
 				0

@@ -182,7 +182,7 @@ export function createAppointment(
 export function rescheduleAppointment(
 	event: RequestEvent,
 	id: string,
-	input: { starts_at: string; professional_id?: string; encaixe?: boolean; expected_version: number }
+	input: { starts_at: string; professional_id?: string; encaixe?: boolean; reschedule_reason?: string; expected_version: number }
 ): Promise<MutationResult> {
 	return mutate(event, `/api/appointments/${id}/reschedule`, 'PATCH', input);
 }

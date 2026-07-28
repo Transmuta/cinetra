@@ -286,6 +286,12 @@ export const actions: Actions = {
 			await rescheduleAppointment(event, id, {
 				starts_at,
 				...(professional_id ? { professional_id } : {}),
+				// Só viaja quando a recepção escreveu algo: `""` gravaria string vazia onde o
+				// "não informado" é `null`, e o relatório contaria motivo em branco como motivo
+				// (mesma regra do `motivo` da falta).
+				...(String(form.get('reschedule_reason') ?? '').trim() !== ''
+					? { reschedule_reason: String(form.get('reschedule_reason')).trim() }
+					: {}),
 				encaixe: form.get('encaixe') === 'on' || form.get('encaixe') === 'true',
 				expected_version: expectedVersion(form)
 			})

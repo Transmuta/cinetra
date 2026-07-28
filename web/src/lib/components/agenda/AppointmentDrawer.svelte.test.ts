@@ -175,6 +175,40 @@ describe('AppointmentDrawer', () => {
 		expect(submeteu).toBe(true);
 	});
 
+	// Bate-volta: o motivo da falta era COLETADO e nunca relido. O irmão `cancel_reason` é
+	// exibido depois do fato desde a Frente 4 — registrar sem poder consultar é meia entrega, e
+	// justamente a metade que a gestão usa ("por que a clínica perde sessão?").
+	it('o motivo da falta é exibido depois de registrado', () => {
+		render(AppointmentDrawer, {
+			props: {
+				appt: appt({
+					status: 'faltou',
+					participants: [
+						{
+							patient_id: 'pac1',
+							status: 'faltou',
+							falta_justificada: false,
+							motivo: 'não avisou',
+							package_id: null
+						}
+					]
+				}),
+				...base
+			}
+		});
+		expect(screen.getByText(/não avisou/)).toBeInTheDocument();
+	});
+
+	// Par do "Motivo do cancelamento", que já existia. Sem status na condição: um bloco remarcado
+	// continua `agendado`, e amarrar a exibição a um status esconderia o motivo no único estado
+	// em que ele é a informação nova.
+	it('o motivo da remarcação é exibido num bloco agendado', () => {
+		render(AppointmentDrawer, {
+			props: { appt: appt({ reschedule_reason: 'profissional em congresso' }), ...base }
+		});
+		expect(screen.getByText(/profissional em congresso/)).toBeInTheDocument();
+	});
+
 	it('presença resolvida troca os botões por "Desfazer"', () => {
 		render(AppointmentDrawer, {
 			props: {

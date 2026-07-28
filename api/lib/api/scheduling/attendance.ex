@@ -106,7 +106,11 @@ defmodule Api.Scheduling.Attendance do
     # separado porque as transições mexem em um, a justificativa no outro.
     update :transition do
       require_atomic? false
-      accept [:status, :falta_justificada]
+      # `:motivo` entra aqui para o `reopen` do BLOCO poder limpá-lo (bate-volta). Sem ele a
+      # cascata devolvia a presença a `:prevista` deixando o motivo da falta pendurado —
+      # explicação de algo que deixou de ter acontecido. O `reopen_attendance` (por participante)
+      # já limpava; eram duas portas para o mesmo desfecho com comportamentos diferentes.
+      accept [:status, :falta_justificada, :motivo]
     end
 
     # As transições de presença POR PARTICIPANTE (Frente 6/A2, doc 41) — o **único** caminho de

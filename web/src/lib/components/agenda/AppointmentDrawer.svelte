@@ -287,12 +287,33 @@
 			</div>
 		{/if}
 
+		<!-- O par do de cima. Sem status na condição de propósito: um bloco remarcado continua
+		     `agendado`, e amarrar a exibição a um status esconderia o motivo justamente no estado
+		     em que ele é a informação nova. Guarda o motivo da ÚLTIMA remarcação; as anteriores
+		     estão na trilha. -->
+		{#if appt.reschedule_reason}
+			<div class="rounded-lg bg-surface-2 px-3 py-2 text-[12.5px] text-muted">
+				<span class="font-semibold">Motivo da remarcação:</span>
+				{appt.reschedule_reason}
+			</div>
+		{/if}
+
 		<!-- Presença POR PARTICIPANTE (A2, doc 41). Substitui, na tela, o concluir/faltar do bloco:
 		     numa turma de quatro, um pode ter vindo e outro não, e o desfecho do bloco é o ROLLUP
 		     disso (quem escreve o status do bloco é o servidor). Vale igual para sessão individual —
 		     marca-se a única presença. -->
 		{#snippet controlesPresenca(p: AgendaPatient, presenca: Participant)}
 			{@const acoes = participantActions(presenca, appt, agora)}
+			<!-- O motivo da falta, depois do fato. Ele era coletado no diálogo e nunca mais aparecia
+			     — o irmão `cancel_reason` é exibido desde a Frente 4, e registrar sem poder consultar
+			     é a metade inútil da dupla: quem pergunta "por que a clínica perde sessão" precisa
+			     ler, não escrever. Fica por participante, como o campo. -->
+			{#if presenca.status === 'faltou' && presenca.motivo}
+				<div class="mt-1 text-[11.5px] text-muted">
+					<span class="font-semibold">Motivo:</span>
+					{presenca.motivo}
+				</div>
+			{/if}
 			{#if podeMexer && acoes.length > 0}
 				<div class="mt-1.5 flex flex-wrap items-center gap-1.5">
 					{#each acoes as ac (ac.kind)}

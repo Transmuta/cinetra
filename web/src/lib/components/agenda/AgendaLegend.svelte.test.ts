@@ -37,6 +37,16 @@ describe('AgendaLegend', () => {
 		expect(screen.getByText('Registrar status')).toBeInTheDocument();
 	});
 
+	// Bate-volta: a fatia criou um sinal que a legenda não explicava — o badge de composição da
+	// turma ("3 de 4 concluídas", D13) e o ponto NEUTRO que o acompanha quando a turma é mista.
+	// Esse ponto é o mesmo `--color-muted` de "Agendado" e "Cancelado": três estados, uma cor,
+	// e a legenda descrevendo só dois. É o HOM-002 reaparecendo dentro da própria correção dele.
+	it('explica a composição da turma, que é o sinal que a fatia introduziu', () => {
+		render(AgendaLegend);
+		expect(screen.getByText('3 de 4 concluídas')).toBeInTheDocument();
+		expect(screen.getByText(/Quantos vieram/)).toBeInTheDocument();
+	});
+
 	// D3: aberta por padrão — quem chega novo aprende sem saber que precisava procurar. Foi
 	// assim que a tela de auditoria virou o HOM-016.
 	it('nasce aberta', () => {

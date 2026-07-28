@@ -187,7 +187,13 @@ export async function criarClinicaPelaApi(api: APIRequestContext, nome: string):
 export async function criarProfissional(api: APIRequestContext, nome: string): Promise<Ref> {
 	// `segue_horario_clinica` fica no default (true): sem herdar o expediente da clínica, TODO
 	// agendamento cairia em 422 de "fora do expediente" e o teste acusaria a regra errada.
-	const body = await post<{ professional: Ref }>(api, '/api/professionals', { nome });
+	//
+	// `tel` pelo mesmo motivo de `criarPaciente`: a `TelObrigatorio` (D6) vale para os dois
+	// cadastros, e sem ele o `montarClinica` morre em 422 antes da primeira asserção.
+	const body = await post<{ professional: Ref }>(api, '/api/professionals', {
+		nome,
+		tel: '11987654321'
+	});
 	return body.professional;
 }
 

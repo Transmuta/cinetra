@@ -116,6 +116,22 @@
 			{/snippet}
 		</Field>
 
+		<!-- D-H3/D5: remarcar era a única das três ações críticas sem registro de POR QUÊ. O campo
+		     existia no banco e não havia como preenchê-lo — coluna inalcançável pela interface, que
+		     é o mesmo que não existir. Opcional e texto livre, como o do cancelar: exigir motivo
+		     faria a recepção digitar qualquer coisa para conseguir remarcar. -->
+		<Field label="Motivo (opcional)">
+			{#snippet control()}
+				<input
+					type="text"
+					name="reschedule_reason"
+					maxlength="300"
+					placeholder="Ex.: profissional em congresso, paciente pediu…"
+					class="h-[38px] w-full {CONTROL_CLASS} {CONTROL_PX}"
+				/>
+			{/snippet}
+		</Field>
+
 		<EncaixeCheckbox bind:checked={encaixe} {podeEncaixe} />
 
 		<ConflictErrorBox {erro} {ofereceEncaixe} onEncaixe={() => (encaixe = true)} />

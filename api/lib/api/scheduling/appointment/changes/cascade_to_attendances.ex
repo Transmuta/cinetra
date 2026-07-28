@@ -58,7 +58,13 @@ defmodule Api.Scheduling.Appointment.Changes.CascadeToAttendances do
   defp maybe_put(input, _key, nil), do: input
   defp maybe_put(input, key, value), do: Map.put(input, key, value)
 
-  defp maybe_reset(input, true), do: Map.put(input, :falta_justificada, false)
+  # Reabrir desfaz o desfecho inteiro, não só o status: a justificativa e o **motivo** da falta
+  # descrevem algo que deixou de ter acontecido. Deixar o motivo para trás era o que fazia uma
+  # presença `:prevista` carregar "não avisou" — e o `reopen_attendance` (por participante) já
+  # limpava os dois, então as duas portas discordavam sobre o mesmo desfecho.
+  defp maybe_reset(input, true),
+    do: input |> Map.put(:falta_justificada, false) |> Map.put(:motivo, nil)
+
   defp maybe_reset(input, _false), do: input
 
   defp maybe_justify(input, _changeset, nil), do: input

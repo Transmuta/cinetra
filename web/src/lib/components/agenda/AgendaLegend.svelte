@@ -104,6 +104,24 @@
 				</span>
 			</div>
 
+			<!-- O terceiro bloco existe porque a fatia INVENTOU um sinal e quase o deixou de fora
+			     desta legenda: numa turma já registrada o badge deixa de ser a palavra do status e
+			     vira a composição (D13). O ponto que a acompanha é NEUTRO quando a turma é mista — a
+			     mesma cor de "Agendado" e "Cancelado". Três estados, uma cor: sem esta linha, a
+			     legenda reproduziria o HOM-002 dentro da própria correção dele. -->
+			<div class="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+				<span class="text-[10px] font-semibold tracking-wide text-faint uppercase">Turma</span>
+				<span class="flex items-center gap-1 text-[11px] text-muted">
+					<span
+						class="rounded px-1 py-px text-[9px] font-bold text-muted"
+						style="background:color-mix(in srgb, var(--color-muted) 12%, transparent)"
+					>
+						3 de 4 concluídas
+					</span>
+					Quantos vieram — no lugar do status, quando já há presença registrada
+				</span>
+			</div>
+
 			<!-- A quarta dimensão do card não é chip: é posição. Dizer isso em uma frase evita a
 			     pergunta "e essa listra colorida?" que a cor sozinha não responde. -->
 			<span class="text-[11px] text-faint">

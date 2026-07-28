@@ -1069,6 +1069,40 @@ defmodule ApiWeb.AppointmentsControllerTest do
       assert is_nil(alvo["motivo"])
     end
 
+    # Bate-volta: o `reopen` do BLOCO devolvia a presença a `:prevista` e **deixava o motivo
+    # pendurado** — explicação de uma falta que deixou de existir. O `reopen` por participante
+    # limpava; o do bloco não, porque a cascata escreve pela ação `:transition`, que não aceitava
+    # `:motivo`. Duas portas para o mesmo desfecho, com comportamentos diferentes.
+    test "reopen do bloco limpa o motivo da falta junto", %{conn: conn} do
+      ctx = fixture()
+      {id, version, p2} = create_turma(conn, ctx)
+
+      # As DUAS presenças faltam: só com todas resolvidas o rollup fecha o bloco em `:faltou`,
+      # que é o único estado de onde o `reopen` sai (F4).
+      c1 =
+        part_post(conn, ctx, id, ctx.paciente.id, "no_show", %{
+          "motivo" => "não avisou",
+          "expected_version" => version
+        })
+
+      v1 = json_response(c1, 200)["appointment"]["version"]
+      c2 = part_post(conn, ctx, id, p2, "no_show", %{"expected_version" => v1})
+      v2 = json_response(c2, 200)["appointment"]["version"]
+      assert json_response(c2, 200)["appointment"]["status"] == "faltou"
+
+      resp =
+        conn
+        |> authed(ctx.owner)
+        |> post("/api/appointments/#{id}/reopen", %{"expected_version" => v2})
+
+      alvo =
+        json_response(resp, 200)["appointment"]["participants"]
+        |> Enum.find(&(&1["patient_id"] == ctx.paciente.id))
+
+      assert alvo["status"] == "prevista"
+      assert is_nil(alvo["motivo"]), "o motivo sobreviveu ao reopen: #{inspect(alvo["motivo"])}"
+    end
+
     test "recepção PODE marcar presença (A8)", %{conn: conn} do
       ctx = fixture()
       {id, version, _p2} = create_turma(conn, ctx)
