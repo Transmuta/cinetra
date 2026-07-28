@@ -6,6 +6,7 @@
 	import Stethoscope from '@lucide/svelte/icons/stethoscope';
 	import Clock from '@lucide/svelte/icons/clock';
 	import CalendarOff from '@lucide/svelte/icons/calendar-off';
+	import Send from '@lucide/svelte/icons/send';
 	import SlidersHorizontal from '@lucide/svelte/icons/sliders-horizontal';
 	import Users from '@lucide/svelte/icons/users';
 	import UserCheck from '@lucide/svelte/icons/user-check';
@@ -69,6 +70,7 @@
 		'/configuracoes/tipos': Stethoscope,
 		'/configuracoes/horario': Clock,
 		'/configuracoes/excecoes': CalendarOff,
+		'/configuracoes/comunicacao': Send,
 		'/configuracoes/equipe': SlidersHorizontal
 	};
 

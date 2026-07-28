@@ -74,6 +74,10 @@ defmodule ApiWeb.Router do
     get "/clinic", ClinicController, :show
     patch "/clinic", ClinicController, :update
 
+    # Comunicação com o paciente (doc 52 §7). Rota própria pelo mesmo motivo da ação: o que a
+    # fronteira aceita é o que a ação aceita, não o que o formulário desenha.
+    patch "/clinic/messaging", ClinicController, :update_messaging
+
     # Gestão de membros (Fatia 10 / Equipe & acessos). RBAC owner/admin no controller +
     # policies do Membership; clinic_id sempre do escopo.
     get "/members", MembersController, :index
@@ -166,6 +170,12 @@ defmodule ApiWeb.Router do
     post "/appointments/:id/reopen", AppointmentsController, :reopen
     post "/appointments/:id/exclude", AppointmentsController, :exclude
 
+    # Comunicação com o paciente (doc 52 §6). A timeline é leitura de qualquer membro (com o
+    # recorte A7 na preparation do recurso); o disparo é dos papéis que agendam, guardado no
+    # próprio controller.
+    get "/appointments/:appointment_id/messages", MessagesController, :index
+    post "/appointments/:appointment_id/messages", MessagesController, :create
+
     # Presença por participante (Frente 6/A2, doc 41 / 09 §3.1.1). Sub-rota do bloco.
     post "/appointments/:id/participants/:patient_id/complete",
          AppointmentsController,
@@ -218,6 +228,22 @@ defmodule ApiWeb.Router do
     # a guarda vive no controller (with_admin_scope) e nas policies do recurso de versão.
     # `clinic_id` sempre do escopo; a página e os filtros viajam na query string.
     get "/audit", AuditController, :index
+  end
+
+  # Comunicação com o paciente (doc 52): as duas rotas **sem sessão** desta fatia. Não passam
+  # por `:authenticated` porque quem chega aqui não tem login — é o provider de e-mail e é o
+  # próprio paciente. O que autoriza cada uma está no controller: assinatura do provider num
+  # caso, token assinado no outro.
+  scope "/", ApiWeb do
+    pipe_through :api
+
+    # Eventos de entrega. A assinatura Svix é conferida antes de qualquer leitura de banco, e o
+    # corpo cru vem do `ApiWeb.Plugs.CacheRawBody` (instalado no `Plug.Parsers` do endpoint).
+    post "/webhooks/resend", ResendWebhookController, :create
+
+    # A resposta do paciente (§5). O token identifica UMA mensagem e não abre sessão nenhuma.
+    get "/api/reply/:token", PatientReplyController, :show
+    post "/api/reply/:token", PatientReplyController, :create
   end
 
   # Máquina OAuth do AshAuthentication (Assent): request + callback do Google. Chama

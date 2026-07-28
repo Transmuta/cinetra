@@ -12,6 +12,7 @@
 	import ListView from '$lib/components/agenda/ListView.svelte';
 	import NewAppointmentModal from '$lib/components/agenda/NewAppointmentModal.svelte';
 	import AppointmentDrawer from '$lib/components/agenda/AppointmentDrawer.svelte';
+	import type { MessageParticipant, MessagesData } from '$lib/messages';
 	import RescheduleModal from '$lib/components/agenda/RescheduleModal.svelte';
 	import { toast } from '$lib/toast.svelte';
 	import {
@@ -265,6 +266,47 @@
 		remarcando = false;
 	}
 
+	// A timeline de comunicação (doc 52 §6), buscada quando o drawer abre — não no load da agenda.
+	// Um dia cheio tem dezenas de blocos e o drawer mostra um; carregar a comunicação de todos
+	// para exibir a de um multiplicaria o payload da tela mais usada (mesma razão do corte do Mês,
+	// doc 25 §10).
+	//
+	// `null` = carregando, e é o que o drawer usa para não piscar "nada a mostrar" antes da
+	// resposta.
+	let mensagens = $state<MessageParticipant[] | null>(null);
+
+	// A CHAVE do efeito é `selectedId` + a última action de confirmação: reexecutar depois de um
+	// envio é o que faz a linha nova aparecer sem F5. Sem a segunda parte, a recepção clicaria em
+	// "Enviar" e a timeline continuaria mostrando o estado de antes.
+	$effect(() => {
+		const id = selectedId;
+		const marca = form?.action === 'confirmar' ? form : null;
+		void marca;
+
+		if (!id) {
+			mensagens = null;
+			return;
+		}
+
+		let vivo = true;
+		mensagens = null;
+
+		fetch(`/agenda/mensagens/${id}`)
+			.then((r) => (r.ok ? r.json() : { participantes: [] }))
+			.then((body: MessagesData) => {
+				// Guarda contra resposta fora de ordem: abrir dois blocos rápido faria a resposta do
+				// primeiro sobrescrever a do segundo.
+				if (vivo && selectedId === id) mensagens = body.participantes ?? [];
+			})
+			.catch(() => {
+				if (vivo && selectedId === id) mensagens = [];
+			});
+
+		return () => {
+			vivo = false;
+		};
+	});
+
 	// Semente do modal quando o arraste cai num conflito (fluxo C). `null` = sem modal aberto por
 	// arraste.
 	let dragConflito = $state<{
@@ -460,6 +502,7 @@
 		timezone={data.timezone}
 		papel={data.me?.papel ?? null}
 		{form}
+		{mensagens}
 		onClose={() => (selectedId = null)}
 		onReschedule={() => (remarcando = true)}
 		onToast={(m) => toast(m)}

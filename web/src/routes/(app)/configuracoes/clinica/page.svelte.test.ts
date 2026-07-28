@@ -8,6 +8,7 @@ vi.mock('$app/forms', () => ({ enhance: () => ({ destroy() {} }) }));
 import Page from './+page.svelte';
 import type { Me } from '$lib/session';
 import { meFixture } from '$lib/testing/fixtures';
+import type { Clinic } from '$lib/server/clinics';
 
 const owner: Me = meFixture({
 	user: { id: 'u1', nome: 'Dona', email: 'dona@ex.com' },
@@ -16,11 +17,17 @@ const owner: Me = meFixture({
 
 const recep: Me = { ...owner, papel: 'recepcao' };
 
-const clinic: { id: string; nome: string; cnpj: string | null; endereco: string | null } = {
+// Os campos `msg_*` (doc 52 §7) viajam com a identidade da clínica; esta tela não os usa, mas o
+// tipo é um só — e é o mesmo `GET /api/clinic` que alimenta as duas.
+const clinic: Clinic = {
 	id: 'c1',
 	nome: 'Clínica Vida',
 	cnpj: null,
-	endereco: null
+	endereco: null,
+	msg_confirmacao_auto: true,
+	msg_lembrete_horas: null,
+	msg_silencio_inicio: 21,
+	msg_silencio_fim: 8
 };
 
 // `theme`/`me` vêm do layout; montamos o `data` da página com eles.

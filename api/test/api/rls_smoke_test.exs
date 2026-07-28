@@ -743,30 +743,11 @@ defmodule Api.RlsSmokeTest do
       assert anexo.status == :disponivel
     end
 
-    # **O teste que faltava, e ele é ESTRUTURAL de propósito.**
-    #
-    # `changes do change SetTenantGuc end` roda em `[:create, :update]` por padrão — o Ash omite
-    # `destroy` deliberadamente ("most changes don't make sense for a destroy"). Como
-    # `delete_attachment/2` chama a code interface fora de `in_clinic`, o DELETE chegava ao banco
-    # sem GUC, a RLS avaliava `''::uuid` e o Postgres levantava 22P02 (medido no servidor real:
-    # `Sent 400`, tela dizendo "Não foi possível concluir a operação").
-    #
-    # Por que não asserir o comportamento: o `delete_attachment/2` chama `autorizar/3` logo antes,
-    # que abre um `in_clinic`. No sandbox tudo é UMA transação, então a GUC desse `in_clinic` fica
-    # pendurada e o DELETE seguinte a herda — o teste comportamental passa VERDE com o bug em pé.
-    # Em produção o `in_clinic` commita e o DELETE chega numa transação nova, limpa. É a mesma
-    # armadilha que o `sem_guc/0` deste arquivo contorna nas leituras, e aqui ela é intransponível:
-    # o `sem_guc` teria de rodar DENTRO da ação, entre a autorização e a escrita.
-    #
-    # Sobra a asserção sobre a declaração, que é onde o bug de fato mora.
-    test "o destroy declara o SetTenantGuc (sem ele o DELETE chega sem GUC e estoura ''::uuid)" do
-      changes = Ash.Resource.Info.changes(Api.Records.Attachment, :destroy)
-
-      assert Enum.any?(changes, &(&1.change == {Api.Tenancy.SetTenantGuc, []})),
-             "o destroy do Attachment não seta a GUC de tenant: o `on:` da change global " <>
-               "esqueceu `:destroy` e a remoção falha no servidor real (RLS), não aqui"
-    end
-
+    # A garantia de que o `destroy` põe a GUC na própria transação **não** mora aqui: ela é
+    # estrutural (o comportamento passa verde com o bug em pé, porque a GUC do `autorizar/3` fica
+    # pendurada no sandbox) e vale para todo recurso por-tenant, não só para o anexo. Está em
+    # `Api.TenantGucTest`. Este teste continua útil pelo outro lado: prova que o ciclo completo
+    # roda sob `movimento_app` sem estourar.
     test "remover apaga a linha e os bytes" do
       ctx = fixture()
       anexo = anexo(ctx)
@@ -800,6 +781,127 @@ defmodule Api.RlsSmokeTest do
 
       eventos = Records.list_clinic_attachment_events(ctx.scope, anexo.id)
       assert Enum.any?(eventos, &(&1.acao == :visualizou)), "a trilha LGPD não foi gravada"
+    end
+  end
+
+  describe "comunicação com o paciente (doc 52)" do
+    # Esta fatia inteira é sobre um caminho que o `mix test` sob `postgres` não prova: o `SendJob`
+    # roda **fora de request**, e o webhook roda **sem tenant nenhum**. Os dois já falharam em
+    # desenvolvimento exatamente pelo modo que este arquivo existe para pegar — silêncio.
+
+    test "o job de envio lê a mensagem e grava o resultado sob movimento_app" do
+      ctx = fixture()
+      message = mensagem(ctx)
+
+      :ok = sem_guc()
+
+      assert :ok =
+               Api.Messaging.SendJob.perform(%Oban.Job{
+                 args: %{"clinic_id" => ctx.clinic.id, "message_id" => message.id}
+               })
+
+      # Sem GUC, a leitura de dentro do job volta VAZIA e o job "funciona" sem enviar nada. O
+      # estado ter mudado é a prova de que ela chegou.
+      recarregada =
+        Api.Tenancy.in_clinic(ctx.clinic.id, fn ->
+          Api.Messaging.get_message!(message.id, tenant: ctx.clinic.id, authorize?: false)
+        end)
+
+      assert recarregada.status == :enviado, "o job não enviou — a GUC não chegou na leitura"
+    end
+
+    test "o webhook acha a mensagem SEM tenant, pela exceção do provider_message_id" do
+      ctx = fixture()
+      message = mensagem(ctx)
+
+      enviada =
+        Api.Tenancy.in_clinic(ctx.clinic.id, fn ->
+          Api.Messaging.do_mark_sent!(
+            message,
+            %{
+              provider: "resend",
+              provider_message_id: "prov-#{System.unique_integer([:positive])}"
+            },
+            tenant: ctx.clinic.id,
+            authorize?: false
+          )
+        end)
+
+      :ok = sem_guc()
+
+      # É este caminho que a policy padrão recusaria: sem GUC, `clinic_id = NULL` não casa linha
+      # nenhuma e o webhook responderia 200 para sempre sem fazer nada.
+      assert :ok =
+               Api.Messaging.Webhooks.processar(%{
+                 "type" => "email.delivered",
+                 "data" => %{"email_id" => enviada.provider_message_id}
+               })
+
+      recarregada =
+        Api.Tenancy.in_clinic(ctx.clinic.id, fn ->
+          Api.Messaging.get_message!(message.id, tenant: ctx.clinic.id, authorize?: false)
+        end)
+
+      assert recarregada.status == :entregue, "o webhook não achou a mensagem sob RLS"
+    end
+
+    test "a RESPOSTA do paciente acha a mensagem sem tenant (o link do e-mail)" do
+      # O bug que o bate-volta pegou ao vivo: a rota pública `/api/reply/:token` conhece só o
+      # `message_id` (do token) e roda **sem GUC nenhuma**. Sob `movimento_app` a policy comparava
+      # `clinic_id = NULL`, não casava linha, e todo link legítimo respondia `link_invalido` — com
+      # os 7 testes da rota verdes, porque o sandbox conecta como `postgres`.
+      #
+      # É o irmão do webhook: os dois resolvem o tenant a partir de um identificador externo.
+      ctx = fixture()
+      message = mensagem(ctx)
+
+      :ok = sem_guc()
+
+      assert {:ok, achada} =
+               Api.Repo.with_message(message.id, fn ->
+                 Api.Messaging.get_message(message.id, authorize?: false, not_found_error?: false)
+               end)
+               |> elem(1)
+
+      assert achada.id == message.id, "a resposta do paciente não acha a mensagem sob RLS"
+    end
+
+    test "o opt-out global é legível e gravável sem GUC" do
+      # `message_opt_outs` tem `clinic_id` ANULÁVEL (C10) e a policy precisa aceitar a linha
+      # global — senão o opt-out sumiria da leitura e continuaríamos mandando para quem parou.
+      :ok = sem_guc()
+
+      destino = "parou-#{System.unique_integer([:positive])}@example.com"
+
+      assert :ok = Api.Messaging.opt_out(:email, destino, "spam")
+      assert Api.Messaging.opted_out?(:email, destino, nil)
+    end
+
+    # Uma mensagem pronta para enviar, na clínica do `ctx`.
+    defp mensagem(ctx) do
+      paciente =
+        Records.update_patient!(ctx.paciente, %{comunicacao: true, email: "rls@example.com"},
+          tenant: ctx.clinic.id,
+          actor: ctx.owner
+        )
+
+      {:ok, appointment} =
+        Scheduling.schedule_appointment(
+          %{
+            starts_at: at("11:00"),
+            professional_id: ctx.prof.id,
+            appointment_type_id: ctx.tipo.id,
+            patient_ids: [paciente.id]
+          },
+          scope: ctx.scope
+        )
+
+      [presenca] = bloco(ctx, appointment.id).attendances
+
+      {:ok, message} =
+        Api.Messaging.Dispatch.dispatch(ctx.clinic, presenca, paciente, :confirmacao)
+
+      message
     end
   end
 end

@@ -248,8 +248,27 @@ defmodule Api.Records.Patient do
     attribute :tags, {:array, :string}, public?: true, default: []
 
     # Consentimento (seção 'consentimento'). Dois booleanos, não o Consent versionado (v2).
+    #
+    # `lgpd` é o termo de tratamento de dado e nasce **falso**: é declaração de que a clínica
+    # colheu o aceite, e presumir isso seria justamente o que a lei não deixa.
     attribute :lgpd, :boolean, allow_nil?: false, default: false, public?: true
-    attribute :comunicacao, :boolean, allow_nil?: false, default: false, public?: true
+
+    # `comunicacao` nasce **verdadeiro** (decisão de 2026-07-27, doc 52 §11.1), e o motivo não é
+    # conveniência: o que sai por este canal é **operacional** — confirmar e lembrar de uma sessão
+    # que o próprio paciente marcou, o que é execução do serviço contratado (LGPD, Art. 7º, V), não
+    # marketing. Exigir caixa marcada para "sua sessão é amanhã às 14h" não protege ninguém e
+    # quebra a funcionalidade.
+    #
+    # Duas condições sustentam essa leitura, e as duas são de fora deste arquivo:
+    #
+    #   * **o escopo não escorrega** — o que sai são os `Api.Messaging.MessageKind` operacionais,
+    #     ligados a um agendamento existente. Campanha, aniversário e reengajamento pedem flag
+    #     PRÓPRIA; reusar esta é como uma decisão defensável vira indefensável;
+    #   * **opt-out sempre vence** (`Api.Messaging.OptOut`) e não é apagável editando a ficha.
+    #
+    # O default do Ash sozinho não muda nada na prática — todo paciente nasce pelo formulário, que
+    # manda o valor. O par é `web/src/lib/components/patients/PatientForm.svelte`.
+    attribute :comunicacao, :boolean, allow_nil?: false, default: true, public?: true
 
     # Índice de cor do avatar na agenda (1-based, `patientColor` :316 faz `(ci-1) % 7`).
     attribute :cor_indice, :integer,

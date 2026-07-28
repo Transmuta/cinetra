@@ -51,6 +51,13 @@ services:
       R2_BUCKET: ${R2_BUCKET:-}
       R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:-}
       R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:-}
+      # Comunicação com o paciente (doc 52). Segredo: vem do .env (gitignored). Sem a chave, o
+      # e-mail cai na caixa em memória de /dev/mailbox e a fatia funciona igual em dev.
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_WEBHOOK_SECRET: ${RESEND_WEBHOOK_SECRET:-}
+      MAIL_FROM: ${MAIL_FROM:-}
+      MAIL_FROM_NAME: ${MAIL_FROM_NAME:-Cinetra}
+      WHATSAPP_HABILITADO: ${WHATSAPP_HABILITADO:-false}
     ports:
       # Host 4010 (4000 já usado por outro stack) -> Phoenix do container.
       - "4010:4000"

@@ -28,6 +28,7 @@ import {
 	type DayCount
 } from '$lib/agenda-views';
 import { fetchPatient } from '$lib/server/patients';
+import { sendConfirmation } from '$lib/server/messages';
 import type { AgendaPatient } from '$lib/agenda';
 
 // Agenda (doc 25, Entregas 1 e 2). Quatro visões, duas formas de carregar:
@@ -336,6 +337,20 @@ export const actions: Actions = {
 					: {})
 			})
 		);
+	},
+
+	// Enviar (ou reenviar) a confirmação ao paciente (doc 52 §6). O botão do rodapé do drawer
+	// deixou de ser um toast que mentia e passa por aqui.
+	//
+	// `patient_id` é opcional e recorta um participante: numa turma, reenviar para quem falhou
+	// não pode disparar para os outros três.
+	confirmar: async (event) => {
+		const s = await submission(event, 'confirmar');
+		if (!('id' in s)) return s;
+
+		const patientId = String(s.form.get('patient_id') ?? '') || undefined;
+
+		return finish('confirmar', await sendConfirmation(event, s.id, patientId));
 	}
 };
 

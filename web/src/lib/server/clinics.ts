@@ -45,6 +45,15 @@ export interface Clinic {
 	nome: string;
 	cnpj: string | null;
 	endereco: string | null;
+	// Comunicação com o paciente (doc 52 §7). Viajam junto com a identidade porque as duas telas
+	// de configuração leem do mesmo `GET /api/clinic`.
+	//
+	// `msg_lembrete_horas: null` é **desligado**, não "zero horas antes" — a distinção é
+	// load-bearing e a tela a preserva mandando o campo em branco.
+	msg_confirmacao_auto: boolean;
+	msg_lembrete_horas: number | null;
+	msg_silencio_inicio: number | null;
+	msg_silencio_fim: number | null;
 }
 
 export interface ClinicResult {
@@ -96,4 +105,20 @@ export async function switchTenant(event: RequestEvent, clinicId: string): Promi
 	} catch {
 		return { ok: false, status: 0 };
 	}
+}
+
+// Comunicação com o paciente (doc 52 §7): quando a confirmação sai sozinha, se há lembrete e a
+// janela de silêncio. Rota própria na API (`PATCH /api/clinic/messaging`) — e não campos somados
+// ao `updateClinic` — porque a fronteira aceita o que a AÇÃO aceita, não o que o formulário
+// desenha (09 §8): somar aqui deixaria a tela de identidade capaz de desligar o lembrete.
+export async function updateClinicMessaging(
+	event: RequestEvent,
+	body: {
+		msg_confirmacao_auto: boolean;
+		msg_lembrete_horas: number | null;
+		msg_silencio_inicio: number | null;
+		msg_silencio_fim: number | null;
+	}
+): Promise<MutationResult> {
+	return mutate(event, '/api/clinic/messaging', 'PATCH', body);
 }

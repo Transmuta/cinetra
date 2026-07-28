@@ -65,5 +65,49 @@ defmodule ApiWeb.ClinicController do
     end)
   end
 
-  defp clinic_json(c), do: %{id: c.id, nome: c.nome, cnpj: c.cnpj, endereco: c.endereco}
+  # PATCH /api/clinic/messaging — a tela /configuracoes/comunicacao (doc 52 §7). Só owner/admin.
+  #
+  # Ação e rota próprias, e não campos somados ao `update`: a fronteira aceita o que a AÇÃO
+  # aceita, não o que o formulário desenha (09 §8). Somados, a tela de identidade da clínica
+  # passaria a poder desligar o lembrete sem ter um controle para isso.
+  def update_messaging(conn, params) do
+    with_admin_scope(conn, fn scope ->
+      with {:ok, %{} = clinic} <- Accounts.get_clinic(scope.clinic_id, scope: scope),
+           {:ok, updated} <-
+             Accounts.update_clinic_messaging(clinic, messaging_params(params), scope: scope) do
+        json(conn, %{clinic: messaging_json(updated)})
+      else
+        {:error, error} -> error_response(conn, error)
+      end
+    end)
+  end
+
+  # O booleano chega do form como string; os inteiros podem chegar em branco, e **branco é
+  # `nil`** — que para `msg_lembrete_horas` significa DESLIGADO, não zero. Tratá-lo como 0 ligaria
+  # o lembrete para o instante da sessão.
+  defp messaging_params(params) do
+    %{
+      msg_confirmacao_auto: params["msg_confirmacao_auto"] in [true, "true", "on", "1"],
+      msg_lembrete_horas: parse_int(params["msg_lembrete_horas"]),
+      msg_silencio_inicio: parse_int(params["msg_silencio_inicio"]),
+      msg_silencio_fim: parse_int(params["msg_silencio_fim"])
+    }
+  end
+
+  # Os campos de comunicação viajam junto com a identidade: as duas telas de configuração leem
+  # do mesmo `GET /api/clinic`, e uma segunda rota só para quatro escalares seria um round-trip a
+  # mais por uma economia de bytes que não existe.
+  defp clinic_json(c) do
+    %{id: c.id, nome: c.nome, cnpj: c.cnpj, endereco: c.endereco}
+    |> Map.merge(messaging_json(c))
+  end
+
+  defp messaging_json(c) do
+    %{
+      msg_confirmacao_auto: c.msg_confirmacao_auto,
+      msg_lembrete_horas: c.msg_lembrete_horas,
+      msg_silencio_inicio: c.msg_silencio_inicio,
+      msg_silencio_fim: c.msg_silencio_fim
+    }
+  end
 end

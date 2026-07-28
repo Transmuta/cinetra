@@ -22,6 +22,8 @@
 	import SwitchToggle from '$lib/components/scheduling/SwitchToggle.svelte';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import Drawer from '$lib/components/Drawer.svelte';
+	import MessageTimeline from '$lib/components/agenda/MessageTimeline.svelte';
+	import type { MessageParticipant } from '$lib/messages';
 	import {
 		STATUS_META,
 		attendanceSelo,
@@ -51,6 +53,7 @@
 		timezone,
 		papel,
 		form = null,
+		mensagens = null,
 		onClose,
 		onReschedule,
 		onToast
@@ -64,6 +67,11 @@
 		papel: Papel | null;
 		/** Resultado da última action (para o erro inline do 409/422). */
 		form?: { action?: string; error?: string; code?: string } | null;
+		/**
+		 * A timeline de comunicação (doc 52 §6). `null` = ainda carregando; ela é buscada quando o
+		 * drawer abre, não no load da agenda — ver `agenda/mensagens/[id]/+server.ts`.
+		 */
+		mensagens?: MessageParticipant[] | null;
 		onClose: () => void;
 		onReschedule: () => void;
 		onToast: (msg: string) => void;
@@ -157,6 +165,22 @@
 		excluindo = false;
 		excluirForm?.requestSubmit();
 	}
+
+	// Confirmação ao paciente (doc 52 §6). Um form só, com o participante preenchido no clique —
+	// mesmo padrão do form de presença, e pelo mesmo motivo: numa turma de 4, quatro forms no DOM
+	// para a mesma ação.
+	//
+	// O `await tick()` é o mesmo gotcha do `marcarPresenca`: sem ele o `requestSubmit()` roda antes
+	// de o Svelte escrever o `value` do input escondido e o `patient_id` sai VAZIO — o que
+	// dispararia para a turma inteira em vez de só para quem falhou.
+	let confirmarForm = $state<HTMLFormElement>();
+	let confirmarPatient = $state('');
+
+	async function enviarConfirmacao(patientId = '') {
+		confirmarPatient = patientId;
+		await tick();
+		confirmarForm?.requestSubmit();
+	}
 </script>
 
 <!-- Rodapé (protótipo :1846): "Enviar confirmação" + o botão de excluir ao lado. Fica fora do
@@ -167,9 +191,12 @@
 {#snippet rodape()}
 	<div class="flex items-center gap-2">
 		{#if !terminal}
+			<!-- Doc 52 / D-H4: era um `onToast('Confirmação enviada por WhatsApp')` que não enviava
+			     nada. Agora submete de verdade; sem `patient_id`, vale para todos os participantes
+			     que ainda podem receber. -->
 			<button
 				type="button"
-				onclick={() => onToast('Confirmação enviada por WhatsApp')}
+				onclick={() => enviarConfirmacao()}
 				class="flex flex-1 items-center justify-center gap-2 rounded-lg border border-edge bg-surface px-3 py-2.5 text-[13px] font-semibold hover:bg-surface-2"
 			>
 				<Send size={15} /> Enviar confirmação
@@ -402,6 +429,14 @@
 				<input type="hidden" name="expected_version" value={appt.version} />
 			</form>
 
+			<!-- Confirmação ao paciente (doc 52 §6). Submetido pelo rodapé (todos) ou pelo
+			     "Reenviar" de uma linha da timeline (um participante). Sem `expected_version`: mandar
+			     mensagem não muda o bloco, então não disputa a versão dele. -->
+			<form method="POST" action="?/confirmar" use:enhance bind:this={confirmarForm} class="hidden">
+				<input type="hidden" name="id" value={appt.id} />
+				<input type="hidden" name="patient_id" value={confirmarPatient} />
+			</form>
+
 			{#if terminal}
 				<!-- Reabrir → agendado (D-E4.2): desfaz um clique errado. -->
 				<form method="POST" action="?/reabrir" use:enhance>
@@ -417,6 +452,16 @@
 			{/if}
 		{/if}
 	</div>
+
+	<!-- A timeline fecha o corpo do drawer: é histórico, não ação — quem abre o bloco quer ver o
+	     estado dele primeiro. Fica FORA do `podeMexer` porque ler o que já saiu não é escrita. -->
+	<MessageTimeline
+		participantes={mensagens ?? []}
+		carregando={mensagens === null}
+		{timezone}
+		podeEnviar={podeMexer && !terminal}
+		onReenviar={(patientId) => enviarConfirmacao(patientId)}
+	/>
 </Drawer>
 
 {#if cancelando}

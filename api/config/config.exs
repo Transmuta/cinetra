@@ -80,7 +80,8 @@ config :api,
     Api.Records,
     Api.Waitlist,
     Api.Packages,
-    Api.Notifications
+    Api.Notifications,
+    Api.Messaging
   ],
   ash_authentication: [return_error_on_invalid_magic_link_token?: true]
 
@@ -117,7 +118,12 @@ config :api, Oban,
        {"0 * * * *", Api.Notifications.DailyDigestJob},
        # A cada 5 min, servindo a janela [+15, +20). É esta linha que desliga o "sessão em 15
        # min" caso a objeção do doc 31 §3d (ruído) se confirme no uso.
-       {"*/5 * * * *", Api.Notifications.SessionSoonJob}
+       {"*/5 * * * *", Api.Notifications.SessionSoonJob},
+       # Doc 52 §7 — lembrete de sessão AO PACIENTE (não confundir com o `SessionSoonJob`, que
+       # avisa o profissional). De hora em hora porque a janela tem 1 h e é o passo que a faz
+       # ladrilhar. Nasce inofensivo: clínica sem `msg_lembrete_horas` configurado é pulada, e o
+       # default é `nil`.
+       {"0 * * * *", Api.Messaging.ReminderJob}
      ]}
   ]
 

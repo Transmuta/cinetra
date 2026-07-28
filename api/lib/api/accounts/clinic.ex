@@ -40,6 +40,21 @@ defmodule Api.Accounts.Clinic do
       accept [:nome, :timezone, :cap_turma_padrao, :slot_minutos]
     end
 
+    # Comunicação com o paciente (doc 52 §7) — a tela /configuracoes/comunicacao.
+    #
+    # Ação própria, e não campos somados ao `update_settings`: aquele é o formulário de
+    # onboarding/ajustes gerais, e o que ele aceita é o que ele mostra. Somar aqui deixaria a
+    # tela de ajustes capaz de desligar o lembrete sem ter um controle para isso — a fronteira
+    # HTTP aceita o que a ação aceita, não o que o formulário desenha (09 §8).
+    update :update_messaging do
+      accept [
+        :msg_confirmacao_auto,
+        :msg_lembrete_horas,
+        :msg_silencio_inicio,
+        :msg_silencio_fim
+      ]
+    end
+
     # Dados de identidade da clínica (tela /configuracoes/clinica): nome, CNPJ e endereço.
     # O CNPJ chega mascarado do form, é normalizado para a forma canônica e validado como
     # CNPJ alfanumérico (jul/2026); ambos são opcionais e podem ser limpos (branco → nil).
@@ -65,7 +80,7 @@ defmodule Api.Accounts.Clinic do
       authorize_if actor_present()
     end
 
-    policy action([:update_settings, :update_info]) do
+    policy action([:update_settings, :update_info, :update_messaging]) do
       authorize_if expr(
                      exists(
                        memberships,
@@ -99,6 +114,37 @@ defmodule Api.Accounts.Clinic do
     # Fatia 3) — não há mais padrão de clínica para o qual cair.
     attribute :cap_turma_padrao, :integer, allow_nil?: false, default: 4, public?: true
     attribute :slot_minutos, :integer, allow_nil?: false, default: 15, public?: true
+
+    # ---- Comunicação com o paciente (doc 52 §7) ----
+    #
+    # Por clínica, e **não** por profissional: por profissional vira matriz que ninguém mantém.
+
+    # A confirmação sai sozinha quando o agendamento é criado. Ligada por padrão — é o
+    # comportamento que a recepção espera de "confirmação automática", e o freio de mão é o
+    # consentimento da ficha, não este booleano.
+    attribute :msg_confirmacao_auto, :boolean, allow_nil?: false, default: true, public?: true
+
+    # Quantas horas antes sai o lembrete. `nil` = **desligado**, e é o default de propósito
+    # (decisão de 2026-07-27): o cron nasce construído mas calado, para nada disparar em massa
+    # antes de alguém decidir que deve. Ligar é escolher um número nesta tela.
+    attribute :msg_lembrete_horas, :integer,
+      public?: true,
+      constraints: [min: 1, max: 168]
+
+    # Janela de silêncio, em hora local da clínica (0–23). Mensagem que cairia dentro dela é
+    # adiada para o fim da janela, não descartada — ver `Api.Messaging.Dispatch.silenciado?/2`.
+    # Ambas `nil` = sem janela. Nascem 21h–8h porque "sua sessão é amanhã" às 23h é o tipo de
+    # mensagem que faz o paciente bloquear o remetente — e no número compartilhado (§9.1) o
+    # bloqueio é coletivo.
+    attribute :msg_silencio_inicio, :integer,
+      public?: true,
+      default: 21,
+      constraints: [min: 0, max: 23]
+
+    attribute :msg_silencio_fim, :integer,
+      public?: true,
+      default: 8,
+      constraints: [min: 0, max: 23]
 
     timestamps()
   end

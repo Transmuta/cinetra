@@ -142,6 +142,84 @@ defmodule Api.Generators do
     Directory.create_appointment_type!(attrs, tenant: ctx.clinic.id, actor: ctx.owner)
   end
 
+  @doc """
+  Um agendamento na clínica do `ctx`, com um participante.
+
+  Opções: `:paciente` (default o do `ctx`), `:prof`, `:tipo`, `:quando` (default amanhã às 10h no
+  fuso da clínica) e `:scope`. Devolve o `Appointment` já com `attendances` carregadas — quem
+  agenda quase sempre precisa da presença logo em seguida (é ela a âncora da comunicação, doc 52
+  §3, e o alvo das ações de presença da A2).
+  """
+  def agendamento!(ctx, opts \\ []) do
+    paciente = Keyword.get(opts, :paciente, ctx.paciente)
+    scope = Keyword.get(opts, :scope, ctx.scope)
+
+    {:ok, appointment} =
+      Api.Scheduling.schedule_appointment(
+        %{
+          starts_at: Keyword.get(opts, :quando, amanha_as(ctx, 10)),
+          professional_id: Keyword.get(opts, :prof, ctx.prof).id,
+          appointment_type_id: Keyword.get(opts, :tipo, ctx.tipo).id,
+          patient_ids: [paciente.id]
+        },
+        scope: scope
+      )
+
+    Api.Repo.with_clinic(ctx.clinic.id, fn ->
+      Ash.load!(appointment, [:attendances], authorize?: false, tenant: ctx.clinic.id)
+    end)
+    |> elem(1)
+  end
+
+  @doc """
+  Um instante UTC correspondente a `hora` local de amanhã na clínica do `ctx`.
+
+  Amanhã e não hoje porque metade das regras da agenda olha para o relógio ("já começou", "abre
+  vaga", "lembrete N horas antes"), e um teste ancorado em "hoje às 10h" muda de significado
+  conforme a hora em que a suíte roda.
+  """
+  def amanha_as(ctx, hora) do
+    amanha =
+      Date.add(DateTime.to_date(DateTime.shift_zone!(DateTime.utc_now(), ctx.clinic.timezone)), 1)
+
+    {:ok, local} = DateTime.new(amanha, Time.new!(hora, 0, 0), ctx.clinic.timezone)
+    DateTime.shift_zone!(local, "Etc/UTC")
+  end
+
+  @doc """
+  Um paciente com atributos escolhidos — `comunicacao`, `email`, `tel`, `nome`.
+
+  Existe porque a fatia de comunicação (doc 52) precisa de paciente **com contato e
+  consentimento** em todo teste, e a versão privada disso nasceu copiada em seis arquivos — uma
+  delas já divergindo no contrato (aceitava `:nome`, as outras não). É o mesmo motivo do
+  `escopo_em/2`: helper de teste copiado é helper que diverge.
+  """
+  def paciente_com(ctx, attrs) do
+    {nome, attrs} = Map.pop(Map.new(attrs), :nome, "P#{unico()}")
+
+    Records.update_patient!(paciente!(ctx, nome), attrs,
+      tenant: ctx.clinic.id,
+      actor: ctx.owner
+    )
+  end
+
+  @doc "As mensagens de um agendamento, sob a GUC — a leitura que os testes da fatia 52 repetem."
+  def mensagens(ctx, appt) do
+    Api.Tenancy.in_clinic(ctx.clinic.id, fn ->
+      Api.Messaging.list_messages_for_appointment!(appt.id,
+        tenant: ctx.clinic.id,
+        authorize?: false
+      )
+    end)
+  end
+
+  @doc "Relê uma mensagem sob a GUC — o par de `mensagens/2` para asserção de estado."
+  def recarregar_mensagem(ctx, message) do
+    Api.Tenancy.in_clinic(ctx.clinic.id, fn ->
+      Api.Messaging.get_message!(message.id, tenant: ctx.clinic.id, authorize?: false)
+    end)
+  end
+
   @doc "Inteiro único no nó — a defesa contra deadlock em teste async."
   def unico, do: System.unique_integer([:positive])
 

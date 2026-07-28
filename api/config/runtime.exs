@@ -46,6 +46,38 @@ if config_env() != :test do
     secret_access_key: System.get_env("R2_SECRET_ACCESS_KEY")
 end
 
+# Comunicação com o paciente (doc 52). Fora do teste, pelo mesmo motivo do R2: lá o adapter é o
+# `Swoosh.Adapters.Test` escolhido em `config/test.exs`, e `runtime.exs` roda DEPOIS.
+#
+# **Sem `RESEND_API_KEY` o sistema segue no adapter `Local`** — a caixa em memória de
+# `/dev/mailbox`. É de propósito: em dev se quer ver a timeline funcionando ponta a ponta sem
+# entregar e-mail de verdade a ninguém, e um `raise` aqui faria a API não subir por falta de uma
+# chave que só produção precisa.
+if config_env() != :test do
+  if api_key = System.get_env("RESEND_API_KEY") do
+    config :api, Api.Mailer, adapter: Swoosh.Adapters.Resend, api_key: api_key
+
+    # O adapter do Resend fala HTTP, e o `config.exs` desliga o cliente (`api_client: false`)
+    # porque o `Local` não precisa dele. Sem esta linha o envio falha com um erro que não diz
+    # isso — "api_client not configured".
+    config :swoosh, :api_client, Swoosh.ApiClient.Finch
+  end
+
+  config :api, Api.Messaging.PatientEmails,
+    remetente:
+      {System.get_env("MAIL_FROM_NAME") || "Cinetra",
+       System.get_env("MAIL_FROM") || "nao-responda@movimento.local"}
+
+  # Segredo de assinatura do webhook (Svix). Sem ele o endpoint recusa **tudo** — fail closed, e
+  # a alternativa (aceitar sem verificar) seria um endpoint aberto de escrita cujo sintoma é
+  # nenhum. Ver `ApiWeb.ResendWebhookController`.
+  config :api, Api.Messaging, resend_webhook_secret: System.get_env("RESEND_WEBHOOK_SECRET")
+
+  # Fase 2 (doc 52 §9): ligar o WhatsApp passa a ser configuração, não deploy de código novo.
+  config :api, Api.Messaging.Transport,
+    whatsapp_habilitado: System.get_env("WHATSAPP_HABILITADO") == "true"
+end
+
 if config_env() == :prod do
   # The secret key base is used to sign/encrypt cookies and other secrets.
   # A default value is used in config/dev.exs and config/test.exs but you

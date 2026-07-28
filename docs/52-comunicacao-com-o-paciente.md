@@ -10,10 +10,23 @@ trocar o transporte** para WhatsApp (Gupshup). Este doc concorda com ela e faz *
 entre e-mail e WhatsApp não muda só "quem envia" — mudam quatro coisas (§2). Se as quatro
 estiverem no modelo desde a fase 1, a fase 2 é adapter. Se não estiverem, é reescrita.
 
-**Decidido em 2026-07-27** (registrado no §12): provider é o **Resend**; a fase 1 envia
-**só a quem tem e-mail cadastrado**, sem tornar o campo obrigatório; e o **WhatsApp entra antes
-de produção**, junto com telefone obrigatório — é esse par que fecha a lacuna de cobertura que o
-§8 levanta.
+### Decidido em 2026-07-27
+
+As sete estão detalhadas no §12; aqui é o resumo executável:
+
+1. **Provider da fase 1: Resend** — adapter já instalado, webhook de eventos como ensaio do
+   webhook da fase 2 (§2.1);
+2. **A fase 1 envia só a quem tem e-mail**, e o campo **não** vira obrigatório (§8);
+3. **O WhatsApp entra antes de produção**, junto com **telefone obrigatório** — é esse par que
+   fecha a lacuna de cobertura da fase 1 (§9);
+4. **WhatsApp é o canal padrão**, e-mail é reserva — com a ressalva de que opt-out explícito não
+   cai para a reserva (§10.4);
+5. **Um número único da Cinetra**, com o nome da clínica no template. Número próprio da clínica
+   fica como **funcionalidade futura**, oferecida a quem pedir — não é alvo de migração (§9.1);
+6. **O consentimento de comunicação passa a nascer autorizado** — não há produção, e a base legal
+   do operacional é execução de contrato, não consentimento (§11.1);
+7. **O histórico da comunicação é por participante**, e é ele o entregável que a recepção usa
+   (§3 e §6).
 
 **Método.** Li [`AppointmentDrawer.svelte`](../web/src/lib/components/agenda/AppointmentDrawer.svelte),
 [`Api.Accounts.Emails`](../api/lib/api/accounts/emails.ex),
@@ -245,10 +258,15 @@ assinatura, idempotência e resolução de tenant prontas.
 
 ### 9.1 Um número da Cinetra ou um por clínica?
 
-**Decidido: um número único da Cinetra**, com o nome da clínica no template — número próprio fica
-como *opção* para quem pedir, não como alvo obrigatório. O que 9.1.1 lista contra o compartilhado
-é real, mas **9.1.5 mostra que a maior parte se dissolve** no nosso caso concreto. O que precisa
-ser respeitado desde já é o 9.1.4, que é o que mantém a escolha reversível.
+**Decidido: a v1 vai com um número único da Cinetra**, com o nome da clínica no template. Número
+próprio da clínica é **funcionalidade futura** — algo que se oferece a quem pedir, *muito* depois,
+e não um alvo para o qual estejamos migrando. O que 9.1.1 lista contra o compartilhado é real, mas
+**9.1.5 mostra que a maior parte se dissolve** no nosso caso concreto: o risco depende de texto
+livre, que a clínica não tem.
+
+O 9.1.4 continua valendo — não porque a migração esteja no horizonte, mas porque são quatro coisas
+baratas hoje e caras depois, e são elas que fazem a versão futura ser uma feature em vez de uma
+refatoração.
 
 > Detalhes de programa da Meta (nomes, faixas de limite, exigências de verificação) mudam de ano
 > para ano. O raciocínio abaixo é estrutural e não depende deles; os números, confirmar com a
@@ -291,13 +309,15 @@ ser respeitado desde já é o 9.1.4, que é o que mantém a escolha reversível.
 §9.1.1 acontece, porque não há com quem compartilhar. Todo o custo do número por clínica é real
 hoje; todo o benefício só aparece depois.
 
-Por isso: **um número da Cinetra para o piloto**, com nome de exibição que faça sentido para o
-paciente. E a mudança para número próprio como **opção da clínica** — quem quiser (e tiver Business
-Manager), usa o seu.
+E mesmo na clínica nº 2 ele morde menos do que parece, pelo motivo do §9.1.5. Por isso: **um
+número da Cinetra na v1**, com nome de exibição que faça sentido para o paciente. Número próprio
+entra **muito depois**, como funcionalidade a oferecer — quem quiser, e tiver Business Manager,
+usa o seu.
 
 #### 9.1.4 O que precisa ser verdade desde o primeiro dia
 
-Isto é o que realmente importa decidir agora, porque é o que torna o resto reversível:
+Quatro coisas baratas agora que, se ficarem para depois, transformam a versão "número da clínica"
+de funcionalidade em refatoração:
 
 - **o número é configuração por clínica**, desde já — um campo em `Clinic` apontando para o número,
   preenchido com o mesmo valor para todas. Assim "centralizar" vira **dado**, não arquitetura, e a
@@ -514,6 +534,10 @@ O `lgpd` **não muda**: aquele é o termo de tratamento de dado, outro assunto, 
 
 ## 12. Decisões
 
+Duas marcas diferentes na coluna de estado, e a diferença importa na hora de reabrir: **✅
+decidido** é escolha humana tomada em 2026-07-27; sem marca é **recomendação deste doc**, aceita
+por ausência de objeção — mexer nessas é barato, mexer nas primeiras é reabrir conversa.
+
 | # | Decisão | Opções | Estado |
 | --- | --- | --- | --- |
 | **C1** | Onde ancora a mensagem | (a) presença; (b) agendamento | **(a)** — §3, mesmo raciocínio do D5/D13 |
@@ -526,7 +550,7 @@ O `lgpd` **não muda**: aquele é o termo de tratamento de dado, outro assunto, 
 | **C8** | Paciente com e-mail **e** WhatsApp: qual canal? | (a) WhatsApp, com e-mail de reserva; (b) os dois sempre; (c) preferência na ficha | ✅ **(a) decidido (2026-07-27)** — **WhatsApp é o padrão**; e-mail é reserva, com a ressalva do §10.4 |
 | **C9** | O `comunicacao: false` (§11) | (a) padrão passa a **autorizado**; (b) manter `false` + marcação em massa; (c) manter `false` e marcar uma a uma | ✅ **(a) decidido (2026-07-27)** — não há produção, então não há base a corrigir; e a base legal do operacional é execução de contrato, não consentimento (§11.1). **Depende da copy de aviso** (§11.1) e dos **três lugares** do §11.2 |
 | **C10** | Alcance do opt-out (§10.1) | (a) por clínica; (b) global; (c) coluna `clinic_id` anulável | **(c)** — nulo = número compartilhado, preenchido = número próprio; segue o C11 sem migração |
-| **C11** | Um número de WhatsApp da Cinetra ou um por clínica? (§9.1) | (a) um compartilhado, com o nome da clínica no template; (b) um por clínica; (c) compartilhado agora, próprio como opção de quem pedir | ✅ **(a)/(c) decidido (2026-07-27)** — o benefício de (b) só existe da clínica nº 2 em diante, o custo de onboarding (verificação Meta, clínica MEI sem Business Manager) é hoje, e o risco do compartilhado **depende de texto livre, que a clínica não tem** (§9.1.5). Condições: §9.1.4 (reversibilidade) e a regra do §9.1.5 — se a clínica ganhar mensagem livre, número próprio vira requisito |
+| **C11** | Um número de WhatsApp da Cinetra ou um por clínica? (§9.1) | (a) um compartilhado, com o nome da clínica no template; (b) um por clínica; (c) compartilhado na v1, próprio como funcionalidade futura | ✅ **(a) na v1, com (c) como horizonte — decidido (2026-07-27).** O benefício de (b) só existe da clínica nº 2 em diante, o custo de onboarding (verificação Meta, clínica MEI sem Business Manager) é hoje, e o risco do compartilhado **depende de texto livre, que a clínica não tem** (§9.1.5). Número próprio é feature a oferecer, não migração planejada. Duas condições: os quatro itens do §9.1.4, e a regra do §9.1.5 — **se a clínica ganhar mensagem livre, número próprio deixa de ser opção e vira requisito** |
 
 **Fora da tabela, decidido junto:** WhatsApp + **telefone obrigatório** entram **antes de
 produção** (§9), o que fecha a lacuna de cobertura do §8.
@@ -540,3 +564,96 @@ produção** (§9), o que fecha a lacuna de cobertura do §8.
   mesmo modelo, mas outro fluxo;
 - `Consent` versionado (D-H6);
 - SMS, e comunicação avulsa fora de agendamento (marketing).
+
+---
+
+## 14. O que foi construído (2026-07-27)
+
+A fase 1 inteira está de pé. **1258 testes no backend (90,2 %)** e **1592 no web (90,6 %)**, os
+dois gates verdes. O que segue é o mapa, e as divergências do plano — que existem e estão
+marcadas.
+
+### 14.1 Backend (`api/`)
+
+| Peça | Onde |
+| --- | --- |
+| Domínio + wrappers sob GUC | [`Api.Messaging`](../api/lib/api/messaging.ex) |
+| A mensagem, ancorada na presença | [`Message`](../api/lib/api/messaging/message.ex) |
+| Opt-out por destino, `clinic_id` anulável | [`OptOut`](../api/lib/api/messaging/opt_out.ex) |
+| Máquina de entrega monotônica | [`MessageStatus`](../api/lib/api/messaging/message_status.ex) |
+| Template + vars, versionado no nome | [`Templates`](../api/lib/api/messaging/templates.ex) |
+| **A regra inteira, num lugar só** | [`Dispatch`](../api/lib/api/messaging/dispatch.ex) |
+| Porta de saída por canal | [`Transport`](../api/lib/api/messaging/transport.ex) · [`PatientEmails`](../api/lib/api/messaging/patient_emails.ex) |
+| Envio fora do request | [`SendJob`](../api/lib/api/messaging/send_job.ex) |
+| Confirmação na criação (pós-commit) | [`Notifier`](../api/lib/api/messaging/notifier.ex) |
+| Lembrete por relógio, **calado por padrão** | [`ReminderJob`](../api/lib/api/messaging/reminder_job.ex) |
+| Assinatura Svix + eventos | [`Svix`](../api/lib/api/messaging/svix.ex) · [`Webhooks`](../api/lib/api/messaging/webhooks.ex) |
+| Link assinado de resposta | [`ReplyToken`](../api/lib/api/messaging/reply_token.ex) |
+| Fronteira | [`MessagesController`](../api/lib/api_web/controllers/messages_controller.ex) · [`PatientReplyController`](../api/lib/api_web/controllers/patient_reply_controller.ex) · [`ResendWebhookController`](../api/lib/api_web/controllers/resend_webhook_controller.ex) |
+
+### 14.2 Web
+
+- BFF [`server/messages.ts`](../web/src/lib/server/messages.ts) + o vocabulário em
+  [`$lib/messages.ts`](../web/src/lib/messages.ts);
+- [`MessageTimeline.svelte`](../web/src/lib/components/agenda/MessageTimeline.svelte) no drawer,
+  buscada sob demanda por [`agenda/mensagens/[id]`](<../web/src/routes/(app)/agenda/mensagens/[id]/+server.ts>);
+- **o botão parou de mentir**: o `onToast('Confirmação enviada por WhatsApp')` virou a action
+  `?/confirmar` ([D-H4 fechado](37-homologacao-andreza.md));
+- página pública [`/confirmar/[token]`](<../web/src/routes/confirmar/[token]/+page.svelte>);
+- tela [`/configuracoes/comunicacao`](<../web/src/routes/(app)/configuracoes/comunicacao/+page.svelte>);
+- `comunicacao` nasce marcado, com o rótulo reescrito (§11.2 — os três lugares).
+
+### 14.3 O bate-volta, e o que ele achou
+
+A auditoria está em [`60-bate-volta-comunicacao.md`](60-bate-volta-comunicacao.md). Nove
+causas-raiz; oito corrigidas. **A mais grave só apareceu dirigindo o app**: a rota pública de
+resposta do paciente (§5) estava **morta em produção** — lia sem GUC, a RLS não casava linha, e
+todo link legítimo respondia "link inválido", com os 7 testes da rota verdes (o sandbox bypassa
+RLS). Era o irmão do problema do webhook, que já tinha exceção; o erro foi não ver que eram dois
+caminhos, não um.
+
+Também saíram de lá: o I/O do provider que rodava **dentro** da transação da GUC, e o índice que
+faltava para o cron de lembrete — 134,8 ms e 16.863 buffers para devolver 15 linhas, agora
+0,082 ms.
+
+### 14.4 O que mudou em relação ao plano
+
+**Sem `AshPaperTrail` em `Message`/`OptOut`** (o §11 dizia que a trilha cobriria). O registro
+**é** o histórico: `disparado_por_id` diz quem mandou, cada estado tem carimbo próprio e a
+revogação grava `revogado_por_id`. A trilha nasceria com ~4× as linhas da tabela que mais vai
+crescer (2–4 updates de webhook por mensagem) para gravar o que já está gravado — o doc 43 §5f
+mediu esse padrão em 3× a tabela base e ele virou poda diária.
+
+**Uma exceção nova na RLS**, e ela não estava prevista. O evento do provider chega **sem
+`clinic_id`**; a busca por `provider_message_id` é a que descobre o tenant, e roda sem GUC — a
+policy de `messages` não casaria linha nenhuma. O webhook responderia 200 sem fazer nada, para
+sempre, **verde no `mix test`** (o sandbox bypassa RLS). Resolvido com
+[`Api.Repo.with_provider_message/2`](../api/lib/api/repo.ex) + a policy da migration
+[`MessagesWebhookLookup`](../api/priv/repo/migrations/20260728020000_messages_webhook_lookup.exs):
+alcança **uma** linha, já identificada por um payload autenticado. As alternativas descartadas
+estão no moduledoc da migration.
+
+Isto é exatamente o que o §2 previa que só apareceria escrevendo o webhook — e é o argumento
+para tê-lo feito na fase 1, quando o custo de descobrir é baixo.
+
+**Dois bugs que os testes pegaram** e que valem registro por serem da mesma família:
+
+- o `SendJob` lia a mensagem **sem `tenant:`** e saía calado sem enviar nada. `tenant:` (filtro do
+  Ash) e GUC (RLS) são coisas diferentes: faltar o primeiro dá erro alto, faltar o segundo devolve
+  vazio em silêncio;
+- `set_attribute(:campo, expr(now()))` só é avaliado no caminho **atômico**. Fora dele o Ash tenta
+  gravar a expressão como valor e recusa o cast, com um erro que não aponta para a causa
+  ("Could not cast input to datetime. Value: now()").
+
+### 14.5 O que falta para ligar de verdade
+
+Nada disto é código:
+
+1. **`RESEND_API_KEY` e `RESEND_WEBHOOK_SECRET`** no `.env` (modelo em `.env.example`). Sem eles o
+   sistema sobe normal e o e-mail cai em `/dev/mailbox`;
+2. **domínio verificado** no Resend (SPF/DKIM/DMARC) e o `MAIL_FROM` apontando para ele. É o item
+   de lead time da fase 1 — e conserta de tabela o remetente dos e-mails de acesso, que hoje sairiam
+   de `movimento.local`;
+3. **URL pública para o webhook** (túnel em dev; em produção, `<host>/webhooks/resend`);
+4. **ligar o lembrete** em `/configuracoes/comunicacao` — nasce desligado de propósito;
+5. **submeter o template HSM à Meta** durante a fase 1, não depois (§9).

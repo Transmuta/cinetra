@@ -74,5 +74,7 @@ export const CONFIG_LINKS: ConfigLink[] = [
 	{ label: 'Tipos de atendimento', href: '/configuracoes/tipos' },
 	{ label: 'Horário', href: '/configuracoes/horario' },
 	{ label: 'Exceções', href: '/configuracoes/excecoes' },
+	// Doc 52 §7: o que a clínica manda ao paciente, e quando. Por clínica, não por profissional.
+	{ label: 'Comunicação', href: '/configuracoes/comunicacao' },
 	{ label: 'Equipe & acessos', href: '/configuracoes/equipe' }
 ];

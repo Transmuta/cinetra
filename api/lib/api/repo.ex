@@ -16,6 +16,11 @@ defmodule Api.Repo do
 
   @tenant_guc "movimento.clinic_id"
 
+  # As GUCs das DUAS portas sem sessão da comunicação com o paciente (doc 52 §10.2). Ver
+  # `with_provider_message/2` e `with_message/2` — e o moduledoc delas para por que existem.
+  @provider_guc "movimento.provider_message_id"
+  @message_guc "movimento.message_id"
+
   @doc """
   Injeta a GUC `movimento.clinic_id` no início de toda transação **de leitura** que tem um
   tenant no contexto (ADR-018).
@@ -62,6 +67,51 @@ defmodule Api.Repo do
   def with_clinic(clinic_id, fun) when is_binary(clinic_id) do
     transaction(fn ->
       query!("SELECT set_config($1, $2, true)", [@tenant_guc, clinic_id])
+      fun.()
+    end)
+  end
+
+  @doc """
+  Roda `fun` enxergando **uma** mensagem pelo id que o provider devolveu — a porta do webhook
+  (doc 52 §10.2).
+
+  O evento de entrega chega sem `clinic_id`: o que ele traz é o id que o próprio provider gerou no
+  envio. A busca por esse id precisa acontecer **antes** de saber a clínica — é ela que descobre a
+  clínica. Sem esta GUC a policy de `messages` devolveria zero linhas e o webhook responderia 200
+  sem fazer nada, para sempre, sem erro em lugar nenhum.
+
+  O id veio num payload cuja assinatura já foi conferida (`Api.Messaging.Svix`).
+  """
+  def with_provider_message(provider_message_id, fun) when is_binary(provider_message_id) do
+    com_guc(@provider_guc, provider_message_id, fun)
+  end
+
+  @doc """
+  Roda `fun` enxergando **uma** mensagem pelo id dela — a porta da resposta do paciente
+  (doc 52 §5).
+
+  Mesmo problema do webhook, e foi por não ver que era o mesmo que ele nasceu quebrado: o link do
+  e-mail carrega só o `message_id` (no token assinado) e a rota roda **sem sessão e sem GUC**. A
+  policy comparava `clinic_id = NULL`, não casava linha, e todo link legítimo respondia
+  "link inválido" — com os testes da rota verdes, porque o sandbox conecta como `postgres`.
+
+  O id veio de um token que **nós** assinamos (`Api.Messaging.ReplyToken`), e um token forjado não
+  passa da verificação — a exceção não é alcançável sem ele.
+
+  ## Por que as duas são estreitas
+
+  Cada uma alcança **uma** linha, identificada por um segredo que o chamador já provou possuir. Não
+  há varredura: `provider_message_id` e `id` são opacos e únicos, e GUC vazia não casa nada
+  (`nullif(…, '')`). A prova está no gate `:rls` — e ela foi tirada ao vivo no bate-volta:
+  com a GUC do provider setada, `SELECT count(*) FROM messages` devolve **1**; com ela vazia, **0**.
+  """
+  def with_message(message_id, fun) when is_binary(message_id) do
+    com_guc(@message_guc, message_id, fun)
+  end
+
+  defp com_guc(guc, valor, fun) do
+    transaction(fn ->
+      query!("SELECT set_config($1, $2, true)", [guc, valor])
       fun.()
     end)
   end

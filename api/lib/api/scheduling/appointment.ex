@@ -43,7 +43,12 @@ defmodule Api.Scheduling.Appointment do
     extensions: [AshPaperTrail.Resource],
     # RN-56: as mutações viram evento de tempo real. Fica só no `Appointment` — `:add_participant`
     # também cria `Attendance`, e um notifier lá em cima emitiria o mesmo evento duas vezes.
-    notifiers: [Api.Scheduling.AgendaNotifier, Api.Notifications.Notifier]
+    notifiers: [
+      Api.Scheduling.AgendaNotifier,
+      Api.Notifications.Notifier,
+      # Doc 52 §7: agendamento criado → confirmação ao paciente, pós-commit e best-effort.
+      Api.Messaging.Notifier
+    ]
 
   postgres do
     table "appointments"

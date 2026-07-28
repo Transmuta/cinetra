@@ -54,7 +54,11 @@ defmodule ApiWeb.Endpoint do
   plug Plug.Parsers,
     parsers: [:urlencoded, :multipart, :json, AshJsonApi.Plug.Parser],
     pass: ["*/*"],
-    json_decoder: Phoenix.json_library()
+    json_decoder: Phoenix.json_library(),
+    # Doc 52 §10.2: o webhook do Resend assina os **bytes** do corpo. Depois da decodificação,
+    # reserializar o mapa produz bytes diferentes e a assinatura nunca fecha. Este body reader
+    # retém o corpo cru — só nas rotas que precisam dele (ver o módulo).
+    body_reader: {ApiWeb.Plugs.CacheRawBody, :read_body, []}
 
   plug Plug.MethodOverride
   plug Plug.Head

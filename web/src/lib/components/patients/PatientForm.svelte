@@ -79,7 +79,17 @@
 	let prefs = $state<string[]>(untrack(() => patient?.prefs ?? []));
 	let tags = $state<string[]>(untrack(() => patient?.tags ?? []));
 	let lgpd = $state<boolean>(untrack(() => patient?.lgpd ?? false));
-	let comunicacao = $state<boolean>(untrack(() => patient?.comunicacao ?? false));
+	// **`?? true`** (doc 52 §11.1/§11.2, decisão de 2026-07-27). O `??` só age na CRIAÇÃO — numa
+	// edição, `patient.comunicacao` existe e o valor salvo manda.
+	//
+	// Nasce autorizado porque o que sai por este canal é operacional: confirmar e lembrar de uma
+	// sessão que o próprio paciente marcou é execução do serviço contratado (LGPD, Art. 7º, V),
+	// não marketing. Mudar o default do recurso Ash sem mudar aqui não mudaria nada: todo paciente
+	// nasce por este formulário, que **sempre manda o valor**.
+	//
+	// O `lgpd` logo acima continua `?? false` de propósito: aquele é o termo de tratamento de
+	// dado, é declaração de que a clínica colheu o aceite, e presumi-lo é o que a lei não deixa.
+	let comunicacao = $state<boolean>(untrack(() => patient?.comunicacao ?? true));
 	const corIndice = untrack(() => patient?.cor_indice ?? 1);
 	let showResp = $state(false);
 	let temConvenio = $state(
@@ -650,9 +660,14 @@
 					</label>
 					<label class="mt-2.5 flex items-start gap-2.5 rounded-lg border border-edge bg-surface-2 px-3 py-2.5 text-[12.5px]">
 						<input type="checkbox" bind:checked={comunicacao} class="mt-0.5 size-4 accent-teal" />
+						<!-- O texto mudou junto com o default (doc 52 §11.2): a caixa deixou de ser
+						     "autorizar" e passou a ser algo que se DESMARCA, então ela precisa dizer o que
+						     sai por ali. Desmarcar sem saber o que se está desligando é adivinhação.
+						     A menção ao WhatsApp fica: é o canal que o paciente reconhece, e é para onde a
+						     fase 2 vai. -->
 						<span class="text-muted">
-							Autorizo contato por <b class="text-ink">WhatsApp, ligação ou e-mail</b> para confirmações,
-							lembretes e orientações terapêuticas.
+							Receber <b class="text-ink">confirmação e lembrete das sessões</b> por e-mail ou
+							WhatsApp. Desmarque se o paciente pediu para não ser contatado.
 						</span>
 					</label>
 				</section>

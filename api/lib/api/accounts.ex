@@ -28,6 +28,7 @@ defmodule Api.Accounts do
       define :get_clinic, action: :read, get_by: [:id]
       define :update_clinic_settings, action: :update_settings
       define :update_clinic_info, action: :update_info
+      define :update_clinic_messaging, action: :update_messaging
     end
 
     resource Api.Accounts.Membership do
