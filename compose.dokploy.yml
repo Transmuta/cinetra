@@ -137,10 +137,12 @@ services:
       - traefik.http.routers.movimento-api-webhooks-${STACK}.priority=100
       - traefik.http.routers.movimento-api-webhooks-${STACK}.service=movimento-api-${STACK}
       # Serviço (compartilhado pelos dois routers) + health pelo Traefik (a imagem não tem curl).
-      # A rota é /api/health (router.ex: `get "/health"` dentro de `scope "/api"`), e responde 200
-      # sem sessão (LoadScope assigna scope:nil e segue) — apontar p/ /health puro daria 404.
+      # Aponta para **/api/ready**, não /api/health: quem decide rotear tráfego precisa saber se a
+      # instância consegue SERVIR (banco + pool), não só se o BEAM respira. O /api/health é o
+      # liveness — sem I/O, para que um blip do Postgres não faça reiniciar máquina saudável
+      # (doc 62 §7.1). Ambas ficam fora do pipeline `:authenticated`.
       - traefik.http.services.movimento-api-${STACK}.loadbalancer.server.port=4000
-      - traefik.http.services.movimento-api-${STACK}.loadbalancer.healthcheck.path=/api/health
+      - traefik.http.services.movimento-api-${STACK}.loadbalancer.healthcheck.path=/api/ready
       - traefik.http.services.movimento-api-${STACK}.loadbalancer.healthcheck.interval=10s
 
   web:

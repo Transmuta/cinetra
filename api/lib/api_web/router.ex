@@ -50,10 +50,18 @@ defmodule ApiWeb.Router do
     post "/auth/switch-tenant", AuthController, :switch_tenant
   end
 
+  # Health checks — fora do `:authenticated` de propósito (doc 62 §7.1). Passar pelo pipeline de
+  # sessão acoplaria o liveness à stack de autenticação: uma falha no `load_from_session` faria o
+  # orquestrador reiniciar uma instância que está viva. Liveness só pode depender do BEAM.
   scope "/api", ApiWeb do
-    pipe_through [:api, :authenticated]
+    pipe_through :api
 
     get "/health", HealthController, :show
+    get "/ready", HealthController, :ready
+  end
+
+  scope "/api", ApiWeb do
+    pipe_through [:api, :authenticated]
 
     # Onboarding do primeiro acesso: cria a clínica + owner (ADR-016). clinic_id nasce aqui.
     post "/clinics", ClinicController, :onboard
