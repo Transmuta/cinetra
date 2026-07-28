@@ -1,7 +1,8 @@
-import type { Handle } from '@sveltejs/kit';
+import type { Handle, HandleServerError } from '@sveltejs/kit';
 import { conferirOrigem } from '$lib/csp.js';
 import { apiPublicOrigin } from '$lib/server/api';
 import { gzipResponse } from '$lib/server/compress';
+import { log, sanitizarRota, sanitizarTexto, truncar, LIMITES } from '$lib/server/log';
 
 // D2 (doc 47) — a guarda entre o build e o runtime, no boot do servidor.
 //
@@ -59,4 +60,41 @@ export const handle: Handle = async ({ event, resolve }) => {
 	// request. Fica por ÚLTIMO de propósito: os headers acima precisam ser lidos e escritos na
 	// resposta original, e daqui para frente o corpo vira stream de gzip.
 	return gzipResponse(response, event.request.headers.get('accept-encoding'));
+};
+
+/**
+ * Erro **não tratado** no servidor do SvelteKit (doc 62 §7.2).
+ *
+ * Sem este hook, exceção em `load`, em action ou em endpoint some: o usuário vê a página de erro
+ * genérica e não fica registro em lugar nenhum. Era a lacuna mais barata do projeto — a `+error.svelte`
+ * já existia e mostrava "Algo deu errado" para uma falha que ninguém jamais investigaria.
+ *
+ * O retorno vira `page.error` na `+error.svelte`, então ele é **público**: leva só a mensagem
+ * genérica e o `errorId`, que é a chave para achar o registro completo no log. Detalhe de
+ * exceção não desce para o browser.
+ */
+export const handleError: HandleServerError = ({ error, event, status, message }) => {
+	// 404 é o roteador não achando rota, não uma falha: registrar todos faria de qualquer varredura
+	// de robô um evento de erro.
+	if (status === 404) return { message };
+
+	const errorId = crypto.randomUUID();
+
+	log.error('erro não tratado no servidor', {
+		error_id: errorId,
+		route: sanitizarRota(event.url.pathname),
+		route_id: event.route.id,
+		status,
+		// `sanitizarTexto` também aqui: um stack de servidor cita a URL que estava sendo servida,
+		// e `/pacientes/<uuid>` dentro dele levaria o id do paciente para o log tão bem quanto o
+		// campo `route` levaria.
+		stack: error instanceof Error ? sanitizarTexto(truncar(error.stack, LIMITES.stack)) : undefined,
+		// A mensagem da exceção pode conter dado do domínio (o valor que falhou uma validação),
+		// então vai truncada, sanitizada e nunca para o browser.
+		detail: sanitizarTexto(
+			error instanceof Error ? truncar(error.message, LIMITES.message) : truncar(error, 200)
+		)
+	});
+
+	return { message: 'Algo deu errado', errorId };
 };

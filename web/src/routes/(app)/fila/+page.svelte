@@ -8,6 +8,7 @@
 	import { deserialize } from '$app/forms';
 	import { page as pageState } from '$app/state';
 	import { navigateQuery, type QueryPatch } from '$lib/querystring';
+	import { reportar } from '$lib/report';
 	import {
 		connectWaitlist,
 		type RealtimeConfig,
@@ -129,7 +130,10 @@
 			.then((d: { slots_by_entry?: Record<string, Slot[]> }) => {
 				if (vivo) slotsByEntry = d.slots_by_entry ?? {};
 			})
-			.catch(() => {});
+			// Engolir é certo para a TELA (a fila funciona sem os chips de vaga), mas não pode ser
+			// silêncio total: sem oferta visível a recepção não liga para ninguém, e o sintoma é
+			// "a fila não mostra vaga" — indistinguível de não haver vaga. Ver doc 62 §7.2.
+			.catch((e) => reportar('fila:slots', e));
 		return () => {
 			vivo = false;
 		};
@@ -152,7 +156,10 @@
 			.then((cfg) => {
 				if (vivo && cfg?.token) realtime = cfg as RealtimeConfig;
 			})
-			.catch(() => {});
+			// Falha aqui mata o TEMPO REAL da tela, e antes era invisível: sem token o socket nunca
+			// abre, a fila para de atualizar sozinha e não há console, log nem aviso em lugar
+			// nenhum. O usuário só vê uma tela que envelhece calada (doc 62 §7.2).
+			.catch((e) => reportar('realtime:token', e));
 		return () => {
 			vivo = false;
 		};

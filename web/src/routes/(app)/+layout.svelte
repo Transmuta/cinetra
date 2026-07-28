@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { afterNavigate, invalidate } from '$app/navigation';
+	import { reportar } from '$lib/report';
 	import Rail from '$lib/components/shell/Rail.svelte';
 	import Sidebar from '$lib/components/shell/Sidebar.svelte';
 	import Topbar from '$lib/components/shell/Topbar.svelte';
@@ -41,7 +42,10 @@
 			.then((cfg) => {
 				if (vivo && cfg?.token) realtime = cfg as RealtimeConfig;
 			})
-			.catch(() => {});
+			// Falha aqui mata o TEMPO REAL de todo o app (o sino de notificações inclusive), e antes
+			// era invisível: sem token o socket nunca abre e não há console, log nem aviso em lugar
+			// nenhum — só um badge que nunca mais muda (doc 62 §7.2).
+			.catch((e) => reportar('realtime:token', e));
 		return () => {
 			vivo = false;
 		};
