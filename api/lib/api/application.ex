@@ -15,6 +15,10 @@ defmodule Api.Application do
     # `oban_jobs` em 7 dias, "por que o lembrete não saiu na terça" não tinha como ser respondido.
     Oban.Telemetry.attach_default_logger(level: :info, encode: false)
 
+    # Sinal de vida dos crons para um monitor externo (doc 62 §9). No-op quando não há URL
+    # configurada, que é o caso de dev e teste.
+    Api.Heartbeat.attach()
+
     children = [
       ApiWeb.Telemetry,
       {DNSCluster, query: Application.get_env(:api, :dns_cluster_query) || :ignore},

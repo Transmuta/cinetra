@@ -16,6 +16,37 @@ set -euo pipefail
 : "${BACKUP_BUCKET:?BACKUP_BUCKET obrigatório}"
 : "${PGDATABASE:?PGDATABASE obrigatório}"
 
+# ---- Heartbeat (docs/62 §9) -------------------------------------------------------------------
+# O docs/59 §13 nomeou este buraco e o deixou aberto: "alerta se o backup-cron parar — backup que
+# morre em silêncio só aparece no dia do incidente". O `set -e` acima faz o script SAIR com código
+# != 0, e ninguém fica sabendo: o gatilho pré-deploy trava o deploy (fail-closed, ok), mas o cron
+# de 1 em 1 hora morre calado.
+#
+# Nenhum log resolve isto, porque a falha aqui é AUSÊNCIA de execução — não há linha para ler. Só
+# um vigia de fora, que espera o sinal e reclama quando ele não vem.
+#
+# A URL sai de HEARTBEAT_BASE_URL + "/backup" (mesma raiz que a API usa, uma env por ambiente),
+# ou de HEARTBEAT_URL_BACKUP se alguém quiser sobrescrever só este. Nenhuma das duas = desligado,
+# que é o caso de dev e de qualquer ambiente sem monitor.
+hb_url=""
+if [ -n "${HEARTBEAT_URL_BACKUP:-}" ]; then
+  hb_url="$HEARTBEAT_URL_BACKUP"
+elif [ -n "${HEARTBEAT_BASE_URL:-}" ]; then
+  hb_url="${HEARTBEAT_BASE_URL%/}/backup"
+fi
+
+sinal() {
+  [ -n "$hb_url" ] || return 0
+  # `|| true`: o heartbeat NUNCA pode ser o motivo de um backup falhar. -m limita o tempo total,
+  # senão um monitor fora do ar seguraria o script.
+  curl -fsS -m 10 "${hb_url}${1:-}" -o /dev/null || true
+}
+
+# Dispara em QUALQUER saída não-zero, inclusive `set -e` no meio do pg_dump ou do upload. Sem o
+# trap, só o caminho feliz avisaria — e o silêncio voltaria a significar as duas coisas ao mesmo
+# tempo ("rodou bem" e "nem rodou").
+trap 'sinal /fail' ERR
+
 day="$(date -u +%Y%m%d)"
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"
 tmp="$(mktemp -d)"
@@ -46,4 +77,7 @@ echo "[backup] poda hourly > ${HOURLY_RETENTION:-48h} · daily > ${DAILY_RETENTI
 rclone delete --min-age "${HOURLY_RETENTION:-48h}" "R2:${BACKUP_BUCKET}/${STACK}/hourly" || true
 rclone delete --min-age "${DAILY_RETENTION:-30d}"  "R2:${BACKUP_BUCKET}/${STACK}/daily"  || true
 
+# Só aqui: o sinal de sucesso vem DEPOIS do upload confirmado. Sinalizar antes diria "estou vivo"
+# para um backup que não subiu — que é o pior resultado possível, pior que não monitorar.
+sinal
 echo "[backup] ok"

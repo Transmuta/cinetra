@@ -78,6 +78,41 @@ if config_env() != :test do
     whatsapp_habilitado: System.get_env("WHATSAPP_HABILITADO") == "true"
 end
 
+# Heartbeat dos crons (doc 62 §9). A URL vem de um monitor EXTERNO (healthchecks.io) e é opaca —
+# não carrega dado nenhum, só identifica o check.
+#
+# **UMA env por ambiente**: `HEARTBEAT_BASE_URL` é a raiz com a chave do projeto
+# (`https://hc-ping.com/<ping-key>`), e o slug de cada job entra abaixo, fixo em código. Assim o
+# que distingue produção de homologação é a chave — não 14 colagens de UUID sem errar nenhuma.
+#
+# A chave do mapa é a string do worker porque é isso que o Oban põe no `job.worker`. O slug é o
+# nome do check no healthchecks.io: **têm de bater**. Slug errado não fica calado — o serviço cria
+# um check novo e o real deixa de receber sinal, então alarma no primeiro ciclo.
+#
+# `HEARTBEAT_URL_*` continua existindo para sobrescrever um job específico (URL por UUID, ou outro
+# monitor). Precedência: URL explícita > slug.
+config :api, Api.Heartbeat,
+  base_url: System.get_env("HEARTBEAT_BASE_URL"),
+  slugs: %{
+    "Api.Messaging.ReminderJob" => "reminder",
+    "Api.Notifications.DailyDigestJob" => "digest",
+    "Api.Notifications.SessionSoonJob" => "session-soon",
+    "Api.Housekeeping.PruneTrail" => "prune-trail",
+    "Api.Housekeeping.PruneNotifications" => "prune-notifications",
+    "Api.Housekeeping.PruneAttachments" => "prune-attachments"
+  },
+  urls:
+    %{
+      "Api.Messaging.ReminderJob" => System.get_env("HEARTBEAT_URL_REMINDER"),
+      "Api.Notifications.DailyDigestJob" => System.get_env("HEARTBEAT_URL_DIGEST"),
+      "Api.Notifications.SessionSoonJob" => System.get_env("HEARTBEAT_URL_SESSION_SOON"),
+      "Api.Housekeeping.PruneTrail" => System.get_env("HEARTBEAT_URL_PRUNE_TRAIL"),
+      "Api.Housekeeping.PruneNotifications" =>
+        System.get_env("HEARTBEAT_URL_PRUNE_NOTIFICATIONS"),
+      "Api.Housekeeping.PruneAttachments" => System.get_env("HEARTBEAT_URL_PRUNE_ATTACHMENTS")
+    }
+    |> Map.reject(fn {_worker, url} -> is_nil(url) or url == "" end)
+
 if config_env() == :prod do
   # The secret key base is used to sign/encrypt cookies and other secrets.
   # A default value is used in config/dev.exs and config/test.exs but you

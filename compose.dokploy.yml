@@ -40,6 +40,12 @@ x-backup-env: &backup-env
   HOURLY_RETENTION: ${BACKUP_HOURLY_RETENTION:-48h}
   DAILY_RETENTION: ${BACKUP_DAILY_RETENTION:-30d}
   BACKUP_AGE_RECIPIENT: ${BACKUP_AGE_RECIPIENT:-}
+  # Heartbeat do backup (docs/62 §9). O monitor EXTERNO reclama quando o sinal não chega — é o que
+  # fecha o buraco que o docs/59 §13 nomeou: o cron de 1h morre com `set -e` e código != 0 sem que
+  # ninguém saiba. `HEARTBEAT_BASE_URL` é a MESMA raiz que a API usa (uma por ambiente); o slug
+  # `backup` é acrescentado pelo script. Vazio = desligado.
+  HEARTBEAT_BASE_URL: ${HEARTBEAT_BASE_URL:-}
+  HEARTBEAT_URL_BACKUP: ${HEARTBEAT_URL_BACKUP:-}
   RCLONE_CONFIG_R2_TYPE: s3
   RCLONE_CONFIG_R2_PROVIDER: Cloudflare
   RCLONE_CONFIG_R2_ENDPOINT: https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com
@@ -155,6 +161,7 @@ services:
         API_PUBLIC_ORIGIN: "https://${WEB_HOST}"
         R2_ACCOUNT_ID: ${R2_ACCOUNT_ID}
     restart: unless-stopped
+    logging: *logging
     depends_on:
       - api
     networks: [app, dokploy-network]
