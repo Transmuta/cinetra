@@ -4,6 +4,7 @@
 	import TrendingDown from '@lucide/svelte/icons/trending-down';
 	import CircleX from '@lucide/svelte/icons/circle-x';
 	import Gauge from '@lucide/svelte/icons/gauge';
+	import Info from '@lucide/svelte/icons/info';
 	import { avatarColor } from '$lib/avatar';
 	import { todayInZone } from '$lib/agenda';
 	import {
@@ -86,13 +87,29 @@
 
 	<!-- 5 KPIs -->
 	<div class="mb-3.5 flex flex-wrap gap-[11px]">
-		{#snippet kpi(label: string, val: string, sub: string, color: string, Icon: typeof CalendarDays)}
+		{#snippet kpi(
+			label: string,
+			val: string,
+			sub: string,
+			color: string,
+			Icon: typeof CalendarDays,
+			formula: string
+		)}
+			<!-- HOM-021: o número aparecia sem a conta que o produz, e duas destas contas não são
+			     adivinháveis — a taxa de falta NÃO divide pelo total, e a ocupação é grampeada em
+			     100%. Sem a fórmula à mão, a primeira reação de quem gerencia é contestar o
+			     número; com ela, a conversa passa a ser sobre a operação. A fórmula sai daqui
+			     igual à do servidor (`summary_totais/5`), e é por isso que ela é literal. -->
 			<div
+				title={formula}
 				class="min-w-[150px] flex-[1_1_150px] rounded-xl border border-edge bg-surface px-[15px] py-3.5"
 			>
 				<div class="mb-[7px] flex items-center gap-[7px] text-[11.5px] text-muted">
 					<span style="color:{color}"><Icon size={14} /></span>
 					{label}
+					<span class="ml-auto text-faint" aria-label="Como este número é calculado: {formula}">
+						<Info size={12} />
+					</span>
 				</div>
 				<div class="font-mono text-[23px] font-semibold tabular-nums" style="color:{color}">
 					{val}
@@ -106,29 +123,40 @@
 			String(t.atendimentos),
 			`${t.futuros} ainda agendados`,
 			'var(--color-ink)',
-			CalendarDays
+			CalendarDays,
+			'Todos os agendamentos do período, exceto os cancelados. Inclui os que ainda vão acontecer.'
 		)}
 		{@render kpi(
 			'Concluídos',
 			String(t.concluidos),
 			t.atendimentos ? `${sharePct(t.concluidos, t.atendimentos)}% do volume` : '—',
 			'var(--color-success)',
-			CircleCheck
+			CircleCheck,
+			'Atendimentos que terminaram com pelo menos um paciente presente.'
 		)}
 		{@render kpi(
 			'Taxa de falta',
 			`${t.taxa_falta}%`,
 			`${t.faltas} faltas`,
 			t.taxa_falta > 20 ? 'var(--color-danger)' : 'var(--color-warning)',
-			TrendingDown
+			TrendingDown,
+			'Faltas ÷ (concluídos + faltas) — só entram as sessões que já fecharam. O que ainda vai acontecer não conta, nem no numerador nem no denominador.'
 		)}
-		{@render kpi('Cancelamentos', String(t.cancelados), 'no período', 'var(--color-faint)', CircleX)}
+		{@render kpi(
+			'Cancelamentos',
+			String(t.cancelados),
+			'no período',
+			'var(--color-faint)',
+			CircleX,
+			'Agendamentos cancelados no período. Não entram na conta de atendimentos nem na de ocupação.'
+		)}
 		{@render kpi(
 			'Ocupação',
 			`${t.ocupacao}%`,
 			`${t.dias_uteis} dias úteis`,
 			t.ocupacao >= 70 ? 'var(--color-success)' : 'var(--color-info)',
-			Gauge
+			Gauge,
+			`Minutos ocupados ÷ minutos de expediente (${t.ocupado_minutos} de ${t.capacidade_minutos} min). Não é "sessões ÷ vagas": uma sessão de 50 min pesa mais que uma de 30. Passando de 100% o valor é exibido como 100%.`
 		)}
 	</div>
 

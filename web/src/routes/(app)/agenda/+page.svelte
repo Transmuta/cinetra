@@ -5,7 +5,9 @@
 	import { goto, invalidate, invalidateAll } from '$app/navigation';
 	import { deserialize } from '$app/forms';
 	import { page as pageState } from '$app/state';
+	import { reportar } from '$lib/report';
 	import AgendaNav from '$lib/components/agenda/AgendaNav.svelte';
+	import AgendaLegend from '$lib/components/agenda/AgendaLegend.svelte';
 	import DayGrid from '$lib/components/agenda/DayGrid.svelte';
 	import WeekView from '$lib/components/agenda/WeekView.svelte';
 	import MonthView from '$lib/components/agenda/MonthView.svelte';
@@ -85,7 +87,11 @@
 			.then((cfg) => {
 				if (vivo && cfg?.token) realtime = cfg as RealtimeConfig;
 			})
-			.catch(() => {});
+			// Falha aqui mata o TEMPO REAL da agenda, e antes era invisível: sem token o socket
+			// nunca abre, a agenda para de atualizar sozinha e não há console, log nem aviso em
+			// lugar nenhum. Dois atendentes passam a ver estados diferentes da mesma agenda —
+			// exatamente o que o tempo real existe para evitar (doc 62 §7.2).
+			.catch((e) => reportar('realtime:token', e));
 
 		return () => {
 			vivo = false;
@@ -412,6 +418,12 @@
 		onDate={(d) => navigate({ date: d })}
 		onView={(v) => navigate({ view: v === 'dia' ? null : v })}
 	/>
+
+	<!-- A legenda só vale onde o card existe: Dia e Lista consomem o `STATUS_META`; Semana e
+	     Mês desenham ocupação, e uma legenda de status ali explicaria algo que não está na tela. -->
+	{#if data.view !== 'semana' && data.view !== 'mes'}
+		<AgendaLegend />
+	{/if}
 
 	<div class="min-h-0 flex-1 overflow-auto">
 		{#if data.view === 'semana'}

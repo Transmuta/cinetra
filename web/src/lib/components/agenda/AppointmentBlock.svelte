@@ -1,10 +1,24 @@
 <script lang="ts">
-	// O bloco do grid (protótipo `renderBlock` :1666).
+	// O bloco do grid. Redesenhado no AN-01 (doc 64 §3) contra a Figura 2 do relatório de
+	// homologação: **uma regra visual para cada informação**.
+	//
+	// O que mudou em relação ao desenho herdado do protótipo (`renderBlock` :1666), e por quê:
+	//
+	//  - o FUNDO deixou de ser o status. Antes três regras concorrentes pintavam o mesmo
+	//    retângulo (`AÇÃO > conflito > status`), e a cor carregava quatro dimensões sem legenda
+	//    nenhuma — o HOM-002. Agora o fundo é sempre `surface` e cada informação tem um canal
+	//    próprio: status no ponto+badge, profissional na faixa lateral, conflito e encaixe em
+	//    ícone com rótulo, pendência no verbo;
+	//  - o status passou a ser ESCRITO. Antes existia só como tinta, opacidade e tachado — o
+	//    texto vivia apenas no `aria-label`, o que é acessível e invisível ao mesmo tempo;
+	//  - a linha 1 tinha SEIS sinais (ponto do profissional, conflito, badge AÇÃO, ícone do
+	//    tipo, pulso de "em atendimento", badge ENCAIXE) e um único `title` — o HOM-004. Sobram
+	//    dois ícones, ambos com rótulo: conflito e encaixe. O ícone do tipo saiu porque o NOME
+	//    do tipo já é a linha 3; o pulso saiu porque o badge agora diz "Em atendimento".
 	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
-	import CircleAlert from '@lucide/svelte/icons/circle-alert';
-	import { STATUS_META, type Appointment } from '$lib/agenda';
+	import Zap from '@lucide/svelte/icons/zap';
+	import { statusSignal, type Appointment } from '$lib/agenda';
 	import { blockGeometry, type Slot } from '$lib/agenda-layout';
-	import { iconComponent } from '$lib/appointment-types';
 	import type { AgendaAppointmentType } from '$lib/agenda';
 
 	let {
@@ -42,52 +56,61 @@
 		onSelect: (id: string) => void;
 	} = $props();
 
-	const meta = $derived(STATUS_META[appt.status]);
 	const geo = $derived(blockGeometry(slot));
-	const TypeIcon = $derived(iconComponent(tipo?.icon ?? ''));
-
-	// Ordem de precedência do protótipo (:1666): AÇÃO > conflito > tint do status. Ela
-	// existe porque as três querem pintar o MESMO retângulo — sem ordem definida, o
-	// resultado depende de qual regra roda por último.
-	const variant = $derived(action ? 'action' : conflict ? 'conflict' : 'status');
 
 	const grupo = $derived(!!tipo?.grupo);
 	const capacidade = $derived(tipo?.capacidade ?? 4);
 
-	// Rótulo por altura (:1687): abaixo de 30px não cabe a linha do nome em 12px; abaixo de
-	// 58px não cabe a terceira linha.
+	// O sinal (ponto + badge) sai de uma fonte só, que sabe quando a palavra do status mente
+	// numa turma mista — ver `statusSignal` e o §3.2 do doc 64.
+	const sinal = $derived(statusSignal(appt, grupo));
+
+	// A pendência é ORTOGONAL ao status (um bloco agendado OU confirmado pode precisar de
+	// ação), então ela não entra na mesma fileira conceitual — ela SUBSTITUI o badge quando
+	// está ativa, porque "Agendado" e "Registrar status" lado a lado seria dizer duas vezes
+	// que ninguém resolveu. O verbo é um só: o gatilho é um só (RN-58, D2 do doc 64).
+	const badge = $derived(action ? { label: 'Registrar status', tone: 'warning' as const } : sinal);
+
 	const titulo = $derived(
 		grupo && tipo
-			? `${tipo.nome} · ${appt.patient_ids.length}/${capacidade}`
+			? tipo.nome
 			: // Um id sem correspondência no sidecar (paciente removido entre a leitura e o
 				// render) vira um rótulo neutro — nunca o nome do TIPO, que faria um bloco
 				// anônimo passar por um bloco identificado.
 				(patientNames[0] ?? 'Paciente')
 	);
 
+	// HOM-005: o contador era `Tipo · 2/4` no título, e "2/4" sozinho não diz de quê. Vira
+	// linha própria, com a palavra que faltava.
+	const vagas = $derived(`${appt.patient_ids.length}/${capacidade} vagas ocupadas`);
+
 	const rotulo = $derived(
-		[startLabel, titulo, tipo?.nome, appt.encaixe ? 'encaixe' : null, meta.label]
+		[startLabel, titulo, tipo?.nome, appt.encaixe ? 'encaixe' : null, badge.label]
 			.filter(Boolean)
 			.join(' · ')
 	);
 
-	// O fundo sai de `color-mix` sobre o token do tema, e não de um hex calculado em JS:
-	// o valor do token muda entre claro e escuro, e um hex congelado quebraria o modo escuro.
-	const fill = $derived(
-		variant === 'action'
-			? 'color-mix(in srgb, var(--color-warning) 16%, transparent)'
-			: meta.tone
-				? `color-mix(in srgb, var(--color-${meta.tone}) 12%, transparent)`
-				: 'var(--color-surface)'
-	);
+	// Escada de degradação (D1 do doc 64). Com `PPM = 2.55` a sessão de 30 min tem 76px e cabe
+	// inteira; a escada existe para o que ainda não cabe — 15 min dá 38px. Sem ela, o card de
+	// sessão curta empilharia quatro linhas em espaço de duas e cortaria no meio.
+	const linhas = $derived(height >= 76 ? 4 : height >= 44 ? 3 : height >= 30 ? 2 : 1);
+
+	// A cor sai de `color-mix` sobre o token do tema, e não de um hex calculado em JS: o valor
+	// do token muda entre claro e escuro, e um hex congelado quebraria o modo escuro.
+	const corDoTom = (tom: string | null) => (tom ? `var(--color-${tom})` : 'var(--color-muted)');
+
+	// A borda só é tingida pelo que EXIGE atenção — conflito e pendência. O status não pinta
+	// mais nada além do ponto e do badge; a faixa lateral é do profissional.
+	//
+	// **A precedência inverteu, e de propósito.** O protótipo mandava `AÇÃO > conflito` (:1666),
+	// e fazia sentido enquanto as duas disputavam o FUNDO inteiro do bloco — só uma podia
+	// vencer, e a pendência era a mais acionável. Agora não disputam mais o mesmo canal: a
+	// pendência tem o badge inteiro ("Registrar status", com a cor dela), e ao conflito sobra um
+	// ícone de 11px. Se a borda continuasse indo para a pendência, o bloco em conflito *e*
+	// pendente sinalizaria a pendência duas vezes e o conflito nenhuma. Então a borda vai para o
+	// conflito, que é o fato mais grave e o que tem menos voz.
 	const stroke = $derived(
-		variant === 'conflict'
-			? 'var(--color-danger)'
-			: variant === 'action'
-				? 'var(--color-warning)'
-				: meta.tone
-					? `color-mix(in srgb, var(--color-${meta.tone}) 45%, transparent)`
-					: 'var(--color-edge)'
+		conflict ? 'var(--color-danger)' : action ? 'var(--color-warning)' : 'var(--color-edge)'
 	);
 </script>
 
@@ -95,64 +118,78 @@
 	type="button"
 	data-appt
 	data-appt-id={appt.id}
-	data-variant={variant}
-	data-strike={meta.strike ? 'true' : undefined}
+	data-variant={conflict ? 'conflict' : action ? 'action' : 'status'}
+	data-strike={sinal.strike ? 'true' : undefined}
+	data-linhas={linhas}
 	aria-label={rotulo}
 	onclick={(e) => {
 		e.stopPropagation();
 		onSelect(appt.id);
 	}}
 	style="top:{top}px; height:{Math.max(height - 2, 18)}px; left:{geo.left}; width:{geo.width};
-	       background:{fill}; border-color:{stroke}; opacity:{dragging ? 0.4 : meta.dim ? 0.72 : 1};
+	       background:var(--color-surface); border-color:{stroke}; border-left-color:{profColor};
+	       opacity:{dragging ? 0.4 : sinal.dim ? 0.72 : 1};
 	       transition:opacity .15s;
-	       border-width:{variant === 'status' ? 1 : 1.5}px; z-index:{variant === 'conflict' ? 3 : 2};"
+	       border-width:{conflict || action ? 1.5 : 1}px; border-left-width:3px;
+	       z-index:{conflict ? 3 : 2};"
 	class="absolute flex flex-col gap-0.5 overflow-hidden rounded-lg border border-solid px-1.5 py-1 text-left"
 >
 	<div class="flex items-center gap-1.25">
-		<span class="size-1.5 shrink-0 rounded-full" style="background:{profColor}"></span>
-		<span class="font-mono text-[10.5px] font-semibold tabular-nums">{startLabel}</span>
+		<!-- Ponto e hora na cor do STATUS (Figura 2, regra 2). O ponto do profissional saiu
+		     daqui: a cor dele agora é a faixa lateral esquerda, que não disputa a linha 1. -->
+		<span
+			class="size-1.5 shrink-0 rounded-full"
+			style="background:{corDoTom(sinal.tone)}"
+			data-testid="status-dot"
+		></span>
+		<span
+			class="font-mono text-[10.5px] font-semibold tabular-nums"
+			style="color:{corDoTom(sinal.tone)}">{startLabel}</span
+		>
 
 		{#if conflict}
-			<span title="Conflito de horário" class="text-danger"><TriangleAlert size={11} /></span>
-		{/if}
-
-		{#if action && !conflict}
-			<span
-				class="inline-flex items-center gap-0.75 rounded bg-warning px-1 text-[8.5px] font-extrabold tracking-wide text-white"
-			>
-				<CircleAlert size={9} /> AÇÃO
+			<span title="Conflito de horário" class="shrink-0 text-danger">
+				<TriangleAlert size={11} />
 			</span>
 		{/if}
 
-		<span class="ml-auto shrink-0 text-muted">
-			<TypeIcon size={12} />
-		</span>
-
-		{#if meta.live}
-			<span class="size-1.5 animate-pulse rounded-full bg-teal"></span>
+		{#if appt.encaixe}
+			<span title="Encaixe — marcado fora da grade" class="shrink-0 text-warning">
+				<Zap size={11} />
+			</span>
 		{/if}
 
-		{#if appt.encaixe}
-			<span class="rounded bg-warning px-1 text-[9px] font-bold text-white">ENCAIXE</span>
+		{#if linhas > 1}
+			<span
+				data-testid="status-badge"
+				class="ml-auto truncate rounded px-1 py-px text-[9px] font-bold"
+				style="color:{badge.tone
+					? `var(--color-${badge.tone}-text, var(--color-${badge.tone}))`
+					: 'var(--color-muted)'};
+				       background:color-mix(in srgb, {corDoTom(badge.tone)} 12%, transparent)"
+			>
+				{badge.label}
+			</span>
 		{/if}
 	</div>
 
-	{#if height > 30}
+	{#if linhas > 1}
 		<div
-			class="truncate text-[12px] font-semibold {meta.strike
+			class="truncate text-[12px] font-semibold {sinal.strike
 				? 'text-faint line-through'
 				: 'text-ink'}"
 		>
 			{titulo}
 		</div>
 	{:else}
-		<div class="truncate text-[10.5px] {meta.strike ? 'text-faint line-through' : 'text-ink'}">
+		<!-- Uma linha só: o badge não cabe, então o status vive no ponto (e no `aria-label`). -->
+		<div class="truncate text-[10.5px] {sinal.strike ? 'text-faint line-through' : 'text-ink'}">
 			{titulo}
 		</div>
 	{/if}
 
-	{#if height > 58}
-		<div class="mt-auto truncate text-[10px] text-faint">
+	{#if linhas > 2}
+		<div class="truncate text-[10px] text-faint">
 			{#if grupo}
 				{patientNames.slice(0, 3).join(', ')}{appt.patient_ids.length > 3
 					? ` +${appt.patient_ids.length - 3}`
@@ -161,5 +198,13 @@
 				{tipo?.nome ?? ''}
 			{/if}
 		</div>
+	{/if}
+
+	{#if linhas > 3 && grupo}
+		<!-- Sem `mt-auto`: com `PPM = 2.55` o bloco de 50min tem 126px e sobra folga embaixo, então
+		     empurrar esta linha para o rodapé a desgrudava das outras três — na tela ela parecia
+		     legenda do bloco de baixo. As quatro linhas ficam juntas no topo, e a folga fica onde
+		     folga deve ficar: no fim. Só a imagem mostrou isso; a escada passava verde. -->
+		<div class="truncate text-[10px] font-medium text-muted">{vagas}</div>
 	{/if}
 </button>

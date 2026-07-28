@@ -46,6 +46,12 @@ export interface Appointment {
 	obs: string | null;
 	/** Entrega 4: motivo do cancelamento (opcional, D4). */
 	cancel_reason: string | null;
+	/** Motivo da ÚLTIMA remarcação — opcional (D-H3/D5). O histórico das anteriores é da trilha. */
+	reschedule_reason: string | null;
+	/** Veio da fila de espera? Carimbado na conversão, antes de a entry ser apagada (D-H10). */
+	veio_da_fila: boolean;
+	/** Dias que esperou na fila. `null` quando não veio dela — zero é "esperou nada", que é dado. */
+	dias_na_fila: number | null;
 	professional_id: string;
 	appointment_type_id: string;
 	version: number;
@@ -66,6 +72,8 @@ export interface Participant {
 	patient_id: string;
 	status: AttendanceStatus;
 	falta_justificada: boolean;
+	/** Por que faltou — opcional, texto livre, POR participante (D-H3/D5, doc 64). */
+	motivo: string | null;
 	package_id: string | null;
 }
 
@@ -165,6 +173,69 @@ export const STATUS_META: Record<AppointmentStatus, StatusMeta> = {
 	faltou: { label: 'Faltou', tone: 'danger' },
 	cancelado: { label: 'Cancelado', tone: null, strike: true }
 };
+
+// ---------------------------------------------------------------------------
+// O sinal do bloco — o que o ponto e o badge dizem, juntos (AN-01, doc 64 §3.2)
+//
+// Até aqui o status só existia como TINTA de fundo, e por isso ninguém percebia uma
+// simplificação que está no modelo desde a A2: `Appointment.status` é um ROLLUP das
+// presenças (`Attendance.Rollup.block_status/2`), e a regra dele é "alguma concluída ⇒ o
+// bloco é concluído". Numa turma de 4 em que 1 veio e 3 faltaram, o bloco é `:concluido`.
+//
+// Um retângulo esverdeado não afirma "todos vieram"; a PALAVRA "Concluído" afirma. Como o
+// AN-01 escreve o status no card, a simplificação viraria mentira legível — que é o próprio
+// HOM-002 ("um sinal representando mais de uma dimensão") que a fatia existe para consertar.
+//
+// A saída (D13): no bloco de GRUPO com presença já registrada, o sinal deixa de ser a palavra
+// única e passa a ser a COMPOSIÇÃO — "3 de 4 concluídas". E o ponto usa o mesmo tom do badge,
+// porque cor e texto contando histórias diferentes é o defeito de origem.
+// ---------------------------------------------------------------------------
+
+/** O que o ponto e o badge do bloco exibem. Mesma forma do `StatusMeta`, já resolvido. */
+export interface StatusSignal {
+	label: string;
+	tone: StatusMeta['tone'];
+	dim?: boolean;
+	strike?: boolean;
+}
+
+/**
+ * O sinal de um bloco: a palavra do status quando ela é verdadeira, a composição das presenças
+ * quando não é.
+ *
+ * Ordem das cláusulas (é contrato, não estilo):
+ *
+ *  1. **cancelado vence tudo** — cancelar é do BLOCO, não das presenças; o rollup nem chega a
+ *     opinar. Sem esta primeira cláusula, uma turma cancelada com presenças `:cancelada`
+ *     cairia no caso "sem presença viva" e exibiria a fase antiga;
+ *  2. **individual** — uma presença, uma verdade: a palavra do status serve;
+ *  3. **grupo sem nada registrado** — ninguém marcou presença ainda, então o que vale é a
+ *     FASE (Agendado/Confirmado/Em atendimento), que o rollup preserva de propósito;
+ *  4. **grupo com alguma presença registrada** — a composição, sempre literal.
+ */
+export function statusSignal(
+	appt: Pick<Appointment, 'status' | 'participants'>,
+	grupo: boolean
+): StatusSignal {
+	const meta = STATUS_META[appt.status];
+
+	if (appt.status === 'cancelado' || !grupo) return meta;
+
+	// Presença cancelada saiu da turma: não conta nem no numerador nem no denominador.
+	const vivas = appt.participants.filter((p) => p.status !== 'cancelada');
+	const registradas = vivas.filter((p) => p.status === 'concluida' || p.status === 'faltou');
+	if (vivas.length === 0 || registradas.length === 0) return meta;
+
+	const concluidas = vivas.filter((p) => p.status === 'concluida').length;
+
+	return {
+		label: `${concluidas} de ${vivas.length} concluídas`,
+		// Verde só quando TODAS vieram; vermelho quando nenhuma veio. O meio-termo fica neutro
+		// de propósito: pintar de verde um 1-de-4 é a mesma mentira, só que em cor.
+		tone: concluidas === vivas.length ? 'success' : concluidas === 0 ? 'danger' : null,
+		dim: concluidas === vivas.length
+	};
+}
 
 // ---------------------------------------------------------------------------
 // Minuto do dia ↔ "HH:MM"

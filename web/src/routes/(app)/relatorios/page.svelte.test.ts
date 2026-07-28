@@ -60,6 +60,34 @@ describe('Relatórios — render', () => {
 		expect(getByText('12/06')).toBeInTheDocument();
 	});
 
+	// HOM-021 — o número aparecia sem a conta que o produz. Estas duas contas são as que a
+	// gestão contesta, porque nenhuma das duas é adivinhável: a taxa de falta não divide pelo
+	// total, e a ocupação é minutos, não sessões. A asserção é sobre a FÓRMULA, não sobre o
+	// texto bonito: se a conta do servidor mudar e ninguém atualizar aqui, a tela passa a
+	// explicar errado — que é pior do que não explicar.
+	describe('a fórmula de cada KPI está na tela', () => {
+		it('taxa de falta diz que o denominador são as sessões fechadas', () => {
+			const { getByLabelText } = render(Page, { props: { data: data() as never } });
+			const explicacao = getByLabelText(/Como este número é calculado.*Faltas ÷/i);
+			expect(explicacao).toHaveAccessibleName(/concluídos \+ faltas/i);
+			expect(explicacao).toHaveAccessibleName(/já fecharam/i);
+		});
+
+		it('ocupação diz que é minuto, e mostra o par da divisão', () => {
+			const { getByLabelText } = render(Page, { props: { data: data() as never } });
+			// 300 e 540 vêm do `report()` — a explicação carrega os números reais do período,
+			// senão vira prosa genérica que não ajuda a conferir.
+			expect(getByLabelText(/Minutos ocupados ÷ minutos de expediente/i)).toHaveAccessibleName(
+				/300 de 540 min/
+			);
+		});
+
+		it('todos os cinco KPIs explicam a própria conta', () => {
+			const { getAllByLabelText } = render(Page, { props: { data: data() as never } });
+			expect(getAllByLabelText(/Como este número é calculado/i)).toHaveLength(5);
+		});
+	});
+
 	it('janela com vários dias mostra "Volume por dia" e a tabela por profissional', () => {
 		const { getByText } = render(Page, { props: { data: data() as never } });
 

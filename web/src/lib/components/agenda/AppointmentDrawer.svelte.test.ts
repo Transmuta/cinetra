@@ -37,13 +37,16 @@ function appt(over: Partial<Appointment> = {}): Appointment {
 		encaixe: false,
 		obs: null,
 		cancel_reason: null,
+		reschedule_reason: null,
+		veio_da_fila: false,
+		dias_na_fila: null,
 		professional_id: 'p1',
 		appointment_type_id: 't1',
 		version: 3,
 		created_by_id: null,
 		patient_ids: ['pac1'],
 		participants: [
-			{ patient_id: 'pac1', status: 'prevista', falta_justificada: false, package_id: null }
+			{ patient_id: 'pac1', status: 'prevista', falta_justificada: false, motivo: null, package_id: null }
 		],
 		...over
 	};
@@ -105,7 +108,7 @@ describe('AppointmentDrawer', () => {
 		const original = HTMLFormElement.prototype.requestSubmit;
 
 		HTMLFormElement.prototype.requestSubmit = function () {
-			for (const campo of ['patient_id', 'kind', 'justificada']) {
+			for (const campo of ['patient_id', 'kind', 'justificada', 'motivo']) {
 				capturado[campo] =
 					this.querySelector<HTMLInputElement>(`input[name="${campo}"]`)?.value ?? '';
 			}
@@ -113,12 +116,63 @@ describe('AppointmentDrawer', () => {
 
 		try {
 			render(AppointmentDrawer, { props: { appt: appt(), ...base } });
+			// "Faltou" passou a abrir o diálogo do motivo (D-H3/D5) — o submit é o do diálogo.
 			await fireEvent.click(screen.getByRole('button', { name: 'Faltou' }));
+			await fireEvent.input(screen.getByPlaceholderText(/avisou que estava doente/i), {
+				target: { value: 'avisou que estava doente' }
+			});
+			await fireEvent.click(screen.getByRole('button', { name: 'Registrar falta' }));
 		} finally {
 			HTMLFormElement.prototype.requestSubmit = original;
 		}
 
-		expect(capturado).toEqual({ patient_id: 'pac1', kind: 'no_show', justificada: 'false' });
+		expect(capturado).toEqual({
+			patient_id: 'pac1',
+			kind: 'no_show',
+			justificada: 'false',
+			motivo: 'avisou que estava doente'
+		});
+	});
+
+	// D-H3/D5: o motivo é opcional, e "opcional" tem de valer no caminho feliz — a recepção que
+	// não quer explicar clica em registrar e pronto.
+	it('registrar falta sem motivo submete mesmo assim', async () => {
+		const capturado: Record<string, string> = {};
+		const original = HTMLFormElement.prototype.requestSubmit;
+
+		HTMLFormElement.prototype.requestSubmit = function () {
+			capturado.kind = this.querySelector<HTMLInputElement>('input[name="kind"]')?.value ?? '';
+			capturado.motivo = this.querySelector<HTMLInputElement>('input[name="motivo"]')?.value ?? '';
+		};
+
+		try {
+			render(AppointmentDrawer, { props: { appt: appt(), ...base } });
+			await fireEvent.click(screen.getByRole('button', { name: 'Faltou' }));
+			await fireEvent.click(screen.getByRole('button', { name: 'Registrar falta' }));
+		} finally {
+			HTMLFormElement.prototype.requestSubmit = original;
+		}
+
+		expect(capturado).toEqual({ kind: 'no_show', motivo: '' });
+	});
+
+	// Concluir e reabrir NÃO abrem diálogo: não há motivo a registrar em nenhum dos dois, e uma
+	// confirmação a mais em cada clique tornaria a marcação de turma insuportável.
+	it('marcar presente continua em um clique', async () => {
+		const original = HTMLFormElement.prototype.requestSubmit;
+		let submeteu = false;
+		HTMLFormElement.prototype.requestSubmit = function () {
+			submeteu = true;
+		};
+
+		try {
+			render(AppointmentDrawer, { props: { appt: appt(), ...base } });
+			await fireEvent.click(screen.getByRole('button', { name: 'Presente' }));
+		} finally {
+			HTMLFormElement.prototype.requestSubmit = original;
+		}
+
+		expect(submeteu).toBe(true);
 	});
 
 	it('presença resolvida troca os botões por "Desfazer"', () => {
@@ -127,7 +181,7 @@ describe('AppointmentDrawer', () => {
 				appt: appt({
 					status: 'concluido',
 					participants: [
-						{ patient_id: 'pac1', status: 'concluida', falta_justificada: false, package_id: null }
+						{ patient_id: 'pac1', status: 'concluida', falta_justificada: false, motivo: null, package_id: null }
 					]
 				}),
 				...base
@@ -157,7 +211,7 @@ describe('AppointmentDrawer', () => {
 				appt: appt({
 					status: 'faltou',
 					participants: [
-						{ patient_id: 'pac1', status: 'faltou', falta_justificada: false, package_id: null }
+						{ patient_id: 'pac1', status: 'faltou', falta_justificada: false, motivo: null, package_id: null }
 					]
 				}),
 				...base

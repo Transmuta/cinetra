@@ -8,10 +8,13 @@
 	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 	import AgendaEmptyState from './AgendaEmptyState.svelte';
 	import AppointmentBlock from './AppointmentBlock.svelte';
+	import OccupancyBar from './OccupancyBar.svelte';
 	import { initials } from '$lib/format';
 	import { avatarColor } from '$lib/avatar';
+	import { occupancyRate } from '$lib/agenda-views';
 	import {
 		m2t,
+		timeToMinutes,
 		zonedParts,
 		toInterval,
 		gridRange,
@@ -73,8 +76,22 @@
 
 	// Pixels por minuto (protótipo `ppm` :1228; o controle de densidade é código morto lá e
 	// fica fora desta entrega).
-	const PPM = 1.05;
-	const HEADER = 66;
+	//
+	// AN-01 / D1 (doc 64 §3.3): era `1.05`, e a essa densidade a sessão de 30 min — o caso mais
+	// comum — tinha 31px. O card redesenhado da Figura 2 tem quatro linhas e pede ~76px, ou seja,
+	// a proposta só apareceria em sessão de 85 min para cima e a tela real nunca se pareceria com
+	// a imagem. A `2.55` a de 30 min passa a ter exatamente 76px e cabe inteira.
+	//
+	// O preço, aceito na decisão: a grade de uma jornada 07:00–20:00 sai de ~830px para ~2000px,
+	// e o dia passa a ocupar cerca de duas telas e meia.
+	//
+	// ATENÇÃO ao mexer: a constante governa SETE coisas, não só a altura do card — `topDe`, a
+	// altura total da grade (`gridH`), as faixas de indisponibilidade, o fantasma do arraste, o
+	// `dropMinutes` e a linha do agora. Todas precisam de conferência VISUAL, não só de teste.
+	const PPM = 2.55;
+	// +8px em relação aos 66 originais: o cabeçalho da coluna ganhou a barra de ocupação (AN-01
+	// sub `i`), que é o que o Dia mostrava como contagem crua e as outras visões já desenhavam.
+	const HEADER = 74;
 	const PAD = 14;
 	/** Granularidade do clique em vazio (protótipo :1660). A-D1: sugestão, não regra. */
 	const SNAP = 15;
@@ -120,14 +137,29 @@
 				.sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at));
 			const intervalos = appts.map((a) => toInterval(a, timezone));
 			const lay = layoutAppts(intervalos);
+			const periodos = periodosPorProf.get(prof.id) ?? [];
+
+			// Ocupação da coluna pela fórmula ÚNICA do projeto (A-D12, doc 33): minutos ocupados
+			// ÷ minutos de expediente — nunca "N de 9 slots". Reusa `occupancyRate`, a mesma que
+			// Semana e Mês usam, porque foi a divergência entre duas contas que A-D11 chamou de
+			// "gráfico que mente".
+			const ocupados = intervalos
+				.filter((iv) => ocupaGrade(appts.find((a) => a.id === iv.id)!))
+				.reduce((s, iv) => s + (iv.end - iv.start), 0);
+			const expediente = periodos.reduce(
+				(s, [a, b]) => s + Math.abs(timeToMinutes(String(b)) - timeToMinutes(String(a))),
+				0
+			);
+
 			return {
 				prof,
 				appts,
 				intervalos: new Map(intervalos.map((i) => [i.id, i])),
 				lay,
 				width: columnWidth(lay.maxLanes),
-				buracos: closedIntervals(periodosPorProf.get(prof.id) ?? [], range),
+				buracos: closedIntervals(periodos, range),
 				ativos: appts.filter(ocupaGrade).length,
+				ocupacao: occupancyRate(ocupados, expediente),
 				temConflito: appts.some((a) => conflitos.has(a.id))
 			};
 		})
@@ -316,9 +348,12 @@
 					class="relative border-l border-edge"
 					style="flex:1 0 {col.width}px; min-width:{col.width}px"
 				>
+					<!-- A cor do profissional aparece em DOIS lugares e só neles (Figura 2, regra 4):
+					     o sublinhado do cabeçalho e a faixa lateral do card. Antes ela era o
+					     pontinho da linha 1 do bloco, disputando espaço com mais cinco sinais. -->
 					<div
-						class="sticky top-0 z-5 border-b border-edge bg-surface px-2.5 py-2"
-						style="height:{HEADER}px"
+						class="sticky top-0 z-5 bg-surface px-2.5 py-2"
+						style="height:{HEADER}px; border-bottom:2px solid {avatarColor(col.prof.cor_indice)}"
 					>
 						<div class="flex items-center gap-2">
 							<span
@@ -345,6 +380,17 @@
 								</span>
 							{/if}
 							<span class="font-mono text-[10px] font-semibold text-muted">{col.ativos}</span>
+						</div>
+
+						<!-- HOM-021 é sobre relatórios, mas a queixa é a mesma aqui: número sem
+						     definição vira contestação. O `title` carrega a fórmula canônica. -->
+						<div class="mt-1.5">
+							<OccupancyBar
+								rate={col.ocupacao}
+								title="Ocupação: minutos ocupados ÷ minutos de expediente{col.ocupacao === null
+									? ' — sem expediente neste dia'
+									: ` — ${Math.round(col.ocupacao * 100)}%`}"
+							/>
 						</div>
 					</div>
 

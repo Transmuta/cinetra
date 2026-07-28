@@ -3,7 +3,7 @@ import '@testing-library/jest-dom/vitest';
 import { render, screen } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import AppointmentBlock from './AppointmentBlock.svelte';
-import type { Appointment } from '$lib/agenda';
+import type { Appointment, AttendanceStatus, Participant } from '$lib/agenda';
 
 function appt(over: Partial<Appointment> = {}): Appointment {
 	return {
@@ -18,6 +18,9 @@ function appt(over: Partial<Appointment> = {}): Appointment {
 		version: 1,
 		created_by_id: null,
 		cancel_reason: null,
+		reschedule_reason: null,
+		veio_da_fila: false,
+		dias_na_fila: null,
 		patient_ids: ['pat1'],
 		participants: [],
 		...over
@@ -71,33 +74,152 @@ describe('AppointmentBlock', () => {
 		expect(screen.getByText('Maria Silva')).toBeInTheDocument();
 	});
 
-	// A precedência do protótipo (:1666): AÇÃO > conflito > tint do status. Ela existe porque
-	// as três pintam o mesmo retângulo e sem ordem definida o resultado vira sorteio.
-	describe('precedência visual', () => {
-		it('sem nada, veste o status', () => {
+	// AN-01: a precedência do protótipo era `AÇÃO > conflito > status`, e existia porque as três
+	// pintavam o mesmo retângulo. Agora não pintam: o status virou ponto+badge, e o fundo é
+	// sempre branco. Sobra a BORDA, disputada por duas — e ela vai para o conflito, que é o fato
+	// mais grave e o que tem menos voz (a pendência já tem o badge inteiro).
+	describe('precedência da borda', () => {
+		it('sem nada, é neutra', () => {
 			render(AppointmentBlock, { props: base });
 			expect(screen.getByRole('button')).toHaveAttribute('data-variant', 'status');
 		});
 
-		it('conflito ganha do status', () => {
-			render(AppointmentBlock, { props: { ...base, conflict: true } });
-			expect(screen.getByRole('button')).toHaveAttribute('data-variant', 'conflict');
-		});
-
-		it('AÇÃO ganha do conflito', () => {
-			render(AppointmentBlock, { props: { ...base, conflict: true, action: true } });
+		it('pendência tinge quando não há conflito', () => {
+			render(AppointmentBlock, { props: { ...base, action: true } });
 			expect(screen.getByRole('button')).toHaveAttribute('data-variant', 'action');
 		});
+
+		it('conflito ganha da pendência', () => {
+			render(AppointmentBlock, { props: { ...base, conflict: true, action: true } });
+			expect(screen.getByRole('button')).toHaveAttribute('data-variant', 'conflict');
+		});
 	});
 
-	it('encaixe leva o selo ENCAIXE', () => {
+	// HOM-004: o selo textual ENCAIXE virou ícone COM rótulo. A troca só é válida porque o
+	// rótulo existe — um ícone mudo seria trocar um problema por outro.
+	it('encaixe é ícone com rótulo, não sigla solta', () => {
 		render(AppointmentBlock, { props: { ...base, appt: appt({ encaixe: true }) } });
-		expect(screen.getByText('ENCAIXE')).toBeInTheDocument();
+		expect(screen.getByTitle(/encaixe/i)).toBeInTheDocument();
 	});
 
-	it('sem encaixe, não há selo', () => {
+	it('sem encaixe, não há marcador', () => {
 		render(AppointmentBlock, { props: base });
-		expect(screen.queryByText('ENCAIXE')).not.toBeInTheDocument();
+		expect(screen.queryByTitle(/encaixe/i)).not.toBeInTheDocument();
+	});
+
+	// HOM-002/003: o status existia só como tinta e opacidade; o texto vivia no `aria-label`,
+	// que é acessível e invisível ao mesmo tempo.
+	describe('badge de status (AN-01 sub c)', () => {
+		it('escreve o status no card', () => {
+			render(AppointmentBlock, { props: base });
+			expect(screen.getByTestId('status-badge')).toHaveTextContent('Agendado');
+		});
+
+		it('o fundo do bloco não é mais o status', () => {
+			render(AppointmentBlock, {
+				props: { ...base, appt: appt({ status: 'concluido' }) }
+			});
+			// Lido pela propriedade, não pelo texto do atributo: o browser normaliza o `style`
+			// (insere espaço depois do `:`) e a asserção por string quebraria por formatação.
+			expect((screen.getByRole('button') as HTMLElement).style.background).toBe(
+				'var(--color-surface)'
+			);
+		});
+
+		// HOM-003: `AÇÃO` era etiqueta genérica — não dizia o que fazer.
+		it('a pendência vira verbo e substitui o status', () => {
+			render(AppointmentBlock, { props: { ...base, action: true } });
+			const badge = screen.getByTestId('status-badge');
+			expect(badge).toHaveTextContent('Registrar status');
+			expect(badge).not.toHaveTextContent('Agendado');
+		});
+
+		it('bloco de uma linha só não desenha badge (não cabe)', () => {
+			render(AppointmentBlock, { props: { ...base, height: 20 } });
+			expect(screen.queryByTestId('status-badge')).not.toBeInTheDocument();
+		});
+	});
+
+	// D13 (doc 64 §3.2) — o achado do re-baseline. `Appointment.status` é um ROLLUP das
+	// presenças e a regra é "alguma concluída ⇒ bloco concluído". Escrever "Concluído" numa
+	// turma em que 1 veio e 3 faltaram seria afirmação falsa na tela.
+	describe('turma mista não mente no badge', () => {
+		const turma = { ...tipo, nome: 'Pilates', grupo: true, capacidade: 4 };
+		const presenca = (status: AttendanceStatus, i: number): Participant => ({
+			patient_id: `pat${i}`,
+			status,
+			falta_justificada: false, motivo: null,
+			package_id: null
+		});
+
+		function turmaProps(statuses: AttendanceStatus[], height = 80) {
+			return {
+				...base,
+				height,
+				tipo: turma,
+				appt: appt({
+					status: 'concluido',
+					patient_ids: statuses.map((_, i) => `pat${i}`),
+					participants: statuses.map(presenca)
+				}),
+				patientNames: statuses.map((_, i) => `Paciente ${i}`)
+			};
+		}
+
+		it('1 de 4 não vira "Concluído"', () => {
+			render(AppointmentBlock, {
+				props: turmaProps(['concluida', 'faltou', 'faltou', 'faltou'])
+			});
+			const badge = screen.getByTestId('status-badge');
+			expect(badge).toHaveTextContent('1 de 4 concluídas');
+			expect(badge).not.toHaveTextContent('Concluído');
+		});
+
+		it('turma inteira presente diz 4 de 4', () => {
+			render(AppointmentBlock, {
+				props: turmaProps(['concluida', 'concluida', 'concluida', 'concluida'])
+			});
+			expect(screen.getByTestId('status-badge')).toHaveTextContent('4 de 4 concluídas');
+		});
+
+		// Presença cancelada saiu da turma: não conta no numerador nem no denominador.
+		it('presença cancelada sai da conta', () => {
+			render(AppointmentBlock, {
+				props: turmaProps(['concluida', 'concluida', 'cancelada'])
+			});
+			expect(screen.getByTestId('status-badge')).toHaveTextContent('2 de 2 concluídas');
+		});
+
+		// Sem ninguém registrado o rollup preserva a FASE, e é ela que vale — não há
+		// composição a mostrar ainda.
+		it('sem presença registrada, mostra a fase do bloco', () => {
+			render(AppointmentBlock, {
+				props: {
+					...turmaProps(['prevista', 'prevista']),
+					appt: appt({
+						status: 'confirmado',
+						patient_ids: ['pat0', 'pat1'],
+						participants: [presenca('prevista', 0), presenca('prevista', 1)]
+					})
+				}
+			});
+			expect(screen.getByTestId('status-badge')).toHaveTextContent('Confirmado');
+		});
+
+		// Cancelar é do BLOCO, não das presenças — o rollup nem chega a opinar.
+		it('bloco cancelado diz Cancelado, não composição', () => {
+			render(AppointmentBlock, {
+				props: {
+					...turmaProps(['cancelada', 'cancelada']),
+					appt: appt({
+						status: 'cancelado',
+						patient_ids: ['pat0', 'pat1'],
+						participants: [presenca('cancelada', 0), presenca('cancelada', 1)]
+					})
+				}
+			});
+			expect(screen.getByTestId('status-badge')).toHaveTextContent('Cancelado');
+		});
 	});
 
 	it('conflito é anunciado, não só colorido', () => {
@@ -125,16 +247,35 @@ describe('AppointmentBlock', () => {
 		expect(screen.getByText('Paciente')).toBeInTheDocument();
 	});
 
-	it('turma mostra "tipo · N/capacidade"', () => {
+	// HOM-005: era `Pilates · 3/4` no título, e "3/4" sozinho não diz de quê. O contador ganhou
+	// linha própria e a palavra que faltava.
+	it('turma conta vagas em texto, não em fração solta', () => {
 		render(AppointmentBlock, {
 			props: {
 				...base,
+				height: 80,
 				appt: appt({ patient_ids: ['a', 'b', 'c'] }),
 				tipo: { ...tipo, nome: 'Pilates', grupo: true, capacidade: 4 },
 				patientNames: ['A', 'B', 'C']
 			}
 		});
-		expect(screen.getByText('Pilates · 3/4')).toBeInTheDocument();
+		expect(screen.getByText('Pilates')).toBeInTheDocument();
+		expect(screen.getByText('3/4 vagas ocupadas')).toBeInTheDocument();
+		expect(screen.queryByText('Pilates · 3/4')).not.toBeInTheDocument();
+	});
+
+	// D1 (doc 64): com `PPM = 2.55` a sessão de 30 min tem 76px e cabe inteira. A escada existe
+	// para o que ainda não cabe — 15 min dá 38px.
+	describe('escada de degradação por altura', () => {
+		it.each([
+			[76, '4'],
+			[50, '3'],
+			[38, '2'],
+			[20, '1']
+		])('altura %ipx desenha %s linha(s)', (height, linhas) => {
+			render(AppointmentBlock, { props: { ...base, height } });
+			expect(screen.getByRole('button')).toHaveAttribute('data-linhas', linhas);
+		});
 	});
 
 	// Rótulo por altura (protótipo :1687): bloco baixo não comporta a linha do nome em 12px.

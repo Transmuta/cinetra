@@ -334,6 +334,12 @@ export const actions: Actions = {
 				expected_version: expectedVersion(form),
 				...(kind === 'justify'
 					? { justificada: form.get('justificada') === 'true' || form.get('justificada') === 'on' }
+					: {}),
+				// D-H3/D5: só a falta carrega motivo, e só quando a recepção escreveu algo. Mandar
+				// `""` gravaria string vazia onde o "não informado" é `null` — e o relatório
+				// passaria a contar motivo em branco como motivo preenchido.
+				...(kind === 'no_show' && String(form.get('motivo') ?? '').trim() !== ''
+					? { motivo: String(form.get('motivo')).trim() }
 					: {})
 			})
 		);

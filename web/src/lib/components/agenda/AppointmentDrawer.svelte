@@ -104,6 +104,7 @@
 	let presencaPatient = $state('');
 	let presencaKind = $state('');
 	let presencaJustificada = $state('false');
+	let presencaMotivo = $state('');
 
 	// O `await tick()` NÃO é cerimônia: sem ele o `requestSubmit()` roda no mesmo tick da
 	// atribuição, o Svelte 5 ainda não escreveu os `value` dos inputs escondidos, e o form sai com
@@ -116,6 +117,29 @@
 		presencaJustificada = String(justificada);
 		await tick();
 		presencaForm?.requestSubmit();
+	}
+
+	// D-H3/D5 (doc 64): faltar passa a perguntar POR QUÊ — opcional, texto livre, e por
+	// participante. Só a falta abre diálogo; concluir e reabrir seguem em um clique, porque não
+	// há motivo a registrar em nenhum dos dois.
+	//
+	// Molde é o do cancelar, de propósito: mesmo `ConfirmDialog`, mesmo rótulo "(opcional)",
+	// mesmo teto de 300. Duas conversas com a mesma cara para a mesma pergunta.
+	let faltando = $state<{ patientId: string; nome: string } | null>(null);
+	let motivoFalta = $state('');
+
+	function abrirFalta(patientId: string, nome: string) {
+		motivoFalta = '';
+		faltando = { patientId, nome };
+	}
+
+	async function confirmarFalta() {
+		const alvo = faltando;
+		faltando = null;
+		if (!alvo) return;
+		presencaMotivo = motivoFalta;
+		await marcarPresenca(alvo.patientId, 'no_show');
+		presencaMotivo = '';
 	}
 
 	const ICON_PRESENCA = { Check, UserX, RotateCcw } as const;
@@ -275,7 +299,8 @@
 						{@const Icon = ICON_PRESENCA[ac.icon as keyof typeof ICON_PRESENCA]}
 						<button
 							type="button"
-							onclick={() => marcarPresenca(p.id, ac.kind)}
+							onclick={() =>
+								ac.kind === 'no_show' ? abrirFalta(p.id, p.nome) : marcarPresenca(p.id, ac.kind)}
 							disabled={ac.disabled}
 							title={ac.title}
 							class="flex items-center gap-1.5 rounded-lg border border-edge px-2 py-1.5 text-[12px] font-semibold transition-colors hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-55"
@@ -326,6 +351,7 @@
 			<input type="hidden" name="patient_id" value={presencaPatient} />
 			<input type="hidden" name="kind" value={presencaKind} />
 			<input type="hidden" name="justificada" value={presencaJustificada} />
+			<input type="hidden" name="motivo" value={presencaMotivo} />
 		</form>
 
 		<!-- Paciente(s) -->
@@ -482,6 +508,34 @@
 				bind:value={motivo}
 				maxlength="300"
 				placeholder="Ex.: paciente pediu, imprevisto do profissional…"
+				class="w-full rounded-md border border-edge bg-surface px-2.5 py-2 text-[13px] text-ink placeholder:text-faint focus:border-teal focus:outline-none"
+			/>
+		</label>
+	</ConfirmDialog>
+{/if}
+
+{#if faltando}
+	<!-- D-H3/D5: a falta pergunta o motivo. Mesmo diálogo do cancelar, e a razão de ser o mesmo é
+	     a pergunta ser a mesma — mudar a cara confundiria duas conversas idênticas.
+	     O nome do participante está no título porque numa turma este diálogo abre quatro vezes,
+	     uma por pessoa, e sem o nome a recepção não sabe de quem é a falta que está registrando. -->
+	<ConfirmDialog
+		title="Registrar falta de {faltando.nome}"
+		confirmLabel="Registrar falta"
+		cancelLabel="Voltar"
+		onConfirm={confirmarFalta}
+		onClose={() => (faltando = null)}
+	>
+		A falta fica registrada <strong>só para {faltando.nome}</strong> — os outros participantes
+		não são afetados. Justificar depois é o que a faz parar de contar.
+
+		<label class="mt-3 block">
+			<span class="mb-1 block text-[12px] font-semibold text-muted">Motivo (opcional)</span>
+			<input
+				type="text"
+				bind:value={motivoFalta}
+				maxlength="300"
+				placeholder="Ex.: avisou que estava doente, não avisou…"
 				class="w-full rounded-md border border-edge bg-surface px-2.5 py-2 text-[13px] text-ink placeholder:text-faint focus:border-teal focus:outline-none"
 			/>
 		</label>

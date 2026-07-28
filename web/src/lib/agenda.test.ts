@@ -46,6 +46,9 @@ function appt(over: Partial<Appointment> = {}): Appointment {
 		version: 1,
 		created_by_id: null,
 		cancel_reason: null,
+		reschedule_reason: null,
+		veio_da_fila: false,
+		dias_na_fila: null,
 		patient_ids: ['pat1'],
 		participants: [],
 		...over
@@ -491,6 +494,9 @@ describe('ciclo de vida (Entrega 4)', () => {
 			encaixe: false,
 			obs: null,
 			cancel_reason: null,
+		reschedule_reason: null,
+		veio_da_fila: false,
+		dias_na_fila: null,
 			professional_id: 'p1',
 			appointment_type_id: 't1',
 			version: 1,
@@ -541,7 +547,7 @@ describe('ciclo de vida (Entrega 4)', () => {
 		const previsto: Participant = {
 			patient_id: 'pac1',
 			status: 'prevista',
-			falta_justificada: false,
+			falta_justificada: false, motivo: null,
 			package_id: null
 		};
 
