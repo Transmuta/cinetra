@@ -228,6 +228,12 @@ const ACTION_LABELS: Record<string, Record<string, string>> = {
 		mark_absent: 'Marcou falta',
 		reopen_attendance: 'Reabriu a presença',
 		justify_absence: 'Justificou a falta',
+		// A presença é segura/solta quando o pacote pausa (RN-23) — é o gêmeo do `set_pkg_hold`
+		// do bloco, e não um vínculo com pacote.
+		set_pkg_hold: 'Reserva de pacote',
+		// APOSENTADA: `set_package` perdeu o chamador na A2 (o vínculo passou a nascer com a
+		// presença). Fica porque a trilha guarda o que aconteceu — sem o rótulo, as linhas de
+		// antes voltariam a exibir o átomo cru.
 		set_package: 'Vinculou a um pacote'
 	},
 	patient: {
@@ -265,17 +271,21 @@ const ACTION_LABELS: Record<string, Record<string, string>> = {
 	clinic_hours: { set_day: 'Mudou o expediente' },
 	professional_hours: { set_day: 'Mudou a grade' },
 	schedule_exception: { create: 'Lançou exceção', destroy: 'Removeu exceção' },
+	// Os nomes são os das AÇÕES do Ash (`mark_paused`), não os da code interface
+	// (`mark_package_paused`) nem os do verbo de produto (`pause`) — é `changeset.action.name`
+	// que a trilha grava. Escrever `pause`/`resume`/`cancel` aqui produzia duas avarias de uma
+	// vez: o feed caía na rede genérica ("Alterou um registro") e o filtro da sidebar oferecia
+	// três recortes que **sempre** devolviam vazio.
 	package: {
 		create: 'Criou o pacote',
-		update: 'Editou o pacote',
-		pause: 'Pausou o pacote',
-		resume: 'Retomou o pacote',
-		cancel: 'Cancelou o pacote'
+		mark_paused: 'Pausou o pacote',
+		mark_active: 'Retomou o pacote',
+		mark_cancelled: 'Cancelou o pacote'
 	},
 	waitlist_entry: {
-		create: 'Colocou na fila',
+		enqueue: 'Colocou na fila',
 		update: 'Editou a fila',
-		destroy: 'Tirou da fila'
+		dequeue: 'Tirou da fila'
 	},
 	attachment: {
 		enviou: 'Enviou o anexo',
@@ -309,6 +319,7 @@ const HEADLINES: Record<string, Record<string, string>> = {
 		mark_absent: 'Marcou a falta de {p}',
 		reopen_attendance: 'Reabriu a presença de {p}',
 		justify_absence: 'Justificou a falta de {p}',
+		set_pkg_hold: 'Atualizou a reserva do pacote de {p}',
 		set_package: 'Vinculou a sessão de {p} a um pacote'
 	},
 	patient: {
@@ -351,15 +362,16 @@ const HEADLINES: Record<string, Record<string, string>> = {
 	},
 	package: {
 		create: 'Criou o pacote {n}',
-		update: 'Editou o pacote {n}',
-		pause: 'Pausou o pacote {n}',
-		resume: 'Retomou o pacote {n}',
-		cancel: 'Cancelou o pacote {n}'
+		mark_paused: 'Pausou o pacote {n}',
+		mark_active: 'Retomou o pacote {n}',
+		mark_cancelled: 'Cancelou o pacote {n}'
 	},
 	waitlist_entry: {
-		create: 'Colocou {p} na fila',
+		// `enqueue` é UPSERT (adicionar de novo o mesmo paciente edita a espera existente), então
+		// a frase é a mesma nos dois casos — dizer "criou" seria mentira na segunda vez.
+		enqueue: 'Colocou {p} na fila',
 		update: 'Editou a espera de {p}',
-		destroy: 'Tirou {p} da fila'
+		dequeue: 'Tirou {p} da fila'
 	},
 	attachment: {
 		enviou: 'Enviou o anexo {n}',
@@ -371,12 +383,20 @@ const HEADLINES: Record<string, Record<string, string>> = {
 };
 
 // A rede: recurso ou ação sem entrada nas tabelas nunca vira átomo cru na tela.
+//
+// `{r}` é o TIPO do registro, e ele não é enfeite. A rede já foi só "Criou um registro", e foi
+// assim que a fila de espera apareceu na tela — sete linhas seguidas dizendo "Criou um registro"
+// e "Removeu um registro", sem tipo, sem nome e sem diff (o `create` não mostra diff, e o
+// `destroy` não tem um). A linha existia e não informava nada.
+//
+// Cair na rede é um defeito a consertar na tabela de frases, mas enquanto ele existe a linha tem
+// de continuar identificando **o quê** — é o mínimo de uma trilha de auditoria.
 const TYPE_FALLBACK: Record<AuditEntry['action_type'], string> = {
-	create: 'Criou um registro',
-	update: 'Alterou um registro',
-	destroy: 'Removeu um registro',
-	read: 'Consultou um registro',
-	deny: 'Acesso negado'
+	create: 'Criou um registro de {r}',
+	update: 'Alterou um registro de {r}',
+	destroy: 'Removeu um registro de {r}',
+	read: 'Consultou um registro de {r}',
+	deny: 'Acesso negado em {r}'
 };
 
 /** O rótulo humano de um tipo de registro ("Agendamento", "Ficha do paciente"). */
@@ -449,11 +469,21 @@ export function entryHeadline(
 	entry: Pick<AuditEntry, 'resource' | 'action' | 'action_type' | 'patient' | 'label'>
 ): string {
 	const template = HEADLINES[entry.resource]?.[entry.action];
-	if (!template) return TYPE_FALLBACK[entry.action_type] ?? entry.action;
+	if (template) {
+		return template
+			.replace('{p}', entry.patient?.nome ?? 'um paciente')
+			.replace('{n}', entry.label ?? entry.patient?.nome ?? 'um registro');
+	}
 
-	return template
-		.replace('{p}', entry.patient?.nome ?? 'um paciente')
-		.replace('{n}', entry.label ?? entry.patient?.nome ?? 'um registro');
+	// Na rede, o tipo entra em minúscula ("Criou um registro de fila de espera") e o nome do
+	// registro — quando a linha o tem — entra depois, porque é ele que separa uma linha da
+	// seguinte quando o verbo é genérico.
+	const frase = (TYPE_FALLBACK[entry.action_type] ?? '{r}').replace(
+		'{r}',
+		resourceLabel(entry.resource).toLocaleLowerCase('pt-BR')
+	);
+	const alvo = entry.label ?? entry.patient?.nome;
+	return alvo ? `${frase} — ${alvo}` : frase;
 }
 
 /** O horário da sessão a que a linha se refere, quando há um. */

@@ -72,6 +72,83 @@ describe('cobertura dos grupos de registro', () => {
 	});
 });
 
+// Os NOMES DE AÇÃO que o backend de fato grava em `audit_events.action` — a outra ponta da
+// tripwire de `api/test/api/audit/acoes_auditadas_test.exs`, que os deriva do DSL do Ash.
+//
+// Esta lista é o que faltava, e a falta era um buraco de verdade: as duas tabelas da tela
+// (`ACTION_LABELS` e `HEADLINES`) são mantidas à mão a partir da MESMA lista de nomes, então o
+// teste que as amarrava uma na outra (`actionOptions` → `entryHeadline`) concordava com qualquer
+// nome inventado — bastava inventá-lo nas duas. Medido no banco de dev: `enqueue`, `dequeue`,
+// `mark_paused`, `mark_active`, `mark_cancelled` e o `set_pkg_hold` do participante NUNCA
+// tiveram tradução, e a tela mostrava a rede genérica ("Criou um registro") sobre a fila inteira
+// — enquanto a sidebar oferecia filtros ("Colocou na fila") por nomes que não existem no banco e
+// que, por isso, sempre devolviam vazio.
+const ACOES_DO_BACKEND: ReadonlyArray<readonly [AuditResource, string]> = (
+	[
+		['appointment', ['schedule', 'add_participant', 'remove_participant', 'reschedule',
+			'set_pkg_hold', 'cancel', 'reopen', 'apply_participant_rollup', 'exclude']],
+		['attendance', ['create', 'transition', 'mark_present', 'mark_absent', 'reopen_attendance',
+			'justify_absence', 'set_pkg_hold', 'remove']],
+		['patient', ['create', 'update', 'deactivate', 'reactivate', 'visualizou_ficha']],
+		['professional', ['create', 'update', 'deactivate', 'reactivate']],
+		['membership', ['invite', 'invite_by_email', 'update', 'accept_invite', 'revoke_access']],
+		['clinic', ['onboard', 'update_settings', 'update_messaging', 'update_info']],
+		['appointment_type', ['create', 'update', 'archive', 'restore']],
+		['clinic_hours', ['set_day']],
+		['professional_hours', ['set_day']],
+		['schedule_exception', ['create', 'destroy']],
+		['package', ['create', 'mark_paused', 'mark_active', 'mark_cancelled']],
+		['waitlist_entry', ['enqueue', 'update', 'dequeue']],
+		['attachment', ['enviou', 'visualizou', 'renomeou', 'removeu']],
+		['seguranca', ['acesso_negado']]
+	] as ReadonlyArray<readonly [AuditResource, string[]]>
+).flatMap(([resource, acoes]) => acoes.map((action) => [resource, action] as const));
+
+describe('as ações que o backend grava têm tradução', () => {
+	it.each(ACOES_DO_BACKEND)('%s/%s tem verbo curto', (resource, action) => {
+		expect(actionLabel({ resource, action })).not.toBe(action);
+	});
+
+	it.each(ACOES_DO_BACKEND)('%s/%s tem frase de feed', (resource, action) => {
+		const headline = entryHeadline({
+			resource,
+			action,
+			action_type: 'update',
+			label: 'Registro X',
+			patient: { id: 'p', nome: 'Mariana' }
+		});
+
+		expect(headline).not.toMatch(/^Alterou um registro/);
+	});
+
+	// O outro lado: nome que a tela oferece no filtro e o backend não grava devolve feed VAZIO,
+	// que lê como "não aconteceu nada". Ninguém teria como suspeitar do filtro.
+	it('e a tela não oferece filtro por ação que não existe', () => {
+		const conhecidas = new Set(ACOES_DO_BACKEND.map(([r, a]) => `${r}:${a}`));
+		const orfas: string[] = [];
+
+		for (const resource of resourcesOf(null)) {
+			for (const { key } of actionOptions(null)) {
+				// Só as ações QUE SÃO deste recurso (o `actionOptions(null)` reúne todos).
+				if (actionLabel({ resource, action: key }) === key) continue;
+				if (!conhecidas.has(`${resource}:${key}`)) orfas.push(`${resource}/${key}`);
+			}
+		}
+
+		// As APOSENTADAS são a exceção legítima: a trilha guarda o que aconteceu, e linhas antigas
+		// carregam nomes de ações que o código não tem mais. Sem o rótulo elas voltariam a exibir
+		// o átomo cru — por isso ficam nas tabelas, e por isso são nomeadas aqui uma a uma.
+		const aposentadas = [
+			'appointment/mark_completed',
+			'appointment/mark_missed',
+			'appointment/set_falta_justificada',
+			'attendance/set_package'
+		];
+
+		expect(orfas.filter((o) => !aposentadas.includes(o))).toEqual([]);
+	});
+});
+
 describe('parseResource / parsePage', () => {
 	it('resource cai em appointment para qualquer valor que não seja attendance', () => {
 		expect(parseResource('agenda')).toBe('agenda');
@@ -233,7 +310,7 @@ describe('actionLabel / actionOptions', () => {
 					});
 
 					// Sem entrada na tabela de frases, `entryHeadline` cai no verbo genérico do tipo.
-					if (headline === 'Alterou um registro') semFrase.push(`${resource}/${action}`);
+					if (headline.startsWith('Alterou um registro')) semFrase.push(`${resource}/${action}`);
 				}
 			}
 
@@ -268,6 +345,32 @@ describe('entryHeadline', () => {
 	it('no agendamento a frase é fechada', () => {
 		expect(entryHeadline(entry({ action: 'reschedule' }))).toBe('Remarcou o agendamento');
 		expect(entryHeadline(entry({ action: 'exclude' }))).toBe('Excluiu o agendamento');
+	});
+
+	// A rede é o último recurso, mas ela também é uma LINHA DE AUDITORIA: tem de dizer o quê.
+	// "Criou um registro", sozinho, foi o que a tela mostrou para a fila de espera inteira.
+	describe('a rede (ação que a tela não conhece)', () => {
+		const desconhecida = (over = {}) =>
+			entry({ resource: 'waitlist_entry', action: 'acao_nova', action_type: 'create', ...over });
+
+		it('diz o TIPO do registro', () => {
+			expect(entryHeadline(desconhecida())).toBe('Criou um registro de fila de espera');
+		});
+
+		it('e o nome do registro quando a linha tem um', () => {
+			const e = desconhecida({ patient: { id: 'p', nome: 'Mariana' } });
+			expect(entryHeadline(e)).toBe('Criou um registro de fila de espera — Mariana');
+		});
+
+		it('o `label` gravado vence o paciente (é o nome do próprio registro)', () => {
+			const e = desconhecida({ label: 'Pacote 10 sessões', patient: { id: 'p', nome: 'Mariana' } });
+			expect(entryHeadline(e)).toBe('Criou um registro de fila de espera — Pacote 10 sessões');
+		});
+
+		it('o acesso negado não vira "negado de segurança"', () => {
+			const e = entry({ resource: 'seguranca', action: 'nova', action_type: 'deny', label: null });
+			expect(entryHeadline(e)).toBe('Acesso negado em segurança');
+		});
 	});
 });
 
