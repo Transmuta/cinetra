@@ -68,7 +68,9 @@ defmodule Api.Notifications.FanoutTest do
     {:ok, entry} =
       Waitlist.enqueue_entry(scope, %{
         patient_id:
-          Records.create_patient!("Fila #{System.unique_integer([:positive])}", %{},
+          Records.create_patient!(
+            "Fila #{System.unique_integer([:positive])}",
+            %{tel: Api.Generators.telefone_unico()},
             tenant: ctx.clinic.id,
             actor: ctx.owner
           ).id,
@@ -229,7 +231,10 @@ defmodule Api.Notifications.FanoutTest do
         schedule(ctx, owner_scope, %{appointment_type_id: turma.id})
 
       colega =
-        Records.create_patient!("Colega", %{}, tenant: ctx.clinic.id, actor: ctx.owner)
+        Records.create_patient!("Colega", %{tel: Api.Generators.telefone_unico()},
+          tenant: ctx.clinic.id,
+          actor: ctx.owner
+        )
 
       # mesmo profissional/tipo/horário → funde na turma (o caminho do `:add_participant`)
       {:ok, _} =
@@ -252,7 +257,10 @@ defmodule Api.Notifications.FanoutTest do
       {:ok, _entry} =
         Waitlist.enqueue_entry(owner_scope, %{
           patient_id:
-            Records.create_patient!("Fila", %{}, tenant: ctx.clinic.id, actor: ctx.owner).id,
+            Records.create_patient!("Fila", %{tel: Api.Generators.telefone_unico()},
+              tenant: ctx.clinic.id,
+              actor: ctx.owner
+            ).id,
           prio: :urgente,
           janela: :qualquer,
           professional_ids: [],
@@ -376,7 +384,10 @@ defmodule Api.Notifications.FanoutTest do
       {:ok, _} =
         Waitlist.enqueue_entry(scope, %{
           patient_id:
-            Records.create_patient!("Sem pressa", %{}, tenant: ctx.clinic.id, actor: ctx.owner).id,
+            Records.create_patient!("Sem pressa", %{tel: Api.Generators.telefone_unico()},
+              tenant: ctx.clinic.id,
+              actor: ctx.owner
+            ).id,
           prio: :alta,
           janela: :qualquer,
           professional_ids: [],
@@ -394,7 +405,10 @@ defmodule Api.Notifications.FanoutTest do
       {:ok, entry} =
         Waitlist.enqueue_entry(scope, %{
           patient_id:
-            Records.create_patient!("Piorou", %{}, tenant: ctx.clinic.id, actor: ctx.owner).id,
+            Records.create_patient!("Piorou", %{tel: Api.Generators.telefone_unico()},
+              tenant: ctx.clinic.id,
+              actor: ctx.owner
+            ).id,
           prio: :normal,
           janela: :qualquer,
           professional_ids: [],
@@ -479,7 +493,9 @@ defmodule Api.Notifications.FanoutTest do
       recep_scope = scope_for(recep, ctx.clinic)
 
       paciente =
-        Records.create_patient!("Massa #{System.unique_integer([:positive])}", %{},
+        Records.create_patient!(
+          "Massa #{System.unique_integer([:positive])}",
+          %{tel: Api.Generators.telefone_unico()},
           tenant: ctx.clinic.id,
           actor: ctx.owner
         )

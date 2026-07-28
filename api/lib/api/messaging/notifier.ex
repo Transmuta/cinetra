@@ -13,9 +13,30 @@ defmodule Api.Messaging.Notifier do
 
   ## O que dispara, e o que **não** dispara
 
-  Só `:schedule` e `:add_participant` — criação e entrada numa turma. Remarcação e cancelamento
-  ficam de fora **por decisão** (C7): são copy nova, não estrutura nova, e entram depois sem
-  mexer em nada disto.
+  | Ação do bloco | Mensagem | Quem recebe |
+  | --- | --- | --- |
+  | `:schedule` / `:add_participant` | `:confirmacao` | quem entrou, e só quem ainda não tinha |
+  | `:reschedule` | `:remarcacao` | todo participante vivo |
+  | `:cancel` | `:cancelamento` | todo participante que o cancelamento acabou de derrubar |
+
+  As duas últimas são o **C7(b)**, que a fase 1 deixou de fora por ser "copy nova, não estrutura
+  nova". Era verdade: entraram sem mexer no `Dispatch`, no `SendJob` nem no transporte.
+
+  ## Duas ações do ciclo de vida ficam de fora, e por razões diferentes
+
+  **`:reopen`** — reabrir é desfazer um clique errado (D-E4.2), quase sempre segundos depois;
+  mandar "sua sessão voltou a valer" para quem talvez nem tenha recebido o cancelamento é ruído
+  com chance de confundir mais do que informar. Se um dia virar mensagem, precisa de copy própria
+  — não de reúso da confirmação.
+
+  **`:exclude`** — excluir (doc 40) é "este lançamento nunca deveria ter existido": o gesto de
+  corrigir um erro de digitação. Avisar o paciente daria a esse gesto um **efeito fora do
+  sistema, que não volta** — quem apagou um lançamento duplicado teria acabado de dizer a alguém
+  que a sessão dele foi desmarcada. Chegou a ser ligado em 2026-07-28 e foi **removido no mesmo
+  dia**, por decisão, antes de qualquer uso real.
+
+  Quem quer desmarcar a sessão de verdade **cancela**, e aí a mensagem sai. É a mesma linha que o
+  doc 40 já traça por dentro; a diferença é que agora ela vale também do lado de fora.
 
   ## Best-effort, e o que isso protege
 
@@ -58,58 +79,95 @@ defmodule Api.Messaging.Notifier do
         data: appointment
       })
       when name in [:schedule, :add_participant] do
-    confirmar(appointment)
-    :ok
+    avisar(appointment, :confirmacao)
   end
+
+  # C7(b). `:exclude` **não** entra aqui — ver o moduledoc.
+  @impl true
+  def notify(%Ash.Notifier.Notification{
+        resource: Api.Scheduling.Appointment,
+        action: %{name: :reschedule},
+        data: appointment
+      }),
+      do: avisar(appointment, :remarcacao)
+
+  @impl true
+  def notify(%Ash.Notifier.Notification{
+        resource: Api.Scheduling.Appointment,
+        action: %{name: :cancel},
+        data: appointment
+      }),
+      do: avisar(appointment, :cancelamento)
 
   @impl true
   def notify(_notification), do: :ok
 
-  defp confirmar(appointment) do
+  defp avisar(appointment, kind) do
     Api.Repo.with_clinic(appointment.clinic_id, fn ->
       clinic = Api.Accounts.get_clinic!(appointment.clinic_id, authorize?: false)
 
-      if clinic.msg_confirmacao_auto, do: disparar(clinic, appointment)
+      # `msg_confirmacao_auto` governa **só** a confirmação — é o que a tela diz que ele faz
+      # ("mandar confirmação quando um agendamento é criado"). Silenciar remarcação e
+      # cancelamento por causa dele seria um controle fazendo três coisas com um rótulo só; e o
+      # freio de mão de verdade continua sendo o consentimento da ficha, que o `Dispatch` checa.
+      if kind != :confirmacao or clinic.msg_confirmacao_auto,
+        do: disparar(clinic, appointment, kind)
     end)
+
+    :ok
   rescue
     erro ->
       # Best-effort: o agendamento já está gravado e não pode cair porque a comunicação falhou.
-      Logger.warning(
-        "confirmação automática falhou (#{appointment.id}): #{Exception.message(erro)}"
-      )
+      Logger.warning("mensagem de #{kind} falhou (#{appointment.id}): #{Exception.message(erro)}")
 
       :ok
   end
 
-  defp disparar(clinic, appointment) do
-    for attendance <- participantes(clinic, appointment) do
+  defp disparar(clinic, appointment, kind) do
+    for attendance <- participantes(clinic, appointment, kind) do
       # `disparado_por_id` fica **nulo**: quem disparou foi a regra, não a pessoa. É o que a
       # timeline lê como "automático" (§6) — e é a distinção que a recepção usa para saber se
       # precisa fazer algo.
-      Dispatch.dispatch(clinic, attendance, attendance.patient, :confirmacao,
-        disparado_por_id: nil
-      )
+      Dispatch.dispatch(clinic, attendance, attendance.patient, kind, disparado_por_id: nil)
     end
 
     :ok
   end
 
-  # Só presenças **vivas** (quem foi cancelado do bloco não é participante) e ainda **sem
-  # confirmação**. O segundo filtro existe por causa do `:add_participant`: entrar numa turma
-  # dispara o notifier para o bloco inteiro, e sem ele quem já estava lá receberia a mesma
-  # confirmação de novo a cada colega novo. Numa turma de 4 isso é o paciente recebendo 4 vezes —
-  # o defeito mais visível que esta fatia poderia ter.
-  defp participantes(clinic, appointment) do
+  # Quem recebe, por gatilho.
+  #
+  # **`:cancelamento` é o único que não filtra por `viva?/1`**, e a inversão é o ponto: cancelar o
+  # bloco cascateia as presenças para `:cancelada` (`CascadeToAttendances`) *antes* de o notifier
+  # rodar, então filtrar vivas aqui devolveria lista vazia e ninguém seria avisado do cancelamento
+  # — exatamente a mensagem que mais importa. Quem saiu da turma antes não aparece nessa lista
+  # porque sair é **destruir** a presença (`RemoveParticipants`), não cancelá-la.
+  defp participantes(clinic, appointment, kind) do
     appointment
     |> Ash.load!([attendances: [:patient]], tenant: clinic.id, authorize?: false)
     |> Map.fetch!(:attendances)
-    |> Enum.filter(&Api.Scheduling.Attendance.viva?/1)
-    |> Enum.reject(&ja_confirmada?(clinic, &1))
+    |> filtrar_por_gatilho(kind)
   end
 
-  defp ja_confirmada?(clinic, attendance) do
+  defp filtrar_por_gatilho(attendances, :cancelamento), do: attendances
+
+  # Só presenças **vivas** e, na confirmação, ainda **sem confirmação**. O segundo filtro existe
+  # por causa do `:add_participant`: entrar numa turma dispara o notifier para o bloco inteiro, e
+  # sem ele quem já estava lá receberia a mesma confirmação de novo a cada colega novo. Numa turma
+  # de 4 isso é o paciente recebendo 4 vezes — o defeito mais visível que esta fatia poderia ter.
+  #
+  # Remarcação **não** tem esse filtro, e é de propósito: remarcar duas vezes são dois avisos, e o
+  # segundo é tão necessário quanto o primeiro.
+  defp filtrar_por_gatilho(attendances, kind) do
+    vivas = Enum.filter(attendances, &Api.Scheduling.Attendance.viva?/1)
+
+    if kind == :confirmacao,
+      do: Enum.reject(vivas, &ja_confirmada?/1),
+      else: vivas
+  end
+
+  defp ja_confirmada?(attendance) do
     Api.Messaging.Message
-    |> Ash.Query.for_read(:read, %{}, tenant: clinic.id, authorize?: false)
+    |> Ash.Query.for_read(:read, %{}, tenant: attendance.clinic_id, authorize?: false)
     |> Ash.Query.filter(attendance_id == ^attendance.id and kind == :confirmacao)
     |> Ash.exists?(authorize?: false)
   end

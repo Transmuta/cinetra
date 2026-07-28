@@ -84,12 +84,41 @@ defmodule Api.Messaging.Dispatch do
   end
 
   # Os canais que este paciente **poderia** receber, em ordem de preferência. Um canal só entra
-  # se tem destino na ficha E transporte de pé — é o mesmo teste para "paciente sem telefone" e
-  # para "WhatsApp ainda não existe" (fase 1), de propósito.
+  # se tem destino utilizável na ficha E transporte de pé — é o mesmo teste para "paciente sem
+  # telefone", para "o telefone é um fixo" e para "o WhatsApp está desligado", de propósito.
   defp candidatos(patient) do
-    [{:whatsapp, normalizar(:whatsapp, patient.tel)}, {:email, normalizar(:email, patient.email)}]
+    [{:whatsapp, whatsapp_de(patient)}, {:email, normalizar(:email, patient.email)}]
     |> Enum.filter(fn {canal, destino} -> destino != nil and Transport.disponivel?(canal) end)
   end
+
+  # **Fixo não é canal de WhatsApp.** O telefone virou obrigatório na ficha (§9), e obrigar sem
+  # aceitar fixo empurraria a recepção a digitar um celular qualquer para conseguir salvar — o
+  # dado ficaria pior para a regra ficar bonita. Então o fixo entra na ficha e simplesmente não
+  # é candidato aqui: cai para o e-mail pelo caminho normal, e sem e-mail a timeline mostra
+  # `:sem_canal`, que é a verdade.
+  defp whatsapp_de(patient) do
+    numero = normalizar(:whatsapp, patient.tel)
+
+    if numero && celular?(numero), do: numero
+  end
+
+  @doc """
+  Este número E.164 é um celular brasileiro?
+
+  Regra do plano de numeração: celular é DDD + **nove** dígitos começando por 9; fixo tem oito. É
+  a única heurística disponível sem consultar a API — e consultar custaria uma chamada de rede por
+  paciente, por mensagem, para responder algo que o formato já diz.
+
+      iex> Api.Messaging.Dispatch.celular?("+5511987654321")
+      true
+
+      iex> Api.Messaging.Dispatch.celular?("+551133334444")
+      false
+  """
+  def celular?("+55" <> nacional) when byte_size(nacional) == 11,
+    do: String.at(nacional, 2) == "9"
+
+  def celular?(_numero), do: false
 
   @doc """
   Normaliza um destino para o formato em que ele é **comparado** (o `OptOut` casa por igualdade).
@@ -133,6 +162,10 @@ defmodule Api.Messaging.Dispatch do
 
   Recebe a `attendance` já com `patient` e `appointment` carregados, e a `clinic` — quem chama
   costuma ter as três à mão, e lê-las aqui de novo seria N+1 no caminho do cron.
+
+  `opts[:vars_extras]` acrescenta variáveis ao template. É o que a massa por pacote usa para
+  dizer *quantas* sessões e *qual* pacote — dado que não existe numa mensagem de sessão única e
+  que não cabe em `vars/3`, que só conhece clínica, paciente e horário.
   """
   @spec dispatch(map(), map(), map(), atom(), keyword()) :: {:ok, map()} | {:skip, motivo()}
   def dispatch(clinic, attendance, patient, kind, opts \\ []) do
@@ -155,7 +188,7 @@ defmodule Api.Messaging.Dispatch do
           canal: canal,
           kind: kind,
           template: Templates.para(kind),
-          vars: vars(clinic, attendance, patient),
+          vars: Map.merge(vars(clinic, attendance, patient), extras(opts)),
           destino: destino,
           disparado_por_id: Keyword.get(opts, :disparado_por_id)
         },
@@ -185,6 +218,28 @@ defmodule Api.Messaging.Dispatch do
       "data" => data,
       "hora" => hora
     }
+    |> com_conta_de_whatsapp(clinic)
+  end
+
+  # O número pelo qual esta clínica fala viaja **na mensagem**, não é lido no transporte.
+  #
+  # Duas razões, e a segunda é a que decide. A primeira: o `SendJob` sai da transação com GUC
+  # antes de entregar (para não segurar conexão pelo tempo da rede alheia), então uma leitura de
+  # `Clinic` lá dentro rodaria sem GUC e a RLS devolveria vazio — calado. A segunda: o número é
+  # parte do **histórico**. "Mandamos deste número" precisa continuar verdadeiro depois que a
+  # clínica migrar para número próprio (§9.1.4), pela mesma razão que `destino` é congelado.
+  defp com_conta_de_whatsapp(vars, %{zernio_account_id: id}) when is_binary(id) and id != "",
+    do: Map.put(vars, "zernio_account_id", id)
+
+  defp com_conta_de_whatsapp(vars, _clinic), do: vars
+
+  # Chaves string, como o resto de `vars` — a coluna é `:map` e volta do banco com chave string.
+  # Um `%{quantas: ...}` de átomo entraria no jsonb e sairia como `"quantas"` na leitura, e o
+  # template renderizaria `"—"` sem erro nenhum.
+  defp extras(opts) do
+    opts
+    |> Keyword.get(:vars_extras, %{})
+    |> Map.new(fn {chave, valor} -> {to_string(chave), valor} end)
   end
 
   defp data_hora_local(nil, _tz), do: {"—", "—"}

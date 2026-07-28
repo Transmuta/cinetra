@@ -4,16 +4,17 @@ defmodule ApiWeb.Plugs.CacheRawBody do
 
   ## Por que isso é necessário
 
-  Assinatura de webhook (Svix, no Resend) é um HMAC sobre os **bytes exatos** que o provider
-  enviou. Depois que o `Plug.Parsers` decodifica o JSON, reserializar o mapa produz bytes
-  *diferentes* — ordem de chaves, escapes, espaços — e a assinatura não fecha. O sintoma é o pior
-  possível para depurar: todo webhook legítimo recusado com "assinatura inválida", sem nada de
-  errado no segredo.
+  Assinatura de webhook (Svix no Resend, HMAC-SHA256 cru na Zernio) é um HMAC sobre os **bytes
+  exatos** que o provider enviou. Depois que o `Plug.Parsers` decodifica o JSON, reserializar o
+  mapa produz bytes *diferentes* — ordem de chaves, escapes, espaços — e a assinatura não fecha. O
+  sintoma é o pior possível para depurar: todo webhook legítimo recusado com "assinatura
+  inválida", sem nada de errado no segredo.
 
   ## Por que só em algumas rotas
 
   Guardar o corpo de **toda** requisição significa manter cada upload e cada payload em memória
-  duas vezes. Este body reader só armazena quando o caminho está na lista — hoje, o webhook.
+  duas vezes. Este body reader só armazena quando o caminho está na lista — hoje, os dois
+  webhooks de provider.
 
   Instalado como `body_reader` do `Plug.Parsers` (é o único ponto em que se pode ver os bytes
   antes da decodificação).
@@ -21,7 +22,7 @@ defmodule ApiWeb.Plugs.CacheRawBody do
 
   # Os caminhos que precisam do corpo cru. Lista explícita, e não um prefixo: um prefixo
   # `/webhooks` faria qualquer rota nova por baixo dele passar a reter corpo sem ninguém decidir.
-  @caminhos ["/webhooks/resend"]
+  @caminhos ["/webhooks/resend", "/webhooks/zernio"]
 
   @doc "Body reader do `Plug.Parsers`: lê o corpo e o guarda em `conn.private` quando é rota de webhook."
   def read_body(conn, opts) do

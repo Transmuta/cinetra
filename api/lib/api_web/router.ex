@@ -249,6 +249,10 @@ defmodule ApiWeb.Router do
     # corpo cru vem do `ApiWeb.Plugs.CacheRawBody` (instalado no `Plug.Parsers` do endpoint).
     post "/webhooks/resend", ResendWebhookController, :create
 
+    # O mesmo para o WhatsApp (doc 65 §4): entrega, leitura, falha e a palavra-chave de opt-out
+    # que o paciente escreve. Assinatura HMAC-SHA256 do corpo cru, não Svix.
+    post "/webhooks/zernio", ZernioWebhookController, :create
+
     # A resposta do paciente (§5). O token identifica UMA mensagem e não abre sessão nenhuma.
     get "/api/reply/:token", PatientReplyController, :show
     post "/api/reply/:token", PatientReplyController, :create

@@ -65,4 +65,48 @@ defmodule Api.Messaging.FalhasTest do
       assert Falhas.para_tela("MAILBOX DOES NOT EXIST") =~ "confira o endereço na ficha"
     end
   end
+
+  describe "para_tela/1 como barreira de PII (doc 62 §7.3)" do
+    # Esta função ganhou um segundo emprego: além de falar com a recepção, ela é o que torna
+    # seguro **logar** o motivo de falha. O `SendJob` loga `para_tela(motivo)`, nunca o cru.
+    #
+    # A garantia não é vigilância, é construção: toda saída vem de uma lista fechada de frases.
+    # O teste abaixo existe para que, se alguém um dia acrescentar uma regra que devolva parte
+    # da entrada, a barreira caia com o build junto.
+
+    @bounces_reais [
+      "550 5.1.1 <ana.souza@gmail.com>: Recipient address rejected: User unknown",
+      "554 5.7.1 <joao@clinica.com.br>: Recipient address rejected: Access denied",
+      "552 5.2.2 <maria.silva@hotmail.com>: Mailbox full",
+      "Recipient not found: pedro.alves@yahoo.com.br",
+      "invalid recipient <contato+tag@dominio.com>"
+    ]
+
+    test "nenhum endereço de e-mail do texto cru sobrevive à classificação" do
+      for cru <- @bounces_reais do
+        saida = Falhas.para_tela(cru)
+
+        refute saida =~ "@",
+               "vazou endereço ao classificar #{inspect(cru)} — saiu #{inspect(saida)}"
+      end
+    end
+
+    test "nenhum trecho do texto cru é ecoado na saída" do
+      for cru <- @bounces_reais do
+        saida = Falhas.para_tela(cru)
+
+        # Nenhuma palavra de 5+ letras da entrada pode reaparecer na saída. Pega o caso em que
+        # uma regra futura interpolasse o motivo original ("falhou: #{motivo}").
+        palavras =
+          cru
+          |> String.split(~r/[^\p{L}\p{N}@._+-]+/u, trim: true)
+          |> Enum.filter(&(String.length(&1) >= 5))
+
+        for palavra <- palavras do
+          refute String.contains?(String.downcase(saida), String.downcase(palavra)),
+                 "eco de #{inspect(palavra)} em #{inspect(saida)}"
+        end
+      end
+    end
+  end
 end

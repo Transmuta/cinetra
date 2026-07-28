@@ -145,6 +145,28 @@ defmodule Api.Messaging.SendJobTest do
       assert is_binary(recarregada.erro)
     end
 
+    test "o log da falha NÃO carrega o endereço do paciente", %{ctx: ctx, message: message} do
+      # Doc 62 §7.3. O texto cru do provider é o que vai para a coluna `erro` (sob RLS, para a
+      # clínica ler) — mas o LOG vai para a agregação, que tem retenção mais frouxa e público
+      # mais amplo. Um bounce de e-mail embute o destinatário; logá-lo cru põe PII de titular
+      # num sistema de terceiro.
+      cru = "550 5.1.1 <ana@example.com>: Recipient address rejected: User unknown"
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          Api.Support.FailingMailer.with_failure(cru, fn ->
+            assert :ok = perform_job(ctx, message)
+          end)
+        end)
+
+      assert log =~ "falhou"
+      refute log =~ "@", "o log carregou um endereço de e-mail: #{log}"
+      refute log =~ "ana", "o log carregou o destinatário: #{log}"
+
+      # E o texto cru continua onde deve estar: no registro da mensagem.
+      assert recarregar_mensagem(ctx, message).erro =~ "ana@example.com"
+    end
+
     test "mensagem que sumiu não derruba o job", %{ctx: ctx} do
       assert :ok =
                SendJob.perform(%Oban.Job{

@@ -37,6 +37,18 @@ defmodule Api.Notifications.NotificationKind do
     * `:daily_digest`   — "você tem N atendimentos amanhã" (#51, §3d), por cron;
     * `:session_soon`   — "sessão em 15 min" (#51, §3d), por cron.
 
+  A fase 2 da comunicação (doc 65 §5) acrescenta a única cujo autor **não tem login**:
+
+    * `:patient_wants_reschedule` — o paciente respondeu "preciso remarcar" no link da mensagem
+      (doc 52 §5). Vai ao operacional (recepção/admin/owner), que é quem remarca.
+
+      É o item que o doc 31 §3d listava como bloqueado pela F7 (*"o que 'confirmar' significa sem
+      WhatsApp está indefinido"*): a F7 fechou com o doc 52, e este é o evento que ela destravou.
+      **Só o pedido de remarcação vira linha na caixa** — "confirmou" já aparece no status do bloco
+      e na timeline do drawer, e duplicá-lo no sino seria exatamente o ruído do §4, numa clínica
+      com milhares de presenças por mês. Sem supressão de autor: o autor é o paciente, e ele não é
+      destinatário de caixa nenhuma.
+
   Deixados de fora da v1 (ruído ou dependência aberta, doc 31 §3): mudança de status feita pelo
   próprio autor e "paciente não confirmou" (depende da F7).
 
@@ -51,12 +63,17 @@ defmodule Api.Notifications.NotificationKind do
       :appointment_missed,
       :participant_added,
       :package_bulk_adjusted,
+      # O irmão do de cima, e ele faltava desde sempre: a massa de CANCELAMENTO suprimia as
+      # notificações por sessão (marca de lote) e não punha nada no lugar, então a agenda do
+      # profissional esvaziava em silêncio. Achado do bate-volta da fase 2 (doc 66 §5).
+      :package_bulk_canceled,
       :slot_opened,
       :member_joined,
       :role_changed,
       :member_removed,
       :waitlist_urgent,
       :daily_digest,
-      :session_soon
+      :session_soon,
+      :patient_wants_reschedule
     ]
 end

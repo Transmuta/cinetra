@@ -16,12 +16,23 @@ defmodule ApiWeb.PatientReplyController do
   telefone ou e-mail. Quem abre esta página é quem tem o link — e o link pode ter sido
   encaminhado.
 
-  ## `quer_remarcar` não remarca
+  ## `quer_remarcar` não remarca — mas **avisa**
 
   Registra o pedido; a recepção resolve. Remarcar sozinho exigiria escolher horário pela pessoa,
   e a agenda tem regras (expediente, conflito, encaixe) que um clique de fora não conhece.
+
+  O que faltava era o outro lado disso: até o doc 65, um paciente que pedia remarcação só era
+  descoberto por quem abrisse o drawer daquela sessão específica. O pedido agora cai na caixa do
+  operacional (`Api.Notifications.Fanout.patient_wants_reschedule/1`) — é a única notificação do
+  sistema cujo autor não tem login.
+
+  `confirmou` **não** notifica, e isso é decisão de produto (doc 31 §4): a confirmação já aparece
+  no status do bloco e na timeline, e uma linha por sessão confirmada afogaria a caixa da recepção
+  numa clínica com milhares de presenças por mês.
   """
   use ApiWeb, :controller
+
+  require Logger
 
   alias Api.Messaging
   alias Api.Messaging.ReplyToken
@@ -39,6 +50,11 @@ defmodule ApiWeb.PatientReplyController do
     with {:ok, message} <- carregar(token),
          {:ok, resposta} <- ler_resposta(params["resposta"]) do
       atualizada = gravar(message, resposta)
+
+      # **As duas**: a lida e a atualizada. É a `atualizada` que carrega a resposta recém-gravada
+      # (passar só a original faria o aviso nunca disparar), e é a **diferença** entre elas que
+      # decide se avisa — ver `avisar_a_recepcao/2` e o replay que ela existe para barrar.
+      avisar_a_recepcao(message, atualizada)
       json(conn, resumo(atualizada))
     else
       {:error, motivo} -> recusar(conn, motivo)
@@ -54,6 +70,36 @@ defmodule ApiWeb.PatientReplyController do
     end)
     |> elem(1)
   end
+
+  # Avisa a recepção **na transição**, não em toda chamada — e essa distinção é de segurança,
+  # não de bom gosto.
+  #
+  # Esta rota é **pública, sem sessão e sem rate limit**, e a resposta em si sempre foi idempotente
+  # (o instante da primeira é preservado). O fan-out entrou por cima dela sem essa propriedade, e o
+  # bate-volta mediu o efeito: 5 POSTs do mesmo token → **10 notificações** (2 destinatários × 5).
+  # Quem tem o link — que se encaminha — enchia a caixa da clínica à vontade.
+  #
+  # Comparar o antes com o depois é o que devolve a idempotência ao conjunto. Não é "avisar uma vez
+  # só": quem confirmou e depois pediu remarcação **mudou de ideia**, e essa transição avisa de
+  # novo, porque a recepção precisa saber.
+  #
+  # **Fora do `with_clinic` de propósito**: o fan-out grava na caixa de N pessoas e faz broadcast,
+  # e fazê-lo de dentro da transação da resposta significaria (a) notificação emitida antes do
+  # commit — a mesma armadilha que fez o `Api.Notifications.Notifier` existir — e (b) a transação
+  # do paciente aberta pelo tempo de escrever a caixa de todo mundo.
+  #
+  # Best-effort e sem alterar a resposta HTTP: quem clicou no link não pode ver "erro" porque a
+  # caixa da recepção falhou. O pedido dele já está gravado, que é o fato que importa.
+  defp avisar_a_recepcao(%{resposta: anterior}, %{resposta: :quer_remarcar} = atualizada)
+       when anterior != :quer_remarcar do
+    Api.Notifications.Fanout.patient_wants_reschedule(atualizada)
+  rescue
+    erro ->
+      Logger.warning("aviso de remarcação falhou (#{atualizada.id}): #{Exception.message(erro)}")
+      :ok
+  end
+
+  defp avisar_a_recepcao(_antes, _depois), do: :ok
 
   # O token resolve a mensagem, e a mensagem resolve o tenant — o mesmo desenho do webhook
   # (§10.2), e **pelo mesmo motivo**: aqui não há sessão nem clínica conhecida.

@@ -86,6 +86,75 @@ defmodule ApiWeb.PatientReplyControllerTest do
       assert appt.status == :agendado
     end
 
+    test "pedir remarcação cai na caixa do operacional (doc 65 §5)", %{
+      conn: conn,
+      token: token,
+      ctx: ctx
+    } do
+      # É a lacuna que esta fatia fechou: até aqui, um paciente que pedia remarcação só era
+      # descoberto por quem abrisse o drawer daquela sessão. E é a única notificação do sistema
+      # cujo autor não tem login — por isso o teste tem de atravessar a rota pública, não chamar
+      # o fan-out direto (a lição do doc 49: regra que atravessa a fronteira precisa de teste que
+      # atravesse a fronteira).
+      recepcao = escopo_de_membro!(ctx, :recepcao)
+
+      post(conn, ~p"/api/reply/#{token}", %{"resposta" => "quer_remarcar"})
+
+      assert [notificacao] = caixa(ctx, recepcao)
+      assert notificacao.kind == :patient_wants_reschedule
+      assert notificacao.title == "Paciente pediu remarcação"
+      assert notificacao.body =~ "Ana Beatriz"
+    end
+
+    test "responder DUAS vezes não duplica a caixa (a rota é pública)", %{
+      conn: conn,
+      token: token,
+      ctx: ctx
+    } do
+      # Medido no bate-volta: 5 POSTs do mesmo token criavam 10 notificações (2 destinatários ×
+      # 5). A resposta em si já era idempotente — o instante da primeira é preservado —, e o
+      # fan-out entrou por cima dela sem essa propriedade. Numa rota **pública e sem rate limit**,
+      # isso é um amplificador: quem tem o link enche a caixa da clínica.
+      recepcao = escopo_de_membro!(ctx, :recepcao)
+
+      for _ <- 1..3 do
+        build_conn() |> post(~p"/api/reply/#{token}", %{"resposta" => "quer_remarcar"})
+      end
+
+      assert [_uma] = caixa(ctx, recepcao)
+      _ = conn
+    end
+
+    test "mudar de ideia avisa de novo — não é o replay que se está barrando", %{
+      conn: conn,
+      token: token,
+      ctx: ctx
+    } do
+      # A guarda é sobre **transição**, não sobre "já avisou uma vez": quem confirmou e depois
+      # pediu remarcação mudou de ideia, e a recepção precisa saber das duas vezes.
+      recepcao = escopo_de_membro!(ctx, :recepcao)
+
+      post(conn, ~p"/api/reply/#{token}", %{"resposta" => "quer_remarcar"})
+      build_conn() |> post(~p"/api/reply/#{token}", %{"resposta" => "confirmou"})
+      build_conn() |> post(~p"/api/reply/#{token}", %{"resposta" => "quer_remarcar"})
+
+      assert length(caixa(ctx, recepcao)) == 2
+    end
+
+    test "confirmar NÃO cai na caixa — seria ruído por sessão", %{
+      conn: conn,
+      token: token,
+      ctx: ctx
+    } do
+      # Numa clínica com ~2.200 presenças/mês, uma linha por confirmação afogaria a caixa da
+      # recepção. A confirmação já aparece no status do bloco e na timeline (doc 31 §4).
+      recepcao = escopo_de_membro!(ctx, :recepcao)
+
+      post(conn, ~p"/api/reply/#{token}", %{"resposta" => "confirmou"})
+
+      assert caixa(ctx, recepcao) == []
+    end
+
     test "responder duas vezes mantém o primeiro instante e vale a última resposta", %{
       conn: conn,
       token: token,
@@ -111,4 +180,6 @@ defmodule ApiWeb.PatientReplyControllerTest do
   end
 
   # ---- helpers ----
+
+  defp caixa(_ctx, scope), do: Api.Notifications.list_inbox(scope).results
 end

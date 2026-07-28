@@ -13,6 +13,9 @@ export type NotificationKind =
 	| 'participant_added'
 	// Bate-volta da Onda 3 (doc 43 §5b): a massa por pacote é UM evento, não N.
 	| 'package_bulk_adjusted'
+	// O irmão que faltava: cancelar a massa esvaziava a agenda do profissional em silêncio
+	// (doc 66 §5).
+	| 'package_bulk_canceled'
 	| 'slot_opened'
 	| 'member_joined'
 	// Onda 4 / Frente 10: governança (#50), fila urgente (#48) e os dois lembretes por cron (#51).
@@ -20,7 +23,10 @@ export type NotificationKind =
 	| 'member_removed'
 	| 'waitlist_urgent'
 	| 'daily_digest'
-	| 'session_soon';
+	| 'session_soon'
+	// Fase 2 da comunicação (doc 63 §5): a única cujo autor não tem login — o paciente respondeu
+	// "preciso remarcar" no link da mensagem.
+	| 'patient_wants_reschedule';
 
 export interface AppNotification {
 	id: string;
@@ -114,7 +120,13 @@ export function notificationHref(n: {
 		// A massa por pacote é um evento de N sessões em datas diferentes: não há um dia só para
 		// onde levar, então continua abrindo a agenda no padrão.
 		case 'package_bulk_adjusted':
+		case 'package_bulk_canceled':
 			return '/agenda';
+
+		// Leva ao dia da sessão que ele quer mudar: quem remarca é a recepção, e é a agenda daquele
+		// dia que ela precisa ver para escolher o novo horário.
+		case 'patient_wants_reschedule':
+			return agenda;
 
 		case 'slot_opened':
 			return '/fila';

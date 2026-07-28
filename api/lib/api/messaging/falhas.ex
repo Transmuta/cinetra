@@ -44,7 +44,36 @@ defmodule Api.Messaging.Falhas do
   # de domínio não verificado — os testes pegaram os dois.
   #
   # A ordem importa: o primeiro que casar vence, então o específico vem antes do genérico.
+  # O bloco do WhatsApp vem **antes** do de e-mail, e não é ordem alfabética: o código `131049` da
+  # Meta chega com a palavra "antispam" no texto, e a regra genérica de spam (lá embaixo, escrita
+  # para bounce de e-mail) o classificaria como "o provedor do paciente recusou como spam" — que é
+  # a frase errada e leva a recepção a corrigir a ficha de um endereço que está certo.
+  #
+  # Os números são códigos da Meta que a Zernio repassa (doc 65 §4). Casá-los por número é o que
+  # torna a frase precisa: o texto que os acompanha muda de idioma e de redação sem aviso.
   @regras [
+    {["131021", "not a valid whatsapp", "not a whatsapp user", "invalid wa_id", "invalid phone"],
+     "Este número não tem WhatsApp — confira o telefone na ficha"},
+    {["131049", "131048", "antispam", "healthy ecosystem", "spam rate"],
+     "A Meta segurou esta mensagem para não sobrecarregar o paciente — tente mais tarde"},
+    {["131026", "131047", "re-engagement", "reengagement", "undeliverable"],
+     "Não foi possível iniciar conversa no WhatsApp com este número"},
+    {[
+       "132000",
+       "132001",
+       "132005",
+       "132007",
+       "132012",
+       "132015",
+       "template_required",
+       "template not found",
+       "template is paused",
+       "template_param"
+     ], "Template de WhatsApp não aprovado ou fora do padrão — avise o suporte"},
+    {["platform_not_supported", "inbox addon", "addon required"],
+     "A conta de WhatsApp não está configurada — avise o suporte"},
+    {["429", "rate limit", "too many requests"],
+     "Limite de envio atingido — tente reenviar em alguns minutos"},
     {["api key", "unauthorized", "forbidden", "authentication failed"],
      "Erro de configuração do envio — avise o suporte"},
     {["domain is not verified", "domain not verified", "unverified domain"],
@@ -97,12 +126,17 @@ defmodule Api.Messaging.Falhas do
   @doc """
   Os motivos que **nós** escrevemos já nascem em português e passam direto.
 
-  São os que não vêm de provider nenhum: template desconhecido, canal sem transporte, e o
-  `"destinatário marcou como spam"` do webhook. Traduzi-los de novo seria passá-los pelo genérico
-  e perder informação que já estava certa.
+  São os que não vêm de provider nenhum: template desconhecido, canal sem transporte, mensagem de
+  WhatsApp sem template renderizado, e o `"destinatário marcou como spam"` do webhook. Traduzi-los
+  de novo seria passá-los pelo genérico e perder informação que já estava certa.
   """
   def nosso?(motivo) when is_binary(motivo) do
-    String.starts_with?(motivo, ["template desconhecido", "canal ", "destinatário marcou"])
+    String.starts_with?(motivo, [
+      "template desconhecido",
+      "canal ",
+      "destinatário marcou",
+      "mensagem de WhatsApp"
+    ])
   end
 
   def nosso?(_motivo), do: false

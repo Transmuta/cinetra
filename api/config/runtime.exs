@@ -68,14 +68,25 @@ if config_env() != :test do
       {System.get_env("MAIL_FROM_NAME") || "Cinetra",
        System.get_env("MAIL_FROM") || "nao-responda@movimento.local"}
 
-  # Segredo de assinatura do webhook (Svix). Sem ele o endpoint recusa **tudo** — fail closed, e
-  # a alternativa (aceitar sem verificar) seria um endpoint aberto de escrita cujo sintoma é
-  # nenhum. Ver `ApiWeb.ResendWebhookController`.
-  config :api, Api.Messaging, resend_webhook_secret: System.get_env("RESEND_WEBHOOK_SECRET")
+  # Segredos de assinatura dos webhooks. Sem eles o endpoint recusa **tudo** — fail closed, e a
+  # alternativa (aceitar sem verificar) seria um endpoint aberto de escrita cujo sintoma é nenhum.
+  # Ver `ApiWeb.ResendWebhookController` e `ApiWeb.ZernioWebhookController`.
+  config :api, Api.Messaging,
+    resend_webhook_secret: System.get_env("RESEND_WEBHOOK_SECRET"),
+    zernio_webhook_secret: System.get_env("ZERNIO_WEBHOOK_SECRET")
 
-  # Fase 2 (doc 52 §9): ligar o WhatsApp passa a ser configuração, não deploy de código novo.
+  # Fase 2 (doc 52 §9, doc 65): ligar o WhatsApp é configuração, não deploy de código novo.
+  #
+  # As duas chaves são independentes de propósito (ver `Api.Messaging.Transport`): a credencial
+  # diz que **dá** para mandar, a flag diz que **deve**. Com credencial e sem flag, o canal fica
+  # desligado e tudo sai por e-mail — que é o estado em que esta fatia nasce.
   config :api, Api.Messaging.Transport,
     whatsapp_habilitado: System.get_env("WHATSAPP_HABILITADO") == "true"
+
+  config :api, Api.Messaging.Zernio,
+    api_key: System.get_env("ZERNIO_API_KEY"),
+    account_id: System.get_env("ZERNIO_ACCOUNT_ID"),
+    base_url: System.get_env("ZERNIO_BASE_URL")
 end
 
 # Heartbeat dos crons (doc 62 §9). A URL vem de um monitor EXTERNO (healthchecks.io) e é opaca —

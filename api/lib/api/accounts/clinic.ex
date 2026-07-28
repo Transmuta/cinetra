@@ -166,6 +166,19 @@ defmodule Api.Accounts.Clinic do
       default: 8,
       constraints: [min: 0, max: 23]
 
+    # O número de WhatsApp pelo qual esta clínica fala — a conta na Zernio (doc 52 §9.1.4).
+    #
+    # **Nasce nulo em todas, e é assim que tem de ser.** A v1 vai com um número único da Cinetra
+    # (C11), então nulo significa "usa o compartilhado", que vem do ambiente. O campo existe
+    # desde já não porque alguém vá preenchê-lo agora, mas porque é ele que faz "a clínica nº 2
+    # quer o número dela" ser um `UPDATE` em vez de uma refatoração — o §9.1.4 é explícito em
+    # que essas quatro coisas são baratas hoje e caras depois.
+    #
+    # Não é `public?`: não há tela para isso, e não vai haver enquanto número próprio for
+    # funcionalidade futura. Quem preenche é operação, direto no banco, com o par
+    # `OptOut.clinic_id` preenchido junto (C10) — os dois contam a mesma história.
+    attribute :zernio_account_id, :string, constraints: [max_length: 60]
+
     timestamps()
   end
 

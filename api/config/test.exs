@@ -31,6 +31,16 @@ config :api, Api.Storage,
 # E-mails vão para a caixa de teste (Swoosh.Adapters.Test); assert com Swoosh.TestAssertions.
 config :api, Api.Mailer, adapter: Swoosh.Adapters.Test
 
+# WhatsApp em memória (`test/support/whats_app_memory.ex`), e **desligado por padrão**.
+#
+# Desligado porque a maior parte da suíte foi escrita quando o e-mail era o único canal, e ligar
+# o WhatsApp globalmente mudaria o canal de centenas de asserções que falam de `Swoosh` — sem
+# testar nada de novo. Quem exercita o WhatsApp liga a chave no próprio teste
+# (`Application.put_env`), que é também o que documenta "este teste é sobre o outro canal".
+config :api, Api.Messaging.Transport,
+  whatsapp_habilitado: false,
+  whatsapp_adapter: Api.Messaging.WhatsAppMemory
+
 # We don't run a server during test. If one is required,
 # you can enable the server option below.
 config :api, ApiWeb.Endpoint,

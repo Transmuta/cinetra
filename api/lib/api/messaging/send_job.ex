@@ -48,6 +48,7 @@ defmodule Api.Messaging.SendJob do
   require Logger
 
   alias Api.Messaging
+  alias Api.Messaging.Falhas
   alias Api.Messaging.Message
   alias Api.Messaging.ReplyToken
   alias Api.Messaging.Templates
@@ -107,6 +108,17 @@ defmodule Api.Messaging.SendJob do
 
   # O link de resposta é montado **no envio**, não na gravação: ele depende do id da mensagem,
   # que só existe depois do insert. Guardá-lo em `vars` também duplicaria um dado derivável.
+  #
+  # No WhatsApp vai o **token**, não a URL: o domínio está congelado dentro do botão do template
+  # aprovado (`https://cinetra.com.br/confirmar/{{1}}`), e o que se manda é só o sufixo. Mandar a
+  # URL inteira produziria `.../confirmar/https://cinetra.com.br/confirmar/<token>`, um link
+  # quebrado que só aparece clicando — a API aceita, porque a contagem de parâmetros bate.
+  defp render(%Message{canal: :whatsapp} = message) do
+    vars = Map.put(message.vars, "token", ReplyToken.sign(message.id))
+
+    Templates.render_whatsapp(message.template, vars)
+  end
+
   defp render(%Message{} = message) do
     vars = Map.put(message.vars, "link", ReplyToken.url(message.id))
 
@@ -147,7 +159,16 @@ defmodule Api.Messaging.SendJob do
       )
     end)
 
-    Logger.warning("mensagem #{message.id} falhou: #{motivo}")
+    # **A frase classificada, nunca o texto cru** (doc 62 §7.3). O `motivo` que chega aqui é o que
+    # o provider devolveu, e num bounce de e-mail ele normalmente embute o destinatário —
+    # `550 5.1.1 <paciente@exemplo.com>: Recipient address rejected`. Logar isso põe PII de
+    # titular na agregação de log, que é justamente o sistema com a retenção mais frouxa e o
+    # público mais amplo do projeto.
+    #
+    # `para_tela/1` resolve para uma lista **fechada** de frases (as nossas ou as do @regras), então
+    # é PII-free por construção, não por vigilância. O texto cru continua onde deve: na coluna
+    # `erro`, sob RLS, visível só para a clínica dona do paciente — que é quem precisa dele.
+    Logger.warning("mensagem #{message.id} falhou: #{Falhas.para_tela(to_string(motivo))}")
 
     :ok
   end

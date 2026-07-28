@@ -135,8 +135,30 @@ defmodule Api.Notifications.Fanout do
   agenda dos dois. Cada dono de coluna recebe uma linha; o autor segue suprimido, como em todo o
   fan-out.
   """
-  def package_bulk_adjusted(clinic_id, professional_ids, pacote_nome, afetadas, actor)
-      when is_integer(afetadas) and afetadas > 0 do
+  def package_bulk_adjusted(clinic_id, professional_ids, pacote_nome, afetadas, actor) do
+    massa(clinic_id, professional_ids, pacote_nome, afetadas, actor, :package_bulk_adjusted)
+  end
+
+  @doc """
+  O mesmo para o **cancelamento** em massa (doc 66 §5, item 3).
+
+  Existia só a metade de cima: as por-sessão eram suprimidas pela marca de lote e o `cancel` nunca
+  teve o aviso único que o `adjust` tem. Cancelar um pacote de 40 sessões não punha nada na caixa
+  do dono da coluna — a agenda dele esvaziava em silêncio.
+
+  Ficou visível quando o paciente passou a ser avisado (doc 65): quem ia à sessão sabia, e quem ia
+  atender, não.
+  """
+  def package_bulk_canceled(clinic_id, professional_ids, pacote_nome, afetadas, actor) do
+    massa(clinic_id, professional_ids, pacote_nome, afetadas, actor, :package_bulk_canceled)
+  end
+
+  # As duas massas são o mesmo fan-out com outro verbo: mesmos destinatários (os donos das colunas
+  # tocadas), mesma supressão de autor, mesma contagem no corpo. Separá-las em duas funções
+  # inteiras deixaria duas cópias de "quem recebe" — e é justamente a regra de destinatário que
+  # muda com o tempo.
+  defp massa(clinic_id, professional_ids, pacote_nome, afetadas, actor, kind)
+       when is_integer(afetadas) and afetadas > 0 do
     donos = professional_users(clinic_id)
 
     recipients =
@@ -146,13 +168,16 @@ defmodule Api.Notifications.Fanout do
       |> Enum.filter(&deliver?(&1, actor))
       |> Enum.uniq()
 
+    {title, verbo} = massa_texto(kind)
+
     for recipient_id <- recipients do
       notify(
         clinic_id,
         recipient_id,
-        :package_bulk_adjusted,
-        "Sessões de pacote remarcadas",
-        "#{afetadas} #{sessoes(afetadas)} do pacote #{pacote_nome} #{foram(afetadas)} remarcadas.",
+        kind,
+        title,
+        "#{Api.Texto.sessoes(afetadas)} do pacote #{pacote_nome} " <>
+          "#{Api.Texto.foram(afetadas)} #{verbo}.",
         %{afetadas: afetadas, pacote: pacote_nome, actor: actor_payload(actor)}
       )
     end
@@ -160,13 +185,10 @@ defmodule Api.Notifications.Fanout do
     :ok
   end
 
-  def package_bulk_adjusted(_clinic_id, _ids, _nome, _afetadas, _actor), do: :ok
+  defp massa(_clinic_id, _ids, _nome, _afetadas, _actor, _kind), do: :ok
 
-  defp sessoes(1), do: "sessão"
-  defp sessoes(_), do: "sessões"
-
-  defp foram(1), do: "foi"
-  defp foram(_), do: "foram"
+  defp massa_texto(:package_bulk_adjusted), do: {"Sessões de pacote remarcadas", "remarcadas"}
+  defp massa_texto(:package_bulk_canceled), do: {"Sessões de pacote canceladas", "canceladas"}
 
   # ---- Falta/cancelamento que abre vaga com fila casando → recepção/admin/owner ----
 
@@ -193,6 +215,56 @@ defmodule Api.Notifications.Fanout do
           candidates: count
         })
       end
+    end
+
+    :ok
+  end
+
+  # ---- Resposta do paciente (doc 65 §5) → recepção/admin/owner ----
+
+  @doc """
+  O paciente respondeu **"preciso remarcar"** no link da mensagem (doc 52 §5).
+
+  Vai ao operacional, que é quem remarca — não ao profissional dono da coluna: ele não opera a
+  agenda, e para ele isto seria aviso sem ação (o aviso dele vem depois, quando a recepção de fato
+  remarcar, pelo `:appointment_rescheduled` que já existe).
+
+  **Sem supressão de autor**, e é a única do fan-out assim: o autor é o paciente, que não tem
+  login nem caixa. `deliver?/2` compararia o destinatário com um `nil` e deixaria passar — mas
+  depender disso seria depender de acidente, então a lista de destinatários é montada direto.
+
+  Best-effort e pós-commit como todo o resto: a resposta do paciente já está gravada, e ela não
+  pode cair porque a caixa de alguém falhou.
+  """
+  def patient_wants_reschedule(%{clinic_id: clinic_id} = message) do
+    tz = clinic_timezone(clinic_id)
+    paciente = patient_name(message)
+
+    # O bloco é lido **uma vez** — dele saem o texto e a data do payload. Lê-lo por campo abriria
+    # duas transações para responder a mesma pergunta, no caminho de uma rota pública.
+    #
+    # E é do bloco que o horário sai, não de `vars`: aquilo guarda o horário renderizado no envio,
+    # e se a sessão tiver sido remarcada nesse meio-tempo o aviso apontaria para um horário que
+    # não existe mais.
+    {quando, data} =
+      case load_appointment(message) do
+        %{starts_at: starts_at} -> {when_str(starts_at, tz), local_date_iso(starts_at, tz)}
+        _ -> {"uma sessão", nil}
+      end
+
+    for recipient_id <- Enum.uniq(role_user_ids(clinic_id, @operacional)) do
+      notify(
+        clinic_id,
+        recipient_id,
+        :patient_wants_reschedule,
+        "Paciente pediu remarcação",
+        "#{paciente} pediu para remarcar a sessão de #{quando}.",
+        %{
+          appointment_id: message.appointment_id,
+          patient_id: message.patient_id,
+          date: data
+        }
+      )
     end
 
     :ok

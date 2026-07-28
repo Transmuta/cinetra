@@ -9,7 +9,13 @@ defmodule Api.Messaging.DispatchTest do
   """
   alias Api.Messaging
 
-  use Api.DataCase, async: true
+  # **`async: false` por causa do `com_whatsapp/1`**: ele liga o canal mexendo em
+  # `Application.put_env`, que é global ao nó. Rodando em paralelo, a janela em que a flag está
+  # ligada é visível para qualquer outro teste async — e foi assim que o
+  # `ApiWeb.MessagesControllerTest` passou a falhar de forma intermitente: o paciente dele tem
+  # telefone, o WhatsApp aparecia disponível por um instante, e o canal escolhido deixava de ser o
+  # e-mail que o teste opta-out. Teste que muda configuração de aplicação não pode ser async.
+  use Api.DataCase, async: false
 
   alias Api.Messaging.Dispatch
 
@@ -22,8 +28,11 @@ defmodule Api.Messaging.DispatchTest do
     end
 
     test "consentimento sem contato nenhum é :sem_contato, não erro" do
+      # A ficha **legada**, anterior ao telefone obrigatório (doc 52 §9 / D6b): a ação recusa
+      # criar este caso hoje, mas a linha existe no banco e a leitura tem de explicá-la em vez de
+      # estourar.
       ctx = clinica()
-      paciente = paciente_com(ctx, comunicacao: true, email: nil, tel: nil)
+      paciente = paciente_legado_sem_tel!(ctx, comunicacao: true, email: nil)
 
       assert {:skip, :sem_contato} = Dispatch.avaliar(paciente, clinic_id: ctx.clinic.id)
     end
@@ -40,7 +49,7 @@ defmodule Api.Messaging.DispatchTest do
       # Importa porque a ordem é o que evita "não tem e-mail" aparecer na tela quando a causa
       # real é falta de autorização — dois motivos diferentes, duas ações diferentes da recepção.
       ctx = clinica()
-      paciente = paciente_com(ctx, comunicacao: false, email: nil, tel: nil)
+      paciente = paciente_legado_sem_tel!(ctx, comunicacao: false, email: nil)
 
       assert {:skip, :sem_consentimento} = Dispatch.avaliar(paciente, clinic_id: ctx.clinic.id)
     end
@@ -141,7 +150,22 @@ defmodule Api.Messaging.DispatchTest do
     test "sem telefone, cai para o e-mail" do
       com_whatsapp(fn ->
         ctx = clinica()
-        paciente = paciente_com(ctx, comunicacao: true, tel: nil, email: "b@example.com")
+        paciente = paciente_legado_sem_tel!(ctx, comunicacao: true, email: "b@example.com")
+
+        assert {:ok, :email, "b@example.com"} =
+                 Dispatch.avaliar(paciente, clinic_id: ctx.clinic.id)
+      end)
+    end
+
+    test "com FIXO, cai para o e-mail — fixo não recebe WhatsApp" do
+      # O par do "telefone obrigatório" (§9): aceitar fixo na ficha só é honesto se o envio
+      # souber que ele não serve para WhatsApp. Sem isto, a mensagem sairia para um número que
+      # nunca vai entregar e a falha só apareceria no webhook, horas depois.
+      com_whatsapp(fn ->
+        ctx = clinica()
+
+        paciente =
+          paciente_com(ctx, comunicacao: true, tel: "(11) 3456-7890", email: "b@example.com")
 
         assert {:ok, :email, "b@example.com"} =
                  Dispatch.avaliar(paciente, clinic_id: ctx.clinic.id)
@@ -246,9 +270,20 @@ defmodule Api.Messaging.DispatchTest do
 
   # ---- helpers ----
 
+  # `Keyword.put` sobre o que já está lá, e **não** uma lista nova: a config de teste também
+  # aponta o `whatsapp_adapter` para o duplo em memória, e substituir a lista inteira devolveria
+  # o adapter para a Zernio de verdade — que não tem credencial na suíte, então
+  # `Transport.disponivel?/1` responderia `false` e estes testes provariam o contrário do que
+  # dizem no nome.
   defp com_whatsapp(fun) do
     anterior = Application.get_env(:api, Api.Messaging.Transport, [])
-    Application.put_env(:api, Api.Messaging.Transport, whatsapp_habilitado: true)
+
+    Application.put_env(
+      :api,
+      Api.Messaging.Transport,
+      Keyword.put(anterior, :whatsapp_habilitado, true)
+    )
+
     on_exit(fn -> Application.put_env(:api, Api.Messaging.Transport, anterior) end)
     fun.()
   end

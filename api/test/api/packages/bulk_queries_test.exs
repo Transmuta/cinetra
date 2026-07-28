@@ -92,6 +92,11 @@ defmodule Api.Packages.BulkQueriesTest do
 
       # Medido: 82 queries antes do warm (13,7/sessão), 52 depois (8,7). O teto tem folga para o
       # ruído do sandbox, não para uma leitura nova por sessão.
+      #
+      # Subiu de 70 para 80 com o aviso ao paciente da massa (doc 65 §2): são ~7 queries por
+      # MASSA — reperguntar os alvos para achar a âncora, a clínica, o pacote, a presença, o
+      # insert da mensagem e o do job. **Constante, não por sessão** — é o que o teto ao lado
+      # (turma, 4 sessões) prova ao subir o mesmo tanto com menos sessões.
       assert_teto(tally, 70, "6 sessões individuais")
 
       # O invariante do pacote — a clínica, o tipo, o paciente e o próprio pacote — é lido uma
@@ -128,7 +133,15 @@ defmodule Api.Packages.BulkQueriesTest do
 
       # Medido: 98 queries para 4 sessões em turma (24,5/sessão) — o caminho caro, porque cada
       # sessão é destaque + reinserção (duas escritas, duas trilhas, duas policies).
-      assert_teto(tally, 120, "4 sessões em turma")
+      # 120 → 126 com o aviso ao paciente da massa (doc 65 §2). O que ele acrescenta é
+      # **constante por massa** — âncora, clínica, insert da mensagem e do job —, e não uma
+      # leitura por sessão, que é o que este teto existe para pegar. A prova disso não é o
+      # número: são as asserções por tabela logo abaixo (`clinics`, `patients`, `packages`
+      # ≤ 2), que continuam valendo com 4 sessões e com 6.
+      #
+      # O caso individual (o teste acima) nem precisou de folga: ali a presença sobrevive à
+      # remarcação e a âncora acerta na primeira query.
+      assert_teto(tally, 126, "4 sessões em turma")
 
       for tabela <- ~w(clinics appointment_types patients packages) do
         assert Map.get(tally, tabela, 0) <= 2,

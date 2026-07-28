@@ -2,7 +2,7 @@ defmodule Api.Messaging.MessageKind do
   @moduledoc """
   O **motivo** de uma mensagem ao paciente (doc 52 §4) — não o texto dela, que mora no template.
 
-  Os quatro são **operacionais**: cada um nasce de um agendamento que existe e fala dele. Essa
+  Todos são **operacionais**: cada um nasce de um agendamento que existe e fala dele. Essa
   fronteira não é estilística, é o que sustenta duas decisões do doc 52:
 
     * o consentimento padrão autorizado (§11.1) — confirmar uma sessão que o paciente marcou é
@@ -23,9 +23,16 @@ defmodule Api.Messaging.MessageKind do
       :confirmacao,
       # "Sua sessão é amanhã às <hora>" — o cron, N horas antes (desligado por padrão).
       :lembrete,
-      # "Sua sessão mudou para <dia> às <hora>".
+      # "Sua sessão mudou para <dia> às <hora>" — C7(b), o gatilho de remarcação.
       :remarcacao,
-      # "Sua sessão de <dia> foi cancelada".
-      :cancelamento
+      # "Sua sessão de <dia> foi cancelada" — C7(b). **Só o cancelamento**: excluir (doc 40) é
+      # corrigir um lançamento errado, e dar a esse gesto um efeito fora do sistema seria avisar
+      # o paciente por causa de um erro de digitação. Ver `Api.Messaging.Notifier`.
+      :cancelamento,
+      # Os dois de LOTE, e existem pela mesma razão que o `:package_bulk_adjusted` do sino
+      # (doc 43 §5b): remarcar um pacote de 40 mandaria 40 "sua sessão mudou" ao mesmo paciente,
+      # e no WhatsApp isso é spam **pago**. Uma mensagem por massa, com o número dentro.
+      :pacote_remarcado,
+      :pacote_cancelado
     ]
 end

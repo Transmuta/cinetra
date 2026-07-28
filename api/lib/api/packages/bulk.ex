@@ -42,6 +42,9 @@ defmodule Api.Packages.Bulk do
   import Api.Params, only: [get: 2, truthy?: 2]
   import Api.Tenancy, only: [in_clinic: 2]
 
+  require Ash.Query
+  require Logger
+
   alias Api.Scheduling
   alias Api.Scheduling.Attendance
   alias Api.Scheduling.LocalTime
@@ -60,7 +63,14 @@ defmodule Api.Packages.Bulk do
   """
   def cancel(%Api.Scope{} = scope, package_id, params) do
     with {:ok, alvos, _tz} <- targets(scope, package_id, params) do
-      run(scope, alvos, &cancel_one(scope, &1, nil))
+      case run(scope, alvos, &cancel_one(scope, &1, nil)) do
+        {:ok, %{afetadas: afetadas} = resultado} ->
+          avisa(scope, package_id, alvos, nil, :pacote_cancelado, afetadas)
+          {:ok, resultado}
+
+        erro ->
+          erro
+      end
     end
   end
 
@@ -84,7 +94,7 @@ defmodule Api.Packages.Bulk do
 
       case run(scope, alvos, &adjust_one(scope, &1, plano, tz, package_id, warm)) do
         {:ok, %{afetadas: afetadas} = resultado} ->
-          avisa_uma_vez(scope, package_id, alvos, plano, afetadas)
+          avisa(scope, package_id, alvos, plano, :pacote_remarcado, afetadas)
           {:ok, resultado}
 
         erro ->
@@ -99,21 +109,107 @@ defmodule Api.Packages.Bulk do
   #
   # Roda **depois** do commit da massa, como todo fan-out (doc 31): notificação de escrita que a
   # transação ainda pode desfazer é notificação errada.
-  defp avisa_uma_vez(_scope, _package_id, _alvos, _plano, 0), do: :ok
+  defp avisa(_scope, _package_id, _alvos, _plano, _kind, 0), do: :ok
 
-  defp avisa_uma_vez(scope, package_id, alvos, plano, afetadas) do
+  defp avisa(scope, package_id, alvos, plano, kind, afetadas) do
+    # O nome do pacote é lido **uma vez** e serve aos dois avisos. Antes eram duas leituras da
+    # mesma linha, uma por aviso — o tipo de custo que só aparece quando alguém conta as queries.
+    nome = nome_do_pacote(scope, package_id)
+
+    avisa_a_caixa(scope, nome, alvos, plano, kind, afetadas)
+    avisa_o_paciente(scope, package_id, nome, alvos, kind, afetadas)
+  end
+
+  # A caixa do **profissional** dono da coluna. Vale para as duas massas: até o bate-volta da fase
+  # 2 (doc 66 §5) só o ajuste avisava, e cancelar um pacote de 40 sessões esvaziava a agenda de
+  # alguém sem pôr uma linha na caixa dele.
+  #
+  # `plano` é nulo no cancelamento — não há profissional de destino a acrescentar, porque
+  # cancelar não move ninguém de coluna.
+  defp avisa_a_caixa(scope, nome, alvos, plano, kind, afetadas) do
     colunas =
       alvos
       |> Enum.map(fn {appt, _att} -> appt.professional_id end)
-      |> then(&if(plano.professional_id, do: [plano.professional_id | &1], else: &1))
+      |> then(&if(plano && plano.professional_id, do: [plano.professional_id | &1], else: &1))
 
-    Api.Notifications.Fanout.package_bulk_adjusted(
-      scope.clinic_id,
-      colunas,
-      nome_do_pacote(scope, package_id),
-      afetadas,
-      scope.user
-    )
+    fanout(kind).(scope.clinic_id, colunas, nome, afetadas, scope.user)
+  end
+
+  defp fanout(:pacote_remarcado), do: &Api.Notifications.Fanout.package_bulk_adjusted/5
+  defp fanout(:pacote_cancelado), do: &Api.Notifications.Fanout.package_bulk_canceled/5
+
+  # UMA mensagem ao paciente por massa, pelo mesmo motivo que a caixa recebe uma só (doc 43 §5b) —
+  # e aqui o motivo é mais duro: são 40 mensagens de WhatsApp **pagas**, para o mesmo telefone, em
+  # segundos. É assim que se perde um número por bloqueio (§9.1.1).
+  #
+  # As por-sessão já estão suprimidas na origem pela marca `bulk_pacote` (`Api.Messaging.Notifier`);
+  # esta as substitui.
+  #
+  # **Um pacote é de um paciente só** (RN da Fatia 5), então "uma por massa" e "uma por paciente"
+  # são a mesma coisa aqui.
+  #
+  # Tudo dentro de **um** `in_clinic`: cada um custa BEGIN + `set_config` + COMMIT, e a primeira
+  # versão abria quatro (âncora, clínica, pacote, escrita) para fazer o trabalho de um. O teto de
+  # queries da massa (`Api.Packages.BulkQueriesTest`) pegou.
+  #
+  # Roda **depois** do commit da massa: mensagem enviada não volta, e a transação ainda podia
+  # desfazer tudo.
+  defp avisa_o_paciente(scope, package_id, nome, alvos, kind, afetadas) do
+    in_clinic(scope, fn ->
+      with %{} = attendance <- ancora(scope, package_id, alvos),
+           %{} = clinic <- Api.Accounts.get_clinic!(scope.clinic_id, authorize?: false) do
+        Api.Messaging.Dispatch.dispatch(clinic, attendance, attendance.patient, kind,
+          disparado_por_id: scope.user && scope.user.id,
+          vars_extras: %{"quantas" => Api.Texto.sessoes(afetadas), "pacote" => nome}
+        )
+      end
+    end)
+
+    :ok
+  rescue
+    erro ->
+      # Best-effort, como todo o resto da comunicação: a massa já foi aplicada e não pode cair
+      # porque a mensagem não saiu.
+      Logger.warning("aviso de massa (#{kind}) falhou: #{Exception.message(erro)}")
+      :ok
+  end
+
+  # Onde a mensagem da massa se ancora — e é aqui que mora a sutileza que custou um bug.
+  #
+  # `Message` exige uma presença (doc 52 §3) e a FK é `ON DELETE CASCADE`. Só que a massa **mexe
+  # nas presenças**, e de dois jeitos diferentes:
+  #
+  #   * ajustar uma sessão de turma **destaca e reinsere** — a presença antiga é destruída e nasce
+  #     outra, com id novo. Ancorar no id que veio de `targets/3` antes da massa dá "record not
+  #     found" (foi exatamente o que aconteceu na primeira versão);
+  #   * cancelar uma sessão de turma **remove** a presença; a de sessão individual sobrevive (é o
+  #     bloco que fica `:cancelado`).
+  #
+  # Duas queries, na ordem que acerta na primeira no caso comum:
+  #
+  #   1. as presenças **desta massa** que sobreviveram (individual, ajustado ou cancelado);
+  #   2. qualquer presença do pacote (o caso do destaca-e-reinsere, que trocou os ids).
+  #
+  # A ordem é por `session_starts_at`, que a própria presença carrega (doc 43 §4) — ordenar pelo
+  # bloco exigiria um join para escolher onde pendurar uma mensagem.
+  #
+  # Quando **nada** sobrevive — pacote inteiro de turma, cancelado — não há onde ancorar e a
+  # mensagem não sai. Registrado no doc 65 §8 como limitação conhecida, com a saída (tornar a
+  # âncora opcional) e o motivo de ela não ter sido tomada agora.
+  defp ancora(scope, package_id, alvos) do
+    ids = Enum.map(alvos, fn {_appt, att} -> att.id end)
+
+    primeira_presenca(scope, Ash.Query.filter(Attendance, id in ^ids)) ||
+      primeira_presenca(scope, Ash.Query.filter(Attendance, package_id == ^package_id))
+  end
+
+  defp primeira_presenca(scope, query) do
+    query
+    |> Ash.Query.set_tenant(scope.clinic_id)
+    |> Ash.Query.sort(session_starts_at: :asc)
+    |> Ash.Query.limit(1)
+    |> Ash.Query.load(:patient)
+    |> Ash.read_one!(authorize?: false)
   end
 
   defp nome_do_pacote(scope, package_id) do

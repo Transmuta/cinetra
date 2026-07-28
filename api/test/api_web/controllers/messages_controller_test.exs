@@ -30,7 +30,7 @@ defmodule ApiWeb.MessagesControllerTest do
     end
 
     test "explica o silêncio de quem não tem contato", %{ctx: ctx, sessao: sessao} do
-      paciente = paciente_com(ctx, comunicacao: true, email: nil, tel: nil)
+      paciente = paciente_legado_sem_tel!(ctx, comunicacao: true, email: nil)
       appt = agendamento!(ctx, paciente: paciente)
 
       %{"participantes" => [linha]} = get_json(sessao, appt)
@@ -61,7 +61,7 @@ defmodule ApiWeb.MessagesControllerTest do
     test "uma linha por participante da turma", %{ctx: ctx, sessao: sessao} do
       turma = clinica_turma(ctx)
       um = paciente_com(ctx, comunicacao: true, email: "um@example.com")
-      dois = paciente_com(ctx, comunicacao: true, email: nil, tel: nil)
+      dois = paciente_legado_sem_tel!(ctx, comunicacao: true, email: nil)
       quando = Api.Generators.amanha_as(ctx, 15)
 
       appt = agendamento!(ctx, paciente: um, tipo: turma, quando: quando)
