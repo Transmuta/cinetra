@@ -16,7 +16,13 @@ defmodule Api.Housekeeping.PruneAttachmentsTest do
   setup do
     Memory.limpar()
     ctx = contexto()
-    patient = Records.create_patient!("P", %{}, tenant: ctx.clinic.id, authorize?: false)
+
+    patient =
+      Records.create_patient!("P", %{tel: Api.Generators.telefone_unico()},
+        tenant: ctx.clinic.id,
+        authorize?: false
+      )
+
     %{ctx: ctx, patient: patient, scope: escopo(ctx.owner, ctx.clinic)}
   end
 
@@ -145,27 +151,24 @@ defmodule Api.Housekeeping.PruneAttachmentsTest do
   end
 
   describe "trilha de acesso" do
-    test "evento antigo sai, recente fica", %{scope: scope, patient: patient} do
+    # A poda da trilha de acesso **saiu daqui** (doc 63): ela mora em `audit_events`, com o resto
+    # do sistema, e quem a poda é `Api.Housekeeping.PruneTrail` — retenção única de 90 dias
+    # (D-Aud5), no lugar dos 730 que esta tabela tinha para si.
+    #
+    # O que continua sendo afirmado aqui é o que é desta poda: que ela registra o acesso e que
+    # **não** encosta na trilha ao recolher pendentes.
+    test "o download é registrado, e a poda de pendentes não o apaga", %{
+      scope: scope,
+      patient: patient
+    } do
       anexo = abrir_upload(scope, patient)
       {:ok, confirmado} = Records.confirm_attachment(scope, anexo)
       {:ok, _} = Records.attachment_download(scope, confirmado)
 
       assert length(Records.list_clinic_attachment_events(scope, anexo.id)) == 2
 
-      # `reter_eventos_dias: 0` = "apaga tudo que é anterior a agora" — a poda pontual que o
-      # teste usa para não depender de viajar no tempo.
-      assert :ok = perform_job(PruneAttachments, %{"reter_eventos_dias" => 0})
-      assert Records.list_clinic_attachment_events(scope, anexo.id) == []
-    end
-
-    test "podar a trilha não toca no anexo nem nos bytes", %{scope: scope, patient: patient} do
-      anexo = abrir_upload(scope, patient)
-      {:ok, _} = Records.confirm_attachment(scope, anexo)
-
-      assert :ok = perform_job(PruneAttachments, %{"reter_eventos_dias" => 0})
-
-      assert Memory.chaves() != []
-      assert {:ok, %{status: :disponivel}} = Records.fetch_clinic_attachment(scope, anexo.id)
+      assert :ok = perform_job(PruneAttachments, %{"reter_pendentes_horas" => 1})
+      assert length(Records.list_clinic_attachment_events(scope, anexo.id)) == 2
     end
   end
 end

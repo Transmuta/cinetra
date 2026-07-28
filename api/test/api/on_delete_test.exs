@@ -14,15 +14,14 @@ defmodule Api.OnDeleteTest do
   """
   use Api.DataCase, async: true
 
-  @dominios [
-    Api.Accounts,
-    Api.Scheduling,
-    Api.Directory,
-    Api.Records,
-    Api.Packages,
-    Api.Waitlist,
-    Api.Notifications
-  ]
+  # Os domínios vêm da **config**, não de uma lista à mão aqui. A lista à mão existia e
+  # envelheceu em silêncio: `Api.Messaging` entrou no projeto e nunca foi acrescentado, então as
+  # 7 FKs de `messages`/`message_opt_outs` ficaram fora dos dois contratos abaixo — inclusive a
+  # segunda asserção, a que existe justamente para que "FK nova exige decisão explícita".
+  #
+  # Uma lista que precisa ser lembrada não cumpre o papel de rede: derivar de `ash_domains` faz
+  # domínio novo entrar sozinho, e o teste passa a cobrar as FKs dele no mesmo commit.
+  @dominios Application.compile_env!(:api, :ash_domains)
 
   # As tabelas que o PROJETO escreve, derivadas dos próprios recursos Ash — não de uma lista à
   # mão. Sem isto, os dois contratos abaixo varreriam `public` inteiro e passariam a cobrar
@@ -82,8 +81,6 @@ defmodule Api.OnDeleteTest do
     # um `User` impossível de apagar, o que é exatamente o que a eliminação da LGPD precisará
     # fazer; e a trilha do AshPaperTrail preserva o histórico de qualquer forma.
     {"appointments", "created_by_id"} => "SET NULL",
-    {"appointments_versions", "user_id"} => "SET NULL",
-    {"attendances_versions", "user_id"} => "SET NULL",
 
     # H64: esta não tinha FK **nenhuma** — o `package_id` era um uuid solto ("gancho da Fatia 3,
     # sem FK"), escrito antes de `Package` existir como tabela. `SET NULL` porque a sessão é do
@@ -103,10 +100,24 @@ defmodule Api.OnDeleteTest do
     {"attachments", "patient_id"} => "RESTRICT",
     {"attachments", "uploaded_by_id"} => "SET NULL",
 
-    # A trilha de acesso a anexo não guarda bytes, então o CASCADE do tenant vale como em todas
-    # as outras. `attachment_id`/`patient_id`/`user_id` são uuid CRU, sem FK, de propósito: o
-    # registro tem de sobreviver ao que ele registra (ver `Api.Records.AttachmentEvent`).
-    {"attachment_events", "clinic_id"} => "CASCADE"
+    # A trilha de eventos (doc 63) segue a mesma regra: apagar a clínica leva a trilha dela
+    # junto — é dado da clínica, e mantê-la órfã seria guardar histórico de um tenant que não
+    # existe mais. `record_id` e `user_id` são uuid CRU, sem FK, de propósito: a linha precisa
+    # sobreviver ao registro e ao usuário que ela registra (ver `Api.Audit.Event`) — uma FK com
+    # CASCADE apagaria a prova junto com o dado, e com RESTRICT tornaria o dado indeletável.
+    {"audit_events", "clinic_id"} => "CASCADE",
+
+    # Comunicação com o paciente (doc 52). A mensagem é registro do que foi enviado por causa de
+    # um agendamento: sem o agendamento (ou a clínica, ou o paciente) ela não tem sujeito, então
+    # CASCADE. Quem disparou é `SET NULL` pelo mesmo motivo de sempre — o usuário sai da equipe e
+    # o histórico do envio fica.
+    {"messages", "clinic_id"} => "CASCADE",
+    {"messages", "appointment_id"} => "CASCADE",
+    {"messages", "attendance_id"} => "CASCADE",
+    {"messages", "patient_id"} => "CASCADE",
+    {"messages", "disparado_por_id"} => "SET NULL",
+    {"message_opt_outs", "clinic_id"} => "CASCADE",
+    {"message_opt_outs", "revogado_por_id"} => "SET NULL"
   }
 
   defp fks do

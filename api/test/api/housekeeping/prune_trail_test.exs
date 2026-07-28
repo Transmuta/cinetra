@@ -1,8 +1,9 @@
 defmodule Api.Housekeeping.PruneTrailTest do
   @moduledoc """
-  A poda da trilha (doc 43 §5f). A trilha é a tabela que mais cresce — medida em 15 MB contra
-  5.256 kB da tabela base, com o único cron de poda removido em 2026-07-24 — e sem retenção ela
-  cresce para sempre.
+  A poda da trilha (doc 43 §5f, hoje sobre `audit_events` — doc 63). A trilha é a tabela que
+  mais cresce — medida em 15 MB contra 5.256 kB da tabela base — e sem retenção cresce para
+  sempre. Com doze recursos auditados em vez de dois, e com a retenção em **90 dias** (D-Aud5),
+  ela é a peça que impede a tabela de virar dívida.
 
   O que se afirma aqui: a versão **velha** some, a **recente** fica, e a poda não atravessa
   clínica (a varredura é por tenant, sob a GUC).
@@ -32,11 +33,11 @@ defmodule Api.Housekeeping.PruneTrailTest do
     appt
   end
 
-  # Envelhece as versões de um bloco na marra — a coluna é do próprio paper trail e não há ação
-  # que a mova. É o equivalente a "esta trilha é de um ano atrás".
+  # Envelhece os eventos de um bloco na marra — `at` é o relógio do escopo e não há ação que o
+  # mova para trás. É o equivalente a "esta trilha é de um ano atrás".
   defp envelhecer(appt_id, dias) do
     Api.Repo.query!(
-      "UPDATE appointments_versions SET version_inserted_at = version_inserted_at - ($1 || ' days')::interval WHERE version_source_id = $2",
+      "UPDATE audit_events SET at = at - ($1 || ' days')::interval WHERE record_id = $2",
       [to_string(dias), Ecto.UUID.dump!(appt_id)]
     )
   end
@@ -44,7 +45,7 @@ defmodule Api.Housekeeping.PruneTrailTest do
   defp versoes(clinic_id, appt_id) do
     {:ok, %{rows: [[n]]}} =
       Api.Repo.query(
-        "SELECT count(*) FROM appointments_versions WHERE clinic_id = $1 AND version_source_id = $2",
+        "SELECT count(*) FROM audit_events WHERE clinic_id = $1 AND record_id = $2",
         [Ecto.UUID.dump!(clinic_id), Ecto.UUID.dump!(appt_id)]
       )
 

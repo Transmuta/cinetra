@@ -226,3 +226,44 @@ Contra as dezenas de milhares que a agenda emite.
 **O que o paga.** O papel ficar disponível sem esperar o pai — por exemplo, o `hooks.server.ts`
 resolvendo a sessão para `event.locals` uma vez por request. Aí a checagem sai de graça e o débito
 cai junto com outros do mesmo tipo. É refatoração de fundação, não desta fatia.
+
+---
+
+## D-11 · Retenção de dado: quatro relógios diferentes, e um sem relógio nenhum
+
+**O que é.** Não há política de retenção única. Cada tabela que cresce sozinha ganhou o seu número
+no momento em que foi construída, e a comunicação com o paciente ([`52`](52-comunicacao-com-o-paciente.md))
+nasceu **sem número nenhum**:
+
+| Tabela | Retenção | Onde foi decidida |
+| --- | --- | --- |
+| Trilha de auditoria | **90 dias** | `Api.Housekeeping.PruneTrail`; o prazo mora em `Api.Audit.retencao_dias/0` (doc 63, D-Aud5 — era 365) |
+| Caixa de notificações | 90 dias (lidas) / 365 (não lidas) | `Api.Housekeeping.PruneNotifications` (#54) |
+| Anexos abandonados | poda diária | `Api.Housekeeping.PruneAttachments` (doc 51). A **trilha de acesso** saiu daqui: mora em `audit_events` e segue os 90 dias acima (doc 63) |
+| **`messages` / `message_opt_outs`** | **nenhuma** | — |
+
+**Por que virou débito, e por que ele é do tipo bom.** A decisão de esperar é deliberada
+(2026-07-28): retenção é pergunta **transversal e jurídica**, não técnica — quanto tempo se
+consegue provar que a clínica avisou, contra quanto tempo se pode guardar dado pessoal de um
+paciente. Decidir tabela a tabela é como se chega a quatro réguas que ninguém sabe justificar
+depois; a quarta seria esta. Fica para uma passada única, com orientação jurídica, valendo para
+**todos** os casos de uma vez.
+
+**O que custa hoje.** Quase nada, e por dois motivos que valem juntos:
+
+- a fatia de comunicação **ainda não está em produção** (falta a chave do Resend e o domínio
+  verificado — doc 52 §14.5), então `messages` não cresce;
+- quando crescer, o volume é conhecido. Medido na clínica de volume do dev: ~2.200 presenças/mês,
+  o que dá ~4.400 mensagens/mês com confirmação + lembrete ligados, ou **~53 mil linhas ≈ 19 MB por
+  ano por clínica** (100 mil linhas ocupam 36 MB). A leitura não degrada: a timeline lê **um**
+  agendamento por vez, pelo índice `messages_appointment_index`.
+
+**O ponto de atenção.** A linha de `messages` **é** a prova de que se avisou — foi por isso que ela
+dispensou o `AshPaperTrail` (o registro já é o histórico). Então a poda, quando vier, apaga
+evidência, não lixo: o número escolhido precisa cobrir a janela em que alguém ainda pode contestar
+*"ninguém me avisou"*. Do outro lado, `destino` guarda e-mail ou telefone **congelado** — dado
+pessoal parado, que a minimização da LGPD desaconselha manter para sempre.
+
+**O que o paga.** Uma conversa com advogado sobre retenção, e então **um** `Api.Housekeeping.PruneMessages`
+no molde dos três existentes (~1 h), mais o realinhamento dos outros números à régua única que sair
+de lá.

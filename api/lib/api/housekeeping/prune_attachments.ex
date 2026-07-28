@@ -15,18 +15,23 @@ defmodule Api.Housekeeping.PruneAttachments do
   a mesma ordem de `Api.Records.delete_attachment/2`, pelo mesmo motivo. O volume torna isso
   barato: um upload abandonado é evento raro.
 
-  ## 2. Trilha de acesso antiga
+  ## 2. A trilha de acesso NÃO é mais podada aqui
 
-  `attachment_events` cresce a cada **visualização**, não a cada escrita — é a tabela de maior
-  crescimento da fatia. Retenção de
-  #{Application.compile_env(:api, [__MODULE__, :reter_eventos_dias], 730)} dias, o dobro da
-  trilha de agendamentos (`PruneTrail`, 365): a pergunta "quem leu o laudo da paciente em 2027?"
-  tem prazo mais longo que "quem remarcou a sessão de terça". Número humano, não técnico — vive
-  na config:
+  Ela era: `attachment_events` tinha retenção própria de 730 dias — o dobro da trilha de
+  agendamentos — com o argumento de que *"quem leu o laudo da paciente em 2027?"* tem prazo mais
+  longo que *"quem remarcou a sessão de terça"*.
 
-      config :api, Api.Housekeeping.PruneAttachments, reter_pendentes_horas: 24, reter_eventos_dias: 730
+  Duas coisas mudaram no doc 63, e as duas foram decisão humana:
 
-  Essa metade **é** `DELETE` em lote (`Api.Housekeeping.Poda`), porque evento não tem bytes.
+    * a trilha de acesso ao anexo passou a morar em `audit_events`, com o resto do sistema
+      (D-Aud3) — a tabela própria não tinha rota nenhuma e ninguém conseguia lê-la;
+    * a retenção passou a ser **uma só, de 90 dias** (D-Aud5), aplicada por
+      `Api.Housekeeping.PruneTrail`.
+
+  O argumento dos 730 dias continua de pé e está registrado para a revisão com o jurídico
+  ([`Api.Audit`](../audit.ex)): 90 dias vale igual para "quem leu o laudo", que é o registro que
+  uma auditoria externa costuma pedir de anos anteriores. A decisão foi tomada com isso dito.
+
   """
   use Oban.Worker, queue: :housekeeping, max_attempts: 3
 
@@ -36,15 +41,12 @@ defmodule Api.Housekeeping.PruneAttachments do
   alias Api.Housekeeping.Poda
   alias Api.Records.Attachment
 
-  @tabela_eventos "attachment_events"
-
   @impl Oban.Worker
   def perform(%Oban.Job{args: args}) do
     pendentes = podar_pendentes(corte_pendentes(args))
-    eventos = podar_eventos(corte_eventos(args))
 
-    if pendentes > 0 or eventos > 0 do
-      Logger.info("poda de anexos: #{pendentes} pendente(s), #{eventos} evento(s)")
+    if pendentes > 0 do
+      Logger.info("poda de anexos: #{pendentes} pendente(s)")
     end
 
     :ok
@@ -116,29 +118,11 @@ defmodule Api.Housekeeping.PruneAttachments do
       false
   end
 
-  defp podar_eventos(corte) do
-    Poda.por_clinica(fn clinic_id ->
-      Poda.em_lote(
-        @tabela_eventos,
-        "clinic_id = $1 AND inserted_at < $2",
-        [Ecto.UUID.dump!(clinic_id), corte]
-      )
-    end)
-  end
-
   defp corte_pendentes(args) do
     horas =
       Map.get(args, "reter_pendentes_horas") ||
         Application.get_env(:api, __MODULE__, [])[:reter_pendentes_horas] || 24
 
     DateTime.add(DateTime.utc_now(), -horas * 3600, :second)
-  end
-
-  defp corte_eventos(args) do
-    Poda.corte(args, "reter_eventos_dias",
-      modulo: __MODULE__,
-      chave: :reter_eventos_dias,
-      padrao: 730
-    )
   end
 end

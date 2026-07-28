@@ -1117,6 +1117,18 @@ e [`09:739`](09-contrato-api.md) são resíduo já corrigido por
 
 ## 11. Trilha de auditoria (A-D6c) e a tela do admin
 
+> **SUPERSEDIDO em 2026-07-28 por [`63`](63-auditoria-completa.md).** O que esta seção descreve —
+> `AshPaperTrail`, uma tabela de versões **por recurso**, o diff remontado na leitura a partir do
+> `:changes_only` — deixou de existir. A trilha passou a ser `audit_events`: **uma** tabela, doze
+> recursos, o diff resolvido na escrita, e mais duas naturezas de evento que o modelo de versões
+> não tinha (leitura de dado de saúde e autorização negada). A retenção passou de 365 para 90
+> dias (D-Aud5).
+>
+> O texto abaixo fica como registro do desenho original e das armadilhas que ele mapeou — várias
+> continuam valendo palavra por palavra (a tenancy da tabela de trilha, as policies próprias, o
+> `mix test` que não vê furo de RLS).
+
+
 Consequência da A-D6 ter fechado em (c). Duas partes independentes: **gravar** a trilha (entra
 nesta fatia, porque schema não espera) e **exibir** a trilha (tela própria, fatiável depois).
 
