@@ -335,26 +335,27 @@ existir numa segunda tabela, append-only, sem tela de correção, e a eliminaç�
 (F8/D-1) terá de alcançá-la. Registrado no moduledoc de `Api.Audit.Sensiveis`; reverter é
 acrescentar os três à lista, e o teste cobra a mudança nos dois sentidos.
 
-**(b) O backfill é quadrático nas versões por registro.** `568 linhas → 1.219 varreduras internas
-+ 1.219 Sort`, e o índice das tabelas de origem não tinha a coluna de tempo. Roda no
-`release_command`. Um agendamento muito remarcado domina o custo sozinho. Correção barata: criar
-um índice temporário `(clinic_id, version_source_id, version_inserted_at DESC)` antes do `INSERT` e
-dropá-lo depois — ou trocar o `LATERAL` correlacionado por `lag()` numa passada. **Precisa ser
-medido com o volume real de produção, não com as 294 linhas de dev.**
+**(b) Backfill lento — DECIDIDO: o índice de apoio entra.** A suspeita era de explosão
+quadrática; a medição **derrubou a suspeita e manteve a correção**. Simulei a forma real da
+tabela (maioria com 1–3 versões, cauda de 10% com 10–40, mais 20 registros com 500) e rodei a
+query exata da migration:
 
-**(c) Facetas `action` e `resource` sem índice — DECIDIDO: os dois índices entram.**
-`?acao=revoke_access` (poucas linhas em 90 dias) lia o recorte inteiro — 14,4 ms e 7.784 buffers
-contra 0,090 ms e 9 da página sem filtro, ou seja a resposta mais barata da tela era a que custava
-mais caro. Entraram `audit_events_action_index` e `audit_events_resource_index`, ambos
-`(clinic_id, <faceta>, at)`, criados com `CONCURRENTLY` + as duas anotações (a tabela tem dado
-desde o backfill, e é a mais escrita do sistema). Verificado: o plano deixou de varrer o heap e
-passa a usar o índice também para a ordenação (`Presorted Key: at`).
+| versões | como estava | com o índice |
+|---|---|---|
+| 86.010 | 2,75 s | 2,15 s (−22%) |
+| 390.000 | 18,97 s | 9,01 s (−53%) |
 
-**Follow-up que isso abre:** com o `resource_index` no ar, o `record_index`
-(`clinic_id, resource, record_id, at`) serve **só** o deep-link por registro — e ali `resource` é
-peso morto, porque uuid não colide entre recursos. Ele poderia encolher para
-`(clinic_id, record_id, at)`, tirando uma coluna de um dos cinco índices da tabela quente. Não
-feito: é troca de custo de escrita e merece medição própria.
+Criar o índice custa **257 ms**. Não era bloqueador de deploy: o Postgres põe um `Memoize` sobre
+o laço correlacionado e cacheia as buscas repetidas, então nem a cauda de 500 versões move o
+relógio de forma dramática — foi o que a sonda mostrou e a teoria não previa. O que sobra é
+janela de deploy: o ganho **cresce com o volume** e o índice também tira a superlinearidade
+(sem ele 4,5× de linhas custavam 6,9× de tempo; com ele, 4,2×).
+
+`CREATE INDEX` comum, **sem `CONCURRENTLY`** — e a exceção à regra do projeto está escrita na
+migration: o índice precisa existir dentro da transação que o usa, e `CONCURRENTLY` é
+justamente o que não roda em transação. O `ShareLock` não cobra o preço habitual porque as
+tabelas já não recebem escrita do app (o `AshPaperTrail` saiu na mesma release) e somem na
+migration seguinte. O índice é criado e dropado dentro do próprio `up`.
 
 ### Pendências técnicas
 

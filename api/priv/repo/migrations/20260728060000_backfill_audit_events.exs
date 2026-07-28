@@ -31,6 +31,34 @@ defmodule Api.Repo.Migrations.BackfillAuditEvents do
   (`20260728053848_trilha_de_eventos.exs`). O `test/api/audit/backfill_test.exs` trava isso agora,
   inclusive lendo uma linha escrita por SQL cru — a fronteira que a suíte não atravessava.
 
+  ## O índice de apoio, e por que ele é temporário
+
+  O `LATERAL` correlacionado abaixo procura, para cada campo de cada versão, a versão anterior
+  **do mesmo registro** que tocou aquele campo. O índice que estas tabelas tinham
+  (`clinic_id, version_source_id`) não cobre o `< version_inserted_at` nem o `ORDER BY … DESC`,
+  então cada busca interna lia todas as versões do registro e as ordenava.
+
+  Medido numa simulação com a forma real da tabela (perfil realista: maioria com 1–3 versões,
+  cauda de 10% com 10–40, mais 20 registros com 500):
+
+      86.010 versões:  2,75 s  →  2,15 s   (−22%)
+      390.000 versões: 18,97 s →  9,01 s   (−53%)
+      custo de criar o índice: 257 ms
+
+  O ganho **cresce com o volume** — e o índice também tira a superlinearidade: sem ele, 4,5× de
+  linhas custavam 6,9× de tempo; com ele, 4,2×. Vale registrar o que a medição **derrubou**: a
+  suspeita inicial era de explosão quadrática, e não é isso que acontece — o Postgres põe um
+  `Memoize` sobre o laço correlacionado e cacheia as buscas repetidas, então nem a cauda de 500
+  versões move o relógio de forma dramática. O índice é otimização de janela de deploy, não
+  conserto de bloqueador.
+
+  **Sem `CONCURRENTLY`, e isto não é descuido:** a regra do projeto pede `CONCURRENTLY` para
+  índice em tabela com dado, mas ela não se aplica aqui por duas razões que andam juntas — o
+  índice precisa existir **dentro da transação desta migration** (é ela que o usa em seguida), e
+  `CONCURRENTLY` é exatamente o que não roda dentro de transação. O `ShareLock` também não custa
+  o que costuma custar: estas tabelas já não recebem escrita do app (o `AshPaperTrail` saiu na
+  mesma release) e desaparecem na migration seguinte.
+
   ## Sobre rodar como `postgres`
 
   `audit_events` tem `FORCE ROW LEVEL SECURITY`, que alcança até o dono da tabela — mas
@@ -50,6 +78,9 @@ defmodule Api.Repo.Migrations.BackfillAuditEvents do
                 professional_id appointment_type_id patient_id appointment_id created_by_id)
 
   def up do
+    apoiar("appointments_versions")
+    apoiar("attendances_versions")
+
     backfill_versions("appointments_versions", "appointment", """
       jsonb_strip_nulls(jsonb_build_object(
         'professional_id', v.professional_id,
@@ -67,12 +98,31 @@ defmodule Api.Repo.Migrations.BackfillAuditEvents do
     """)
 
     backfill_attachment_events()
+
+    # O índice morre com a migration. As tabelas somem na seguinte, então ele desapareceria de
+    # qualquer forma — dropar explicitamente é o que mantém esta migration autocontida, caso
+    # alguém reordene ou remova o `DROP TABLE`.
+    desapoiar("appointments_versions")
+    desapoiar("attendances_versions")
   end
 
   def down do
     # A trilha nova volta a ficar só com o que foi gravado depois da virada. As origens não
     # foram tocadas, então nada se perde — é o que torna este `down` seguro.
     execute "DELETE FROM audit_events WHERE meta ? 'backfill'"
+  end
+
+  # ---- índice de apoio (ver o moduledoc) ----
+
+  defp apoiar(tabela) do
+    execute """
+    CREATE INDEX IF NOT EXISTS #{tabela}_backfill_idx
+      ON #{tabela} (clinic_id, version_source_id, version_inserted_at DESC)
+    """
+  end
+
+  defp desapoiar(tabela) do
+    execute "DROP INDEX IF EXISTS #{tabela}_backfill_idx"
   end
 
   # ---- versões do AshPaperTrail ----
