@@ -416,7 +416,7 @@ defmodule Api.RlsSmokeTest do
       assert afetadas > 0, "a massa não achou as sessões do pacote (GUC faltando?)"
 
       :ok = sem_guc()
-      %{sessions: sessoes} = Scheduling.list_patient_history(ctx.scope, ctx.paciente.id)
+      %{sessions: sessoes} = Scheduling.list_patient_sessions(ctx.scope, ctx.paciente.id)
       refute Enum.empty?(sessoes), "histórico vazio: a GUC não chegou"
 
       for sessao <- sessoes do
@@ -592,7 +592,7 @@ defmodule Api.RlsSmokeTest do
       :ok = sem_guc()
 
       assert %{sessions: [sessao], more?: false} =
-               Scheduling.list_patient_history(ctx.scope, ctx.paciente.id)
+               Scheduling.list_patient_sessions(ctx.scope, ctx.paciente.id)
 
       assert sessao.appointment, "o bloco não veio junto (GUC faltando na relação?)"
     end
@@ -705,6 +705,101 @@ defmodule Api.RlsSmokeTest do
         )
 
       assert map_size(blocos) > 0, "o cron não enxergou a agenda (GUC faltando na varredura?)"
+    end
+  end
+
+  # Doc 51. A fatia nasceu sem cobertura aqui, e o buraco cobrou na primeira remoção real: o
+  # `DELETE` estourava `''::uuid` no servidor e a tela dizia "Não foi possível concluir a
+  # operação". Criar e renomear funcionavam — só o `destroy` caía.
+  describe "anexos sob RLS (doc 51)" do
+    @pdf "%PDF-1.7\n%êãÏÓ laudo sob RLS"
+
+    defp anexo(ctx) do
+      {:ok, anexo, _upload} =
+        Records.start_attachment(ctx.scope, ctx.paciente, %{
+          nome: "laudo.pdf",
+          content_type: "application/pdf",
+          bytes: byte_size(@pdf)
+        })
+
+      # O que o browser faria com a URL assinada — os bytes nunca passam pelo servidor.
+      Api.Storage.Memory.subir(anexo.chave, "application/pdf", @pdf)
+
+      {:ok, anexo} = Records.confirm_attachment(ctx.scope, anexo)
+      anexo
+    end
+
+    setup do
+      Api.Storage.Memory.limpar()
+      :ok
+    end
+
+    test "o ciclo start → confirm escreve sob a GUC da própria ação" do
+      ctx = fixture()
+
+      :ok = sem_guc()
+
+      anexo = anexo(ctx)
+      assert anexo.status == :disponivel
+    end
+
+    # **O teste que faltava, e ele é ESTRUTURAL de propósito.**
+    #
+    # `changes do change SetTenantGuc end` roda em `[:create, :update]` por padrão — o Ash omite
+    # `destroy` deliberadamente ("most changes don't make sense for a destroy"). Como
+    # `delete_attachment/2` chama a code interface fora de `in_clinic`, o DELETE chegava ao banco
+    # sem GUC, a RLS avaliava `''::uuid` e o Postgres levantava 22P02 (medido no servidor real:
+    # `Sent 400`, tela dizendo "Não foi possível concluir a operação").
+    #
+    # Por que não asserir o comportamento: o `delete_attachment/2` chama `autorizar/3` logo antes,
+    # que abre um `in_clinic`. No sandbox tudo é UMA transação, então a GUC desse `in_clinic` fica
+    # pendurada e o DELETE seguinte a herda — o teste comportamental passa VERDE com o bug em pé.
+    # Em produção o `in_clinic` commita e o DELETE chega numa transação nova, limpa. É a mesma
+    # armadilha que o `sem_guc/0` deste arquivo contorna nas leituras, e aqui ela é intransponível:
+    # o `sem_guc` teria de rodar DENTRO da ação, entre a autorização e a escrita.
+    #
+    # Sobra a asserção sobre a declaração, que é onde o bug de fato mora.
+    test "o destroy declara o SetTenantGuc (sem ele o DELETE chega sem GUC e estoura ''::uuid)" do
+      changes = Ash.Resource.Info.changes(Api.Records.Attachment, :destroy)
+
+      assert Enum.any?(changes, &(&1.change == {Api.Tenancy.SetTenantGuc, []})),
+             "o destroy do Attachment não seta a GUC de tenant: o `on:` da change global " <>
+               "esqueceu `:destroy` e a remoção falha no servidor real (RLS), não aqui"
+    end
+
+    test "remover apaga a linha e os bytes" do
+      ctx = fixture()
+      anexo = anexo(ctx)
+
+      :ok = sem_guc()
+
+      assert Records.delete_attachment(ctx.scope, anexo) == :ok
+      assert Api.Storage.Memory.chaves() == [], "os bytes ficaram no bucket"
+
+      assert Records.list_patient_attachments(ctx.scope, ctx.paciente) == [],
+             "a linha sobreviveu ao destroy"
+    end
+
+    test "renomear atravessa o WITH CHECK da policy" do
+      ctx = fixture()
+      anexo = anexo(ctx)
+
+      :ok = sem_guc()
+
+      assert {:ok, renomeado} = Records.rename_attachment(ctx.scope, anexo, "ressonância.pdf")
+      assert renomeado.nome == "ressonância.pdf"
+    end
+
+    test "a URL de leitura é emitida e a trilha do acesso é gravada sob RLS" do
+      ctx = fixture()
+      anexo = anexo(ctx)
+
+      :ok = sem_guc()
+
+      assert {:ok, %{url: _}} = Records.attachment_download(ctx.scope, anexo)
+
+      eventos = Records.list_clinic_attachment_events(ctx.scope, anexo.id)
+      assert Enum.any?(eventos, &(&1.acao == :visualizou)), "a trilha LGPD não foi gravada"
     end
   end
 end

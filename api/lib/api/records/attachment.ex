@@ -138,7 +138,15 @@ defmodule Api.Records.Attachment do
     # Toda escrita seta a GUC de tenant dentro da própria transação — sem ela a RLS barra o
     # INSERT/UPDATE no servidor real (NOBYPASSRLS) e o `mix test` não acusa (o sandbox conecta
     # como `postgres`, BYPASSRLS).
-    change Api.Tenancy.SetTenantGuc
+    #
+    # `on:` explícito porque o padrão do Ash é `[:create, :update]` — ele omite `destroy` de
+    # propósito ("most changes don't make sense for a destroy"). Aqui faz: `delete_attachment/2`
+    # chama a code interface fora de `in_clinic` (envolvê-la abriria transação por fora e viraria
+    # 500 no caminho de erro — ver o moduledoc do `SetTenantGuc`), então quem põe a GUC na
+    # transação do DELETE é esta change. Sem o `:destroy`, remover anexo respondia 400 no
+    # servidor real com `''::uuid`, e a suíte não via: a GUC do `autorizar/3` fica pendurada no
+    # sandbox, que roda o teste inteiro numa transação só.
+    change Api.Tenancy.SetTenantGuc, on: [:create, :update, :destroy]
   end
 
   multitenancy do
