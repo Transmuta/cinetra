@@ -204,8 +204,8 @@ config :api, Api.Storage, adapter: Api.Storage.R2
 #
 # `metrics_server: :disabled` **não** desliga as métricas: desliga só o servidor HTTP embutido do
 # PromEx, que usa `Plug.Cowboy`. Quem serve o `/metrics` é um `Bandit` nosso, na árvore de
-# supervisão (`Api.PromEx.metrics_server_spec/0`) — mesmo servidor web do resto da aplicação, e
-# uma dependência a menos.
+# supervisão (`Api.PromEx.metrics_server_children/0`) — mesmo servidor web do resto da aplicação,
+# e uma dependência a menos.
 #
 # `grafana: :disabled` porque os dashboards deste projeto são ARQUIVO provisionado em
 # `deploy/observability/dashboards/`, versionado junto com o resto. O upload por API do PromEx
