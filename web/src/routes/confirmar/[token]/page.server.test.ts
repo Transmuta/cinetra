@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// `clientIpHeaders` é o de verdade (não é mock): é justamente ele que este arquivo precisa provar
+// `headersDeContexto` é o de verdade (não é mock): é justamente ele que este arquivo precisa provar
 // que está sendo chamado.
 const api = vi.hoisted(() => ({
 	apiBase: () => 'http://api',
-	clientIpHeaders: (event: { getClientAddress?: () => string }, init?: HeadersInit) => {
+	headersDeContexto: (event: { getClientAddress?: () => string }, init?: HeadersInit) => {
 		const headers = new Headers(init);
 		const ip = event.getClientAddress?.();
 		if (ip) headers.set('x-forwarded-for', ip);

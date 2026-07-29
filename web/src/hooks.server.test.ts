@@ -7,6 +7,7 @@ function fakeEvent(themeCookie?: string, url = 'http://localhost:5173/', aceita?
 	return {
 		cookies: { get: (n: string) => (n === 'mv-theme' ? themeCookie : undefined) },
 		url: new URL(url),
+		locals: {},
 		request: new Request(url, { headers: aceita ? { 'accept-encoding': aceita } : {} })
 	} as never;
 }
@@ -131,5 +132,46 @@ describe('handle (compressão do HTML do SSR)', () => {
 
 		expect(res.headers.get('content-encoding')).toBeNull();
 		expect(await res.text()).toBe(html);
+	});
+});
+
+describe('handle (request_id para correlação com a API)', () => {
+	// Um id POR REQUEST do BFF, e não por chamada: uma navegação dispara várias chamadas à API, e
+	// o que se quer é vê-las juntas. Gerar dentro do `apiFetch` daria N ids sem relação entre si.
+	it('põe um requestId em locals antes de resolver', async () => {
+		const { resolve } = fakeResolve();
+		const event = fakeEvent();
+		await handle({ event, resolve } as never);
+
+		const { requestId } = (event as unknown as { locals: { requestId?: string } }).locals;
+		expect(requestId).toBeTypeOf('string');
+		// A faixa que o `Plug.RequestId` aceita — fora dela ele descarta em silêncio.
+		expect(new TextEncoder().encode(requestId).length).toBeGreaterThanOrEqual(20);
+		expect(new TextEncoder().encode(requestId).length).toBeLessThanOrEqual(200);
+	});
+
+	// O `locals` precisa estar pronto ANTES do `resolve`, senão as chamadas que os `load` fazem à
+	// API saem sem o header e a correlação fica valendo só para o que roda depois da página.
+	it('o requestId já existe quando o resolve é chamado', async () => {
+		let visto: string | undefined;
+		const event = fakeEvent();
+		const resolve = vi.fn(() => {
+			visto = (event as unknown as { locals: { requestId?: string } }).locals.requestId;
+			return new Response('ok');
+		});
+		await handle({ event, resolve } as never);
+
+		expect(visto).toBeTypeOf('string');
+	});
+
+	it('cada request recebe um id diferente', async () => {
+		const a = fakeEvent();
+		const b = fakeEvent();
+		await handle({ event: a, resolve: fakeResolve().resolve } as never);
+		await handle({ event: b, resolve: fakeResolve().resolve } as never);
+
+		const idA = (a as unknown as { locals: { requestId: string } }).locals.requestId;
+		const idB = (b as unknown as { locals: { requestId: string } }).locals.requestId;
+		expect(idA).not.toBe(idB);
 	});
 });

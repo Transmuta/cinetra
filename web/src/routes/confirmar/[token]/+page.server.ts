@@ -1,6 +1,6 @@
 import { fail, type RequestEvent } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
-import { apiBase, clientIpHeaders } from '$lib/server/api';
+import { apiBase, headersDeContexto } from '$lib/server/api';
 
 // A página que o **paciente** abre pelo link do e-mail (doc 52 §5).
 //
@@ -12,7 +12,7 @@ import { apiBase, clientIpHeaders } from '$lib/server/api';
 // é explícita aqui em vez de num módulo de `$lib/server`: dar a ela a mesma cara das outras
 // convidaria a copiar o padrão para onde ele não vale.
 //
-// O que ela NÃO pode dispensar é o IP do cliente (`clientIpHeaders`). Sem sessão, o IP é a única
+// O que ela NÃO pode dispensar é o IP do cliente (`headersDeContexto`). Sem sessão, o IP é a única
 // chave que a API tem para o rate limit — e sem o header todos os pacientes do produto caem no
 // mesmo balde, o do container do BFF: um visitante em laço derrubava a confirmação de todo mundo
 // (bate-volta doc 68, causa B).
@@ -31,7 +31,7 @@ async function chamar(
 	token: string,
 	init?: RequestInit
 ): Promise<{ status: number; resumo: Resumo | null }> {
-	const headers = clientIpHeaders(event, init?.headers);
+	const headers = headersDeContexto(event, init?.headers);
 	headers.set('accept', 'application/json');
 
 	try {

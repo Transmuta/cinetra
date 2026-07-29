@@ -27,11 +27,12 @@ describe('apiBase / apiPublicOrigin', () => {
 });
 
 describe('apiFetch (BFF repassa o cookie de sessão)', () => {
-	function fakeEvent(sessionValue?: string) {
+	function fakeEvent(sessionValue?: string, requestId?: string) {
 		const fetch = vi.fn().mockResolvedValue(new Response('ok'));
 		return {
 			fetch,
 			getClientAddress: () => '203.0.113.7',
+			locals: requestId ? { requestId } : {},
 			cookies: { get: (name: string) => (name === SESSION_COOKIE ? sessionValue : undefined) }
 		} as never;
 	}
@@ -80,6 +81,29 @@ describe('apiFetch (BFF repassa o cookie de sessão)', () => {
 
 		const [, init] = (event as unknown as { fetch: ReturnType<typeof vi.fn> }).fetch.mock.calls[0];
 		expect((init.headers as Headers).has('x-forwarded-for')).toBe(false);
+	});
+
+	// Correlação BFF → API. Sem este header, cada navegação gera um `request_id` novo do lado
+	// Elixir e não há como ligar o erro que o BFF registrou à requisição que o causou na API.
+	it('repassa o request_id do BFF em x-request-id', async () => {
+		const event = fakeEvent('x', 'bff-0198cafe-4d2b-71a9-b3e0-5f1c8d7a6e04');
+		await apiFetch(event, '/api/agenda');
+
+		const [, init] = (event as unknown as { fetch: ReturnType<typeof vi.fn> }).fetch.mock.calls[0];
+		expect((init.headers as Headers).get('x-request-id')).toBe(
+			'bff-0198cafe-4d2b-71a9-b3e0-5f1c8d7a6e04'
+		);
+	});
+
+	it('sem requestId em locals não inventa header', async () => {
+		// Mesmo raciocínio do x-forwarded-for acima: um `x-request-id` com "undefined" seria pior
+		// que a ausência — o Plug.RequestId o rejeitaria por tamanho e a correlação sairia errada
+		// em vez de ausente, que é mais difícil de perceber.
+		const event = fakeEvent('x');
+		await apiFetch(event, '/api/agenda');
+
+		const [, init] = (event as unknown as { fetch: ReturnType<typeof vi.fn> }).fetch.mock.calls[0];
+		expect((init.headers as Headers).has('x-request-id')).toBe(false);
 	});
 });
 

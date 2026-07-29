@@ -16,27 +16,39 @@ export function apiPublicOrigin(): string {
 	return env.API_PUBLIC_ORIGIN ?? 'http://localhost:4010';
 }
 
-// Repassa o IP real do cliente para as chaves de rate limit por IP da API (doc 13, causa A).
-// A API é interna, então confia neste header vindo só do BFF. `getClientAddress()` já resolve o
-// IP real atrás da edge via ADDRESS_HEADER (web/fly.toml). Best-effort: em request handling real
-// ele sempre existe.
+// Os headers que TODA chamada do BFF à API carrega, independentemente de haver sessão. São dois,
+// por dois motivos distintos:
 //
-// **Toda** chamada do BFF à API precisa disto, inclusive as que não têm sessão para repassar —
-// e são exatamente essas que dependem dele, porque sem ator a API só tem o IP como chave. Sem o
-// header, todo tráfego anônimo do produto (respostas de paciente, callbacks de login) colapsa
-// num balde só, o do container do BFF: 200 req/min para o sistema inteiro, e um visitante
-// derrubando o login de todos (bate-volta doc 68, causa B). Por isso é exportado — as duas
-// chamadas sem sessão o usam direto.
-export function clientIpHeaders(event: RequestEvent, init: HeadersInit = {}): Headers {
+// `x-forwarded-for` — o IP real do cliente, para as chaves de rate limit por IP da API (doc 13,
+// causa A). A API é interna, então confia neste header vindo só do BFF; `getClientAddress()` já
+// resolve o IP real atrás da edge via ADDRESS_HEADER (web/fly.toml).
+//
+// As chamadas SEM sessão são justamente as que mais dependem dele: sem ator, a API só tem o IP
+// como chave. Sem o header, todo tráfego anônimo do produto (respostas de paciente, callbacks de
+// login) colapsa num balde só, o do container do BFF — 200 req/min para o sistema inteiro, e um
+// visitante derrubando o login de todos (bate-volta doc 68, causa B). Por isso a função é
+// exportada: as duas chamadas sem sessão a usam direto.
+//
+// `x-request-id` — correlação BFF → API (doc 62 §12). O `Plug.RequestId` do lado Elixir reaproveita
+// este header em vez de gerar id próprio, e é assim que a linha da requisição na API, o erro que o
+// BFF registrou e o job que ela enfileirou passam a ter a mesma chave.
+//
+// Os dois são best-effort e **omitidos quando não há valor**, nunca preenchidos com placeholder:
+// um `x-forwarded-for` com "undefined" viraria uma chave de rate limit compartilhada por todo
+// mundo, e um `x-request-id` fora da faixa 20..200 seria descartado pelo Plug — trocando ausência
+// (perceptível) por correlação errada (não perceptível).
+export function headersDeContexto(event: RequestEvent, init: HeadersInit = {}): Headers {
 	const headers = new Headers(init);
 	const clientIp = event.getClientAddress?.();
 	if (clientIp) headers.set('x-forwarded-for', clientIp);
+	const requestId = event.locals?.requestId;
+	if (requestId) headers.set('x-request-id', requestId);
 	return headers;
 }
 
 // Fetch para a API repassando o cookie de sessão do request atual (BFF).
 export function apiFetch(event: RequestEvent, path: string, init: RequestInit = {}): Promise<Response> {
-	const headers = clientIpHeaders(event, init.headers);
+	const headers = headersDeContexto(event, init.headers);
 	const session = event.cookies.get(SESSION_COOKIE);
 	if (session) headers.set('cookie', `${SESSION_COOKIE}=${session}`);
 	return event.fetch(`${apiBase()}${path}`, { ...init, headers });

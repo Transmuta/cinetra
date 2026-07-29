@@ -16,7 +16,7 @@ defmodule Api.Packages.Package.Changes.EnqueueMaterialization do
 
       Ash.Changeset.after_action(changeset, fn _changeset, package ->
         %{package_id: package.id, clinic_id: to_string(package.clinic_id), forcar: forcar}
-        |> Api.Packages.Materializer.new()
+        |> Api.Packages.Materializer.new(Api.Correlacao.opts())
         |> Oban.insert()
         |> case do
           {:ok, _job} -> {:ok, package}

@@ -672,6 +672,12 @@ versionado, revisável em PR e reaparece igual depois de um `--force-recreate`.
 | **Requisições** | "onde foi o tempo e quem reclama?" — volume e p95 por rota, rotas que mais falham, volume por clínica, lista das lentas |
 | **Erros e jobs** | as duas classes que sumiam — crash no browser (por origem e por tela) e jobs do Oban (executados e falhados) |
 
+> **Continuado em [`73`](73-dashboards-do-log-ao-banco.md) (2026-07-29).** Estes três esgotam quase
+> tudo que o log sabe responder. O doc 73 acrescenta sete dashboards e uma **segunda fonte** — o
+> banco, por views `metrics_*` —, porque a pergunta que abriu este plano ("por que o lembrete não
+> saiu na terça") continuava sem resposta: trabalho que **não** aconteceu não produz linha de log,
+> produz linha parada numa tabela.
+
 **Variável `$parser`** (`json` | `logfmt`): produção emite JSON, dev emite texto legível. Sem ela os
 painéis da API só poderiam ser conferidos depois do deploy — e dashboard que só dá para verificar
 em produção não é verificável. Com ela, os mesmos painéis foram exercitados em dev contra dado
@@ -709,9 +715,25 @@ em cada máquina. `--profile` é flag de linha de comando, e a UI do Dokploy nã
 ficaria fora do deploy automático e seria esquecido no primeiro redeploy, justamente o componente
 que mais precisa acompanhar o app. Sem `profiles`, o arquivo sobe inteiro em qualquer ferramenta.
 
-**Nome de projeto explícito** (`name: cinetra-obs`): é ele que exclui o próprio stack da coleta,
-já que a allowlist do agente é por projeto do compose. Sem ele, o log da ferramenta de log entra
-na conta da retenção do produto.
+**Nomes de projeto explícitos** — e a diferença entre eles é funcional, não estética:
+
+| Projeto | Arquivo | Containers |
+|---|---|---|
+| `cinetra` | `docker-compose.yml` (dev) / `compose.dokploy.yml` (prod, ×2 ambientes) | `cinetra-api-1`, `cinetra-db-1`, `cinetra-web-1` |
+| `cinetra-obs` | `compose.obs.yml` | `cinetra-obs-loki-1`, `cinetra-obs-grafana-1`, `cinetra-obs-alloy-1` |
+
+A allowlist do agente (`OBS_PROJETOS=cinetra`) usa a regex do relabel, que é **ancorada**: `cinetra`
+casa só com `cinetra`, nunca com `cinetra-obs`. É essa âncora que impede o Loki de coletar a si
+mesmo — o log da ferramenta de log consumindo a retenção do produto. Um curinga como `cinetra.*`
+quebraria isso.
+
+*(Antes de 2026-07-28 o projeto de dev herdava o nome do diretório, `moving`. Fixá-lo no compose
+desacopla os nomes do caminho onde o repositório foi clonado, ao custo de recriar os volumes —
+o banco de desenvolvimento é perdido no rename.)*
+
+**Projeto separado ≠ máquina separada.** Os dois rodam no mesmo servidor; o que a separação compra
+é ciclo de vida próprio. Fundir também não seria possível: o Dokploy sobe o `compose.dokploy.yml`
+duas vezes (prod e HML), e a observabilidade lá dentro viraria dois Lokis e dois Grafanas.
 
 **Editou config? `--force-recreate`, não `restart`.** Bind mount de arquivo único não é recriado
 por `restart` — e no Docker Desktop/WSL o container nem volta (sai com código 127).
@@ -882,6 +904,12 @@ ele acende sozinho em toda instalação que não seja produção.
   trace nenhum — e trace é o item de maior custo, menor ganho marginal com apenas dois serviços, e
   **maior superfície de vazamento** (todo atributo de span é dado exportado). O Prometheus está
   reservado no dimensionamento da §3.2 para que a fase seguinte não exija redimensionar a VM.
+
+  > **Os dois foram construídos depois** — métricas no [doc 74](74-signoz-vs-hyperdx.md) e traces
+  > no [doc 76](76-traces.md), ambos no mesmo Grafana, como esta seção previa. Sobre o argumento
+  > do vazamento: ele valia contra SaaS, e o desenho escolhido não é esse — o span passa pelo
+  > **mesmo Alloy** que já processa este log e para num volume da mesma máquina. O que sobrou do
+  > argumento é volume de detalhe, tratado por poda de atributos no agente (doc 76 §4).
 - **RUM / telemetria de browser.** Fora de escopo pelo [`05` §1.2](05-observabilidade-e-producao.md)
   — o risco é justamente vazar identificador para script de terceiro.
 - **Mexer no nível do Ecto.** Ver §1.

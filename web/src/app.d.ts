@@ -7,7 +7,12 @@ declare global {
 
 	namespace App {
 		// interface Error {}
-		// interface Locals {}
+		interface Locals {
+			// Id da requisição do BFF, posto pelo `handle` e repassado à API em `x-request-id`
+			// (doc 62 §12). É o que liga, numa consulta ao Loki, o erro que o BFF registrou à
+			// requisição que o causou na API e ao job que ela enfileirou.
+			requestId: string;
+		}
 		// interface PageData {}
 		// interface PageState {}
 		// interface Platform {}

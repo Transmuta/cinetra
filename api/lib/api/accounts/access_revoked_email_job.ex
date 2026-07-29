@@ -32,7 +32,7 @@ defmodule Api.Accounts.AccessRevokedEmailJob do
   @doc "Enfileira o aviso. Best-effort: falhar aqui não desfaz a remoção."
   def enqueue(%{user_id: user_id, clinic_id: clinic_id}) do
     %{"user_id" => user_id, "clinic_id" => clinic_id}
-    |> new()
+    |> new(Api.Correlacao.opts())
     |> Oban.insert()
   end
 

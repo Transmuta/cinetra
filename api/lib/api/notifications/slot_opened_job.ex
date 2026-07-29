@@ -50,7 +50,7 @@ defmodule Api.Notifications.SlotOpenedJob do
       "appointment_id" => appointment_id,
       "actor_id" => actor_id(actor)
     }
-    |> new()
+    |> new(Api.Correlacao.opts())
     |> Oban.insert()
   end
 

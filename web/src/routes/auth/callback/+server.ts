@@ -1,5 +1,5 @@
 import { redirect, type RequestEvent } from '@sveltejs/kit';
-import { apiBase, clientIpHeaders, reemitSession } from '$lib/server/api';
+import { apiBase, headersDeContexto, reemitSession } from '$lib/server/api';
 
 // Callback do magic link (ADR-005/015): o link do e-mail cai AQUI (no web), não na API.
 // O BFF valida o token via API, captura o cookie de sessão e o re-emite no domínio do web.
@@ -11,7 +11,7 @@ export async function GET(event: RequestEvent) {
 	// logins do sistema dividem o balde do container do BFF na API (doc 68, causa B).
 	const res = await event.fetch(
 		`${apiBase()}/api/auth/magic-link/callback?token=${encodeURIComponent(token)}`,
-		{ redirect: 'manual', headers: clientIpHeaders(event) }
+		{ redirect: 'manual', headers: headersDeContexto(event) }
 	);
 
 	if (!reemitSession(event, res)) redirect(303, '/entrar?erro=link');
