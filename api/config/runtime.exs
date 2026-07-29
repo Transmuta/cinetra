@@ -104,6 +104,10 @@ end
 # monitor). Precedência: URL explícita > slug.
 config :api, Api.Heartbeat,
   base_url: System.get_env("HEARTBEAT_BASE_URL"),
+  # Prefixo do slug por ambiente (`prod-`, `hml-`). Existe para que os dois stacks possam
+  # compartilhar UMA chave de projeto e mesmo assim ter checks distintos — sem ele, o sinal do HML
+  # manteria o check verde com a produção morta. Vazio quando cada ambiente tem projeto próprio.
+  slug_prefix: System.get_env("HEARTBEAT_SLUG_PREFIX"),
   slugs: %{
     "Api.Messaging.ReminderJob" => "reminder",
     "Api.Notifications.DailyDigestJob" => "digest",

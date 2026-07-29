@@ -57,6 +57,7 @@ x-backup-env: &backup-env
   # ninguém saiba. `HEARTBEAT_BASE_URL` é a MESMA raiz que a API usa (uma por ambiente); o slug
   # `backup` é acrescentado pelo script. Vazio = desligado.
   HEARTBEAT_BASE_URL: ${HEARTBEAT_BASE_URL:-}
+  HEARTBEAT_SLUG_PREFIX: ${HEARTBEAT_SLUG_PREFIX:-}
   HEARTBEAT_URL_BACKUP: ${HEARTBEAT_URL_BACKUP:-}
   RCLONE_CONFIG_R2_TYPE: s3
   RCLONE_CONFIG_R2_PROVIDER: Cloudflare
@@ -145,6 +146,7 @@ services:
       # backup, que tem o seu próprio. Mesma raiz, um slug por job (ver runtime.exs). Vazio =
       # desligado; faltar a env aqui faria os seis checks alarmarem "não rodou" para sempre.
       HEARTBEAT_BASE_URL: ${HEARTBEAT_BASE_URL:-}
+      HEARTBEAT_SLUG_PREFIX: ${HEARTBEAT_SLUG_PREFIX:-}
       PHX_SERVER: "true"
       PORT: "4000"
     labels:

@@ -32,7 +32,9 @@ hb_url=""
 if [ -n "${HEARTBEAT_URL_BACKUP:-}" ]; then
   hb_url="$HEARTBEAT_URL_BACKUP"
 elif [ -n "${HEARTBEAT_BASE_URL:-}" ]; then
-  hb_url="${HEARTBEAT_BASE_URL%/}/backup"
+  # HEARTBEAT_SLUG_PREFIX (`prod-`, `hml-`) permite que os dois ambientes dividam uma chave de
+  # projeto e ainda tenham checks distintos. Vazio quando cada um tem projeto próprio.
+  hb_url="${HEARTBEAT_BASE_URL%/}/${HEARTBEAT_SLUG_PREFIX:-}backup"
 fi
 
 sinal() {

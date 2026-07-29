@@ -174,6 +174,35 @@ defmodule Api.HeartbeatTest do
       assert :ok = evento(:stop, "W")
     end
 
+    test "prefixo por ambiente entra antes do slug" do
+      {socket, porta} = escutar()
+
+      Application.put_env(:api, Heartbeat,
+        base_url: "http://127.0.0.1:#{porta}/chave",
+        slug_prefix: "prod-",
+        slugs: %{"W" => "reminder"}
+      )
+
+      evento(:stop, "W")
+
+      # É o que permite prod e HML dividirem UMA chave de projeto sem dividir o check — sem isso,
+      # o sinal do HML manteria o check verde com a produção morta.
+      assert primeira_linha(socket) =~ "GET /chave/prod-reminder "
+      :gen_tcp.close(socket)
+    end
+
+    test "sem prefixo, o slug vai puro" do
+      {socket, porta} = escutar()
+      configurar("http://127.0.0.1:#{porta}/chave", %{"W" => "reminder"})
+
+      evento(:stop, "W")
+
+      linha = primeira_linha(socket)
+      assert linha =~ "GET /chave/reminder "
+      refute linha =~ "-reminder"
+      :gen_tcp.close(socket)
+    end
+
     test "URL explícita tem precedência sobre o slug" do
       {socket, porta} = escutar()
 

@@ -98,10 +98,14 @@ defmodule Api.Heartbeat do
   defp por_slug(config, worker) do
     base = Keyword.get(config, :base_url)
     slug = config |> Keyword.get(:slugs, %{}) |> Map.get(worker)
+    # Prefixo por ambiente (`prod-`, `hml-`). Com ele, os dois stacks podem dividir UMA chave de
+    # projeto e ainda ter checks distintos — `prod-reminder` e `hml-reminder`. Vazio quando cada
+    # ambiente tem projeto próprio, que é a alternativa. Ver doc 62 §9.4.
+    prefixo = Keyword.get(config, :slug_prefix) || ""
 
     if base in [nil, ""] or is_nil(slug),
       do: nil,
-      else: "#{String.trim_trailing(base, "/")}/#{slug}"
+      else: "#{String.trim_trailing(base, "/")}/#{prefixo}#{slug}"
   end
 
   # Ver armadilha 2: desacoplado do processo do job. `Task.start/1` (não `async`) porque ninguém
