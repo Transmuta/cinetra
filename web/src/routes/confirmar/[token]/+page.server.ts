@@ -1,6 +1,6 @@
-import { fail } from '@sveltejs/kit';
+import { fail, type RequestEvent } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
-import { apiBase } from '$lib/server/api';
+import { apiBase, clientIpHeaders } from '$lib/server/api';
 
 // A página que o **paciente** abre pelo link do e-mail (doc 52 §5).
 //
@@ -8,10 +8,14 @@ import { apiBase } from '$lib/server/api';
 // usuário do sistema — é alguém que recebeu uma mensagem. O que autoriza é o token assinado, e
 // ele responde por UMA mensagem: não abre sessão, não dá acesso a ficha nem a agenda.
 //
-// Fala com a API sem `apiFetch` porque não há cookie de sessão para repassar. É a única chamada
-// do BFF nessa condição, e é por isso que ela é explícita aqui em vez de num módulo de
-// `$lib/server`: dar a ela a mesma cara das outras convidaria a copiar o padrão para onde ele
-// não vale.
+// Fala com a API sem `apiFetch` porque não há cookie de sessão para repassar. É por isso que ela
+// é explícita aqui em vez de num módulo de `$lib/server`: dar a ela a mesma cara das outras
+// convidaria a copiar o padrão para onde ele não vale.
+//
+// O que ela NÃO pode dispensar é o IP do cliente (`clientIpHeaders`). Sem sessão, o IP é a única
+// chave que a API tem para o rate limit — e sem o header todos os pacientes do produto caem no
+// mesmo balde, o do container do BFF: um visitante em laço derrubava a confirmação de todo mundo
+// (bate-volta doc 68, causa B).
 
 interface Resumo {
 	clinica: string | null;
@@ -23,14 +27,17 @@ interface Resumo {
 }
 
 async function chamar(
-	fetchFn: typeof fetch,
+	event: RequestEvent,
 	token: string,
 	init?: RequestInit
 ): Promise<{ status: number; resumo: Resumo | null }> {
+	const headers = clientIpHeaders(event, init?.headers);
+	headers.set('accept', 'application/json');
+
 	try {
-		const res = await fetchFn(`${apiBase()}/api/reply/${encodeURIComponent(token)}`, {
+		const res = await event.fetch(`${apiBase()}/api/reply/${encodeURIComponent(token)}`, {
 			...init,
-			headers: { accept: 'application/json', ...(init?.headers ?? {}) }
+			headers
 		});
 
 		if (!res.ok) return { status: res.status, resumo: null };
@@ -40,8 +47,8 @@ async function chamar(
 	}
 }
 
-export const load: PageServerLoad = async ({ params, fetch }) => {
-	const { status, resumo } = await chamar(fetch, params.token);
+export const load: PageServerLoad = async (event) => {
+	const { status, resumo } = await chamar(event, event.params.token);
 
 	// Não usa `error()`: a página de erro padrão fala com um usuário do sistema ("volte ao
 	// painel"), e quem está aqui não tem painel. O estado vira dado e a página escreve uma frase
@@ -50,11 +57,11 @@ export const load: PageServerLoad = async ({ params, fetch }) => {
 };
 
 export const actions: Actions = {
-	default: async ({ params, request, fetch }) => {
-		const form = await request.formData();
+	default: async (event) => {
+		const form = await event.request.formData();
 		const resposta = String(form.get('resposta') ?? '');
 
-		const { status, resumo } = await chamar(fetch, params.token, {
+		const { status, resumo } = await chamar(event, event.params.token, {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
 			body: JSON.stringify({ resposta })

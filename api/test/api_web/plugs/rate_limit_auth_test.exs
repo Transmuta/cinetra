@@ -90,6 +90,24 @@ defmodule ApiWeb.Plugs.RateLimitAuthTest do
     assert json_response(barrado, 429) == %{"error" => "rate_limited"}
   end
 
+  test "o 429 do limite de auth também diz quando voltar (retry-after em segundos)", %{
+    conn: _conn
+  } do
+    # Os dois limitadores respondem 429 e só um mandava `retry-after`: um cliente que aprendesse
+    # a respeitar o header no limite global ficava sem orientação justo no endpoint mais sensível,
+    # e faria retry cego (doc 68, causa F). O `deny` agora é um só, compartilhado.
+    email = "retry-#{System.unique_integer([:positive])}@example.com"
+    ip = "198.51.100.200"
+
+    for _ <- 1..5, do: post_ml(ip, email)
+    barrado = post_ml(ip, email)
+
+    assert barrado.status == 429
+    assert [retry_after] = get_resp_header(barrado, "retry-after")
+    # Janela por e-mail: 15 minutos.
+    assert String.to_integer(retry_after) in 1..900
+  end
+
   test "desligado (default fora de prod): não barra", %{conn: _conn} do
     Application.put_env(:api, :rate_limit_enabled, false)
     email = "sem-limite-#{System.unique_integer([:positive])}@example.com"

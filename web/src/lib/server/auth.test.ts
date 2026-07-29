@@ -140,6 +140,29 @@ describe('loadMe (sessão pelo BFF)', () => {
 		expect(me).toMatchObject({ active_clinic_id: 'c1' });
 	});
 
+	it('429 NÃO é "sem sessão": levanta 429 em vez de deslogar', async () => {
+		// Todo não-2xx virava `null`, e o layout do app faz `if (!me) redirect('/entrar')` — ou
+		// seja, o rate limit DESLOGAVA quem tinha sessão válida, indistinguível de um 401
+		// (bate-volta doc 68, causa D). Rate limit degrada, não deautentica.
+		await expect(loadMe(meEvent(json({ error: 'rate_limited' }, 429)))).rejects.toMatchObject({
+			status: 429
+		});
+	});
+
+	it('401 continua sendo sessão ausente (o caminho normal do cookie velho)', async () => {
+		expect(await loadMe(meEvent(json({ error: 'unauthorized' }, 401)))).toBeNull();
+	});
+
+	it('API fora do ar devolve null — o rethrow do 429 não pode engolir a falha de rede', async () => {
+		// O `catch` passou a distinguir o que ele mesmo levantou (o 429) de um erro de verdade.
+		// Este é o outro lado dessa bifurcação: erro sem `status` continua virando "sem sessão",
+		// que é o que mantém a home de pé quando a API cai.
+		const fetch = vi.fn().mockRejectedValue(new Error('ECONNREFUSED'));
+		const event = { fetch, cookies: { get: () => 'tok' }, getClientAddress: () => '1.2.3.4' };
+
+		expect(await loadMe(event as never)).toBeNull();
+	});
+
 	it('com cookie mas resposta sem `user`: null', async () => {
 		expect(await loadMe(meEvent(json({ active_clinic_id: 'c1' })))).toBeNull();
 	});

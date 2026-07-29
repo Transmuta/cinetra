@@ -23,9 +23,12 @@ defmodule Api.Application do
       ApiWeb.Telemetry,
       {DNSCluster, query: Application.get_env(:api, :dns_cluster_query) || :ignore},
       Api.Repo,
-      # Rate limiter (Hammer/ETS). Sobe em todos os ambientes; a enforcement é gated a prod
-      # no plug (auditoria doc 13, causa A).
+      # Rate limiters (Hammer/ETS). Sobem em todos os ambientes; a enforcement é gated a prod
+      # nos plugs (auditoria doc 13, causa A). São DOIS, com tabelas separadas: janela deslizante
+      # para o anti-brute-force de auth (preciso, volume baixo) e janela fixa para o limite global
+      # (O(1), tráfego inteiro) — a separação está justificada em cada moduledoc (doc 68, causa A).
       {Api.RateLimiter, [clean_period: :timer.minutes(1)]},
+      {Api.RateLimiter.Global, [clean_period: :timer.minutes(1)]},
       {Phoenix.PubSub, name: Api.PubSub},
       # Cache do fuso da clínica (D-K). Depende do PubSub — é por ele que a invalidação de um
       # nó chega aos outros (`:persistent_term` é por-nó).

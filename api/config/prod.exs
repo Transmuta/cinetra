@@ -28,8 +28,9 @@ config :logger, :default_handler,
     {LoggerJSON.Formatters.Basic,
      metadata: [:request_id, :clinic_id, :actor_id, :method, :route, :status, :duration_ms]}
 
-# Liga o rate limiting dos endpoints de auth (auditoria doc 13, causa A). Só em produção:
-# o `ApiWeb.Plugs.RateLimitAuth` é no-op quando esta flag é falsa (dev/test).
+# Liga o rate limiting: o dos endpoints de auth (auditoria doc 13, causa A) e o global de
+# 200 req/min (`RateLimitGlobal`) nos demais endpoints. Só em produção: os dois plugs são
+# no-op quando esta flag é falsa (dev/test).
 config :api, rate_limit_enabled: true
 
 # Runtime production configuration, including reading

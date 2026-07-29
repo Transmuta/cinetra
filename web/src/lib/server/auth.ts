@@ -1,4 +1,4 @@
-import { fail, redirect, type RequestEvent } from '@sveltejs/kit';
+import { error, fail, redirect, type RequestEvent } from '@sveltejs/kit';
 import { apiFetch, SESSION_COOKIE } from './api';
 import { canonical } from '$lib/seo';
 import type { Me } from '$lib/session';
@@ -14,10 +14,22 @@ export async function loadMe(event: RequestEvent): Promise<Me | null> {
 
 	try {
 		const res = await apiFetch(event, '/api/auth/me', { headers: { accept: 'application/json' } });
+
+		// 429 não é "sem sessão". Tratar todo não-2xx como ausência de sessão fazia o layout
+		// redirecionar para /entrar — ou seja, o rate limit DESLOGAVA quem tinha sessão válida, e
+		// a pessoa perdia o contexto sem entender por quê (bate-volta doc 68, causa D). Rate limit
+		// tem de degradar, não deautenticar: devolvemos 429 para a página de erro dizer "muitas
+		// requisições, tente de novo em instantes" com a sessão intacta.
+		if (res.status === 429) {
+			error(429, 'Muitas requisições em pouco tempo. Aguarde alguns instantes e recarregue.');
+		}
+
 		if (!res.ok) return null;
 		const body = await res.json();
 		return body?.user ? (body as Me) : null;
-	} catch {
+	} catch (e) {
+		// O `error()` acima levanta — não pode ser engolido pelo catch da falha de rede.
+		if (e && typeof e === 'object' && 'status' in e) throw e;
 		return null;
 	}
 }

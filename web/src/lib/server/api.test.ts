@@ -70,6 +70,17 @@ describe('apiFetch (BFF repassa o cookie de sessão)', () => {
 		const [, init] = (event as unknown as { fetch: ReturnType<typeof vi.fn> }).fetch.mock.calls[0];
 		expect((init.headers as Headers).get('x-forwarded-for')).toBe('203.0.113.7');
 	});
+
+	it('sem getClientAddress não inventa header — mandar lixo é pior que não mandar', async () => {
+		// Fora de request handling real o SvelteKit não expõe o endereço. Um `x-forwarded-for`
+		// vazio ou "undefined" viraria uma chave de rate limit compartilhada por todo mundo.
+		const event = fakeEvent('x') as unknown as Record<string, unknown>;
+		delete event.getClientAddress;
+		await apiFetch(event as never, '/api/health');
+
+		const [, init] = (event as unknown as { fetch: ReturnType<typeof vi.fn> }).fetch.mock.calls[0];
+		expect((init.headers as Headers).has('x-forwarded-for')).toBe(false);
+	});
 });
 
 describe('reemitSession (re-emite _api_key no domínio do web)', () => {

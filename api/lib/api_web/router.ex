@@ -27,10 +27,28 @@ defmodule ApiWeb.Router do
     plug ApiWeb.Plugs.RateLimitAuth
   end
 
+  # Rate limit do tráfego geral, em DOIS estágios (doc 68, causa C).
+  #
+  # `:rate_limited_edge` vem ANTES do `:authenticated` e corta enxurrada por IP com teto folgado
+  # (400/min). Sem ele, cada requisição barrada ainda pagava as 5 queries da stack de sessão —
+  # medido: 42× de amplificação, 27 s de banco por minuto descartados.
+  #
+  # `:rate_limited_global` vem DEPOIS, quando já existe escopo, e aplica o limite fino de 200/min
+  # por ator. Fora dos dois: os endpoints de auth (limite próprio), os health checks (liveness não
+  # pode depender do rate limiter, doc 62 §7.1) e os webhooks (rajada legítima de campanha; a
+  # guarda deles é a assinatura). No-op fora de produção.
+  pipeline :rate_limited_edge do
+    plug ApiWeb.Plugs.RateLimitGlobal, stage: :edge
+  end
+
+  pipeline :rate_limited_global do
+    plug ApiWeb.Plugs.RateLimitGlobal, stage: :actor
+  end
+
   # AshJsonApi (recursos do domínio) — sob :authenticated, então cada request já chega
   # com actor e `clinic_id` (tenant) resolvidos do escopo, nunca do corpo/URL (09 §8).
   scope "/api/json" do
-    pipe_through [:api, :authenticated]
+    pipe_through [:api, :rate_limited_edge, :authenticated, :rate_limited_global]
 
     forward "/swaggerui", OpenApiSpex.Plug.SwaggerUI,
       path: "/api/json/open_api",
@@ -42,7 +60,7 @@ defmodule ApiWeb.Router do
   # Endpoints de auth com rate limit (auditoria doc 13, causa A): os que geram e-mail/token
   # ou trocam de tenant. No-op fora de produção.
   scope "/api", ApiWeb do
-    pipe_through [:api, :authenticated, :rate_limited]
+    pipe_through [:api, :rate_limited_edge, :authenticated, :rate_limited]
 
     # Autenticação sem senha (ADR-015, contrato 09 §8).
     post "/auth/magic-link", AuthController, :request_magic_link
@@ -61,7 +79,7 @@ defmodule ApiWeb.Router do
   end
 
   scope "/api", ApiWeb do
-    pipe_through [:api, :authenticated]
+    pipe_through [:api, :rate_limited_edge, :authenticated, :rate_limited_global]
 
     # Onboarding do primeiro acesso: cria a clínica + owner (ADR-016). clinic_id nasce aqui.
     post "/clinics", ClinicController, :onboard
@@ -242,6 +260,10 @@ defmodule ApiWeb.Router do
   # por `:authenticated` porque quem chega aqui não tem login — é o provider de e-mail e é o
   # próprio paciente. O que autoriza cada uma está no controller: assinatura do provider num
   # caso, token assinado no outro.
+  # Webhooks dos providers — **fora do rate limit global** de propósito: numa campanha grande,
+  # a rajada de eventos de entrega do mesmo IP do provider estouraria os 200/min e atrasaria a
+  # entrega (429 → retry). A guarda deles é a assinatura, conferida antes de qualquer leitura
+  # de banco.
   scope "/", ApiWeb do
     pipe_through :api
 
@@ -252,8 +274,13 @@ defmodule ApiWeb.Router do
     # O mesmo para o WhatsApp (doc 65 §4): entrega, leitura, falha e a palavra-chave de opt-out
     # que o paciente escreve. Assinatura HMAC-SHA256 do corpo cru, não Svix.
     post "/webhooks/zernio", ZernioWebhookController, :create
+  end
 
-    # A resposta do paciente (§5). O token identifica UMA mensagem e não abre sessão nenhuma.
+  scope "/", ApiWeb do
+    pipe_through [:api, :rate_limited_edge, :rate_limited_global]
+
+    # A resposta do paciente (§5). O token identifica UMA mensagem e não abre sessão nenhuma —
+    # e por ser pública e sem sessão, é exatamente o tipo de rota que o limite global protege.
     get "/api/reply/:token", PatientReplyController, :show
     post "/api/reply/:token", PatientReplyController, :create
   end
@@ -261,7 +288,7 @@ defmodule ApiWeb.Router do
   # Máquina OAuth do AshAuthentication (Assent): request + callback do Google. Chama
   # `ApiWeb.AuthStrategyController.success/4` / `failure/3`.
   scope "/" do
-    pipe_through :oauth
+    pipe_through [:oauth, :rate_limited_edge, :rate_limited_global]
     auth_routes(ApiWeb.AuthStrategyController, Api.Accounts.User, path: "/api/auth/strategy")
   end
 
