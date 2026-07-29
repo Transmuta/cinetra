@@ -22,6 +22,17 @@ defmodule Api.Messaging.Notifier do
   As duas últimas são o **C7(b)**, que a fase 1 deixou de fora por ser "copy nova, não estrutura
   nova". Era verdade: entraram sem mexer no `Dispatch`, no `SendJob` nem no transporte.
 
+  ## E o que ele **desfaz**: `:cancel` e `:exclude` esvaziam a fila
+
+  A janela de silêncio (§7) **adia**, e isso abriu horas entre "a mensagem foi pedida" e "a
+  mensagem saiu". Dentro dessa janela o fato pode mudar: o bloco é cancelado às 22h45 e a
+  confirmação das 22h continua parada até as 8h. Ela saía assim mesmo, anunciando uma sessão que
+  já não existe — e mensagem enviada não volta.
+
+  Então os dois gatilhos que **encerram** o bloco começam tirando da fila tudo que ainda não saiu
+  (`Api.Messaging.MessageStatus` → `:descartada`). No `:exclude` isso é o que faz a decisão de não
+  avisar valer: sem ele, ela valia só fora do horário de silêncio.
+
   ## Duas ações do ciclo de vida ficam de fora, e por razões diferentes
 
   **`:reopen`** — reabrir é desfazer um clique errado (D-E4.2), quase sempre segundos depois;
@@ -56,19 +67,35 @@ defmodule Api.Messaging.Notifier do
 
   alias Api.Messaging.Dispatch
 
-  # A escrita de LOTE (materialização de pacote) passa por aqui uma vez por sessão. Um pacote de
-  # 40 sessões mandaria 40 confirmações de uma vez — que é spam, e no WhatsApp seria spam *pago*.
-  # A marca viaja no contexto do changeset, posta por `Api.Packages.Bulk`; é a mesma que o
-  # `Api.Notifications.Notifier` usa para suprimir a caixa, e pelo mesmo motivo.
+  # **A exceção do lote, e vem antes dele de propósito.** Descartar não é *falar* com o paciente —
+  # é o contrário: é tirar da fila uma mensagem que não pode mais sair. Cair na supressão geral
+  # abaixo deixaria um pacote de 40 sessões cancelado em massa com 40 confirmações ainda a
+  # caminho, que é exatamente o dano que a marca existe para evitar, pela porta do lado.
+  @impl true
+  def notify(%Ash.Notifier.Notification{
+        resource: Api.Scheduling.Appointment,
+        action: %{name: name},
+        data: appointment,
+        changeset: %{context: %{bulk_pacote: true}}
+      })
+      when name in [:cancel, :exclude] do
+    descartar_pendentes(appointment, motivo_do_descarte(name))
+  end
+
+  # A escrita de LOTE (materialização de pacote, massa por pacote) passa por aqui uma vez por
+  # sessão. Um pacote de 40 sessões mandaria 40 confirmações de uma vez — que é spam, e no WhatsApp
+  # seria spam *pago*. A marca viaja no contexto do changeset, posta por `Api.Packages.Bulk` e por
+  # `Api.Packages.Sessions`; é a mesma que o `Api.Notifications.Notifier` usa para suprimir a
+  # caixa, e pelo mesmo motivo.
   #
   # **Esta linha é idêntica à de lá, e continua duplicada de propósito.** O bate-volta propôs
   # extraí-la; as duas saídas pioram o código: função não casa em head, e a `defguard` equivalente
   # fica menos legível do que a linha que ela substitui. O risco real da cópia — alguém trocar a
-  # marca em `Api.Packages.Bulk` e esquecer um dos dois assinantes, sem erro nenhum e com 40
-  # mensagens saindo — está preso por teste, em `Api.Messaging.NotifierTest`.
+  # marca e esquecer um dos dois assinantes, sem erro nenhum e com 40 mensagens saindo — está preso
+  # por teste, em `Api.Messaging.NotifierTest`.
   #
-  # **Vem antes de todas as outras cláusulas**, como lá: uma cláusula específica atrás de uma
-  # geral nunca roda, e o sintoma seria só uma mensagem a mais — sem erro nenhum.
+  # **Vem antes das cláusulas de gatilho**, como lá: uma cláusula específica atrás de uma geral
+  # nunca roda, e o sintoma seria só uma mensagem a mais — sem erro nenhum.
   @impl true
   def notify(%Ash.Notifier.Notification{changeset: %{context: %{bulk_pacote: true}}}), do: :ok
 
@@ -91,16 +118,75 @@ defmodule Api.Messaging.Notifier do
       }),
       do: avisar(appointment, :remarcacao)
 
+  # A ordem das duas linhas é contrato: **descarta antes de avisar**. Invertido, o `:cancelamento`
+  # que acabou de entrar na fila seria varrido pelo próprio descarte — `pending_for_appointment`
+  # não filtra por tipo, e é essa ausência de filtro que faz o resto funcionar.
   @impl true
   def notify(%Ash.Notifier.Notification{
         resource: Api.Scheduling.Appointment,
         action: %{name: :cancel},
         data: appointment
+      }) do
+    descartar_pendentes(appointment, motivo_do_descarte(:cancel))
+    avisar(appointment, :cancelamento)
+  end
+
+  # Excluir não avisa (ver o moduledoc) — mas **precisa** desfazer o aviso que já estava na fila.
+  # Sem isto a decisão de não falar com o paciente valia só fora da janela de silêncio: dentro
+  # dela, a confirmação da criação continuava parada e saía às 8h, anunciando um lançamento que
+  # alguém acabou de apagar por engano.
+  @impl true
+  def notify(%Ash.Notifier.Notification{
+        resource: Api.Scheduling.Appointment,
+        action: %{name: :exclude},
+        data: appointment
       }),
-      do: avisar(appointment, :cancelamento)
+      do: descartar_pendentes(appointment, motivo_do_descarte(:exclude))
 
   @impl true
   def notify(_notification), do: :ok
+
+  # A autoridade única do par ação → motivo. As três cláusulas de descarte passam por aqui: o
+  # lote e as duas normais, para que trocar um motivo não deixe a outra porta dizendo o antigo.
+  defp motivo_do_descarte(:cancel), do: :sessao_cancelada
+  defp motivo_do_descarte(:exclude), do: :agendamento_excluido
+
+  # Tira da fila tudo que ainda não saiu deste bloco.
+  #
+  # Roda **dentro** de `with_clinic/2` porque a leitura precisa da GUC: solta, a RLS devolveria
+  # lista vazia sob `movimento_app` e o descarte passaria a nunca descartar — em silêncio, e com a
+  # suíte verde, porque o sandbox do `mix test` roda como superusuário (a lição de
+  # `.claude/rules/migrations.md`, que já custou três medições erradas).
+  #
+  # Não cancela o job do Oban: o `SendJob` já sai por cima quando a mensagem não está mais
+  # `:pendente`. Uma guarda só, no lugar onde o envio de fato acontece, em vez de duas que podem
+  # divergir.
+  defp descartar_pendentes(appointment, motivo) do
+    Api.Repo.with_clinic(appointment.clinic_id, fn ->
+      appointment.id
+      |> Api.Messaging.list_pending_messages_for_appointment!(
+        tenant: appointment.clinic_id,
+        authorize?: false
+      )
+      |> Enum.each(
+        &Api.Messaging.do_discard_message!(&1, %{descarte_motivo: motivo},
+          tenant: appointment.clinic_id,
+          authorize?: false
+        )
+      )
+    end)
+
+    :ok
+  rescue
+    erro ->
+      # Best-effort como o resto: o bloco já foi cancelado/excluído e não pode cair porque a fila
+      # não pôde ser limpa. O pior caso volta a ser o de antes desta correção.
+      Logger.warning(
+        "descarte de mensagens falhou (#{appointment.id}): #{Exception.message(erro)}"
+      )
+
+      :ok
+  end
 
   defp avisar(appointment, kind) do
     Api.Repo.with_clinic(appointment.clinic_id, fn ->

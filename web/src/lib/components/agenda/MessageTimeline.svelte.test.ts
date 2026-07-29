@@ -21,10 +21,13 @@ const msg = (over: Partial<Message> = {}): Message => ({
 	resposta: null,
 	automatico: true,
 	enfileiradoEm: '2026-08-10T12:00:00Z',
+	agendadoPara: null,
 	enviadoEm: '2026-08-10T12:00:05Z',
 	entregueEm: '2026-08-10T12:00:30Z',
 	lidoEm: null,
 	falhouEm: null,
+	descartadaEm: null,
+	descarteMotivo: null,
 	respondidoEm: null,
 	titulo: 'Clínica: sua sessão',
 	...over
@@ -100,6 +103,66 @@ describe('MessageTimeline', () => {
 		// O que a recepção lê é a ação em português; o cru do provider fica só para o suporte.
 		expect(screen.getByText(/confira o endereço na ficha/)).toBeInTheDocument();
 		expect(screen.queryByText(/mailbox does not exist/)).not.toBeInTheDocument();
+	});
+
+	it('mensagem adiada diz QUANDO sai, no fuso da clínica', () => {
+		// O relato ao vivo: três confirmações corretamente adiadas pela janela de silêncio (§7), e
+		// a tela mostrando "Na fila · ter 22:17" — o instante em que ela ENTROU na fila. A leitura
+		// natural disso é "não está enviando", que foi exatamente a conclusão de quem testou.
+		render(
+			MessageTimeline,
+			props({
+				participantes: [
+					p({
+						mensagens: [
+							msg({
+								status: 'pendente',
+								enviadoEm: null,
+								entregueEm: null,
+								enfileiradoEm: '2026-08-11T01:17:00Z',
+								agendadoPara: '2026-08-11T11:00:00Z'
+							})
+						]
+					})
+				],
+				agora: '2026-08-11T01:20:00Z'
+			})
+		);
+
+		// 11:00Z = 08:00 em São Paulo, o fim da janela.
+		expect(screen.getByText(/sai .*08:00/)).toBeInTheDocument();
+		// E o instante de entrada na fila sai de cena: ele não responde a pergunta de quem lê.
+		expect(screen.queryByText(/22:17/)).not.toBeInTheDocument();
+	});
+
+	it('mensagem descartada para de prometer saída, e diz por quê', () => {
+		// O outro lado do teste acima. A janela de silêncio abriu uma brecha de horas entre pedir e
+		// enviar, e nela o bloco pode ser cancelado: a mensagem some da fila, mas a tela continuava
+		// anunciando "sai qua., 08:00" para algo que não vai mais sair.
+		render(
+			MessageTimeline,
+			props({
+				participantes: [
+					p({
+						mensagens: [
+							msg({
+								status: 'descartada',
+								enviadoEm: null,
+								entregueEm: null,
+								agendadoPara: '2026-08-11T11:00:00Z',
+								descartadaEm: '2026-08-11T01:45:00Z',
+								descarteMotivo: 'sessao_cancelada'
+							})
+						]
+					})
+				],
+				agora: '2026-08-11T01:50:00Z'
+			})
+		);
+
+		expect(screen.queryByText(/sai /)).not.toBeInTheDocument();
+		expect(screen.getByText(/Não enviada/)).toBeInTheDocument();
+		expect(screen.getByText(/a sessão foi cancelada antes de ela sair/)).toBeInTheDocument();
 	});
 
 	it('só nomeia o participante quando há mais de um', () => {

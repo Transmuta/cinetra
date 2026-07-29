@@ -109,10 +109,18 @@ defmodule ApiWeb.MessagesController do
       # Nulo = automático. É a distinção que a recepção usa para saber se precisa fazer algo (§6).
       automatico: is_nil(message.disparado_por_id),
       enfileiradoEm: message.enfileirado_em,
+      # Preenchido só quando a janela de silêncio adiou (§7). É o que separa "na fila" de "não
+      # saiu": sem ele a tela mostra uma mensagem parada e ninguém sabe se ela ainda vai sair.
+      agendadoPara: message.agendado_para,
       enviadoEm: message.enviado_em,
       entregueEm: message.entregue_em,
       lidoEm: message.lido_em,
       falhouEm: message.falhou_em,
+      # A retirada da fila (§7 + doc 40): o bloco foi cancelado ou excluído enquanto a mensagem
+      # esperava a janela de silêncio abrir. O motivo viaja porque "Não enviada" sozinho manda a
+      # recepção procurar um defeito onde houve uma decisão.
+      descartadaEm: message.descartada_em,
+      descarteMotivo: message.descarte_motivo,
       respondidoEm: message.respondido_em,
       # O texto vem do template + vars gravados, renderizado na leitura — o corpo não é
       # persistido (§4, retenção).
@@ -151,8 +159,19 @@ defmodule ApiWeb.MessagesController do
     case Dispatch.dispatch(clinic, attendance, attendance.patient, :confirmacao,
            disparado_por_id: scope.user.id
          ) do
-      {:ok, message} -> %{patientId: attendance.patient_id, enviado: true, messageId: message.id}
-      {:skip, motivo} -> %{patientId: attendance.patient_id, enviado: false, motivo: motivo}
+      {:ok, message} ->
+        %{
+          patientId: attendance.patient_id,
+          enviado: true,
+          messageId: message.id,
+          # A janela de silêncio (§7) adiou: o pedido foi aceito e a mensagem NÃO sai agora.
+          # Sem isto a tela diria "Mensagem enviada" para algo que ainda está na fila — o mesmo
+          # "Feito" que não enviava, com outra causa.
+          agendadoPara: message.agendado_para
+        }
+
+      {:skip, motivo} ->
+        %{patientId: attendance.patient_id, enviado: false, motivo: motivo}
     end
   end
 

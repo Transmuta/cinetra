@@ -29,6 +29,50 @@ defmodule ApiWeb.MessagesControllerTest do
                linha["mensagens"]
     end
 
+    test "cancelado dentro do silêncio, a linha para de prometer envio e diz por quê", %{
+      ctx: ctx,
+      sessao: sessao
+    } do
+      # O bug relatado ao vivo em 2026-07-29, e ele **só existe atravessando a fronteira**: era
+      # aqui, nesta linha, que a recepção lia "Confirmação por e-mail · Na fila · sai qua., 08:00"
+      # para uma sessão que já não ia acontecer. `agendadoPara` é o que vira aquela promessa na
+      # tela, e depois do descarte ele não pode mais governar a linha.
+      #
+      # O caminho passa por **reabrir**, e não por acaso: o `carregar/2` só lista participante
+      # **vivo**, então num bloco cancelado a timeline vem vazia e ninguém lê nada. Reabrir (o
+      # desfazer do clique errado, D-E4.2) traz a presença de volta — e é exatamente aí que saber
+      # que a confirmação nunca saiu decide o próximo passo da recepção.
+      silenciar_agora(ctx)
+      paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
+      appt = agendamento!(ctx, paciente: paciente)
+
+      %{"participantes" => [antes]} = get_json(sessao, appt)
+
+      assert [%{"status" => "pendente", "agendadoPara" => quando} = confirmacao] =
+               antes["mensagens"]
+
+      assert quando != nil
+
+      {:ok, cancelado} =
+        Api.Scheduling.transition_appointment(ctx.scope, appt.id, :cancel, %{}, appt.version)
+
+      {:ok, _} =
+        Api.Scheduling.transition_appointment(
+          ctx.scope,
+          appt.id,
+          :reopen,
+          %{},
+          cancelado.version
+        )
+
+      %{"participantes" => [depois]} = get_json(sessao, appt)
+      linha = Enum.find(depois["mensagens"], &(&1["id"] == confirmacao["id"]))
+
+      assert linha["status"] == "descartada"
+      assert linha["descarteMotivo"] == "sessao_cancelada"
+      assert linha["descartadaEm"] != nil
+    end
+
     test "explica o silêncio de quem não tem contato", %{ctx: ctx, sessao: sessao} do
       paciente = paciente_legado_sem_tel!(ctx, comunicacao: true, email: nil)
       appt = agendamento!(ctx, paciente: paciente)
@@ -119,6 +163,7 @@ defmodule ApiWeb.MessagesControllerTest do
 
   describe "POST /api/appointments/:id/messages" do
     test "reenvia e registra QUEM disparou", %{ctx: ctx, sessao: sessao} do
+      sem_confirmacao_automatica(ctx)
       paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
       appt = agendamento!(ctx, paciente: paciente)
 
@@ -129,6 +174,50 @@ defmodule ApiWeb.MessagesControllerTest do
       %{"participantes" => [linha]} = get_json(sessao, appt)
       manual = Enum.find(linha["mensagens"], &(&1["automatico"] == false))
       assert manual
+    end
+
+    test "dentro do silêncio, a resposta diz que foi ADIADA", %{ctx: ctx, sessao: sessao} do
+      # 201 sem esta informação vira "Mensagem enviada" na tela para algo que ainda está na fila —
+      # o mesmo "Feito" que não enviava, agora por outra causa (§7). A janela é ancorada na hora
+      # local corrente porque o envio lê o relógio por dentro; horas fixas passariam de manhã e
+      # falhariam de madrugada.
+      silenciar_agora(ctx)
+      sem_confirmacao_automatica(ctx)
+      paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
+      appt = agendamento!(ctx, paciente: paciente)
+
+      conn = post(sessao, ~p"/api/appointments/#{appt.id}/messages", %{})
+
+      assert %{"resultados" => [%{"enviado" => true, "agendadoPara" => quando}]} =
+               json_response(conn, 201)
+
+      assert quando != nil
+
+      # E a timeline devolve o mesmo instante — é dele que sai o "sai às 8h" da tela. Vale para
+      # as duas linhas: a automática da criação do bloco caiu na mesma janela.
+      %{"participantes" => [linha]} = get_json(sessao, appt)
+      assert Enum.all?(linha["mensagens"], &(&1["agendadoPara"] == quando))
+    end
+
+    test "com uma confirmação já na fila, o segundo clique não empilha outra", %{
+      ctx: ctx,
+      sessao: sessao
+    } do
+      # O caso que motivou a trava, e ele é o COMUM: dentro da janela de silêncio a confirmação
+      # automática da criação fica horas parada, quem clica não vê nada acontecer e clica de novo.
+      # Medido no dev de 2026-07-28: quatro linhas idênticas para o mesmo paciente.
+      silenciar_agora(ctx)
+      paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
+      appt = agendamento!(ctx, paciente: paciente)
+
+      conn = post(sessao, ~p"/api/appointments/#{appt.id}/messages", %{})
+
+      assert %{"resultados" => [%{"enviado" => false, "motivo" => "ja_na_fila"}]} =
+               json_response(conn, 201)
+
+      # E a fila continua com UMA: a automática da criação.
+      %{"participantes" => [linha]} = get_json(sessao, appt)
+      assert length(linha["mensagens"]) == 1
     end
 
     test "devolve o motivo quando não dá para enviar", %{ctx: ctx, sessao: sessao} do
@@ -160,6 +249,27 @@ defmodule ApiWeb.MessagesControllerTest do
   end
 
   # ---- helpers ----
+
+  # Põe a clínica DENTRO da janela de silêncio a partir da hora local de agora — o envio lê o
+  # relógio por dentro, então a janela precisa ser relativa a ele.
+  defp silenciar_agora(ctx) do
+    hora = DateTime.utc_now() |> DateTime.shift_zone!(ctx.clinic.timezone) |> Map.fetch!(:hour)
+
+    Api.Accounts.update_clinic_messaging!(
+      ctx.clinic,
+      %{msg_silencio_inicio: hora, msg_silencio_fim: rem(hora + 2, 24)},
+      authorize?: false
+    )
+  end
+
+  # Desliga a confirmação automática da CRIAÇÃO do bloco. Sem isto, a mensagem que o teste quer
+  # disparar à mão esbarra na trava contra duplicata — que é o comportamento certo, e por isso
+  # tem teste próprio; aqui o assunto é outro.
+  defp sem_confirmacao_automatica(ctx) do
+    Api.Accounts.update_clinic_messaging!(ctx.clinic, %{msg_confirmacao_auto: false},
+      authorize?: false
+    )
+  end
 
   defp get_json(sessao, appt) do
     sessao

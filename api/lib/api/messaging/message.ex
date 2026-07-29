@@ -128,6 +128,39 @@ defmodule Api.Messaging.Message do
       prepare build(sort: [inserted_at: :asc])
     end
 
+    # Já existe uma mensagem deste tipo ESPERANDO para esta presença?
+    #
+    # É a pergunta da trava contra duplicata (§4): o botão do rodapé dispara para o bloco inteiro
+    # e nada impedia o segundo clique de enfileirar a mesma confirmação de novo — dentro da janela
+    # de silêncio, onde a primeira fica horas parada, isso vira uma pilha. Medido no dev de
+    # 2026-07-28: quatro linhas idênticas para o mesmo paciente.
+    #
+    # Só `:pendente` conta. Uma já entregue **pode** ser reenviada de propósito (a recepção pede),
+    # e uma que falhou precisa poder ser tentada de novo — a duplicata que não serve a ninguém é a
+    # que ainda nem saiu.
+    read :pending_for_attendance do
+      description "As mensagens deste tipo ainda na fila para esta presença."
+
+      argument :attendance_id, :uuid, allow_nil?: false
+      argument :kind, Api.Messaging.MessageKind, allow_nil?: false
+
+      filter expr(
+               attendance_id == ^arg(:attendance_id) and kind == ^arg(:kind) and
+                 status == :pendente
+             )
+    end
+
+    # Tudo que ainda não saiu deste bloco — o que o ciclo de vida precisa retirar da fila quando o
+    # fato muda (cancelar, excluir). Sem `kind`: se a sessão deixou de existir, **nenhum** aviso
+    # sobre ela ainda vale, e listar os tipos aqui só criaria a chance de esquecer um.
+    read :pending_for_appointment do
+      description "As mensagens deste agendamento que ainda estão na fila."
+
+      argument :appointment_id, :uuid, allow_nil?: false
+
+      filter expr(appointment_id == ^arg(:appointment_id) and status == :pendente)
+    end
+
     # Busca pelo id do provider — o caminho do webhook, que chega **sem tenant**.
     #
     # Quem chama é o webhook, que não tem sessão, com `authorize?: false`. O que impede um
@@ -155,7 +188,8 @@ defmodule Api.Messaging.Message do
         :template,
         :vars,
         :destino,
-        :disparado_por_id
+        :disparado_por_id,
+        :agendado_para
       ]
 
       change set_attribute(:status, :pendente)
@@ -195,6 +229,30 @@ defmodule Api.Messaging.Message do
       require_atomic? false
 
       change Api.Messaging.Message.Changes.AdvanceStatus
+      change Api.Tenancy.SetTenantGuc
+    end
+
+    # Sistema (ciclo de vida do bloco): tira da fila o que não pode mais sair.
+    #
+    # `filter status == :pendente` na leitura que alimenta esta ação já é a guarda principal; o
+    # `validate` aqui fecha a chamada direta — descartar uma mensagem **entregue** apagaria o
+    # registro de algo que o paciente de fato recebeu, e isso não é retirada da fila, é reescrever
+    # a história.
+    update :discard do
+      description "Retira da fila uma mensagem que ainda não saiu."
+
+      accept [:descarte_motivo]
+      require_atomic? false
+
+      validate attribute_equals(:status, :pendente) do
+        message "só uma mensagem na fila pode ser descartada"
+      end
+
+      validate present(:descarte_motivo)
+
+      change set_attribute(:status, :descartada)
+      # `&DateTime.utc_now/0` e não `expr(now())` — mesmo motivo do `:enqueue` acima.
+      change set_attribute(:descartada_em, &DateTime.utc_now/0)
       change Api.Tenancy.SetTenantGuc
     end
 
@@ -278,6 +336,15 @@ defmodule Api.Messaging.Message do
     attribute :provider_message_id, :string, public?: true, constraints: [max_length: 200]
 
     attribute :enfileirado_em, :utc_datetime, public?: true
+
+    # Para quando o envio foi ADIADO pela janela de silêncio (§7). Nulo = sai agora.
+    #
+    # É o mesmo instante que vira `scheduled_at` no Oban, gravado aqui porque a tela precisa dele
+    # e a tabela do Oban não é fonte de leitura da UI: ela é podada em 7 dias, o job some, e a
+    # pergunta "por que não saiu?" continua de pé. Sem esta coluna a timeline mostrava só
+    # "Na fila" e a recepção lia isso como falha — foi o que aconteceu no teste ao vivo de
+    # 2026-07-28, com três mensagens corretamente adiadas para as 8h.
+    attribute :agendado_para, :utc_datetime, public?: true
     attribute :enviado_em, :utc_datetime, public?: true
     attribute :entregue_em, :utc_datetime, public?: true
     attribute :lido_em, :utc_datetime, public?: true
@@ -286,6 +353,13 @@ defmodule Api.Messaging.Message do
 
     attribute :respondido_em, :utc_datetime, public?: true
     attribute :resposta, Api.Messaging.MessageReply, public?: true
+
+    # A retirada da fila (ver `MessageStatus` e `DescarteMotivo`). Carimbo próprio pelo mesmo
+    # motivo dos outros estados: `instanteDoStatus` da timeline mostra o instante mais avançado
+    # que a mensagem alcançou, e sem esta coluna ela mostraria a hora em que a mensagem ENTROU na
+    # fila para explicar por que ela saiu dela.
+    attribute :descartada_em, :utc_datetime, public?: true
+    attribute :descarte_motivo, Api.Messaging.DescarteMotivo, public?: true
 
     timestamps()
   end

@@ -351,7 +351,7 @@
   ],
   "custom_statements": [],
   "has_create_action": true,
-  "hash": "30F79785DF1CDBF5518A6ABD70F5FE333FEB96173F02EAD801174C3FDD98D1B5",
+  "hash": "9705C337404FFA1AF4CEDEB6F69F7D811E56978247699880E63D678565E9CF2B",
   "identities": [],
   "multitenancy": {
     "attribute": "clinic_id",

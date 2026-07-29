@@ -75,8 +75,22 @@ describe('sendConfirmation', () => {
 
 		expect(r.ok).toBe(true);
 		expect(r.resultados).toEqual([
-			{ patientId: 'p1', enviado: false, motivo: 'canal_indisponivel' }
+			{ patientId: 'p1', enviado: false, motivo: 'canal_indisponivel', agendadoPara: null }
 		]);
+	});
+
+	it('passa adiante PARA QUANDO o envio foi adiado', async () => {
+		// Aceito ≠ saiu: dentro da janela de silêncio (§7) o 201 é uma promessa com hora marcada, e
+		// é essa hora que impede o toast de dizer "Mensagem enviada".
+		m.apiFetch.mockResolvedValueOnce(
+			res(201, {
+				resultados: [{ patientId: 'p1', enviado: true, agendadoPara: '2026-08-11T11:00:00Z' }]
+			})
+		);
+
+		const r = await sendConfirmation(event, 'ap1');
+
+		expect(r.resultados[0].agendadoPara).toBe('2026-08-11T11:00:00Z');
 	});
 
 	it('corpo fora da forma esperada não vira envio inventado', async () => {

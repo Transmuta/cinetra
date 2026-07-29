@@ -97,6 +97,32 @@ defmodule Api.Messaging.NotifierTest do
              "a escrita de lote gerou mensagem: a supressão do `bulk_pacote` quebrou"
     end
 
+    test "pacote materializado não manda uma confirmação por sessão — o caminho REAL" do
+      # O teste acima prova que a **cláusula** suprime; este prova que a **marca chega nela**. São
+      # coisas diferentes, e a diferença era o bug: o moduledoc do notifier dizia que a marca
+      # existia para a "materialização de pacote", mas ela só era posta em `Api.Packages.Bulk`
+      # (ajuste/cancelamento em massa). O caminho da **criação** —
+      # `Api.Packages.Sessions.create_and_stamp/5` → `schedule_appointment/2` — ia sem contexto
+      # nenhum, e um pacote de N enfileirava N confirmações para o mesmo paciente.
+      #
+      # Passava despercebido porque as mensagens saíam uma a uma; com a janela de silêncio (§7)
+      # elas ficam paradas e chegam **todas juntas** às 8h. Num pacote de 40, no WhatsApp, são 40
+      # mensagens pagas para o mesmo número em segundos — o §9.1.1 de novo.
+      ctx = clinica(tipo: [nome: "Pilates #{unico()}"])
+      paciente = paciente_com(ctx, comunicacao: true, email: "pacote@example.com")
+
+      {:ok, pkg} = Api.Packages.create_series(ctx.scope, serie(ctx, paciente))
+
+      Oban.drain_queue(queue: :housekeeping)
+
+      sessoes = sessoes_do_pacote(ctx, pkg)
+      assert length(sessoes) == 4, "a materialização precisa ter criado as 4 sessões"
+
+      assert Enum.flat_map(sessoes, &mensagens(ctx, &1)) == [],
+             "o pacote falou com o paciente uma vez por sessão: a marca `bulk_pacote` não chega " <>
+               "à materialização"
+    end
+
     test "falha ao comunicar não derruba o agendamento" do
       # O agendamento é o fato; a mensagem é o aviso sobre ele. Inverter faria a agenda depender
       # de um provider externo estar de pé.
@@ -111,6 +137,38 @@ defmodule Api.Messaging.NotifierTest do
   end
 
   # ---- helpers ----
+
+  # A mesma grade do `Api.Packages.MaterializeTest`: 4 sessões em segundas e quartas.
+  defp serie(ctx, paciente) do
+    %{
+      nome: "Pilates 4",
+      total: 4,
+      falta_punitiva: true,
+      cor: "#0FB5A6",
+      data_inicio: ~D[2026-07-20],
+      patient_id: paciente.id,
+      appointment_type_id: ctx.tipo.id,
+      grade: %{
+        dows: [1, 3],
+        horarios: %{"1" => "08:00", "3" => "09:00"},
+        professional_id: ctx.prof.id
+      }
+    }
+  end
+
+  # Os blocos que a materialização criou, pelo carimbo `package_id` da presença — o mesmo vínculo
+  # que o `usadas` conta (D11).
+  defp sessoes_do_pacote(ctx, pkg) do
+    Api.Tenancy.in_clinic(ctx.clinic.id, fn ->
+      Api.Scheduling.list_attendances!(
+        tenant: ctx.clinic.id,
+        authorize?: false,
+        query: [filter: [package_id: pkg.id]],
+        load: [:appointment]
+      )
+    end)
+    |> Enum.map(& &1.appointment)
+  end
 
   defp religar_automatico(ctx) do
     Api.Accounts.update_clinic_messaging!(recarregar_clinica(ctx), %{msg_confirmacao_auto: true},

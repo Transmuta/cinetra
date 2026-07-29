@@ -18,14 +18,30 @@ defmodule Api.Messaging.MessageStatus do
   O avanço é **monotônico** (`ordem/1`): webhook fora de ordem é o caso comum, não a exceção —
   `delivered` e `sent` chegam em milissegundos um do outro e a rede não promete ordem. Sem isso,
   um `sent` atrasado rebaixaria uma mensagem já entregue.
+
+  ## `:descartada` — o estado que a janela de silêncio obrigou a existir
+
+  Adiar (§7) criou uma janela de horas entre "a mensagem foi pedida" e "a mensagem saiu", e nela o
+  **fato pode mudar**: o bloco é cancelado ou excluído às 22h45 e a confirmação segue parada até
+  as 8h. Sem este estado ela saía assim mesmo, anunciando uma sessão que já não existe — e
+  mensagem enviada não volta.
+
+  Não é `:falhou`: nada falhou. Não é apagar a linha: a recepção que clicou "enviar" às 22h
+  precisa achar o que aconteceu com aquele clique — silêncio na tela é o pecado que a timeline
+  inteira foi desenhada para não cometer (§6).
+
+  **É terminal por construção**, sem precisar de cláusula: `ordem/1` não o conhece, então
+  `avanca?/2` devolve `false` nos dois sentidos — um webhook atrasado não ressuscita o que foi
+  tirado da fila, e o que já saiu não vira descartado. A mesma propriedade que protege `:falhou`.
   """
-  use Ash.Type.Enum, values: [:pendente, :enviado, :entregue, :lido, :falhou]
+  use Ash.Type.Enum, values: [:pendente, :enviado, :entregue, :lido, :falhou, :descartada]
 
   @ordem %{pendente: 0, enviado: 1, entregue: 2, lido: 3}
 
   @doc """
-  Posição do estado na escada de entrega. `:falhou` fica fora (devolve `nil`): ele não é "mais
-  adiante" que `:entregue`, é outro ramo.
+  Posição do estado na escada de entrega. `:falhou` e `:descartada` ficam fora (devolvem `nil`):
+  nenhum dos dois é "mais adiante" que `:entregue` — são outros ramos, e é essa ausência que os
+  torna terminais em `avanca?/2`.
   """
   def ordem(status), do: Map.get(@ordem, status)
 

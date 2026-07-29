@@ -15,8 +15,10 @@
 	import Minus from '@lucide/svelte/icons/minus';
 	import Star from '@lucide/svelte/icons/star';
 	import {
+		descarteTexto,
 		instanteDoStatus,
 		podeReenviar,
+		previsaoDeEnvio,
 		respostaTexto,
 		semEnvioTexto,
 		statusTexto,
@@ -29,12 +31,15 @@
 		participantes,
 		carregando = false,
 		timezone,
+		agora = undefined,
 		podeEnviar = false,
 		onReenviar
 	}: {
 		participantes: MessageParticipant[];
 		carregando?: boolean;
 		timezone: string;
+		/** O relógio do servidor (ADR-009). Decide se a previsão de envio ainda está no futuro. */
+		agora?: string;
 		podeEnviar?: boolean;
 		onReenviar?: (patientId: string) => void;
 	} = $props();
@@ -83,14 +88,28 @@
 										<CircleAlert size={14} />
 									{:else if m.status === 'entregue' || m.status === 'lido'}
 										<Check size={14} />
+									{:else if m.status === 'descartada'}
+										<!-- O mesmo traço do "nada enviado" logo abaixo, e de propósito: os dois
+										     dizem que o paciente não recebeu nada. O relógio diria o contrário. -->
+										<Minus size={14} />
 									{:else}
 										<Clock size={14} />
 									{/if}
 								</span>
 								<span class="text-muted">
 									{tituloDaLinha(m)} · <span class={corDoStatus(m)}>{statusTexto(m)}</span>
-									{#if quando(instanteDoStatus(m))}
+									{#if previsaoDeEnvio(m, agora)}
+										<!-- A mensagem está parada porque a janela de silêncio a adiou (§7), não
+										     porque falhou. Aqui o instante útil é o FUTURO: "entrou na fila às
+										     22h" não responde a pergunta de quem está lendo. -->
+										· sai {quando(previsaoDeEnvio(m, agora))}
+									{:else if quando(instanteDoStatus(m))}
 										· {quando(instanteDoStatus(m))}
+									{/if}
+									{#if descarteTexto(m)}
+										<!-- Por que ela parou. Sem isto, "Não enviada" manda a recepção procurar um
+										     defeito onde houve uma decisão (cancelar, excluir). -->
+										· {descarteTexto(m)}
 									{/if}
 									{#if m.automatico}
 										· automático

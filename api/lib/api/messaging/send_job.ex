@@ -62,7 +62,7 @@ defmodule Api.Messaging.SendJob do
   """
   def enqueue(%{id: id, clinic_id: clinic_id}, opts \\ []) do
     %{"clinic_id" => clinic_id, "message_id" => id}
-    |> new(agendamento(Keyword.get(opts, :agendar_para)))
+    |> new(Api.Correlacao.opts(agendamento(Keyword.get(opts, :agendar_para))))
     |> Oban.insert()
   end
 

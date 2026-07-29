@@ -86,6 +86,73 @@ defmodule Api.Messaging.GatilhosC7bTest do
       assert Enum.sort(kinds(ctx, appt)) == [:cancelamento, :confirmacao]
     end
 
+    test "cancelar descarta a confirmação que ainda estava na fila" do
+      # A janela de silêncio (§7) **adia**: uma confirmação criada às 22h fica parada até as 8h.
+      # Se o bloco for cancelado às 22h45, nada tirava aquela linha da fila — e às 8h o paciente
+      # recebia "sua sessão está marcada para 28/07 às 12:00" de uma sessão que já não existe,
+      # seguida do cancelamento. Mensagem enviada não volta.
+      ctx = clinica()
+      paciente = paciente_alcancavel(ctx)
+      appt = agendamento!(ctx, paciente: paciente)
+
+      assert [confirmacao] = mensagens(ctx, appt)
+      assert confirmacao.status == :pendente
+
+      {:ok, _} =
+        Scheduling.transition_appointment(ctx.scope, appt.id, :cancel, %{}, appt.version)
+
+      descartada = recarregar_mensagem(ctx, confirmacao)
+
+      assert descartada.status == :descartada
+      assert descartada.descarte_motivo == :sessao_cancelada
+      assert descartada.descartada_em
+
+      # E o cancelamento, esse sim, continua a caminho.
+      assert :cancelamento in kinds(ctx, appt)
+    end
+
+    test "excluir descarta a confirmação que ainda estava na fila" do
+      # Excluir é corrigir um lançamento errado (doc 40), e a decisão de não avisar o paciente
+      # (acima) morria aqui: a confirmação da criação seguia parada na fila e saía às 8h. Quem
+      # apagou uma duplicata teria acabado de dizer a alguém que a sessão dele existe.
+      ctx = clinica()
+      paciente = paciente_alcancavel(ctx)
+      appt = agendamento!(ctx, paciente: paciente)
+
+      assert [confirmacao] = mensagens(ctx, appt)
+
+      {:ok, _} =
+        Scheduling.transition_appointment(ctx.scope, appt.id, :exclude, %{}, appt.version)
+
+      descartada = recarregar_mensagem(ctx, confirmacao)
+
+      assert descartada.status == :descartada
+      assert descartada.descarte_motivo == :agendamento_excluido
+    end
+
+    test "o que JÁ SAIU não é descartado — descartar é tirar da fila, não reescrever a história" do
+      ctx = clinica()
+      paciente = paciente_alcancavel(ctx)
+      appt = agendamento!(ctx, paciente: paciente)
+
+      assert [confirmacao] = mensagens(ctx, appt)
+
+      enviada =
+        Api.Tenancy.in_clinic(ctx.clinic.id, fn ->
+          Api.Messaging.do_mark_sent!(
+            confirmacao,
+            %{provider: "resend", provider_message_id: "x"},
+            tenant: ctx.clinic.id,
+            authorize?: false
+          )
+        end)
+
+      {:ok, _} =
+        Scheduling.transition_appointment(ctx.scope, appt.id, :cancel, %{}, appt.version)
+
+      assert recarregar_mensagem(ctx, enviada).status == :enviado
+    end
+
     test "remarcar duas vezes avisa duas vezes" do
       # Diferente da confirmação, que é deduplicada: o segundo aviso de remarcação é tão
       # necessário quanto o primeiro, porque o horário mudou de novo.

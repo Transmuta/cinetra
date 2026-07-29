@@ -30,6 +30,17 @@ defmodule Api.Messaging do
     resource Api.Messaging.Message do
       define :enqueue_message, action: :enqueue
       define :list_messages_for_appointment, action: :for_appointment, args: [:appointment_id]
+
+      define :list_pending_messages,
+        action: :pending_for_attendance,
+        args: [:attendance_id, :kind]
+
+      define :list_pending_messages_for_appointment,
+        action: :pending_for_appointment,
+        args: [:appointment_id]
+
+      define :do_discard_message, action: :discard
+
       define :get_message, action: :read, get_by: [:id]
       define :get_message_by_provider_id, action: :by_provider_id, args: [:provider_message_id]
       define :do_mark_sent, action: :mark_sent

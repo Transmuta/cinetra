@@ -98,6 +98,14 @@ defmodule Api.Messaging.SendJobTest do
   describe "perform/1" do
     setup do
       ctx = clinica()
+
+      # A confirmação automática da criação do bloco fica na fila e a trava contra duplicata
+      # recusaria o disparo à mão logo abaixo — que é o comportamento certo (`dispatch_test.exs`
+      # o prova). Aqui o assunto é o job, e ele precisa de uma mensagem própria.
+      Api.Accounts.update_clinic_messaging!(ctx.clinic, %{msg_confirmacao_auto: false},
+        authorize?: false
+      )
+
       paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
       appt = agendamento!(ctx, paciente: paciente)
       [presenca] = appt.attendances
@@ -178,6 +186,13 @@ defmodule Api.Messaging.SendJobTest do
   describe "advance (webhook fora de ordem)" do
     test "um `sent` atrasado não rebaixa uma mensagem já entregue" do
       ctx = clinica()
+
+      # Ver a nota do `setup` acima: sem desligar a automática, a trava contra duplicata recusa
+      # o disparo à mão e o teste não chega a ter mensagem para avançar.
+      Api.Accounts.update_clinic_messaging!(ctx.clinic, %{msg_confirmacao_auto: false},
+        authorize?: false
+      )
+
       paciente = paciente_com(ctx, comunicacao: true, email: "b@example.com")
       appt = agendamento!(ctx, paciente: paciente)
 

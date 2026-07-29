@@ -16,6 +16,7 @@ defmodule Api.Messaging.DispatchTest do
   # telefone, o WhatsApp aparecia disponível por um instante, e o canal escolhido deixava de ser o
   # e-mail que o teste opta-out. Teste que muda configuração de aplicação não pode ser async.
   use Api.DataCase, async: false
+  use Oban.Testing, repo: Api.Repo
 
   alias Api.Messaging.Dispatch
 
@@ -271,6 +272,7 @@ defmodule Api.Messaging.DispatchTest do
   describe "dispatch/5" do
     test "grava a mensagem ancorada na PRESENÇA e enfileira o envio" do
       ctx = clinica()
+      sem_confirmacao_automatica(ctx)
       paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
       appt = agendamento!(ctx, paciente: paciente)
       [presenca] = appt.attendances
@@ -289,8 +291,95 @@ defmodule Api.Messaging.DispatchTest do
       assert message.vars["clinica"] == ctx.clinic.nome
     end
 
+    test "dentro do silêncio, a linha guarda PARA QUANDO foi adiada" do
+      # A coluna existe para a tela: sem ela a timeline mostra "Na fila" e um instante no passado,
+      # e quem lê conclui que falhou — foi o que aconteceu no teste ao vivo de 2026-07-28. O
+      # `scheduled_at` do Oban sabia a resposta, mas ele é podado em 7 dias e não é fonte da UI.
+      ctx = clinica()
+      sem_confirmacao_automatica(ctx)
+      clinic = com_janela(ctx.clinic, :agora_dentro)
+      paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
+      appt = agendamento!(ctx, paciente: paciente)
+      [presenca] = appt.attendances
+
+      assert {:ok, message} = Dispatch.dispatch(clinic, presenca, paciente, :confirmacao)
+
+      assert message.agendado_para != nil
+      # A linha e o job não podem discordar: é o mesmo instante, lido do relógio uma vez só.
+      assert_enqueued(worker: Api.Messaging.SendJob, scheduled_at: message.agendado_para)
+    end
+
+    test "fora do silêncio, não há nada a prometer" do
+      ctx = clinica()
+      sem_confirmacao_automatica(ctx)
+      clinic = com_janela(ctx.clinic, :agora_fora)
+      paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
+      appt = agendamento!(ctx, paciente: paciente)
+      [presenca] = appt.attendances
+
+      assert {:ok, message} = Dispatch.dispatch(clinic, presenca, paciente, :confirmacao)
+
+      # Nulo é "sai agora", e é o que faz a tela não inventar uma previsão para o caso normal.
+      assert message.agendado_para == nil
+    end
+
+    test "não enfileira a segunda enquanto a primeira espera" do
+      # A trava contra duplicata. Sem ela, o segundo clique dentro da janela de silêncio empilha
+      # outra mensagem para o mesmo paciente — e ele recebe as duas de manhã. Medido no dev de
+      # 2026-07-28: quatro linhas idênticas, porque quem clica não vê nada acontecer.
+      ctx = clinica()
+      sem_confirmacao_automatica(ctx)
+      clinic = com_janela(ctx.clinic, :agora_dentro)
+      paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
+      appt = agendamento!(ctx, paciente: paciente)
+      [presenca] = appt.attendances
+
+      assert {:ok, _} = Dispatch.dispatch(clinic, presenca, paciente, :confirmacao)
+      assert {:skip, :ja_na_fila} = Dispatch.dispatch(clinic, presenca, paciente, :confirmacao)
+    end
+
+    test "a trava é por TIPO — lembrete na fila não impede a confirmação" do
+      # São mensagens diferentes para a mesma sessão; barrar uma pela outra seria calar comunicação
+      # que o paciente precisa receber.
+      ctx = clinica()
+      sem_confirmacao_automatica(ctx)
+      clinic = com_janela(ctx.clinic, :agora_dentro)
+      paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
+      appt = agendamento!(ctx, paciente: paciente)
+      [presenca] = appt.attendances
+
+      assert {:ok, _} = Dispatch.dispatch(clinic, presenca, paciente, :lembrete)
+      assert {:ok, _} = Dispatch.dispatch(clinic, presenca, paciente, :confirmacao)
+    end
+
+    test "a trava é por PRESENÇA — a turma não trava por causa de um participante" do
+      # A mesma lição que a A2 cobrou com a falta: numa turma, o que vale para um não vale para os
+      # outros três. Travar por bloco deixaria os demais sem confirmação nenhuma.
+      ctx = clinica()
+      sem_confirmacao_automatica(ctx)
+      clinic = com_janela(ctx.clinic, :agora_dentro)
+      turma = Api.Generators.tipo!(ctx, grupo: true, capacidade: 4)
+      ana = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
+      joao = paciente_com(ctx, comunicacao: true, email: "joao@example.com")
+
+      # Duas chamadas no MESMO horário e tipo de grupo caem no mesmo bloco — é como a turma se
+      # forma no resto da suíte.
+      quando = amanha_as(ctx, 10)
+      appt = agendamento!(ctx, paciente: ana, tipo: turma, quando: quando)
+      _ = agendamento!(ctx, paciente: joao, tipo: turma, quando: quando)
+
+      presencas = presencas_do(ctx, appt)
+      de_ana = Enum.find(presencas, &(&1.patient_id == ana.id))
+      de_joao = Enum.find(presencas, &(&1.patient_id == joao.id))
+
+      assert {:ok, _} = Dispatch.dispatch(clinic, de_ana, ana, :confirmacao)
+      assert {:skip, :ja_na_fila} = Dispatch.dispatch(clinic, de_ana, ana, :confirmacao)
+      assert {:ok, _} = Dispatch.dispatch(clinic, de_joao, joao, :confirmacao)
+    end
+
     test "não levanta quando o paciente não pode receber — devolve o motivo" do
       ctx = clinica()
+      sem_confirmacao_automatica(ctx)
       paciente = paciente_com(ctx, comunicacao: false)
       appt = agendamento!(ctx, paciente: paciente)
       [presenca] = appt.attendances
@@ -318,6 +407,36 @@ defmodule Api.Messaging.DispatchTest do
 
     on_exit(fn -> Application.put_env(:api, Api.Messaging.Transport, anterior) end)
     fun.()
+  end
+
+  # Desliga a confirmação automática da criação do bloco. Estes testes disparam à mão, e com ela
+  # ligada o primeiro `dispatch/5` já esbarraria na trava contra duplicata — que é o comportamento
+  # certo (tem teste próprio, e é o caso que o balcão vive), mas aqui o assunto é outro.
+  defp sem_confirmacao_automatica(ctx) do
+    Api.Accounts.update_clinic_messaging!(ctx.clinic, %{msg_confirmacao_auto: false},
+      authorize?: false
+    )
+  end
+
+  # As presenças do bloco, relidas: quem chamou `agendamento!` primeiro tem só a própria carregada,
+  # e a turma se forma na segunda chamada.
+  defp presencas_do(ctx, appt) do
+    Api.Tenancy.in_clinic(ctx.clinic.id, fn ->
+      Ash.load!(appt, [:attendances], authorize?: false, tenant: ctx.clinic.id).attendances
+    end)
+  end
+
+  # A janela de silêncio **relativa ao relógio de agora**, e não horas fixas: `dispatch/5` lê o
+  # relógio por dentro (não há injeção ali), então uma janela escrita à mão faria o teste passar
+  # de manhã e falhar de madrugada. Ancorando na hora local corrente, as duas asserções valem a
+  # qualquer hora do dia. Não toca no banco — o `Dispatch` só lê estes campos da struct.
+  defp com_janela(clinic, :agora_dentro), do: janela(clinic, 0, 2)
+  defp com_janela(clinic, :agora_fora), do: janela(clinic, 2, 4)
+
+  defp janela(clinic, de, ate) do
+    hora = DateTime.utc_now() |> DateTime.shift_zone!(clinic.timezone) |> Map.fetch!(:hour)
+
+    %{clinic | msg_silencio_inicio: rem(hora + de, 24), msg_silencio_fim: rem(hora + ate, 24)}
   end
 
   defp as_utc(date, hora, tz) do

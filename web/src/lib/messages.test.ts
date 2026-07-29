@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
 	algumPodeReceber,
+	descarteTexto,
 	instanteDoStatus,
 	podeReenviar,
+	previsaoDeEnvio,
 	respostaTexto,
 	semEnvioTexto,
 	statusTexto,
@@ -27,10 +29,13 @@ function msg(over: Partial<Message> = {}): Message {
 		resposta: null,
 		automatico: true,
 		enfileiradoEm: '2026-08-10T12:00:00Z',
+		agendadoPara: null,
 		enviadoEm: '2026-08-10T12:00:05Z',
 		entregueEm: null,
 		lidoEm: null,
 		falhouEm: null,
+		descartadaEm: null,
+		descarteMotivo: null,
 		respondidoEm: null,
 		titulo: 'Clínica: sua sessão',
 		...over
@@ -131,6 +136,25 @@ describe('textoDoEnvio', () => {
 	it('sem participante nenhum, não finge envio', () => {
 		expect(textoDoEnvio([])).toMatch(/Nada/);
 	});
+
+	it('adiada pelo silêncio NÃO é "enviada"', () => {
+		// O 201 aqui significa "aceito", e a mensagem fica na fila até o fim da janela (§7).
+		// Dizer "Mensagem enviada" manda a recepção esperar no telefone do paciente por algo que
+		// só sai às 8h — a mesma classe de mentira do "Feito" que não enviava.
+		const um = textoDoEnvio([
+			{ patientId: 'p1', enviado: true, agendadoPara: '2026-08-11T11:00:00Z' }
+		]);
+
+		expect(um).toMatch(/na fila/i);
+		expect(um).not.toMatch(/enviada/i);
+
+		expect(
+			textoDoEnvio([
+				{ patientId: 'p1', enviado: true, agendadoPara: '2026-08-11T11:00:00Z' },
+				{ patientId: 'p2', enviado: true, agendadoPara: '2026-08-11T11:00:00Z' }
+			])
+		).toMatch(/2 mensagens na fila/i);
+	});
 });
 
 describe('instanteDoStatus', () => {
@@ -147,6 +171,89 @@ describe('instanteDoStatus', () => {
 				msg({ status: 'falhou', entregueEm: '2026-08-10T12:01:00Z', falhouEm: '2026-08-10T12:02:00Z' })
 			)
 		).toBe('2026-08-10T12:02:00Z');
+	});
+});
+
+describe('previsaoDeEnvio', () => {
+	const agora = '2026-08-10T23:30:00Z';
+
+	it('mensagem parada e adiada promete a hora de saída', () => {
+		// A janela de silêncio (§7) adia; a tela mostrava só "Na fila" e o instante em que ela
+		// ENTROU na fila, e quem lê conclui "não está enviando" — foi o relato ao vivo.
+		const m = msg({ status: 'pendente', enviadoEm: null, agendadoPara: '2026-08-11T11:00:00Z' });
+
+		expect(previsaoDeEnvio(m, agora)).toBe('2026-08-11T11:00:00Z');
+	});
+
+	it('sem adiamento não há promessa nenhuma', () => {
+		expect(previsaoDeEnvio(msg({ status: 'pendente', agendadoPara: null }), agora)).toBeNull();
+	});
+
+	it('depois que saiu, a previsão não interessa mais', () => {
+		// O que importa numa mensagem entregue é o que aconteceu, não o que se previa.
+		const m = msg({ status: 'entregue', agendadoPara: '2026-08-11T11:00:00Z' });
+
+		expect(previsaoDeEnvio(m, agora)).toBeNull();
+	});
+
+	it('hora já passada não vira promessa — ali o job está atrasado', () => {
+		// "Sai às 8h" às 9h seria a tela mentindo com precisão.
+		const m = msg({ status: 'pendente', enviadoEm: null, agendadoPara: '2026-08-10T11:00:00Z' });
+
+		expect(previsaoDeEnvio(m, agora)).toBeNull();
+	});
+
+	it('descartada não promete saída — ela foi tirada da fila', () => {
+		// O bug que originou o `:descartada`: o bloco é cancelado às 22h45 e a tela continuava
+		// prometendo "sai qua., 08:00" para uma mensagem que não vai mais sair.
+		const m = msg({
+			status: 'descartada',
+			enviadoEm: null,
+			agendadoPara: '2026-08-11T11:00:00Z',
+			descartadaEm: '2026-08-10T23:45:00Z',
+			descarteMotivo: 'sessao_cancelada'
+		});
+
+		expect(previsaoDeEnvio(m, agora)).toBeNull();
+	});
+});
+
+describe('descarteTexto', () => {
+	it('explica por que a mensagem parou, para cada motivo', () => {
+		expect(descarteTexto(msg({ status: 'descartada', descarteMotivo: 'sessao_cancelada' }))).toBe(
+			'a sessão foi cancelada antes de ela sair'
+		);
+
+		expect(
+			descarteTexto(msg({ status: 'descartada', descarteMotivo: 'agendamento_excluido' }))
+		).toBe('o agendamento foi excluído antes de ela sair');
+	});
+
+	it('só fala de mensagem descartada', () => {
+		expect(descarteTexto(msg({ status: 'enviado' }))).toBeNull();
+	});
+
+	it('motivo desconhecido não vira `undefined` na tela', () => {
+		// Um átomo novo no backend chega aqui antes de o front saber dele; a linha continua
+		// dizendo "Não enviada" sem despejar lixo no meio da frase.
+		const m = msg({ status: 'descartada', descarteMotivo: 'motivo_novo' as never });
+
+		expect(descarteTexto(m)).toBeNull();
+	});
+
+	it('o rótulo fala do que o paciente recebeu, não do verbo interno', () => {
+		expect(statusTexto(msg({ status: 'descartada' }))).toBe('Não enviada');
+	});
+
+	it('o instante mostrado é o do descarte, não o da entrada na fila', () => {
+		const m = msg({
+			status: 'descartada',
+			enviadoEm: null,
+			enfileiradoEm: '2026-08-10T22:00:00Z',
+			descartadaEm: '2026-08-10T23:45:00Z'
+		});
+
+		expect(instanteDoStatus(m)).toBe('2026-08-10T23:45:00Z');
 	});
 });
 
@@ -210,6 +317,23 @@ describe('algumPodeReceber', () => {
 		expect(algumPodeReceber([participante({ mensagens: [msg({ status: 'entregue' })] })])).toBe(
 			true
 		);
+	});
+
+	it('confirmação já na fila não conta — o servidor recusaria a duplicata', () => {
+		// A trava do `Dispatch` (`:ja_na_fila`): o botão precisa dizer a mesma coisa que ela, senão
+		// oferece um clique que só volta como aviso.
+		const p = participante({ mensagens: [msg({ kind: 'confirmacao', status: 'pendente' })] });
+
+		expect(algumPodeReceber([p])).toBe(false);
+	});
+
+	it('LEMBRETE na fila não impede a confirmação', () => {
+		// A trava do servidor é por (presença, tipo). Travar aqui por qualquer pendente deixaria a
+		// tela mais restritiva que a regra — divergência que ninguém percebe até alguém não
+		// conseguir mandar.
+		const p = participante({ mensagens: [msg({ kind: 'lembrete', status: 'pendente' })] });
+
+		expect(algumPodeReceber([p])).toBe(true);
 	});
 
 	it('carregando não é impossível', () => {

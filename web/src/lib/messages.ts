@@ -8,9 +8,28 @@
  * paciente com celular na ficha lia "sem e-mail nem telefone cadastrado" quando o problema era o
  * WhatsApp desligado. Um manda a recepção preencher a ficha; o outro não é da recepção.
  */
-export type SemEnvio = 'sem_consentimento' | 'sem_contato' | 'canal_indisponivel' | 'opt_out';
+export type SemEnvio =
+	| 'sem_consentimento'
+	| 'sem_contato'
+	| 'canal_indisponivel'
+	| 'opt_out'
+	/**
+	 * Já há uma mensagem deste tipo esperando na fila para esta presença.
+	 *
+	 * Só aparece na **resposta do disparo**, nunca como explicação de silêncio na timeline: lá o
+	 * motivo só é calculado quando não existe mensagem nenhuma, e este significa o contrário.
+	 */
+	| 'ja_na_fila';
 
-export type MessageStatus = 'pendente' | 'enviado' | 'entregue' | 'lido' | 'falhou';
+export type MessageStatus = 'pendente' | 'enviado' | 'entregue' | 'lido' | 'falhou' | 'descartada';
+
+/**
+ * Por que a mensagem foi tirada da fila antes de sair (`Api.Messaging.DescarteMotivo`).
+ *
+ * Os dois têm a mesma forma: o fato sobre o qual ela falava deixou de existir enquanto ela
+ * esperava a janela de silêncio (§7) abrir.
+ */
+export type DescarteMotivo = 'sessao_cancelada' | 'agendamento_excluido';
 
 export interface Message {
 	id: string;
@@ -30,10 +49,15 @@ export interface Message {
 	/** Nulo do lado da API = ninguém clicou. É o que distingue "automático" de "alguém mandou". */
 	automatico: boolean;
 	enfileiradoEm: string | null;
+	/** Preenchido só quando a janela de silêncio adiou o envio — ver `previsaoDeEnvio`. */
+	agendadoPara: string | null;
 	enviadoEm: string | null;
 	entregueEm: string | null;
 	lidoEm: string | null;
 	falhouEm: string | null;
+	/** Preenchido só quando a mensagem foi retirada da fila — ver `descarteTexto`. */
+	descartadaEm: string | null;
+	descarteMotivo: DescarteMotivo | null;
 	respondidoEm: string | null;
 	titulo: string;
 }
@@ -60,7 +84,10 @@ const SEM_ENVIO_MOTIVO: Record<SemEnvio, string> = {
 	sem_consentimento: 'sem consentimento de comunicação na ficha',
 	sem_contato: 'sem e-mail nem telefone cadastrado',
 	canal_indisponivel: 'o WhatsApp está indisponível e não há e-mail na ficha',
-	opt_out: 'o paciente pediu para não receber'
+	opt_out: 'o paciente pediu para não receber',
+	// Este não pede ação nenhuma — pelo contrário, diz que a ação já foi tomada. Some do balcão a
+	// impressão de que o clique falhou, que é o que faz a recepção clicar de novo.
+	ja_na_fila: 'a mensagem anterior ainda está na fila para este paciente'
 };
 
 // O motivo cru vem da API: um átomo novo lá não pode virar `undefined` na tela.
@@ -77,6 +104,8 @@ export interface SendOutcome {
 	patientId: string;
 	enviado: boolean;
 	motivo?: string | null;
+	/** Aceita, mas adiada pela janela de silêncio (§7) — não saiu ainda. */
+	agendadoPara?: string | null;
 }
 
 /**
@@ -96,7 +125,19 @@ export function textoDoEnvio(resultados: SendOutcome[]): string {
 	const enviados = resultados.filter((r) => r.enviado);
 	const pulado = resultados.find((r) => !r.enviado);
 
+	// Aceita ≠ entregue: dentro da janela de silêncio (§7) o disparo é ADIADO, e dizer "enviada"
+	// ali é o mesmo "Feito" que não enviava, só que por outra causa. A hora exata fica na
+	// timeline logo abaixo, que sabe o fuso da clínica; o toast não sabe, e prometer hora errada
+	// seria pior do que não prometer nenhuma.
+	const adiados = enviados.filter((r) => r.agendadoPara);
+
 	if (!pulado) {
+		if (adiados.length === enviados.length) {
+			return enviados.length === 1
+				? 'Mensagem na fila · sai no fim do silêncio noturno'
+				: `${enviados.length} mensagens na fila · saem no fim do silêncio noturno`;
+		}
+
 		return enviados.length === 1
 			? 'Mensagem enviada'
 			: `Mensagem enviada para ${enviados.length} pacientes`;
@@ -116,8 +157,26 @@ const STATUS_TEXTO: Record<MessageStatus, string> = {
 	enviado: 'Enviado',
 	entregue: 'Entregue',
 	lido: 'Lido',
-	falhou: 'Falhou'
+	falhou: 'Falhou',
+	// "Não enviada", e não "Descartada": do balcão, o que interessa é o que o paciente recebeu (nada),
+	// não o verbo interno que tirou a linha da fila.
+	descartada: 'Não enviada'
 };
+
+// Cada motivo diz que a mensagem parou por uma DECISÃO, não por um defeito — sem isso "Não
+// enviada" manda a recepção procurar problema onde alguém apenas cancelou o horário.
+const DESCARTE_TEXTO: Record<DescarteMotivo, string> = {
+	sessao_cancelada: 'a sessão foi cancelada antes de ela sair',
+	agendamento_excluido: 'o agendamento foi excluído antes de ela sair'
+};
+
+/** A explicação da retirada da fila — `null` quando a mensagem não foi descartada. */
+export function descarteTexto(m: Message): string | null {
+	if (m.status !== 'descartada') return null;
+
+	// Motivo novo no backend não pode virar `undefined` na tela — mesma defesa do `motivoTexto`.
+	return m.descarteMotivo ? (DESCARTE_TEXTO[m.descarteMotivo] ?? null) : null;
+}
 
 const KIND_TEXTO: Record<Message['kind'], string> = {
 	confirmacao: 'Confirmação',
@@ -142,7 +201,28 @@ export function statusTexto(m: Message): string {
 
 /** O instante que interessa exibir: o mais avançado que a mensagem alcançou. */
 export function instanteDoStatus(m: Message): string | null {
-	return m.falhouEm ?? m.lidoEm ?? m.entregueEm ?? m.enviadoEm ?? m.enfileiradoEm;
+	return (
+		m.descartadaEm ?? m.falhouEm ?? m.lidoEm ?? m.entregueEm ?? m.enviadoEm ?? m.enfileiradoEm
+	);
+}
+
+/**
+ * Quando esta mensagem ainda vai sair — ou `null` quando não há nada a prometer.
+ *
+ * A janela de silêncio (§7) **adia**, não descarta: uma confirmação disparada às 22h fica na fila
+ * até as 8h. A tela mostrava só "Na fila" e o instante em que ela ENTROU na fila, e a leitura
+ * natural disso é "não está enviando" — foi o relato do teste ao vivo de 2026-07-28, com três
+ * mensagens corretamente adiadas. Silêncio inexplicado outra vez, no único estado que a fatia não
+ * tinha previsto (§6).
+ *
+ * Só vale enquanto a mensagem está parada: depois que ela sai, o que interessa é o que aconteceu,
+ * não o que se previa. E `agendadoPara` no passado não vira promessa — ali o job está atrasado ou
+ * em retentativa, e "sai às 8h" às 9h seria a tela mentindo com precisão.
+ */
+export function previsaoDeEnvio(m: Message, agora: string | number = Date.now()): string | null {
+	if (m.status !== 'pendente' || !m.agendadoPara) return null;
+
+	return Date.parse(m.agendadoPara) > new Date(agora).getTime() ? m.agendadoPara : null;
 }
 
 const RESPOSTA_TEXTO: Record<NonNullable<Message['resposta']>, string> = {
@@ -189,9 +269,21 @@ export function podeReenviar(p: MessageParticipant): boolean {
  *
  * `null` é a timeline ainda carregando: não sabemos, e "não sei" não é "não dá" — o botão fica de
  * pé e o pior caso é o aviso que já existia.
+ *
+ * Quem já tem uma **confirmação na fila** também não conta: o servidor recusa a duplicata
+ * (`:ja_na_fila`), e um botão que dispara para receber "nada enviado" de volta é o mesmo botão
+ * que promete e não cumpre. A regra é a mesma dos dois lados de propósito — divergir aqui faria a
+ * tela oferecer o que o `Dispatch` nega.
  */
 export function algumPodeReceber(participantes: MessageParticipant[] | null): boolean {
 	if (participantes === null) return true;
 
-	return participantes.some((p) => !p.semEnvio);
+	return participantes.some((p) => !p.semEnvio && !confirmacaoNaFila(p));
+}
+
+// `kind` importa: a trava do servidor é por (presença, tipo). Um LEMBRETE parado na fila não
+// impede uma confirmação de sair, e travar por ele aqui faria a tela ser mais restritiva que a
+// regra — o tipo de divergência que ninguém percebe até alguém não conseguir mandar.
+function confirmacaoNaFila(p: MessageParticipant): boolean {
+	return p.mensagens.some((m) => m.kind === 'confirmacao' && m.status === 'pendente');
 }

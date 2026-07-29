@@ -39,6 +39,11 @@ defmodule Api.Messaging.Dispatch do
   """
   require Logger
 
+  import Api.Tenancy, only: [in_clinic: 2]
+
+  # Os tipos em que uma segunda mensagem **não diz nada de novo** — ver `ja_na_fila?/3`.
+  @sem_duplicata [:confirmacao, :lembrete]
+
   alias Api.Messaging
   alias Api.Messaging.Templates
   alias Api.Messaging.Transport
@@ -49,14 +54,19 @@ defmodule Api.Messaging.Dispatch do
     * `:sem_consentimento` — a ficha não autoriza comunicação;
     * `:sem_contato` — não há e-mail nem telefone utilizável **na ficha**;
     * `:canal_indisponivel` — a ficha tem destino, mas o transporte dele não está de pé;
-    * `:opt_out` — o paciente pediu para parar.
+    * `:opt_out` — o paciente pediu para parar;
+    * `:ja_na_fila` — já existe uma mensagem deste tipo esperando para esta presença.
+
+  O último é o único que **não** vem de `avaliar/2`: ele não é sobre poder falar com a pessoa, é
+  sobre não falar duas vezes. Por isso é decidido em `dispatch/5`, depois de a resposta já ser
+  "sim, dá para enviar".
 
   Os dois do meio já foram um átomo só, e a fusão produzia uma mentira no balcão: paciente com
   celular na ficha e WhatsApp desligado lia "sem e-mail nem telefone cadastrado". Cada motivo
   existe porque leva a uma **ação diferente** — e "abra a ficha e preencha" é o conselho errado
   para quem já preencheu. `:canal_indisponivel` não é da recepção: é de quem opera a instalação.
   """
-  @type motivo :: :sem_consentimento | :sem_contato | :canal_indisponivel | :opt_out
+  @type motivo :: :sem_consentimento | :sem_contato | :canal_indisponivel | :opt_out | :ja_na_fila
 
   @doc """
   Este paciente receberia uma mensagem agora? Por qual canal, e em qual destino?
@@ -190,16 +200,46 @@ defmodule Api.Messaging.Dispatch do
   """
   @spec dispatch(map(), map(), map(), atom(), keyword()) :: {:ok, map()} | {:skip, motivo()}
   def dispatch(clinic, attendance, patient, kind, opts \\ []) do
-    case avaliar(patient, clinic_id: clinic.id) do
-      {:skip, motivo} ->
-        {:skip, motivo}
-
-      {:ok, canal, destino} ->
-        {:ok, gravar_e_enfileirar(clinic, attendance, patient, kind, canal, destino, opts)}
+    with {:ok, canal, destino} <- avaliar(patient, clinic_id: clinic.id),
+         false <- ja_na_fila?(clinic, attendance, kind) do
+      {:ok, gravar_e_enfileirar(clinic, attendance, patient, kind, canal, destino, opts)}
+    else
+      {:skip, motivo} -> {:skip, motivo}
+      true -> {:skip, :ja_na_fila}
     end
   end
 
+  # A trava contra a duplicata (§4). Uma mensagem deste tipo **ainda na fila** para esta presença
+  # significa que o envio já foi pedido e não saiu: enfileirar outra não adianta o relógio, só
+  # duplica o que vai chegar ao paciente. Dentro da janela de silêncio, onde a primeira fica horas
+  # parada, é o caso comum — quem clica não vê nada acontecer e clica de novo.
+  #
+  # **Só vale para os tipos em que a segunda mensagem não diz nada de novo.** Confirmação e
+  # lembrete repetem o mesmo conteúdo, e o segundo é ruído. Remarcação e cancelamento são o
+  # oposto: cada um anuncia um FATO novo, e remarcar duas vezes precisa avisar duas vezes — o
+  # segundo aviso traz o horário que o primeiro não tinha. Travar por tipo, e não por presença,
+  # é o que separa os dois casos.
+  #
+  # **Roda dentro de `in_clinic/2`, e isso não é zelo.** O `dispatch/5` é chamado FORA de qualquer
+  # transação com GUC (o controller sai do `in_clinic` antes de mapear os participantes; o cron
+  # nunca entrou), e a escrita só funciona porque a própria ação carrega o `SetTenantGuc`. Uma
+  # leitura solta aqui rodaria sem GUC, a RLS devolveria lista vazia, e a trava passaria a nunca
+  # travar — em silêncio, e com a suíte verde, porque no `mix test` o sandbox roda como superusuário
+  # (é a lição de `.claude/rules` / doc 30 que já custou três medições erradas).
+  defp ja_na_fila?(clinic, attendance, kind) when kind in @sem_duplicata do
+    in_clinic(clinic.id, fn ->
+      Messaging.list_pending_messages!(attendance.id, kind, authorize?: false) != []
+    end)
+  end
+
+  defp ja_na_fila?(_clinic, _attendance, _kind), do: false
+
   defp gravar_e_enfileirar(clinic, attendance, patient, kind, canal, destino, opts) do
+    # Uma leitura só do relógio para os dois usos. Chamar `quando_enviar/1` duas vezes deixaria a
+    # linha e o job discordarem quando a chamada cai na virada da janela — a tela diria uma hora e
+    # o Oban outra.
+    agendado_para = quando_enviar(clinic)
+
     message =
       Messaging.enqueue_message!(
         %{
@@ -211,13 +251,14 @@ defmodule Api.Messaging.Dispatch do
           template: Templates.para(kind),
           vars: Map.merge(vars(clinic, attendance, patient), extras(opts)),
           destino: destino,
-          disparado_por_id: Keyword.get(opts, :disparado_por_id)
+          disparado_por_id: Keyword.get(opts, :disparado_por_id),
+          agendado_para: agendado_para
         },
         tenant: clinic.id,
         authorize?: false
       )
 
-    Api.Messaging.SendJob.enqueue(message, agendar_para: quando_enviar(clinic))
+    Api.Messaging.SendJob.enqueue(message, agendar_para: agendado_para)
 
     message
   end
