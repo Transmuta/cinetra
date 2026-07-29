@@ -9,9 +9,19 @@ defmodule Api.Scheduling.Appointment.Changes.CascadeToAttendances do
   as duas coisas em sincronia é o que faz o contador de faltas do paciente se mexer, em vez de
   ficar preso no valor do seed (o bug que o protótipo tem: `p.faltas` mantido na mão, [`:1041`]).
 
-  Roda como `after_action` dentro da transação da própria ação, então cada `Attendance` gera
-  sua própria linha de trilha ("quem marcou faltou") e cada escrita passa pelo `SetTenantGuc`
-  da ação de `Attendance` — a GUC cai no lugar sob RLS.
+  Roda como `after_action` dentro da transação da própria ação, e cada escrita passa pelo
+  `SetTenantGuc` da ação de `Attendance` — a GUC cai no lugar sob RLS.
+
+  ## Não deixa linha na trilha, e é decisão
+
+  Quem decidiu foi o BLOCO: "Cancelou o agendamento" já conta o fato, e a linha do enriquecimento
+  ainda mostra quem estava nele. As presenças aqui só refletem — e escreviam uma linha CADA,
+  "Alterou a presença de Fulano: Prevista → Cancelada", no mesmo segundo. Numa turma de quatro
+  eram cinco linhas para um clique. Daí o `audit_cascade` no contexto de cada escrita, que
+  `Api.Audit.Capture` lê.
+
+  O caminho inverso continua rendendo linha: quando é a PRESENÇA que decide (faltou, entrou, saiu),
+  é ela que conta, e quem cala é o rollup do bloco (`Attendance.Changes.RollupBlockStatus`).
 
   Opções:
 
@@ -36,7 +46,8 @@ defmodule Api.Scheduling.Appointment.Changes.CascadeToAttendances do
             action: :transition,
             authorize?: false,
             tenant: cs.tenant,
-            actor: context.actor
+            actor: context.actor,
+            context: %{audit_cascade: true}
           )
         end)
 

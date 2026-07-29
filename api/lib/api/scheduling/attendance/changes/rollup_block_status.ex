@@ -10,6 +10,14 @@ defmodule Api.Scheduling.Attendance.Changes.RollupBlockStatus do
   **sempre** bumpa a `version` (mesmo quando o status não muda): a versão é o lock otimista do
   bloco, e mexer numa presença é mexer no bloco. Esse update é o que dispara o `AgendaNotifier`
   (a agenda repinta o bloco) e devolve o bloco já atualizado ao wrapper.
+
+  ## Não deixa linha na trilha, e é decisão
+
+  Quem decidiu foi a PRESENÇA: "Marcou a falta de Fulano" já conta o fato, e o desfecho do bloco é
+  derivado dela — o rollup nunca registra escolha de ninguém. Sem o marcador `audit_cascade` (lido
+  por `Api.Audit.Capture`), todo clique de presença escrevia duas linhas no mesmo segundo: a da
+  presença e um "Atualizou a situação pelos participantes", que num bloco de um paciente é a mesma
+  frase dita de outro jeito.
   """
   use Ash.Resource.Change
 
@@ -40,7 +48,8 @@ defmodule Api.Scheduling.Attendance.Changes.RollupBlockStatus do
         action: :apply_participant_rollup,
         authorize?: false,
         tenant: cs.tenant,
-        actor: context.actor
+        actor: context.actor,
+        context: %{audit_cascade: true}
       )
 
       {:ok, attendance}
