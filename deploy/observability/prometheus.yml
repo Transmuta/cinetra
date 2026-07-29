@@ -1,0 +1,94 @@
+# Prometheus — o banco de série temporal das métricas (doc 74).
+#
+# ## Por que Prometheus SÓ raspa, e não descobre
+#
+# O Alloy ao lado usa `discovery.docker`: ele lê o daemon do Docker e acha container sozinho.
+# Aqui os alvos são ESTÁTICOS, de propósito, e a diferença vale ser dita porque parece um
+# retrocesso e não é:
+#
+#   * descoberta exigiria montar `/var/run/docker.sock` num segundo container. O socket do Docker
+#     montado é equivalente a root na máquina — o `compose.obs.yml` já comenta isso a respeito do
+#     Alloy. Repetir a exposição para poupar quatro linhas de YAML é troca ruim;
+#   * são QUATRO alvos, e eles mudam quando um serviço novo nasce — não a cada deploy. Uma lista
+#     que muda por trimestre não justifica um mecanismo de descoberta.
+#
+# ## Este arquivo NÃO expande variável de ambiente — e é por isso que os alvos da API saem dele
+#
+# O Prometheus não interpola `${VAR}` na configuração, diferente do `loki.yml` ao lado, que só
+# funciona porque sobe com `-config.expand-env=true`. Tentar parametrizar aqui com `${...}` não dá
+# erro: ele resolve `${METRICS_API_HOST}` como um host de verdade, falha o DNS, e o alvo fica
+# `DOWN` com uma mensagem que ninguém associa à causa.
+#
+# A primeira versão respondia a isso mandando produção EDITAR este arquivo. Não presta: torna o
+# deploy um passo manual, e um arquivo que difere entre ambientes deixa de ser revisável — o diff
+# do PR passa a mentir sobre o que roda em produção.
+#
+# A solução é `file_sd_configs` no job `api`: **este arquivo serve os dois ambientes**, e só a
+# LISTA DE HOSTS sai para `targets/`, que é um arquivo de três linhas escolhido por variável no
+# compose. De brinde, o `file_sd` recarrega sozinho — acrescentar um alvo não reinicia o
+# Prometheus nem perde a série em memória.
+
+global:
+  # 15 s é o intervalo que o `rate()` dos painéis assume. Mudar aqui sem mudar as janelas dos
+  # dashboards (`[5m]`) não quebra nada, mas desafina a suavização — a regra prática do
+  # Prometheus é janela ≥ 4× o intervalo de raspagem.
+  scrape_interval: 15s
+  scrape_timeout: 10s
+  # ATENÇÃO — `external_labels` NÃO é visível em consulta local. Ele é anexado só quando o dado
+  # SAI daqui: `remote_write`, federação e notificação de alerta. Um `sum by (ambiente) (...)` no
+  # painel devolve vazio, e `label_values(ambiente)` devolve lista vazia — medido, e é o tipo de
+  # engano que se paga com uma hora achando que a coleta quebrou.
+  #
+  # Quem precisa distinguir ambiente DENTRO da consulta usa o label `env` do próprio alvo, no
+  # bloco `static_configs` do job `api` lá embaixo. Este aqui serve a outra coisa: identificar
+  # qual Prometheus disparou o alerta, quando um dia houver mais de um.
+  external_labels:
+    ambiente: dev
+
+scrape_configs:
+  # ---- A MÁQUINA -------------------------------------------------------------------------------
+  # CPU, load, memória, swap, disco (uso e I/O), rede, uptime. É a fonte que faltava: o Loki sabe
+  # que a requisição demorou 3 s; só isto aqui sabe que a CPU estava em 100%.
+  #
+  # SEM label `env`, e é deliberado: a máquina é UMA, compartilhada por produção e homologação.
+  # Carimbar `env=prod` aqui criaria a ilusão de que existe um disco de produção separado do de
+  # homologação — quando na verdade quem encher o disco derruba os dois.
+  - job_name: node
+    static_configs:
+      - targets: ["node-exporter:9100"]
+
+  # ---- OS CONTAINERS ---------------------------------------------------------------------------
+  # CPU e memória POR container, e o contador de reinícios. Responde a pergunta que o node
+  # exporter não responde: "a memória da máquina subiu — de quem?".
+  #
+  # O `mem_limit` de cada serviço vira `container_spec_memory_limit_bytes`, então dá para desenhar
+  # uso CONTRA o teto, que é o número que antecede o OOM kill.
+  - job_name: cadvisor
+    static_configs:
+      - targets: ["cadvisor:8080"]
+
+  # ---- A APLICAÇÃO -----------------------------------------------------------------------------
+  # PromEx (doc 74): BEAM, pool do Ecto, filas do Oban, latência por rota.
+  #
+  # A lista de hosts vem de `targets/`, montado pelo compose em `PROMETHEUS_TARGETS` — em dev,
+  # `targets/api-dev.yml`; em produção, `targets/api-prod.yml`, que lista os dois stacks.
+  #
+  # O label `env` é responsabilidade daquele arquivo, não deste: é ele que sabe qual container é
+  # produção e qual é homologação. Sem um `env` por alvo, as séries dos dois ambientes caem na
+  # mesma linha do painel e o pico de homologação passa a parecer pico de produção.
+  - job_name: api
+    metrics_path: /metrics
+    file_sd_configs:
+      - files:
+          - /etc/prometheus/targets/api.yml
+        # O `file_sd` já observa o arquivo por inotify; este intervalo é a rede para o caso de o
+        # arquivo chegar por bind mount que não propaga evento — o que é exatamente o caso aqui.
+        refresh_interval: 30s
+
+  # ---- O PRÓPRIO PROMETHEUS --------------------------------------------------------------------
+  # Barato e é o que responde "o painel está vazio porque não há problema, ou porque a coleta
+  # morreu?". A mesma pergunta que o doc 62 §11.3 teve de responder para o Loki, e que custou
+  # duas depurações num dia só quando não havia como.
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

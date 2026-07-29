@@ -1,0 +1,374 @@
+{
+  "uid": "cinetra-infra",
+  "title": "Cinetra · Infraestrutura",
+  "description": "O andar de baixo: processo, banco e o próprio pipeline de log. Mistura Loki, para o que ACONTECEU (boot, crash, checkpoint), e Postgres, para o ESTADO do banco (conexões, cache, tamanho, índice sem uso). CPU, memória, disco e rede da MÁQUINA não estão aqui — moram em 'Cinetra · Servidor' (doc 74), que fechou a lacuna que o doc 62 §11.2 tinha deixado registrada. Quando os dois acusam problema ao mesmo tempo, comece por lá: máquina saturada explica banco lento, e o contrário quase nunca é verdade.",
+  "tags": [
+    "cinetra",
+    "logs",
+    "banco"
+  ],
+  "timezone": "browser",
+  "refresh": "1m",
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "env",
+        "label": "Ambiente",
+        "type": "query",
+        "datasource": {
+          "type": "loki",
+          "uid": "loki"
+        },
+        "query": "label_values(env)",
+        "refresh": 1,
+        "sort": 1,
+        "includeAll": false,
+        "multi": false,
+        "current": {},
+        "options": [],
+        "definition": "label_values(env)"
+      },
+      {
+        "name": "db",
+        "label": "Banco",
+        "description": "Qual datasource Postgres consultar. Em produção há um por ambiente (prod e HML); em dev, um só.",
+        "type": "datasource",
+        "query": "grafana-postgresql-datasource",
+        "current": {},
+        "options": []
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Cache hit do banco",
+      "description": "Percentual de blocos servidos da memória. Abaixo de ~99% num app deste tamanho significa que o working set deixou de caber em shared_buffers — e é o aviso que chega ANTES da latência subir.",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "uid": "${db}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT round(100.0 * sum(blks_hit) / nullif(sum(blks_hit + blks_read), 0), 2) AS cache_hit FROM pg_stat_database WHERE datname = current_database()"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 95
+              },
+              {
+                "color": "green",
+                "value": 99
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Conexões abertas",
+      "description": "Contra o teto do Postgres. O pool do Ecto é dimensionado por instância; com dois ambientes na mesma máquina, é aqui que se vê o somatório real antes de ele virar 'sorry, too many clients'.",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
+      "datasource": {
+        "uid": "${db}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT count(*) AS conexoes, (SELECT setting::int FROM pg_settings WHERE name = 'max_connections') AS teto FROM pg_stat_activity"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0
+        }
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Deadlocks e rollbacks",
+      "description": "Deadlock em app CRUD é sempre suspeito: costuma ser duas transações tocando as mesmas linhas em ordens diferentes. Rollback acompanha o fluxo normal (toda constraint violada conta um), então o que importa é a variação, não o valor.",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "datasource": {
+        "uid": "${db}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT sum(deadlocks) AS deadlocks, sum(xact_rollback) AS rollbacks FROM pg_stat_database WHERE datname = current_database()"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0
+        }
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Linhas de log por minuto",
+      "description": "O pulso do próprio pipeline. Zero aqui não é silêncio: é o coletor parado, e existe alerta dedicado para isso (doc 62 §11.4) justamente porque a ausência de log é invisível em todos os outros painéis.",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate({env=\"$env\"} [5m])) * 60"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 0.1
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "logs",
+      "title": "Boot, desligamento e falha alta",
+      "description": "A linha do tempo do processo. Um app que reinicia sozinho de madrugada aparece SÓ aqui — e é exatamente o cenário (OOM, crash loop) que o mem_limit do compose mitiga sem ninguém observar. Casa 'Access ApiWeb.Endpoint' (subiu), 'database system is ready' (banco subiu), 'shutdown request' (desceu de propósito) e FATAL.",
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 5
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{env=\"$env\"} |~ \"(?i)(Access ApiWeb.Endpoint|Running ApiWeb.Endpoint|database system is ready|shutdown request|FATAL)\""
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none"
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Linhas de log por serviço",
+      "description": "Onde o volume nasce. O doc 71 mediu que metade do log ÚTIL de produção viria do container do Postgres, e quase nada dele serve — este painel é como se confere que os descartes do Alloy continuam valendo depois de cada mudança.",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 15
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "legendFormat": "{{service}}",
+          "expr": "sum by (service) (count_over_time({env=\"$env\"} [$__auto]))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10
+          }
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "table",
+      "title": "Maiores tabelas",
+      "description": "Tamanho total (dados + índices + TOAST). Serve para uma pergunta específica: a poda está funcionando? audit_events (90 dias), notifications e oban_jobs (Pruner, 7 dias) têm retenção própria — se qualquer uma crescer sem parar, o job de poda morreu em silêncio.",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 15
+      },
+      "datasource": {
+        "uid": "${db}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT relname AS tabela, n_live_tup AS linhas, pg_total_relation_size(relid) AS bytes FROM pg_stat_user_tables ORDER BY 3 DESC LIMIT 15"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bytes"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 8,
+      "type": "table",
+      "title": "Índices que ninguém usa",
+      "description": "idx_scan = 0 desde o último reset das estatísticas. É a lição do doc 35 virada painel: um índice de expressão só anexa se a expressão bater byte a byte com o SQL que o Ash emite, e um GiST caro chegou a ser entregue sem nunca ser usado. Índice sem uso custa escrita e disco em toda linha inserida. Cuidado com a leitura: índice recém-criado ou que só serve a um job mensal aparece aqui legitimamente.",
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 24
+      },
+      "datasource": {
+        "uid": "${db}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT relname AS tabela, indexrelname AS indice, idx_scan AS varreduras, pg_relation_size(indexrelid) AS bytes FROM pg_stat_user_indexes WHERE idx_scan = 0 AND indexrelname NOT LIKE '%_pkey' ORDER BY 4 DESC LIMIT 25"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bytes"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "schemaVersion": 39,
+  "version": 1
+}
