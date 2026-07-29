@@ -10,6 +10,10 @@ const m = vi.hoisted(() => ({
 }));
 vi.mock('$lib/server/members', () => m);
 
+// AN-06: a matriz vem junto do load; a falha degrada para null (seção some, equipe continua).
+const mx = vi.hoisted(() => ({ fetchAccessMatrix: vi.fn() }));
+vi.mock('$lib/server/access-matrix', () => mx);
+
 import { load, actions } from './+page.server';
 
 // PageServerLoad inclui `void` no retorno (por causa de error/redirect que retornam never);
@@ -23,9 +27,29 @@ function ev(fields: Record<string, string>) {
 	return { request: { formData: async () => fd } } as never;
 }
 
-beforeEach(() => Object.values(m).forEach((fn) => fn.mockReset()));
+beforeEach(() => {
+	Object.values(m).forEach((fn) => fn.mockReset());
+	mx.fetchAccessMatrix.mockReset();
+	mx.fetchAccessMatrix.mockResolvedValue({ status: 0, data: null });
+});
 
 describe('load', () => {
+	it('entrega a matriz de acesso quando a API responde (AN-06)', async () => {
+		m.fetchMembers.mockResolvedValueOnce({ status: 200, data: { members: [], professionals: [] } });
+		const matrix = { papeis: ['owner'], areas: [] };
+		mx.fetchAccessMatrix.mockResolvedValueOnce({ status: 200, data: matrix });
+
+		const r = (await load({} as never)) as { accessMatrix: unknown };
+		expect(r.accessMatrix).toEqual(matrix);
+	});
+
+	it('matriz fora do ar degrada para null — a equipe continua', async () => {
+		m.fetchMembers.mockResolvedValueOnce({ status: 200, data: { members: [], professionals: [] } });
+
+		const r = (await load({} as never)) as { accessMatrix: unknown };
+		expect(r.accessMatrix).toBeNull();
+	});
+
 	it('200 → members + professionals', async () => {
 		m.fetchMembers.mockResolvedValueOnce({
 			status: 200,

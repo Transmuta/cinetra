@@ -45,11 +45,13 @@ export const ROLE_META: Record<Papel, { label: string; desc: string }> = {
 	},
 	profissional: {
 		label: 'Profissional',
-		desc: 'Gerencia a própria agenda e seus pacientes.'
+		// "e seus pacientes" prometia edição de ficha que o papel não tem (a ficha é leitura
+		// para ele) — a matriz de acesso ao lado diria o contrário na mesma tela.
+		desc: 'Gerencia a própria agenda e vê as fichas dos pacientes.'
 	},
 	recepcao: {
 		label: 'Recepção',
-		desc: 'Opera a agenda de todos, sem configurações sensíveis.'
+		desc: 'Opera a agenda e o cadastro de pacientes, sem configurações sensíveis.'
 	}
 };
 

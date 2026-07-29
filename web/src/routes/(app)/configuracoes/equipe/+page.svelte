@@ -11,6 +11,7 @@
 	import RoleBadge from '$lib/components/members/RoleBadge.svelte';
 	import StatusBadge from '$lib/components/members/StatusBadge.svelte';
 	import MemberModal from '$lib/components/members/MemberModal.svelte';
+	import AccessMatrixTable from '$lib/components/members/AccessMatrixTable.svelte';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import {
 		linkedProfessionalName,
@@ -245,6 +246,12 @@
 				</div>
 			{/each}
 		</section>
+	{/if}
+
+	<!-- AN-06 / D-H7: a matriz de acesso, consultável na hora de convidar. Vem do backend
+	     (perto das policies, com tripwire) — sem dado, a seção some em vez de inventar. -->
+	{#if data.accessMatrix}
+		<AccessMatrixTable matrix={data.accessMatrix} />
 	{/if}
 </div>
 

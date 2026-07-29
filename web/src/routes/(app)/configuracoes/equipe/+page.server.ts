@@ -7,11 +7,14 @@ import {
 	revokeMember,
 	resendInvite
 } from '$lib/server/members';
+import { fetchAccessMatrix } from '$lib/server/access-matrix';
 
 // Carrega membros + profissionais da clínica ativa (BFF → /api/members). 403 quando o papel
 // não permite (recepção/profissional) — o shell mostra a página de erro.
 export const load: PageServerLoad = async (event) => {
-	const result = await fetchMembers(event);
+	// A matriz (AN-06) vem junto: é a referência de quem está convidando. Degrada para null —
+	// a seção some, a equipe continua.
+	const [result, matrix] = await Promise.all([fetchMembers(event), fetchAccessMatrix(event)]);
 
 	if (result.status === 403) {
 		error(403, 'Só a dona e administradores gerenciam a equipe.');
@@ -20,7 +23,11 @@ export const load: PageServerLoad = async (event) => {
 		error(result.status || 502, 'Não foi possível carregar a equipe.');
 	}
 
-	return { members: result.data.members, professionals: result.data.professionals };
+	return {
+		members: result.data.members,
+		professionals: result.data.professionals,
+		accessMatrix: matrix.data
+	};
 };
 
 export const actions: Actions = {
