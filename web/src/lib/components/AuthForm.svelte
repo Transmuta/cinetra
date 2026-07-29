@@ -29,6 +29,30 @@
 	// "Usar outro e-mail" volta à própria rota (SPA nav com JS, reload sem JS) — limpa `form`.
 	const resetHref = $derived(page.url.pathname);
 
+	/**
+	 * Entrada que não deu certo e devolveu a pessoa para cá.
+	 *
+	 * As quatro portas que podem falhar sinalizam pelo MESMO parâmetro, `erro`, com dois valores:
+	 * `?erro=link` (magic link inválido ou expirado — `auth/callback`, nas duas saídas) e
+	 * `?erro=google` (a API não devolveu Location ou não assinou a sessão — `auth/google` e
+	 * `auth/user/google/callback`). Ninguém o lia: a tela de login reaparecia idêntica, sem uma
+	 * palavra, e o sintoma que sobrava era "cliquei no link do e-mail e não entrei", sem nada na
+	 * tela para agir sobre.
+	 *
+	 * É o VALOR de `erro` que decide, não a presença de uma chave. Uma primeira versão disto
+	 * procurava `?link`/`?google` como flags soltas — forma que nenhum `redirect` produz —, e o
+	 * aviso nunca acendia no fluxo real com os testes verdes.
+	 *
+	 * O mapa é FECHADO de propósito: valor fora dele não vira aviso, e nada aqui repassa texto de
+	 * fora — a frase é escrita, nunca vinda da URL.
+	 */
+	const AVISOS: Record<string, string | undefined> = {
+		link: 'Esse link de acesso expirou ou já foi usado. Peça um novo abaixo.',
+		google: 'Não foi possível entrar com o Google. Tente novamente ou use o link por e-mail.'
+	};
+
+	const avisoDaVolta = $derived(AVISOS[page.url.searchParams.get('erro') ?? ''] ?? '');
+
 	// Estilos do protótipo (Cinetra Landing.dc.html) — paleta papel/navy, fora do teal do app.
 	const labelStyle = 'display:block;font-size:13px;font-weight:600;color:#3D454F;margin-bottom:7px';
 	const inputStyle =
@@ -105,6 +129,8 @@
 
 		{#if form?.error}
 			<p style="font-size:13px;color:#C0392B;margin:0">{form.error}</p>
+		{:else if avisoDaVolta}
+			<p role="alert" style="font-size:13px;color:#C0392B;margin:0">{avisoDaVolta}</p>
 		{/if}
 
 		<button

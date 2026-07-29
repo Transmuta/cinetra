@@ -3,7 +3,7 @@ import '@testing-library/jest-dom/vitest';
 import { render } from '@testing-library/svelte';
 
 vi.mock('$app/forms', () => ({ enhance: () => ({ destroy() {} }) }));
-vi.mock('$app/state', () => ({ page: { url: { pathname: '/criar-conta' } } }));
+vi.mock('$app/state', () => ({ page: { url: new URL('http://localhost/criar-conta') } }));
 
 import CriarConta from './+page.svelte';
 import Entrar from '../entrar/+page.svelte';

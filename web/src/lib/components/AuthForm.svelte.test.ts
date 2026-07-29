@@ -4,7 +4,9 @@ import { render, fireEvent } from '@testing-library/svelte';
 
 // Módulos virtuais do SvelteKit que o AuthForm usa (enhance + page atual).
 vi.mock('$app/forms', () => ({ enhance: () => ({ destroy() {} }) }));
-vi.mock('$app/state', () => ({ page: { url: { pathname: '/entrar' } } }));
+// `page.url` é uma URL de verdade, não um objeto com `pathname`: o componente também lê
+// `searchParams` (o aviso de entrada que não deu certo), e o mock chapado escondia isso.
+vi.mock('$app/state', () => ({ page: { url: new URL('http://localhost/entrar') } }));
 
 import AuthForm from './AuthForm.svelte';
 
