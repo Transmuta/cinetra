@@ -101,6 +101,40 @@ export async function fetchAllSlots(event: RequestEvent, janela: Janela): Promis
 	}
 }
 
+/** O slot de uma vaga que abriu — o `{professional_id, starts_at, ends_at}` do bloco. */
+export interface CandidateSlot {
+	professional_id: string;
+	starts_at: string;
+	ends_at: string;
+}
+
+export interface CandidatesResult {
+	status: number;
+	data: { candidates: Entry[] } | null;
+}
+
+// O "quem cabe aqui?" (AN-12, doc 64): os itens da fila cuja preferência + janela casam com a
+// vaga que abriu (cancelamento/falta). Consumido pelo drawer via `/agenda/candidatos`.
+export async function fetchCandidates(
+	event: RequestEvent,
+	slot: CandidateSlot
+): Promise<CandidatesResult> {
+	try {
+		const qs = new URLSearchParams({
+			professional_id: slot.professional_id,
+			starts_at: slot.starts_at,
+			ends_at: slot.ends_at
+		});
+		const res = await apiFetch(event, `/api/waitlist/candidates?${qs}`, {
+			headers: { accept: 'application/json' }
+		});
+		if (!res.ok) return { status: res.status, data: null };
+		return { status: res.status, data: (await res.json()) as { candidates: Entry[] } };
+	} catch {
+		return { status: 0, data: null };
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Escrita — cada corpo é o do contrato (doc 25 §5). `clinic_id` jamais entra.
 // ---------------------------------------------------------------------------

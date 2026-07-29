@@ -404,4 +404,152 @@ describe('AppointmentDrawer', () => {
 		expect(screen.getByText('Pacientes na turma')).toBeInTheDocument();
 		expect(screen.getByText('1/4')).toBeInTheDocument();
 	});
+
+	// AN-12 (doc 64, D11): a vaga que abriu (cancelamento/falta) pergunta à fila "quem cabe
+	// aqui?" — a seção só existe nesses dois status, e agendar um candidato converte a entry NA
+	// vaga do próprio bloco.
+	describe('quem cabe aqui (AN-12)', () => {
+		const candidato = (over: Record<string, unknown> = {}) => ({
+			id: 'e1',
+			prio: 'urgente' as const,
+			janela: 'qualquer' as const,
+			obs: null,
+			professional_ids: [],
+			dias_na_fila: 5,
+			rules: [],
+			patient: { id: 'pacf', nome: 'Bia Fila', tel: null, ativo: true, faltas: 0 },
+			inserted_at: '2026-07-15T12:00:00Z',
+			...over
+		});
+
+		it('bloco cancelado lista o candidato com prioridade e tempo de fila', () => {
+			render(AppointmentDrawer, {
+				props: { appt: appt({ status: 'cancelado' }), ...base, candidatos: [candidato()] }
+			});
+			expect(screen.getByText('Quem cabe aqui')).toBeInTheDocument();
+			expect(screen.getByText('Bia Fila')).toBeInTheDocument();
+			expect(screen.getByText('Urgente')).toBeInTheDocument();
+			expect(screen.getByText(/5 dia\(s\) na fila/)).toBeInTheDocument();
+			expect(screen.getByRole('link', { name: /Ver fila/ })).toHaveAttribute('href', '/fila');
+		});
+
+		it('bloco agendado NÃO tem a seção (não há vaga nenhuma)', () => {
+			render(AppointmentDrawer, {
+				props: { appt: appt(), ...base, candidatos: [candidato()] }
+			});
+			expect(screen.queryByText('Quem cabe aqui')).not.toBeInTheDocument();
+		});
+
+		it('null = consultando; lista vazia diz que ninguém casa', () => {
+			const { unmount } = render(AppointmentDrawer, {
+				props: { appt: appt({ status: 'cancelado' }), ...base, candidatos: null }
+			});
+			expect(screen.getByText(/Consultando a fila/)).toBeInTheDocument();
+			unmount();
+			render(AppointmentDrawer, {
+				props: { appt: appt({ status: 'cancelado' }), ...base, candidatos: [] }
+			});
+			expect(screen.getByText(/Ninguém na fila casa com este horário/)).toBeInTheDocument();
+		});
+
+		it('Agendar submete a conversão com o slot do bloco (sem encaixe no cancelado)', async () => {
+			const capturado: Record<string, string> = {};
+			const original = HTMLFormElement.prototype.requestSubmit;
+
+			HTMLFormElement.prototype.requestSubmit = function () {
+				if (this.getAttribute('action') !== '?/agendar_fila') return;
+				for (const campo of ['id', 'starts_at', 'professional_id', 'appointment_type_id', 'duration_minutos', 'encaixe']) {
+					capturado[campo] = this.querySelector<HTMLInputElement>(`input[name="${campo}"]`)?.value ?? '';
+				}
+			};
+
+			try {
+				render(AppointmentDrawer, {
+					props: { appt: appt({ status: 'cancelado' }), ...base, candidatos: [candidato()] }
+				});
+				await fireEvent.click(screen.getByRole('button', { name: 'Agendar' }));
+			} finally {
+				HTMLFormElement.prototype.requestSubmit = original;
+			}
+
+			expect(capturado).toEqual({
+				id: 'e1',
+				starts_at: '2026-07-20T11:00:00Z',
+				professional_id: 'p1',
+				appointment_type_id: 't1',
+				duration_minutos: '50',
+				encaixe: 'false'
+			});
+		});
+
+		// A falta ocupa o horário para a exclusion constraint (`status <> 'cancelado'`): cobrir a
+		// vaga de uma falta SÓ entra como encaixe, e o form já parte assim.
+		it('na vaga de falta o encaixe viaja true', async () => {
+			let encaixe = '';
+			const original = HTMLFormElement.prototype.requestSubmit;
+			HTMLFormElement.prototype.requestSubmit = function () {
+				if (this.getAttribute('action') !== '?/agendar_fila') return;
+				encaixe = this.querySelector<HTMLInputElement>('input[name="encaixe"]')?.value ?? '';
+			};
+
+			try {
+				render(AppointmentDrawer, {
+					props: { appt: appt({ status: 'faltou' }), ...base, candidatos: [candidato()] }
+				});
+				await fireEvent.click(screen.getByRole('button', { name: 'Agendar' }));
+			} finally {
+				HTMLFormElement.prototype.requestSubmit = original;
+			}
+
+			expect(encaixe).toBe('true');
+		});
+
+		// A9/D2: profissional não marca encaixe — e na vaga de falta a conversão é encaixe por
+		// definição, então o botão nem oferece o caminho que o servidor recusaria.
+		it('profissional não agenda na vaga de falta (encaixe é de quem responde pela agenda)', () => {
+			render(AppointmentDrawer, {
+				props: {
+					appt: appt({ status: 'faltou' }),
+					...base,
+					papel: 'profissional' as const,
+					candidatos: [candidato()]
+				}
+			});
+			expect(screen.getByRole('button', { name: 'Agendar' })).toBeDisabled();
+		});
+
+		// O horário foi tomado no meio-tempo (vaga de cancelamento re-ocupada): o 422 volta com a
+		// saída de encaixe — mesmo desenho do criar/remarcar (ConflictErrorBox).
+		it('schedule_conflict oferece "Marcar como encaixe", que arma o flag', async () => {
+			const capturas: string[] = [];
+			const original = HTMLFormElement.prototype.requestSubmit;
+			HTMLFormElement.prototype.requestSubmit = function () {
+				if (this.getAttribute('action') !== '?/agendar_fila') return;
+				capturas.push(this.querySelector<HTMLInputElement>('input[name="encaixe"]')?.value ?? '');
+			};
+
+			try {
+				render(AppointmentDrawer, {
+					props: {
+						appt: appt({ status: 'cancelado' }),
+						...base,
+						candidatos: [candidato()],
+						form: {
+							action: 'agendar_fila',
+							error: 'Esse horário sobrepõe outro agendamento.',
+							code: 'schedule_conflict'
+						}
+					}
+				});
+
+				expect(screen.getByText(/sobrepõe/)).toBeInTheDocument();
+				await fireEvent.click(screen.getByRole('button', { name: 'Marcar como encaixe' }));
+				await fireEvent.click(screen.getByRole('button', { name: 'Agendar' }));
+			} finally {
+				HTMLFormElement.prototype.requestSubmit = original;
+			}
+
+			expect(capturas).toEqual(['true']);
+		});
+	});
 });

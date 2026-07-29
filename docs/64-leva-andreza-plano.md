@@ -62,7 +62,7 @@ e **um item novo entrou**.
 | `AN-08` | **Acessibilidade** — o mobile já foi (HOM-028, resto) | **M** | decidido (D8) |
 | `AN-10` | Duplicado por nome + nascimento (HOM-013, resto) | **P** | pronto para codar |
 | `AN-11` | Validação de CPF/e-mail/nascimento (HOM-012) | **P** | decidido (D10) |
-| `AN-12` | Fila: UI "quem cabe aqui" (HOM-018) | **P** | decidido (D11) |
+| `AN-12` | Fila: UI "quem cabe aqui" (HOM-018) | **P** | ✅ **construído** ([§4b](#4b-o-que-foi-construído-an-12)) |
 | `AN-13` | Rodar o roteiro §06 como QA guiado (HOM-030) | **P** | pronto |
 | `AN-14` | Pacote na agenda: progresso (HOM-019/020) | **M** | decidido (D12) |
 
@@ -259,6 +259,41 @@ sem erro novo.
 
 
 
+### 4b. O que foi construído (`AN-12`)
+
+Fechado em 2026-07-28. A vaga que abriu pergunta à fila, no lugar onde a vaga aparece: o
+**drawer** do bloco cancelado/faltou — exatamente o cenário do docstring de `who_fits/5`.
+
+| Peça | Onde |
+| --- | --- |
+| `fetchCandidates/2` no BFF | [`server/waitlist.ts`](../web/src/lib/server/waitlist.ts) — `GET /api/waitlist/candidates` com o slot `{professional_id, starts_at, ends_at}` |
+| `GET /agenda/candidatos` | [`+server.ts`](../web/src/routes/(app)/agenda/candidatos/+server.ts) — buscado quando o drawer abre (molde de `/agenda/mensagens/[id]`); degrada para lista vazia |
+| Action `?/agendar_fila` | [`agenda/+page.server.ts`](../web/src/routes/(app)/agenda/+page.server.ts) — a MESMA conversão da fila (`convertEntry`), com o slot do próprio bloco |
+| Seção "Quem cabe aqui" | [`AppointmentDrawer.svelte`](../web/src/lib/components/agenda/AppointmentDrawer.svelte) — candidato + `PriorityBadge` + dias na fila + "Agendar" por linha, link "Ver fila"; um form só (padrão do form de presença) |
+
+**Decisões de desenho tomadas na implementação:**
+
+- **"vaga" = bloco `cancelado` ou `faltou`** — os mesmos dois status que o motor de vagas já
+  trata como `freed`. A seção não existe em nenhum outro estado;
+- **a conversão herda o slot inteiro do bloco** (horário, profissional, tipo, duração) — não há
+  formulário: o "quem cabe aqui" é o inverso do "Oferecer" da fila, onde o slot é escolhido;
+- **cobrir vaga de falta entra como encaixe por definição**: a exclusion constraint conta o
+  `faltou` como ocupante (`status <> 'cancelado'`), então o form parte com o flag armado — e
+  para `profissional`, que não marca encaixe (A9/D2), o botão nem oferece o caminho que o
+  servidor recusaria;
+- **o 422 aparece dentro da seção** (`ConflictErrorBox`): `schedule_conflict` numa vaga de
+  cancelamento re-ocupada oferece "Marcar como encaixe"; os demais (ex.: fora do expediente,
+  D14) só mostram o motivo. Depois de um "Agendar", a marca da action refaz a consulta — o
+  convertido some da lista sem F5.
+
+**Verde:** 1690 testes do web (13 novos na fatia), cobertura 75,88% branch (gate passa),
+`svelte-check` sem erro. **Verificado ao vivo** (Clínica Zona Sul, dev): cancelar um bloco fez a
+seção nascer com o candidato urgente; "Agendar" criou o bloco no mesmo horário, tirou a entry da
+fila, refez a consulta ("ninguém casa") e carimbou `veio_da_fila`/`dias_na_fila` (AN-07); o 422
+de expediente apareceu inline. Achado colateral do teste ao vivo: a clínica do seed **não tinha
+`clinic_hours` nenhum**, então toda conversão morria em "a clínica não atende neste dia" — dado
+de seed, não defeito do produto.
+
 ### `AN-03` — Motivo em falta e remarcação **[M]**
 **D-H3** — motivo em todas as ações críticas, **sempre opcional**, texto livre. O cancelamento está
 inteiro desde `9d594ff` e é o molde. Com a A2, a falta é **da presença**, não do bloco:
@@ -311,9 +346,9 @@ CPF e telefone já avisam; sobra a heurística que pega o cadastro feito sem doc
 Há **máscara** e **zero validação** — no backend `cpf` é `:string` sem dígito verificador. O padrão
 existe no repo ([`cnpj.ts`](../web/src/lib/cnpj.ts)).
 
-### `AN-12` — UI "quem cabe aqui" **[P]**
-A mais barata do relatório: `Waitlist.who_fits/5` e `GET /api/waitlist/candidates` estão prontos e
-**com zero consumo** — nenhum arquivo do `web/` os chama. Só falta tela.
+### `AN-12` — UI "quem cabe aqui" **[P]** — ✅ construído
+Era a mais barata do relatório: `Waitlist.who_fits/5` e `GET /api/waitlist/candidates` estavam
+prontos e **com zero consumo**. A tela foi construída em 2026-07-28 — ver [§4b](#4b-o-que-foi-construído-an-12).
 
 ### `AN-13` — Roteiro §06 como QA guiado **[P]**
 Não é código. **Sessão expirada** e **rede instável** nunca foram testadas pela ótica do usuário.

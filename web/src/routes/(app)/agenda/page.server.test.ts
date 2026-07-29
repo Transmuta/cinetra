@@ -9,6 +9,10 @@ const m = vi.hoisted(() => ({
 }));
 vi.mock('$lib/server/appointments', () => m);
 
+// AN-12 (doc 64): a conversão da fila disparada de DENTRO do drawer (a vaga que abriu).
+const w = vi.hoisted(() => ({ convertEntry: vi.fn() }));
+vi.mock('$lib/server/waitlist', () => w);
+
 const msg = vi.hoisted(() => ({ sendConfirmation: vi.fn() }));
 vi.mock('$lib/server/messages', () => msg);
 
@@ -551,6 +555,86 @@ describe('action presenca', () => {
 		);
 
 		expect(r).toMatchObject({ status: 409 });
+	});
+});
+
+// AN-12 (doc 64): agendar um candidato da fila NA vaga que abriu — a conversão (`convert`)
+// disparada do drawer, com o slot do próprio bloco (não escolhido pelo usuário).
+describe('action agendar_fila', () => {
+	const slot = {
+		id: 'e1',
+		starts_at: '2026-07-20T11:00:00Z',
+		professional_id: 'p1',
+		appointment_type_id: 't1',
+		duration_minutos: '50'
+	};
+
+	beforeEach(() => {
+		w.convertEntry.mockReset();
+		w.convertEntry.mockResolvedValue({ ok: true, status: 201 });
+	});
+
+	it('caminho feliz → converte com o corpo do contrato', async () => {
+		const r = await actions.agendar_fila(formEvent(slot));
+
+		expect(r).toEqual({ ok: true, action: 'agendar_fila' });
+		expect(w.convertEntry.mock.calls[0][1]).toBe('e1');
+		expect(w.convertEntry.mock.calls[0][2]).toMatchObject({
+			starts_at: '2026-07-20T11:00:00Z',
+			professional_id: 'p1',
+			appointment_type_id: 't1',
+			encaixe: false,
+			duration_minutos: 50
+		});
+	});
+
+	// A falta ocupa o horário para a exclusion constraint (`status <> 'cancelado'`), então a
+	// conversão numa vaga de falta só entra como encaixe — o flag viaja do drawer.
+	it('encaixe marcado viaja true', async () => {
+		await actions.agendar_fila(formEvent({ ...slot, encaixe: 'true' }));
+		expect(w.convertEntry.mock.calls[0][2].encaixe).toBe(true);
+	});
+
+	it('sem o item da fila → 400 e nem chega à API', async () => {
+		const r = await actions.agendar_fila(formEvent({ ...slot, id: '' }));
+		expect(r).toMatchObject({ status: 400 });
+		expect(w.convertEntry).not.toHaveBeenCalled();
+	});
+
+	it('slot sem horário válido → 400', async () => {
+		const r = await actions.agendar_fila(formEvent({ ...slot, starts_at: 'agora há pouco' }));
+		expect(r).toMatchObject({ status: 400 });
+		expect(w.convertEntry).not.toHaveBeenCalled();
+	});
+
+	it('slot sem profissional ou tipo → 400', async () => {
+		const r = await actions.agendar_fila(formEvent({ ...slot, appointment_type_id: '' }));
+		expect(r).toMatchObject({ status: 400 });
+		expect(w.convertEntry).not.toHaveBeenCalled();
+	});
+
+	it('duração inválida é omitida (a API usa a do tipo)', async () => {
+		await actions.agendar_fila(formEvent({ ...slot, duration_minutos: '0' }));
+		expect(w.convertEntry.mock.calls[0][2]).not.toHaveProperty('duration_minutos');
+	});
+
+	// O horário foi tomado no meio-tempo (vaga de cancelamento re-ocupada): o `code` sobe para a
+	// tela oferecer a saída de encaixe — mesmo desenho do criar/remarcar.
+	it('schedule_conflict sobe com o code', async () => {
+		w.convertEntry.mockResolvedValueOnce({
+			ok: false,
+			status: 422,
+			error: 'Esse horário sobrepõe outro agendamento.',
+			code: 'schedule_conflict'
+		});
+
+		const r = (await actions.agendar_fila(formEvent(slot))) as {
+			status: number;
+			data: { code: string };
+		};
+
+		expect(r.status).toBe(422);
+		expect(r.data.code).toBe('schedule_conflict');
 	});
 });
 

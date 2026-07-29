@@ -9,6 +9,7 @@ import {
 	fetchWaitlist,
 	fetchSlots,
 	fetchAllSlots,
+	fetchCandidates,
 	enqueueEntry,
 	updateEntry,
 	dequeueEntry,
@@ -172,5 +173,41 @@ describe('escrita — delega ao mutate no verbo/rota certos', () => {
 			appointment_type_id: 't1'
 		});
 		expect(r.code).toBe('schedule_conflict');
+	});
+});
+
+// AN-12 (doc 64): o "quem cabe aqui" do drawer — a vaga que abriu pergunta à fila.
+describe('fetchCandidates', () => {
+	const slot = {
+		professional_id: 'p1',
+		starts_at: '2026-07-21T12:00:00Z',
+		ends_at: '2026-07-21T12:50:00Z'
+	};
+
+	it('monta a query com o slot inteiro (profissional + janela)', async () => {
+		api.apiFetch.mockResolvedValueOnce(res(200, { candidates: [] }));
+		await fetchCandidates(event, slot);
+		expect(api.apiFetch.mock.calls[0][1]).toBe(
+			'/api/waitlist/candidates?professional_id=p1&starts_at=2026-07-21T12%3A00%3A00Z&ends_at=2026-07-21T12%3A50%3A00Z'
+		);
+	});
+
+	it('200 → os candidatos', async () => {
+		api.apiFetch.mockResolvedValueOnce(res(200, { candidates: [{ id: 'e1' }] }));
+		const r = await fetchCandidates(event, slot);
+		expect(r.status).toBe(200);
+		expect(r.data?.candidates).toHaveLength(1);
+	});
+
+	it('erro HTTP → data null', async () => {
+		api.apiFetch.mockResolvedValueOnce(res(403));
+		const r = await fetchCandidates(event, slot);
+		expect(r).toEqual({ status: 403, data: null });
+	});
+
+	it('rede fora → status 0, sem estourar', async () => {
+		api.apiFetch.mockRejectedValueOnce(new Error('rede'));
+		const r = await fetchCandidates(event, slot);
+		expect(r).toEqual({ status: 0, data: null });
 	});
 });

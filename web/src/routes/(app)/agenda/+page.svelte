@@ -15,6 +15,7 @@
 	import NewAppointmentModal from '$lib/components/agenda/NewAppointmentModal.svelte';
 	import AppointmentDrawer from '$lib/components/agenda/AppointmentDrawer.svelte';
 	import type { MessageParticipant, MessagesData } from '$lib/messages';
+	import type { Entry } from '$lib/waitlist';
 	import RescheduleModal from '$lib/components/agenda/RescheduleModal.svelte';
 	import { toast } from '$lib/toast.svelte';
 	import {
@@ -313,6 +314,56 @@
 		};
 	});
 
+	// O "quem cabe aqui?" (AN-12, doc 64): buscado quando o drawer abre num bloco cuja vaga
+	// ABRIU (cancelado/faltou) — sob demanda como as mensagens, e pela mesma razão de volume.
+	//
+	// As chaves do efeito são PRIMITIVAS do bloco (status/slot), não o objeto `selecionado`: o
+	// tempo real troca o objeto a cada push, e a identidade nova refaria a consulta sem nada
+	// ter mudado. A marca da action reexecuta depois de um "Agendar" — o convertido saiu da
+	// fila e a lista precisa refletir isso sem F5.
+	let candidatos = $state<Entry[] | null>(null);
+
+	$effect(() => {
+		const id = selectedId;
+		const status = selecionado?.status;
+		const prof = selecionado?.professional_id;
+		const starts = selecionado?.starts_at;
+		const ends = selecionado?.ends_at;
+		const marca = form?.action === 'agendar_fila' ? form : null;
+		void marca;
+
+		const vagaAberta = status === 'cancelado' || status === 'faltou';
+		if (!id || !vagaAberta || !prof || !starts || !ends) {
+			candidatos = null;
+			return;
+		}
+
+		let vivo = true;
+		candidatos = null;
+
+		const qs = new URLSearchParams({ professional_id: prof, starts_at: starts, ends_at: ends });
+		fetch(`/agenda/candidatos?${qs}`)
+			.then((r) => (r.ok ? r.json() : { candidates: [] }))
+			.then((body: { candidates?: Entry[] }) => {
+				if (vivo && selectedId === id) candidatos = body.candidates ?? [];
+			})
+			.catch(() => {
+				if (vivo && selectedId === id) candidatos = [];
+			});
+
+		return () => {
+			vivo = false;
+		};
+	});
+
+	// A seção só se aplica ao bloco de vaga aberta — `undefined` esconde a seção no drawer
+	// (bloco agendado nem mostra "consultando").
+	const candidatosDoDrawer = $derived(
+		selecionado && (selecionado.status === 'cancelado' || selecionado.status === 'faltou')
+			? candidatos
+			: undefined
+	);
+
 	// Semente do modal quando o arraste cai num conflito (fluxo C). `null` = sem modal aberto por
 	// arraste.
 	let dragConflito = $state<{
@@ -381,7 +432,9 @@
 		faltar: 'Falta registrada',
 		cancelar: 'Agendamento cancelado',
 		reabrir: 'Agendamento reaberto',
-		justificar: 'Falta atualizada'
+		justificar: 'Falta atualizada',
+		// AN-12: o candidato da fila virou agendamento na vaga que abriu (e saiu da fila).
+		agendar_fila: 'Agendado da fila'
 	};
 
 	// Marcador "último form já tratado" — NÃO é `$state`: o efeito só depende de `form`. Como
@@ -517,6 +570,7 @@
 		papel={data.me?.papel ?? null}
 		{form}
 		{mensagens}
+		candidatos={candidatosDoDrawer}
 		onClose={() => (selectedId = null)}
 		onReschedule={() => (remarcando = true)}
 		onToast={(m) => toast(m)}

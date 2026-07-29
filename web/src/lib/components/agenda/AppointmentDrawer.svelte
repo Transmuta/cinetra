@@ -19,13 +19,17 @@
 	import RotateCcw from '@lucide/svelte/icons/rotate-ccw';
 	import CalendarClock from '@lucide/svelte/icons/calendar-clock';
 	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
+	import Sparkles from '@lucide/svelte/icons/sparkles';
 	import SwitchToggle from '$lib/components/scheduling/SwitchToggle.svelte';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import Drawer from '$lib/components/Drawer.svelte';
 	import SubmitButton from '$lib/components/SubmitButton.svelte';
 	import { envio, envioPorItem } from '$lib/forms.svelte';
 	import MessageTimeline from '$lib/components/agenda/MessageTimeline.svelte';
+	import ConflictErrorBox from '$lib/components/agenda/ConflictErrorBox.svelte';
+	import PriorityBadge from '$lib/components/fila/PriorityBadge.svelte';
 	import { algumPodeReceber, type MessageParticipant } from '$lib/messages';
+	import type { Entry } from '$lib/waitlist';
 	import { formatarTelefone } from '$lib/telefone';
 	import {
 		STATUS_META,
@@ -37,6 +41,7 @@
 		canExcludeAppointment,
 		DRAWER_ACTIONS,
 		canMutateAppointment,
+		canCreateEncaixe,
 		zonedParts,
 		m2t,
 		type Appointment,
@@ -57,6 +62,7 @@
 		papel,
 		form = null,
 		mensagens = null,
+		candidatos = undefined,
 		onClose,
 		onReschedule,
 		onToast
@@ -75,6 +81,12 @@
 		 * drawer abre, não no load da agenda — ver `agenda/mensagens/[id]/+server.ts`.
 		 */
 		mensagens?: MessageParticipant[] | null;
+		/**
+		 * O "quem cabe aqui?" (AN-12, doc 64): os itens da fila que casam com a vaga que abriu.
+		 * `undefined` = não se aplica (bloco sem vaga); `null` = consultando — buscado quando o
+		 * drawer abre num bloco cancelado/faltou, ver `agenda/candidatos/+server.ts`.
+		 */
+		candidatos?: Entry[] | null;
 		onClose: () => void;
 		onReschedule: () => void;
 		onToast: (msg: string) => void;
@@ -114,6 +126,7 @@
 	// Os forms escondidos são UM para as N linhas, então a chave do "em voo" só se conhece no
 	// clique — daí o `submitDinamico` (ver `$lib/forms.svelte.ts`).
 	const presencaEnvio = envioPorItem<string>();
+	const filaEnvio = envioPorItem<string>();
 	const confirmEnvio = envioPorItem<string>();
 	const cancelEnvio = envio({
 		aoResponder: () => {
@@ -215,6 +228,38 @@
 	function confirmarExclusao() {
 		excluirForm?.requestSubmit();
 	}
+
+	// "Quem cabe aqui?" (AN-12, doc 64 / D11). A seção só existe quando a vaga ABRIU — cancelado
+	// ou faltou, os mesmos dois status que o motor de vagas trata como `freed` — e a lista vem da
+	// página (buscada quando o drawer abre, como as mensagens). Agendar um candidato converte a
+	// entry NA vaga do bloco: mesmo slot, mesmo tipo, mesma duração.
+	//
+	// A falta ocupa o horário para a exclusion constraint (`status <> 'cancelado'`), então cobrir
+	// vaga de falta SÓ entra como encaixe — o form parte com o flag armado. No cancelado o flag só
+	// arma pela saída do 422 (o horário foi tomado no meio-tempo), como no criar/remarcar.
+	const vagaAberta = $derived(appt.status === 'cancelado' || appt.status === 'faltou');
+	const precisaEncaixe = $derived(appt.status === 'faltou');
+	const podeEncaixe = $derived(canCreateEncaixe(papel));
+
+	let filaForm = $state<HTMLFormElement>();
+	let filaEntryId = $state('');
+	let filaEncaixe = $state(false);
+
+	// Mesmo gotcha do `marcarPresenca`: sem o tick, o submit sai com o `id` VAZIO.
+	async function agendarDaFila(entryId: string) {
+		filaEntryId = entryId;
+		await tick();
+		filaForm?.requestSubmit();
+	}
+
+	const filaErro = $derived(form?.action === 'agendar_fila' ? form.error : undefined);
+	const filaOfereceEncaixe = $derived(
+		form?.action === 'agendar_fila' &&
+			form?.code === 'schedule_conflict' &&
+			podeEncaixe &&
+			!precisaEncaixe &&
+			!filaEncaixe
+	);
 
 	// Confirmação ao paciente (doc 52 §6). Um form só, com o participante preenchido no clique —
 	// mesmo padrão do form de presença, e pelo mesmo motivo: numa turma de 4, quatro forms no DOM
@@ -457,6 +502,86 @@
 					Abrir ficha <ArrowRight size={13} />
 				</a>
 			</div>
+		{/if}
+
+		<!-- "Quem cabe aqui?" (AN-12, doc 64 / HOM-018): a vaga que abriu pergunta à fila. Só
+		     existe quando o bloco é cancelado/faltou E a página buscou (`candidatos` ausente =
+		     bloco sem vaga). Agendar converte a entry NA vaga — mesmo slot, tipo e duração. -->
+		{#if vagaAberta && candidatos !== undefined}
+			<div class="rounded-lg border border-edge">
+				<div class="flex items-center gap-1.5 border-b border-edge px-3 py-2 text-[12px] text-faint">
+					<Sparkles size={13} class="shrink-0 text-teal-text" />
+					<span class="font-semibold text-muted">Quem cabe aqui</span>
+					<a href="/fila" class="ml-auto inline-flex items-center gap-1 font-semibold text-teal-text hover:underline">
+						Ver fila <ArrowRight size={12} />
+					</a>
+				</div>
+
+				{#if candidatos === null}
+					<div class="px-3 py-3 text-[12.5px] text-faint">Consultando a fila…</div>
+				{:else if candidatos.length === 0}
+					<div class="px-3 py-3 text-[12.5px] text-faint">
+						Ninguém na fila casa com este horário.
+					</div>
+				{:else}
+					<ul class="divide-y divide-edge">
+						{#each candidatos as c (c.id)}
+							<li class="flex items-center gap-2 px-3 py-2">
+								<div class="min-w-0 flex-1">
+									<div class="flex items-center gap-2">
+										<span class="truncate text-[13px]">{c.patient.nome}</span>
+										<PriorityBadge prio={c.prio} />
+									</div>
+									<div class="mt-0.5 text-[11.5px] text-faint">{c.dias_na_fila} dia(s) na fila</div>
+								</div>
+								{#if podeMexer}
+									<SubmitButton
+										type="button"
+										onclick={() => agendarDaFila(c.id)}
+										emVoo={filaEnvio.emVoo(c.id)}
+										disabled={(precisaEncaixe && !podeEncaixe) || filaEnvio.algumEmVoo}
+										title={precisaEncaixe
+											? 'A vaga é de uma falta — o novo agendamento entra como encaixe'
+											: `Agendar ${c.patient.nome} neste horário`}
+										size={13}
+										class="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-teal-border bg-teal-subtle px-2.5 py-1.5 text-[12px] font-semibold text-teal-text transition-colors hover:bg-teal hover:text-white disabled:cursor-not-allowed disabled:opacity-55"
+									>
+										Agendar
+									</SubmitButton>
+								{/if}
+							</li>
+						{/each}
+					</ul>
+				{/if}
+
+				{#if filaErro}
+					<div class="px-3 pb-2.5">
+						<ConflictErrorBox
+							erro={filaErro}
+							ofereceEncaixe={filaOfereceEncaixe}
+							onEncaixe={() => (filaEncaixe = true)}
+						/>
+					</div>
+				{/if}
+			</div>
+
+			<!-- Um form só para as N linhas (padrão do form de presença): o `id` da entry entra no
+			     clique; o slot é o do BLOCO. Sem `expected_version`: a conversão cria um agendamento
+			     novo, não disputa a versão deste. -->
+			<form
+				method="POST"
+				action="?/agendar_fila"
+				use:enhance={filaEnvio.submitDinamico(() => filaEntryId)}
+				bind:this={filaForm}
+				class="hidden"
+			>
+				<input type="hidden" name="id" value={filaEntryId} />
+				<input type="hidden" name="starts_at" value={appt.starts_at} />
+				<input type="hidden" name="professional_id" value={appt.professional_id} />
+				<input type="hidden" name="appointment_type_id" value={appt.appointment_type_id} />
+				<input type="hidden" name="duration_minutos" value={dur} />
+				<input type="hidden" name="encaixe" value={String(precisaEncaixe || filaEncaixe)} />
+			</form>
 		{/if}
 
 		{#if erro}

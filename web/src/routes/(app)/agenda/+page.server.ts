@@ -30,6 +30,7 @@ import {
 import { fetchPatient } from '$lib/server/patients';
 import { sendConfirmation } from '$lib/server/messages';
 import { textoDoEnvio } from '$lib/messages';
+import { convertEntry } from '$lib/server/waitlist';
 import type { AgendaPatient } from '$lib/agenda';
 
 // Agenda (doc 25, Entregas 1 e 2). Quatro visões, duas formas de carregar:
@@ -381,6 +382,43 @@ export const actions: Actions = {
 		// Sucesso (inclusive o parcial da turma): a mensagem diz para quantos saiu e por que o
 		// resto ficou de fora.
 		return { ok: true, action: 'confirmar', mensagem };
+	},
+
+	// AN-12 (doc 64, D11): agendar um candidato da fila NA vaga que abriu. É a MESMA conversão
+	// da tela da fila (`?/converter`), mas o slot não é escolhido — é o do próprio bloco
+	// (cancelado/faltou) de onde o drawer partiu. O `id` aqui é o item da FILA, não o bloco;
+	// por isso não usa o `submission/2` (a mensagem de erro falaria do agendamento errado).
+	agendar_fila: async (event) => {
+		const form = await event.request.formData();
+
+		const id = String(form.get('id') ?? '');
+		if (!id) return fail(400, { action: 'agendar_fila', error: 'Item da fila não informado.' });
+
+		const starts_at = String(form.get('starts_at') ?? '');
+		if (!Number.isFinite(Date.parse(starts_at))) {
+			return fail(400, { action: 'agendar_fila', error: 'A vaga não tem um horário válido.' });
+		}
+
+		const professional_id = String(form.get('professional_id') ?? '');
+		const appointment_type_id = String(form.get('appointment_type_id') ?? '');
+		if (!professional_id || !appointment_type_id) {
+			return fail(400, { action: 'agendar_fila', error: 'A vaga não tem profissional ou tipo.' });
+		}
+
+		const duracao = Number(form.get('duration_minutos'));
+
+		return finish(
+			'agendar_fila',
+			await convertEntry(event, id, {
+				starts_at,
+				professional_id,
+				appointment_type_id,
+				// A falta ocupa o horário para a exclusion constraint (`status <> 'cancelado'`):
+				// cobrir vaga de falta só entra como encaixe, e o drawer manda o flag já armado.
+				encaixe: form.get('encaixe') === 'on' || form.get('encaixe') === 'true',
+				...(Number.isFinite(duracao) && duracao > 0 ? { duration_minutos: duracao } : {})
+			})
+		);
 	}
 };
 
