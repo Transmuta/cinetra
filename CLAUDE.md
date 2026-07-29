@@ -7,6 +7,35 @@
 - Não enviar conteúdo do projeto para nenhum serviço externo (upload, publicação, indexação). Se algo exigir sair do repositório, **perguntar antes**.
 - Arquivos temporários de trabalho podem ir para o scratchpad da sessão, mas o entregável final é sempre um arquivo no projeto.
 
+## Bug encontrado → teste de regressão, SEMPRE
+
+**Todo bug que aparecer vira um teste antes de virar conserto.** Sem exceção — bug que eu
+mesmo achei, bug relatado pelo usuário, achado de bate-volta, regressão pega ao vivo no
+browser ou no `psql`. A ordem é:
+
+1. **Escrever o teste que falha** reproduzindo o bug — e **rodar para ver vermelho**. Teste
+   que passa antes do conserto não prova nada; se ele já está verde, ele não reproduz o bug.
+2. **Consertar** o código de produção.
+3. **Rodar de novo para ver verde**, e rodar a suíte inteira para garantir que o conserto não
+   quebrou vizinho.
+
+Regras que essa prática carrega:
+
+- **O teste fica na camada onde o bug morava.** Bug de regra de domínio → `api/test/api/...`
+  pela code interface do domínio. Bug de contrato HTTP/422/status → teste de controller. Bug
+  que só aparece atravessando a fronteira (string do JSON vs `%Date{}` do domínio) → **teste
+  que atravessa a fronteira**; teste de unidade do lado de dentro já provou que não pega.
+- **Bug de RLS/GUC/tenant não se prova com `mix test`** — a suíte roda como superusuário e é
+  cega para isso. Use o gate `mix test --only rls` (roda como `movimento_app`) e/ou a
+  verificação ao vivo. Ver `.claude/rules/migrations.md` e as lições dos docs de bate-volta.
+- **Nunca "conserto agora e cubro depois".** O commit que entra na branch já traz o teste.
+- Se por algum motivo o bug for realmente intestável de forma automatizada, **diga isso
+  explicitamente** no relatório, com o porquê, e registre em `docs/50-debitos-tecnicos.md` —
+  não deixe passar em silêncio.
+
+Isso é o mesmo espírito do TDD em [`.claude/rules/testes.md`](.claude/rules/testes.md), só que
+aplicado ao caso do bug: o teste é o que garante que ele **nunca mais volte**.
+
 ## Mapa do repositório — vá direto, não procure
 
 Tabela de gatilhos: **o assunto do pedido → o arquivo**. Abra o alvo primeiro; só use busca
