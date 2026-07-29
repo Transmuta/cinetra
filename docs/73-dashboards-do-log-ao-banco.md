@@ -95,6 +95,14 @@ views. Provisionado por [`Api.Release.setup_metrics_role/0`](../api/lib/api/rele
 e por [`priv/sql/setup_metrics_role.sql`](../api/priv/sql/setup_metrics_role.sql) em dev — mesmo
 molde do role do app, com **duas diferenças deliberadas**:
 
+- **sem senha no repositório** — nem em dev. O `.sql` exige `-v senha=…` e **aborta** (com mensagem,
+  `exit != 0`) se ela faltar ou tiver menos de 8 caracteres; o `compose.obs.yml` exige
+  `METRICS_DB_PASSWORD` com `:?` e recusa subir sem ela, como já fazia a do admin do Grafana. Antes
+  havia `PASSWORD 'cinetra_metrics'` escrito no arquivo, e o risco não era o dev: era este arquivo
+  ser aplicado contra produção — o comando é o que se copia e cola —, criando lá um usuário de
+  leitura com senha publicada. Como as views ignoram RLS por construção, esse usuário lê o agregado
+  de todas as clínicas. Corrigido no bate-volta [doc 77](77-bate-volta-observabilidade-e-pacotes.md)
+  §5.2;
 - **sem `ALTER DEFAULT PRIVILEGES`** — tabela criada por um `ash.codegen` futuro **não** deve nascer
   legível. Só entra o que passar por view nova;
 - **ausente = desligado** — sem `DATABASE_METRICS_PASSWORD`, o role não é criado e os painéis de
@@ -226,7 +234,7 @@ nas views, o Postgres recusa com `cannot alter type of a column used by a view o
 é mecânico:
 
 ```bash
-docker compose exec db psql -U postgres -d movimento_dev \
+docker compose exec db psql -U postgres -d cinetra_dev \
   -c "DO \$\$ DECLARE v text; BEGIN FOR v IN SELECT viewname FROM pg_views WHERE viewname LIKE 'metrics\_%' LOOP EXECUTE format('DROP VIEW %I', v); END LOOP; END \$\$;"
 mix ecto.migrate            # a migration é idempotente (CREATE OR REPLACE) e recria tudo
 ```

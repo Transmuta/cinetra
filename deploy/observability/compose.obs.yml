@@ -125,9 +125,16 @@ services:
       # enxerga as views `metrics_*`; ver grafana-datasources.yml.
       METRICS_DB_HOST: ${METRICS_DB_HOST:-db}
       METRICS_DB_PORT: ${METRICS_DB_PORT:-5432}
-      METRICS_DB_NAME: ${METRICS_DB_NAME:-movimento_dev}
+      METRICS_DB_NAME: ${METRICS_DB_NAME:-cinetra_dev}
       METRICS_DB_USER: ${METRICS_DB_USER:-cinetra_metrics}
-      METRICS_DB_PASSWORD: ${METRICS_DB_PASSWORD:-cinetra_metrics}
+      # `:?` e não `:-`, como o do admin acima — e por isso a mesma frase serve: senha de banco com
+      # default conhecido é como a maioria dos vazamentos de observabilidade começa. Aqui o default
+      # era `cinetra_metrics`, publicado no repositório, e o usuário que ele destrava lê o agregado
+      # de TODAS as clínicas (as views `metrics_*` rodam com os direitos do dono e ignoram RLS por
+      # construção). Ver bate-volta doc 77 §5.2.
+      #
+      # O par disto é `priv/sql/setup_metrics_role.sql`, que também deixou de ter senha literal.
+      METRICS_DB_PASSWORD: ${METRICS_DB_PASSWORD:?defina METRICS_DB_PASSWORD}
     volumes:
       - ./grafana-datasources.yml:/etc/grafana/provisioning/datasources/loki.yml:ro
       - ./grafana-dashboards.yml:/etc/grafana/provisioning/dashboards/cinetra.yml:ro
@@ -406,7 +413,7 @@ services:
       # Allowlist de projetos do compose a coletar (regex, ancorado). Obrigatória: o agente lê o
       # daemon do Docker, então SEM ela ele recolhe todo container da máquina — inclusive de outro
       # projeto e o próprio stack de observabilidade. Ver o comentário no alloy.alloy.
-      OBS_PROJETOS: "${OBS_PROJETOS:?defina OBS_PROJETOS - ex. moving, ou movimento-prod|movimento-hml}"
+      OBS_PROJETOS: "${OBS_PROJETOS:?defina OBS_PROJETOS - ex. cinetra, ou cinetra-prod|cinetra-hml}"
       # Para onde os spans recebidos são despachados (doc 76). Mesma rede do compose: o nome do
       # serviço resolve direto.
       TEMPO_OTLP_ENDPOINT: ${TEMPO_OTLP_ENDPOINT:-tempo:4317}

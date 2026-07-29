@@ -3,7 +3,7 @@
 Alvo: **tudo que estava no `git status`** (209 arquivos versionados + 38 não-rastreados,
 ~20.700 linhas inseridas) **mais o commit anterior** (`a500e7e`, a máscara de telefone).
 
-Sondado contra a stack rodando: `psql` como `postgres` **e** como `movimento_app` **e** como
+Sondado contra a stack rodando: `psql` como `postgres` **e** como `cinetra_app` **e** como
 `cinetra_metrics`, `mix test` no container, `npm run build` de verdade, e `mix format
 --check-formatted`.
 
@@ -41,7 +41,7 @@ justifica o ângulo adversarial nesta leva.
 | Path traversal | NÃO SE APLICA | Nenhum caminho de arquivo derivado de entrada. |
 | Vazamento de `clinic_id` | REFUTADO | `clinic_id` nas views `metrics_*` é deliberado (doc 05 §1.3 permite); não há novo serializer expondo tenancy. |
 | Vazamento em log / erro | REFUTADO (com ressalva) | `OpentelemetryEcto` com `db_statement: :enabled` carrega SQL **parametrizado** — o valor não viaja. Ressalva registrada no §5. |
-| Secrets em código | **CONFIRMADO (baixo)** | `setup_metrics_role.sql` embute `PASSWORD 'cinetra_metrics'`; `compose.obs.yml` cai no mesmo default. Ver §5. |
+| Secrets em código | **CONFIRMADO → corrigido** | `setup_metrics_role.sql` embutia `PASSWORD 'cinetra_metrics'` e `compose.obs.yml` caía no mesmo default. Ver §5.2. |
 | Headers de segurança | NÃO SE APLICA | Sem mudança em CSP/HSTS. |
 | DoS | REFUTADO | Porta 4021 do PromEx **não é publicada** em `docker-compose.yml` nem em `compose.dokploy.yml` — conferido nos dois arquivos. |
 | Dependência vulnerável | REFUTADO | Suítes verdes com as deps novas de OTel/axe; nenhum aviso de auditoria no build. |
@@ -73,10 +73,10 @@ justifica o ângulo adversarial nesta leva.
 | Duas funções com o mesmo papel | REFUTADO | `motivo_do_descarte/1` é a autoridade única do par ação→motivo, e as três cláusulas passam por ela. |
 | Constante/literal repetida | REFUTADO | `LIMITE_PLUG` é constante exportada e testada, em vez de número mágico. |
 | Regra de negócio fora da action | REFUTADO | A matriz de acesso mora no backend ao lado das policies, com tripwire — exatamente para não virar prosa no web. |
-| Comentário que duplica e contradiz | **CONFIRMADO (baixo)** | `config.exs` cita `Api.PromEx.metrics_server_spec/0`; a função chama-se `metrics_server_children/0`. |
+| Comentário que duplica e contradiz | **CONFIRMADO (baixo)** → corrigido | `config.exs` citava `Api.PromEx.metrics_server_spec/0`; a função chama-se `metrics_server_children/0`. |
 | Elixir: pattern matching, erros como valor, armadilhas | REFUTADO | Sem `String.to_atom` em entrada, sem `case` aninhado, sem process dictionary no diff. |
 | Ash: policies, code interface, actor no changeset | REFUTADO | Ações novas expostas por code interface; `actor`/`scope` na chamada da action. |
-| Docs e saída | **CONFIRMADO (baixo)** | Números de doc **colidem**: 73, 74 e 76 têm 2–3 arquivos cada, e o código referencia "doc 73" sem desambiguar. |
+| Docs e saída | **CONFIRMADO (baixo)** → corrigido | Números de doc **colidiam**: 73, 74 e 76 tinham 2–3 arquivos cada, e o código referenciava "doc 73" sem desambiguar. Renumerados (§5.4). |
 | **Gate de formatação** | **CONFIRMADO** | `mix format --check-formatted` reprovava em **3 arquivos do diff** — o CI quebraria. |
 | **Artefato de build versionado** | **CONFIRMADO** | 14 arquivos / 507 linhas de `.svelte-kit/` e `node_modules/.vite/` **staged para commit**. |
 
@@ -197,7 +197,7 @@ depois — o conserto recusa o inválido sem endurecer o válido.
 
 **A rodada 5 auditando o próprio conserto — e achando um teste vazio.** `checar_profissional/2`
 é uma leitura por-tenant nova num caminho de escrita: exatamente a classe de bug que o gate
-`:rls` existe para pegar. Escrevi um teste `@tag :rls` e ele passou como `movimento_app`. Só que
+`:rls` existe para pegar. Escrevi um teste `@tag :rls` e ele passou como `cinetra_app`. Só que
 teste verde não prova nada até a regra ser **mutada**: tirando o `in_clinic` da função, o teste
 **continuou verde**.
 
@@ -209,8 +209,8 @@ dizer isso em vez de prometer um tripwire que ele não entrega.
 A necessidade do `in_clinic` ficou provada **fora** da suíte, por `psql` direto:
 
 ```
-movimento_app, SEM a GUC : 0 profissionais
-movimento_app, COM a GUC : 1 profissional
+cinetra_app, SEM a GUC : 0 profissionais
+cinetra_app, COM a GUC : 1 profissional
 ```
 
 Sem ele, em produção (transação por ação, sem GUC herdada) **todo** ajuste de grade passaria a
@@ -234,7 +234,7 @@ entradas novas no `.gitignore` da raiz, com o porquê escrito. `git status` deix
 | Gate | Antes | Depois |
 | --- | --- | --- |
 | `mix test` | 1635 testes, 0 falhas | **1640 testes + 18 doctests, 0 falhas** (5 novos) |
-| `mix test --only rls` (como `movimento_app`) | não rodava sem `SKIP_DB_SETUP` | **0 falhas**, 14 exercitados |
+| `mix test --only rls` (como `cinetra_app`) | não rodava sem `SKIP_DB_SETUP` | **0 falhas**, 14 exercitados |
 | `mix format --check-formatted` | **reprovava em 3 arquivos** | `EXIT=0` |
 | `mix compile --warnings-as-errors` | limpo | limpo |
 | `npm run test:unit` | 179 arquivos, 2095 testes, 0 falhas | inalterado (nada de `web/` foi tocado) |
@@ -244,7 +244,23 @@ entradas novas no `.gitignore` da raiz, com o porquê escrito. `git status` deix
 
 ## 5. O que ficou para você
 
-### 5.1 O silêncio do materializador é contido, não resolvido (estrutural)
+> **Revisado em 2026-07-29, com decisão tomada.** Sete dos oito itens abaixo foram resolvidos na
+> mesma sessão, depois da leitura deste relatório. O único que **segue aberto** é o §5.7 (limite do
+> gate `:rls`), que virou o débito D-15 — e o §5.1 fica parcial por ser estrutural. Cada seção
+> resolvida diz o que foi feito.
+>
+> | Item | Decisão |
+> | --- | --- |
+> | §5.1 silêncio do materializador | **parcialmente resolvido** — o `+1` passou a ser síncrono e a devolver o motivo |
+> | §5.2 senha do role de métricas | **resolvido** — `:?` no compose, `-v senha=` no `.sql`, sem default em lugar nenhum |
+> | §5.3 `--web.enable-admin-api` | **resolvido** — flag removida |
+> | §5.4 números de doc colidindo | **resolvido** — duplicados renumerados para 78–81 |
+> | §5.5 átomo interno no 422 | **resolvido** — as duas portas passam por uma tradução só |
+> | §5.6 comentário morto | **resolvido** |
+> | §5.7 gate `:rls` | **aberto**, registrado como D-15 |
+> | §5.8 tripwire da matriz | aceito, sem ação |
+
+### 5.1 O silêncio do materializador — o `+1` foi resolvido; o resto segue estrutural
 
 **O que é:** o job agora **registra** a sessão que não nasceu, mas continua devolvendo `:ok`. Um
 pacote pode perder sessões por qualquer outro motivo (conflito, constraint) e o Oban seguirá
@@ -261,82 +277,145 @@ pacote saber comparar `total` com as sessões vivas e sinalizar a divergência n
 **Correção sugerida:** um campo derivado `sessoes_vivas` no pacote e um aviso na ficha quando
 `sessoes_vivas < restantes`, em vez de confiar no job.
 
-### 5.2 Senha do role de métricas cai num default conhecido (negócio/infra)
+**O que foi feito (2026-07-29):** o caso que mais doía saiu do job. O `+1` (`add_session/2`) passou
+a **materializar antes de somar ao total**, de forma síncrona, e a devolver o motivo quando a sessão
+não nasce — o `Materializer` ganhou `materializar/3`, que é o mesmo caminho do `perform/1` com o
+resultado subindo em vez de engolido. A ordem é o conserto: se a sessão não nasce, o total não
+sobe, e não há o que desfazer (nada de transação em volta das duas escritas, que é o que quebra o
+caminho de erro sob RLS). O teto do pacote passou a ser conferido **antes** de materializar, lendo
+o `max` do próprio recurso, senão a sessão nasceria e só depois o `set_total` a recusaria.
 
-**O que é:** `deploy/observability/compose.obs.yml` usa
+**O que continua aberto:** a criação da série inteira segue assíncrona e segue engolindo o motivo —
+lá é a resposta certa (40 escritas não podem segurar a requisição, e recusa por conflito é caso
+normal). Para esse caso a reconciliação sugerida acima continua valendo, e é o que fecharia o
+assunto de vez.
+
+### 5.2 Senha do role de métricas caía num default conhecido — CORRIGIDO (aprovado 2026-07-29)
+
+**O que era:** `deploy/observability/compose.obs.yml` usava
 `METRICS_DB_PASSWORD: ${METRICS_DB_PASSWORD:-cinetra_metrics}` e
-`api/priv/sql/setup_metrics_role.sql` embute `PASSWORD 'cinetra_metrics'`. Ao lado, o Grafana usa
+`api/priv/sql/setup_metrics_role.sql` embutia `PASSWORD 'cinetra_metrics'`. Ao lado, o Grafana usa
 `${GRAFANA_ADMIN_PASSWORD:?defina GRAFANA_ADMIN_PASSWORD}` — que **recusa subir** sem a variável.
-Duas posturas diferentes para dois segredos do mesmo stack.
+Duas posturas para dois segredos do mesmo stack.
 
-**Sonda:** `grep` cruzado nos três arquivos; em produção quem cria o role é
-`Api.Release.setup_metrics_role/0`, que lê `DATABASE_METRICS_PASSWORD` — **nome diferente** do que
-o Grafana consome.
+O risco não era o dev: era o `.sql` ser aplicado contra **produção** (o comando do cabeçalho é o
+que se copia e cola), criando lá um usuário de leitura com senha publicada no repositório. Como as
+views `metrics_*` rodam com os direitos do dono e **ignoram RLS por construção**, esse usuário lê
+o agregado de todas as clínicas.
 
-**Por que não foi corrigido:** o risco real depende de como você opera o deploy, e a consequência
-de errar (aplicar o `.sql` de dev contra produção) é criar um usuário de leitura com senha
-pública. É sua decisão se isso vira `:?` como o do Grafana.
+**O conserto:** `:?` no compose, e no `.sql` a senha passa a vir de `-v senha=…`, com guarda de
+mínimo 8 caracteres antes de qualquer DDL.
+
+**Um detalhe que a implementação revelou:** variável **ausente** e variável **vazia** são casos
+diferentes. Com `senha` não definida, o `psql` não substitui `:'senha'` — ele manda os caracteres
+literais para o servidor, e o script morria em `ERROR: syntax error at or near ":"`. Aborta e não
+cria nada (seguro), mas não diz a quem rodou o que fazer. Um `\if :{?senha}` define a variável como
+vazia e a guarda é que responde.
+
+**Re-sonda:**
+
+```
+sem a variável   → ERROR: senha do role de metricas ausente ou curta … EXIT=3
+senha "abc"      → mesma mensagem, EXIT=3
+senha válida     → ALTER ROLE / GRANT / DO, EXIT=0
+```
+
+E o `ALTER` aplica de fato — provado pelo hash em `pg_authid`, que muda entre execuções
+(`SCRAM-SHA-256$4096:b4YAdj…` → `…bJCijF…`). **O teste por login não serviria:** o `pg_hba` do
+container de dev tem `trust` para localhost, então a senha antiga continuava entrando pela porta
+que eu estava usando. Quem exige senha é a linha `host all all all scram-sha-256`, que é por onde
+o Grafana entra — de outro container, pela rede.
+
+A barreira do GRANT segue intacta depois da mudança: `permission denied for table patients`, com a
+view agregada respondendo.
+
+**O que NÃO foi mexido, e continua sendo seu:** os nomes divergem —
+`DATABASE_METRICS_PASSWORD` (`.env` da aplicação, quem **cria** o role) e `METRICS_DB_PASSWORD`
+(`.env` da observabilidade, quem **conecta**). Unificar tocaria `release.ex`,
+`compose.dokploy.yml`, `.env.example` e os docs; por ora o acoplamento está escrito nos dois
+arquivos, onde quem opera o deploy vai ler.
 
 **Correção sugerida:** trocar o default por `:?` no `compose.obs.yml` e tirar a senha literal do
 `.sql`, exigindo-a por variável também em dev.
 
-### 5.3 Prometheus com `--web.enable-admin-api` (decisão)
+### 5.3 Prometheus com `--web.enable-admin-api` — RESOLVIDO (flag removida)
 
 **O que é:** a flag permite apagar séries por HTTP. O Prometheus é `expose`, não `ports` —
 alcançável só de dentro da rede `obs`.
 
 **Sonda:** `compose.obs.yml` linhas 172 e 186.
 
-**Por que não foi corrigido:** é escolha deliberada e documentada (permite corrigir métrica com
-label errado pela UI sem recriar o volume). Fica registrado que qualquer container na rede `obs`
-pode zerar as métricas.
+**Decisão (2026-07-29): a flag saiu.** O que se ganhava — apagar série com label errado pela UI —
+tem contorno barato: recriar o volume do Prometheus. Dado de série temporal é reconstituído pela
+raspagem seguinte, ao contrário de log e trace, então o custo do contorno é baixo e o custo do
+pior caso (qualquer container na rede `obs` zerando o histórico durante o incidente em que ele
+seria lido) não é. O compose explica como religá-la para uma investigação pontual.
 
-### 5.4 Números de doc colidem, e o código referencia por número (manutenção)
+### 5.4 Números de doc colidiam, e o código referenciava por número — RESOLVIDO
 
-**O que é:** `73`, `74` e `76` têm 2–3 arquivos cada. O código cita "doc 73" sem caminho, e o
-alvo **muda conforme o arquivo**: em `release.ex`, "doc 73" é `73-dashboards-do-log-ao-banco.md`;
-em `fingerprint.ts`, é `73-sentry-vale-a-pena.md`.
+**O que era:** `73`, `74` e `76` tinham 2–3 arquivos cada. O código citava "doc 73" sem caminho, e
+o alvo **mudava conforme o arquivo**: em `release.ex`, "doc 73" era o de dashboards; em
+`fingerprint.ts`, o do Sentry.
 
-**Sonda:** `ls docs/ | grep '^7'` + grep de `doc 73|doc 74` em `api/lib` e `web/src`.
+**Sonda:** `ls docs/ | grep '^7'` + grep de `doc 73|doc 74|doc 76` em `api/lib` e `web/src`.
 
-**Por que não foi corrigido:** renumerar documento é decisão sua — mexe em referência cruzada de
-vários arquivos, e o CLAUDE.md trata a numeração como cronológica.
+**O que foi feito** (decisão de 2026-07-29): os duplicados foram renumerados. Em cada número
+**ficou o documento que as referências do código já queriam dizer**, o que fez a maioria das
+citações passar a estar certa sem edição:
 
-**Correção sugerida:** ou renumerar os duplicados, ou passar a **linkar o caminho** em vez do
-número (como `Api.Tracing` já faz).
+| Número | Fica | Por quê |
+| --- | --- | --- |
+| 73 | `73-dashboards-do-log-ao-banco.md` | 5 das 9 citações a "doc 73" eram dele (`release.ex`, `metrics_views.exs`, `compose.dokploy.yml`) |
+| 74 | `74-metricas-do-servidor.md` | **todas** as citações a "doc 74" eram dele (`prom_ex.ex`, `application.ex`, `mix.exs`, configs) |
+| 76 | `76-traces.md` | **todas** as citações a "doc 76" eram dele (~18, de `otel.mjs` a `alloy.alloy`) |
 
-### 5.5 `motivo_do_ciclo(outro) → to_string(outro)` (baixo)
+Os quatro deslocados: `78-sentry-vale-a-pena.md`, `79-signoz-vs-hyperdx.md`,
+`80-acessibilidade-auditoria.md`, `81-paginas-legais-e-aceite.md`.
+
+**O que a escolha custa, dito com clareza:** a numeração deixa de ser estritamente cronológica
+para esses quatro — 78 e 79 são estudos que precederam o que está em 73 e 74. Foi a troca
+deliberada: numeração única e citação correta valem mais que ordem de escrita, e resequenciar
+`70..81` inteiro moveria 5 documentos e toda referência cruzada a eles.
+
+De quebra, dois erros de link apareceram na varredura e foram corrigidos: `docs/62` dizia
+"métricas no doc 74" **apontando para o comparativo SigNoz**, e `docs/64` citava "doc 76 §3" para
+uma decisão de paleta que mora no de acessibilidade.
+
+### 5.5 `motivo_do_ciclo(outro) → to_string(outro)` — RESOLVIDO
 
 **O que é:** cláusula catch-all no `packages_controller.ex` que transforma **qualquer** átomo
 interno em mensagem de 422 para o usuário. Um erro interno novo vaza o nome do átomo para a tela.
 
 **Sonda:** leitura de `packages_controller.ex`.
 
-**Por que não foi corrigido:** é uma escolha de contrato de erro que atravessa o controller
-inteiro (`series_error/2` faz o mesmo com `inspect/1`); mudar só aqui criaria a divergência que a
-função existe para evitar.
+**O que foi feito (2026-07-29): as duas portas de uma vez**, que era a condição para não criar
+divergência. `motivo_do_ciclo/1` deixou de ter `to_string(outro)` como default: átomo sem frase
+vira uma mensagem genérica **e uma linha de `Logger.warning`** — o motivo não desaparece, muda de
+público, e vai para quem pode agir sobre ele. `series_error/2` deixou de usar `inspect/1`: átomo
+conhecido passa pela mesma tradução, e erro do Ash é encaminhado para `error_response/2`, que já
+tem campo e mensagem próprios. Uma tabela, duas portas.
 
-### 5.6 Comentário desatualizado em `config.exs` (baixo)
+### 5.6 Comentário desatualizado em `config.exs` — RESOLVIDO
 
-`config.exs` cita `Api.PromEx.metrics_server_spec/0`; a função é `metrics_server_children/0` — o
-próprio moduledoc de `Api.PromEx` explica por que ela devolve **lista**. Comentário mentiroso é o
-tipo de coisa que a `refatoracao.md` manda corrigir, mas não toquei porque não é defeito de
-comportamento.
+`config.exs` citava `Api.PromEx.metrics_server_spec/0`; a função é `metrics_server_children/0` — o
+próprio moduledoc de `Api.PromEx` explica por que ela devolve **lista**. Corrigido em 2026-07-29:
+quem grepasse pelo nome errado não acharia nada e concluiria que o servidor de métricas não está
+ligado.
 
 ### 5.7 O gate `:rls` não alcança leitura interna (limite estrutural, medido aqui)
 
-**O que é:** o gate roda como `movimento_app`, mas dentro do sandbox tudo acontece numa transação
+**O que é:** o gate roda como `cinetra_app`, mas dentro do sandbox tudo acontece numa transação
 só. A primeira `SET LOCAL` de um teste deixa a GUC pendurada para o resto dele, então uma leitura
 interna sem `in_clinic` **não** é detectada.
 
 **Sonda:** mutação — removi o `in_clinic` de `checar_profissional/2` e rodei `mix test --only rls`
-como `movimento_app`: **0 falhas**. A necessidade só apareceu no `psql` (0 vs. 1 profissional).
+como `cinetra_app`: **0 falhas**. A necessidade só apareceu no `psql` (0 vs. 1 profissional).
 
 **Por que não foi corrigido:** é estrutural. Fazer cada teste rodar em transação própria mudaria o
 arnês inteiro (`DataCase`, sandbox, `async`).
 
 **Correção sugerida:** para leitura por-tenant nova em caminho de escrita, a prova continua sendo
-`psql` sob `movimento_app` — e vale registrar isso no `.claude/rules/migrations.md`, ao lado da
+`psql` sob `cinetra_app` — e vale registrar isso no `.claude/rules/migrations.md`, ao lado da
 lição que já está lá, porque hoje o texto sugere que o gate cobre mais do que cobre.
 
 ### 5.8 O tripwire da matriz cobre 10 das 14 linhas (aceito, registrado)
