@@ -244,10 +244,11 @@ entradas novas no `.gitignore` da raiz, com o porquê escrito. `git status` deix
 
 ## 5. O que ficou para você
 
-> **Revisado em 2026-07-29, com decisão tomada.** Sete dos oito itens abaixo foram resolvidos na
-> mesma sessão, depois da leitura deste relatório. O único que **segue aberto** é o §5.7 (limite do
-> gate `:rls`), que virou o débito D-15 — e o §5.1 fica parcial por ser estrutural. Cada seção
-> resolvida diz o que foi feito.
+> **Revisado em 2026-07-29, com decisão tomada.** Os oito itens abaixo foram todos endereçados na
+> mesma sessão, depois da leitura deste relatório: **seis resolvidos**, **dois parciais** e nenhum
+> em aberto sem registro. Os dois parciais são parciais pelo mesmo motivo — a parte que falta é
+> **estrutural** (o retorno do job no §5.1; o arnês de teste no §5.7, que virou o débito D-15), e
+> não uma pendência de decisão. Cada seção diz o que foi feito.
 >
 > | Item | Decisão |
 > | --- | --- |
@@ -257,7 +258,7 @@ entradas novas no `.gitignore` da raiz, com o porquê escrito. `git status` deix
 > | §5.4 números de doc colidindo | **resolvido** — duplicados renumerados para 78–81 |
 > | §5.5 átomo interno no 422 | **resolvido** — as duas portas passam por uma tradução só |
 > | §5.6 comentário morto | **resolvido** |
-> | §5.7 gate `:rls` | **aberto**, registrado como D-15 |
+> | §5.7 gate `:rls` | **parcialmente resolvido** — a regra 3 da `migrations.md` escreve o alcance do gate; o limite do arnês é o D-15 |
 > | §5.8 tripwire da matriz | aceito, sem ação |
 
 ### 5.1 O silêncio do materializador — o `+1` foi resolvido; o resto segue estrutural
@@ -417,6 +418,15 @@ arnês inteiro (`DataCase`, sandbox, `async`).
 **Correção sugerida:** para leitura por-tenant nova em caminho de escrita, a prova continua sendo
 `psql` sob `cinetra_app` — e vale registrar isso no `.claude/rules/migrations.md`, ao lado da
 lição que já está lá, porque hoje o texto sugere que o gate cobre mais do que cobre.
+
+**Feito em 2026-07-29 (a metade documental).** A `migrations.md` ganhou a **regra 3**, com o alcance
+do gate escrito, a medição da mutação e os dois comandos de `psql` — conferidos antes de entrar no
+arquivo: `0` sem a GUC, `1` com ela. De quebra fechou uma lacuna que ninguém havia notado: o
+CLAUDE.md **já** mandava ler aquele arquivo a respeito de RLS, e o texto não estava lá.
+
+O limite do arnês continua de pé (é o D-15), e é por isso que o item segue como "parcial" e não como
+resolvido: enquanto um teste for uma transação, o gate não vê leitura interna. O que mudou é que
+quem escrever teste de RLS agora é avisado a **mutar a regra** para saber se o teste prova algo.
 
 ### 5.8 O tripwire da matriz cobre 10 das 14 linhas (aceito, registrado)
 
