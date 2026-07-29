@@ -245,7 +245,13 @@
 		converter: 'Agendamento criado'
 	};
 
-	let ultimoForm = $state<unknown>(null);
+	// Marcador "último form já tratado" — NÃO é `$state`, e a agenda já aprendeu isso (o mesmo
+	// comentário mora em `agenda/+page.svelte`). Como `$state`, a atribuição embrulhava o objeto
+	// num PROXY, então a guarda `form === ultimoForm` era falsa para sempre: o efeito lia e
+	// escrevia o mesmo estado, estourava `effect_update_depth_exceeded` e derrubava a reatividade
+	// da tela inteira — o modal ficava aberto, o `goto` não valia e só um F5 (ou insistir no
+	// clique) tirava dali. Um `let` simples quebra o ciclo; o efeito só precisa depender de `form`.
+	let ultimoForm: unknown = null;
 	$effect(() => {
 		if (!form || form === ultimoForm) return;
 		ultimoForm = form;

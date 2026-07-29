@@ -10,6 +10,8 @@ vi.mock('$app/state', () => ({ page: { url: new URL('http://localhost/fila') } }
 // Sem token de tempo real, `connectWaitlist` nunca roda — mas mockamos para não tocar o phoenix.
 vi.mock('$lib/realtime', () => ({ connectWaitlist: () => () => {} }));
 
+import { goto } from '$app/navigation';
+import { tick } from 'svelte';
 import Page from './+page.svelte';
 import type { Entry, Slot } from '$lib/waitlist';
 
@@ -131,6 +133,24 @@ describe('Fila — camada de vagas na lista', () => {
 		expect(getByText('Próxima')).toBeInTheDocument();
 	});
 
+
+	// O resultado da action é tratado UMA vez, e o marcador que garante isso não pode ser `$state`:
+	// como `$state`, a atribuição embrulhava o objeto num proxy, a guarda `form === ultimoForm`
+	// nunca mais era verdadeira e o efeito lia e escrevia o mesmo estado — `effect_update_depth_
+	// exceeded` derrubava a reatividade da tela, o `goto` não valia e o modal de adicionar ficava
+	// aberto (o sintoma relatado: "só vai no terceiro clique"). Um `goto` só é a prova de que o
+	// ciclo não existe.
+	it('fecha o modal de adicionar no PRIMEIRO resultado ok (sem laço de efeito)', async () => {
+		mockSlots({ e1: [] });
+		vi.mocked(goto).mockClear();
+
+		render(Page, { props: { data: data(), form: { ok: true, action: 'enqueue' } } });
+		await tick();
+		await tick();
+
+		expect(goto).toHaveBeenCalledTimes(1);
+		expect(String(vi.mocked(goto).mock.calls[0][0])).toBe('/fila');
+	});
 
 	// O outro lado do mesmo achado: a tela tem de PEDIR a janela filtrada.
 	it('pede as vagas com o mesmo filtro da lista', async () => {
