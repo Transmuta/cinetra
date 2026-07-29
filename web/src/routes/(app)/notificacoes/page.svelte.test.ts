@@ -143,14 +143,22 @@ describe('tela de notificações', () => {
 			expect(queryByRole('button', { name: /marcar "vaga aberta" como lida/i })).toBeNull();
 		});
 
-		// O ponto do botão é NÃO navegar: ele submete a mesma action e deixa o enhance padrão
-		// revalidar (o que derruba o contador e tira o realce da linha).
-		it('não leva a pessoa para outra tela', () => {
-			render(Page, { props: { data: data([notif()], 1) } });
+		// O ponto do botão é NÃO navegar: ele submete a mesma action e só revalida (o que derruba o
+		// contador e tira o realce da linha). O teste exercita o CICLO do segundo form `?/read` —
+		// e não a ausência de callback, que era um proxy de implementação: desde que o botão ganhou
+		// estado de envio ele tem callback, e continua não navegando.
+		it('não leva a pessoa para outra tela', async () => {
+			render(Page, { props: { data: data([notif({ kind: 'slot_opened' })], 1) } });
+
 			const marcar = forms.filter((f) => f.action === '?/read');
 			expect(marcar.length).toBe(2);
-			// o form do botão de check não tem callback: é o enhance padrão (update + invalidateAll)
-			expect(marcar.some((f) => f.submit === undefined)).toBe(true);
+
+			const update = vi.fn();
+			await (marcar[1].submit as SubmitFn)({})({ result: { type: 'success' }, update });
+
+			// `slot_opened` TEM destino (/fila) — se este form navegasse, seria aqui.
+			expect(nav.goto).not.toHaveBeenCalled();
+			expect(update).toHaveBeenCalled();
 		});
 	});
 
