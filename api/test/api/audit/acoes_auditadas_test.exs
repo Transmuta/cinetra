@@ -59,7 +59,13 @@ defmodule Api.Audit.AcoesAuditadasTest do
     Api.Records.Patient => [:create, :update, :deactivate, :reactivate],
     Api.Directory.Professional => [:create, :update, :deactivate, :reactivate],
     Api.Directory.AppointmentType => [:create, :update, :archive, :restore],
-    Api.Accounts.Membership => [:invite, :invite_by_email, :update, :accept_invite, :revoke_access],
+    Api.Accounts.Membership => [
+      :invite,
+      :invite_by_email,
+      :update,
+      :accept_invite,
+      :revoke_access
+    ],
     Api.Accounts.Clinic => [:onboard, :update_settings, :update_messaging, :update_info],
     Api.Scheduling.ClinicHours => [:set_day],
     Api.Scheduling.ProfessionalHours => [:set_day],
@@ -103,5 +109,4 @@ defmodule Api.Audit.AcoesAuditadasTest do
              """
     end
   end
-
 end
