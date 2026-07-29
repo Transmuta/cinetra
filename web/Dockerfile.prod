@@ -31,6 +31,22 @@ ARG R2_ACCOUNT_ID
 ENV R2_ACCOUNT_ID=${R2_ACCOUNT_ID}
 
 RUN npm run build
+
+# Nenhum source map pode entrar na imagem servida (doc 73 §2).
+#
+# O `postbuild` (`scripts/mover-sourcemaps.mjs`) já move os `.map` para fora de `build/client`.
+# Esta linha existe porque **um script não consegue verificar que ele mesmo rodou**: trocar
+# `npm run build` por `vite build` aqui, ou remover o `postbuild` do package.json, desligaria a
+# proteção sem nenhum sintoma — e o resultado seria o código-fonte da aplicação baixável em
+# `<nome>.js.map`, adivinhável a partir do HTML.
+#
+# Aqui a checagem falha o build da IMAGEM, que é a última fronteira antes de produção.
+RUN if find build/client -name '*.map' | grep -q .; then \
+      echo 'ERRO: source map dentro de build/client — o código-fonte iria para produção.' >&2; \
+      find build/client -name '*.map' >&2; \
+      exit 1; \
+    fi
+
 # Descarta devDeps para a imagem final.
 RUN npm prune --omit=dev
 
@@ -44,9 +60,17 @@ WORKDIR /app
 COPY --from=build --chown=node:node /app/build ./build
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/package.json ./package.json
+# Instrumentação de trace (doc 76). Vem do CONTEXTO, não do estágio de build: `otel.mjs` não passa
+# pelo Vite — é carregado pelo Node cru, antes da aplicação.
+COPY --chown=node:node otel.mjs ./otel.mjs
 
 USER node
 EXPOSE 3000
 
 # adapter-node: servidor em build/. Precisa de ORIGIN (CSRF/URLs) e API_URL (BFF→API) por env.
-CMD ["node", "build"]
+#
+# `--import ./otel.mjs` roda a instrumentação ANTES do servidor. A ordem é o ponto: as bibliotecas
+# são instrumentadas trocando o módulo por baixo de quem o importa, então carregar depois do
+# SvelteKit sobe um SDK que não intercepta nada — e não avisa. Sem
+# `OTEL_EXPORTER_OTLP_ENDPOINT` o arquivo é um no-op.
+CMD ["node", "--import", "./otel.mjs", "build"]

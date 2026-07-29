@@ -25,6 +25,27 @@ export default defineConfig(({ mode }) => ({
 		)
 	},
 	build: {
+		// Source map para o stack de produção ser legível (doc 73 §2).
+		//
+		// Sem isto, o `stack` que chega ao Loki tem a forma `at Ki (/_app/immutable/chunks/D3kf9s.js:1:4821)`
+		// — nome de uma letra, arquivo com hash, tudo na linha 1. A captura funciona e o diagnóstico
+		// não: todo o custo do pipeline de erro do browser (os cinco guardas do endpoint, a
+		// sanitização em duas camadas) produz algo que não responde "onde quebrou". É um defeito que
+		// **só existe em produção**, porque em dev o Vite serve fonte não-minificado.
+		//
+		// `'hidden'` e não `true`: omite o comentário `//# sourceMappingURL` do bundle, então o
+		// browser nunca busca o mapa sozinho.
+		//
+		// **Isso sozinho NÃO basta, e a diferença foi medida.** `'hidden'` só tira a referência; os
+		// `.map` continuam sendo escritos na saída, que aqui é `build/client` — o diretório que o
+		// adapter-node serve. Ligando a opção, 83 mapas foram parar ao lado dos `.js` públicos, e
+		// como o nome do `.js` está no HTML, `<nome>.js.map` é adivinhável em uma tentativa: sairia
+		// o código-fonte inteiro. **Não referenciado não é o mesmo que não acessível.**
+		//
+		// Quem fecha isso é o `postbuild` (`scripts/mover-sourcemaps.mjs`), que move os mapas para
+		// fora do público e **falha o build** se sobrar algum. Mexer aqui sem olhar lá reabre o furo.
+		sourcemap: 'hidden',
+
 		// Fonte NUNCA vira `data:` no CSS. O default do Vite embute qualquer asset com menos de
 		// 4 KB, e as fatias pequenas do Fontsource (cirílico, vietnamita) caem abaixo disso — o
 		// build vinha embutindo 4 delas, 18 KB de base64 (26% do CSS render-blocking) que a
