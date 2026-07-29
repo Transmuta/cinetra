@@ -6,16 +6,19 @@ defmodule Api.Release do
   conecta como o role **restrito** (`DATABASE_URL` = `movimento_app`, NOBYPASSRLS) e fica
   sujeito à RLS (ADR-018).
 
-  - `setup/0`   — roda migrations e provisiona o role restrito (a ordem importa: tabelas antes
+  - `setup/0`   — roda migrations e provisiona os roles (a ordem importa: tabelas antes
                   dos grants).
   - `migrate/0` — só as migrations.
   - `setup_app_role/0` — cria/garante `DATABASE_APP_USER` (NOBYPASSRLS) + grants (ADR-018).
+  - `setup_metrics_role/0` — cria/garante `cinetra_metrics` (só leitura das views `metrics_*`,
+                  doc 73). **Ausente a senha, não faz nada** — o painel de banco é opcional.
   """
   @app :api
 
   def setup do
     migrate()
     setup_app_role()
+    setup_metrics_role()
   end
 
   def migrate do
@@ -50,6 +53,76 @@ defmodule Api.Release do
     :ok
   end
 
+  @doc """
+  Provisiona o role de **leitura** que o Grafana usa (doc 73). Idempotente, roda como owner.
+
+  Três diferenças em relação ao role do app, e as três são a razão de existir uma função separada:
+
+    * **só `SELECT`**, e só nas views `metrics_*` — nunca em tabela. A view é o allowlist de
+      colunas (ver a migration `MetricsViews`); dar `SELECT` na tabela devolveria CPF e texto livre
+      para dentro de uma UI web.
+    * **sem `ALTER DEFAULT PRIVILEGES`.** É deliberado: tabela nova criada por um `ash.codegen`
+      futuro **não** deve nascer legível. Só o que passar por view nova entra, e o `GRANT` roda de
+      novo aqui a cada deploy.
+    * **ausente = desligado.** Sem `DATABASE_METRICS_PASSWORD` o role não é criado, e os painéis de
+      banco ficam com erro de datasource — visível, que é como uma ausência deve se comportar.
+  """
+  def setup_metrics_role do
+    load_app()
+
+    case System.get_env("DATABASE_METRICS_PASSWORD") do
+      senha when is_binary(senha) and senha != "" ->
+        user = System.get_env("DATABASE_METRICS_USER", "cinetra_metrics")
+        validate_identifier!(user)
+
+        with_admin_config(fn ->
+          {:ok, _, _} =
+            Ecto.Migrator.with_repo(Api.Repo, fn repo ->
+              Enum.each(metrics_role_statements(user, senha), &Ecto.Adapters.SQL.query!(repo, &1))
+              :ok
+            end)
+        end)
+
+        :ok
+
+      _ ->
+        :desligado
+    end
+  end
+
+  defp metrics_role_statements(user, pass) do
+    quoted_pass = "'" <> String.replace(pass, "'", "''") <> "'"
+
+    [
+      """
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '#{user}') THEN
+          CREATE ROLE #{user} LOGIN PASSWORD #{quoted_pass}
+            NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
+        ELSE
+          ALTER ROLE #{user} LOGIN PASSWORD #{quoted_pass}
+            NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
+        END IF;
+      END $$;
+      """,
+      "GRANT USAGE ON SCHEMA public TO #{user}",
+      # O laço substitui uma lista escrita à mão que ficaria desatualizada na primeira view nova.
+      # `LIKE 'metrics\\_%'` com o underscore escapado — sem a barra, `_` é curinga de um caractere
+      # e o filtro casaria `metricsX...`.
+      """
+      DO $$
+      DECLARE v text;
+      BEGIN
+        FOR v IN SELECT viewname FROM pg_views
+                  WHERE schemaname = 'public' AND viewname LIKE 'metrics\\_%'
+        LOOP
+          EXECUTE format('GRANT SELECT ON public.%I TO #{user}', v);
+        END LOOP;
+      END $$;
+      """
+    ]
+  end
+
   # `user` é validado como identificador SQL; a senha é escapada (aspas dobradas). CREATE ROLE
   # não aceita bind params, então interpolamos com cuidado.
   defp role_statements(user, pass) do
@@ -77,7 +150,7 @@ defmodule Api.Release do
   defp validate_identifier!(user) do
     unless Regex.match?(~r/\A[a-z_][a-z0-9_]*\z/i, user) do
       raise ArgumentError,
-            "DATABASE_APP_USER deve ser um identificador SQL simples, recebido: #{inspect(user)}"
+            "o usuário do banco deve ser um identificador SQL simples, recebido: #{inspect(user)}"
     end
   end
 
