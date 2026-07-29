@@ -17,7 +17,9 @@ defmodule Api.MailerConfigTest do
     original = System.get_env("RESEND_API_KEY")
 
     on_exit(fn ->
-      if original, do: System.put_env("RESEND_API_KEY", original), else: System.delete_env("RESEND_API_KEY")
+      if original,
+        do: System.put_env("RESEND_API_KEY", original),
+        else: System.delete_env("RESEND_API_KEY")
     end)
 
     :ok
