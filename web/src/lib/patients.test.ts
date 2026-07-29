@@ -8,6 +8,8 @@ import {
 	parsePage,
 	pageLabel,
 	prefNomes,
+	emailValido,
+	nascimentoValido,
 	type Patient
 } from './patients';
 
@@ -117,4 +119,34 @@ describe('prefNomes', () => {
 		expect(prefNomes(p, { p1: 'Dra. Ana', p2: 'Dr. Rui' })).toEqual(['Dra. Ana', 'Dr. Rui']);
 	});
 	it('sem prefs → []', () => expect(prefNomes(patient(), {})).toEqual([]));
+});
+
+// AN-11 (D10): espelhos da régua do servidor (`CampoValido`) — só validam valor PRESENTE.
+describe('emailValido', () => {
+	it('aceita a forma mínima nome@dominio.tld', () => {
+		expect(emailValido('mari@example.com')).toBe(true);
+	});
+	it('reprova sem @ ou sem TLD', () => {
+		expect(emailValido('mari.example.com')).toBe(false);
+		expect(emailValido('mari@example')).toBe(false);
+		expect(emailValido('mari @example.com')).toBe(false);
+	});
+});
+
+describe('nascimentoValido', () => {
+	const hoje = new Date(2026, 6, 29); // 2026-07-29 local
+
+	it('passado plausível passa; hoje passa', () => {
+		expect(nascimentoValido('1990-05-20', hoje)).toBe(true);
+		expect(nascimentoValido('2026-07-29', hoje)).toBe(true);
+	});
+	it('futuro reprova', () => {
+		expect(nascimentoValido('2026-07-30', hoje)).toBe(false);
+	});
+	it('antes de 1900 reprova (dedo a mais no ano)', () => {
+		expect(nascimentoValido('1899-12-31', hoje)).toBe(false);
+	});
+	it('formato torto reprova', () => {
+		expect(nascimentoValido('20-05-1990', hoje)).toBe(false);
+	});
 });

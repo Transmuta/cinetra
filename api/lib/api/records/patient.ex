@@ -125,6 +125,11 @@ defmodule Api.Records.Patient do
       # propósito: é ela que produz a mensagem de erro com o valor que a pessoa digitou.
       validate Api.Validations.TelObrigatorio
       change Api.Records.Patient.Changes.NormalizeTel
+
+      # AN-11 (D10): identificação preenchida tem de ser válida — barra, não avisa.
+      validate {Api.Records.Patient.Validations.CampoValido, campo: :cpf}
+      validate {Api.Records.Patient.Validations.CampoValido, campo: :email}
+      validate {Api.Records.Patient.Validations.CampoValido, campo: :nascimento}
     end
 
     # `require_atomic? false` nas escritas: o `SetTenantGuc` seta a GUC de tenant num
@@ -139,6 +144,11 @@ defmodule Api.Records.Patient do
       # no fluxo natural, sem backfill e sem `NOT NULL` numa tabela que tem linhas nulas.
       validate Api.Validations.TelObrigatorio
       change Api.Records.Patient.Changes.NormalizeTel
+
+      # AN-11 (D10) — mesma régua da criação; a ficha antiga com CPF torto é cobrada aqui.
+      validate {Api.Records.Patient.Validations.CampoValido, campo: :cpf}
+      validate {Api.Records.Patient.Validations.CampoValido, campo: :email}
+      validate {Api.Records.Patient.Validations.CampoValido, campo: :nascimento}
     end
 
     # Arquivar (não apagar): só a transição de estado, como `Professional.deactivate`.
@@ -155,11 +165,16 @@ defmodule Api.Records.Patient do
     end
   end
 
-  # ADR-016: leitura para qualquer membro ativo do tenant; escrita só owner/admin. O
-  # `clinic_id` vem do tenant ativo (escopo), nunca do corpo. Isolamento entre clínicas já é
+  # ADR-016 + revisão de 2026-07-29 (AN-06): leitura para qualquer membro ativo do tenant;
+  # escrita para owner/admin **e recepção** — a matriz de acesso publicada expôs a divergência:
+  # quem cadastra e corrige ficha no balcão é a recepção (o mesmo racional do telefone
+  # obrigatório, "cobrar é quando a pessoa está na frente de quem digita"), e a policy original
+  # só deixava owner/admin. Profissional segue leitura.
+  #
+  # O `clinic_id` vem do tenant ativo (escopo), nunca do corpo. Isolamento entre clínicas já é
   # garantido pelo filtro por atributo + RLS (ADR-017/018); a policy adiciona o RBAC. Sem
-  # field policy: médico/CRM são sensíveis, mas ninguém abaixo de admin escreve e todo membro
-  # lê a ficha (D16: "todos os papéis visualizam"; opção A do D17 recusada).
+  # field policy: médico/CRM são sensíveis, mas o D16 já dá a LEITURA a todo membro — a
+  # recepção escrever não amplia o que ela vê (opção A do D17 segue recusada).
   policies do
     policy action_type(:read) do
       authorize_if {Api.Accounts.Checks.HasClinicRole, roles: :any, clinic_from: :tenant}
@@ -167,7 +182,7 @@ defmodule Api.Records.Patient do
 
     policy action_type([:create, :update, :destroy]) do
       authorize_if {Api.Accounts.Checks.HasClinicRole,
-                    roles: [:owner, :admin], clinic_from: :tenant}
+                    roles: [:owner, :admin, :recepcao], clinic_from: :tenant}
     end
   end
 

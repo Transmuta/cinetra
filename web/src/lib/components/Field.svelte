@@ -40,8 +40,9 @@
 		required?: boolean;
 		autocomplete?: HTMLInputAttributes['autocomplete'];
 		maxlength?: number;
-		/** limites do input numérico (duração 10/5, capacidade 2 — protótipo :2396, :2402) */
-		min?: number;
+		/** Piso do input: número (duração 10/5, capacidade 2 — protótipo :2396, :2402) ou **data**
+		    `AAAA-MM-DD` num `type="date"` — é assim que o HTML barra o passado no seletor nativo. */
+		min?: number | string;
 		step?: number;
 		/** fonte mono: os números do protótipo (duração, capacidade, horários) usam Martian Mono */
 		mono?: boolean;

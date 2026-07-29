@@ -108,8 +108,8 @@ defmodule ApiWeb.PatientsControllerTest do
     end
 
     test "?q= busca por nome e por dígitos do CPF", %{conn: conn, clinic: clinic} do
-      create_patient(clinic, "Mariana Alves", %{cpf: "123.456.789-00"})
-      create_patient(clinic, "João Souza", %{cpf: "999.888.777-66"})
+      create_patient(clinic, "Mariana Alves", %{cpf: "123.456.789-09"})
+      create_patient(clinic, "João Souza", %{cpf: "111.444.777-35"})
 
       por_nome = conn |> get(~p"/api/patients?q=mari") |> json_response(200)
       assert Enum.map(por_nome["patients"], & &1["nome"]) == ["Mariana Alves"]
@@ -233,7 +233,7 @@ defmodule ApiWeb.PatientsControllerTest do
     test "owner cria (201) e o corpo NÃO define clinic_id", %{conn: conn, clinic: clinic} do
       params = %{
         "nome" => "Novo Paciente",
-        "cpf" => "123.456.789-00",
+        "cpf" => "123.456.789-09",
         "tel" => "(11) 98765-4321",
         "clinic_id" => Ecto.UUID.generate()
       }
@@ -241,7 +241,7 @@ defmodule ApiWeb.PatientsControllerTest do
       body = conn |> post(~p"/api/patients", params) |> json_response(201)
 
       assert body["patient"]["nome"] == "Novo Paciente"
-      assert body["patient"]["cpf"] == "123.456.789-00"
+      assert body["patient"]["cpf"] == "123.456.789-09"
       refute Map.has_key?(body["patient"], "clinic_id")
 
       # foi mesmo para a clínica do escopo (não para o clinic_id do corpo)
@@ -261,19 +261,46 @@ defmodule ApiWeb.PatientsControllerTest do
       assert body["patient"]["nome"] == "Pela Admin"
     end
 
-    test "recepção e profissional → 403", %{base_conn: base, owner: owner, clinic: clinic} do
-      for papel <- [:recepcao, :profissional] do
-        user = sessao_de_membro!(owner, clinic, papel)
+    # Revisão 2026-07-29 (AN-06): quem cadastra no balcão é a recepção — só o profissional
+    # fica de fora da escrita da ficha.
+    test "recepção cria (201)", %{base_conn: base, owner: owner, clinic: clinic} do
+      recepcao = sessao_de_membro!(owner, clinic, :recepcao)
 
-        assert base
-               |> authed(user)
-               |> post(~p"/api/patients", %{"nome" => "X"})
-               |> json_response(403)
-      end
+      body =
+        base
+        |> authed(recepcao)
+        |> post(~p"/api/patients", %{"nome" => "Pela Recepção", "tel" => "11987650002"})
+        |> json_response(201)
+
+      assert body["patient"]["nome"] == "Pela Recepção"
+    end
+
+    test "profissional → 403", %{base_conn: base, owner: owner, clinic: clinic} do
+      user = sessao_de_membro!(owner, clinic, :profissional)
+
+      assert base
+             |> authed(user)
+             |> post(~p"/api/patients", %{"nome" => "X"})
+             |> json_response(403)
     end
 
     test "sem sessão → 401", %{base_conn: base} do
       assert base |> post(~p"/api/patients", %{"nome" => "X"}) |> json_response(401)
+    end
+
+    # AN-11 (D10) atravessando a fronteira: o CPF chega como STRING mascarada do JSON — a lição
+    # da Onda 6 é que régua de fronteira se prova na fronteira, não só pela code interface.
+    test "CPF inválido → 422 com o campo apontado", %{conn: conn} do
+      body =
+        conn
+        |> post(~p"/api/patients", %{
+          "nome" => "X",
+          "tel" => "(11) 98765-4321",
+          "cpf" => "123.456.789-00"
+        })
+        |> json_response(422)
+
+      assert Enum.any?(body["details"], &(&1["field"] == "cpf"))
     end
 
     test "nome vazio → 422 com detalhe do campo", %{conn: conn} do
@@ -384,13 +411,30 @@ defmodule ApiWeb.PatientsControllerTest do
       assert Enum.any?(body["details"], &(&1["field"] == "nome"))
     end
 
-    test "recepção não atualiza → 403", %{base_conn: base, owner: owner, clinic: clinic} do
+    # Dois testes, e não um: reusar o MESMO `base` para duas sessões faz o recycle do Phoenix
+    # arrastar o cookie da primeira para a segunda requisição — o 403 esperado virava 200 da
+    # sessão anterior.
+    test "recepção atualiza (revisão 2026-07-29)", %{
+      base_conn: base,
+      owner: owner,
+      clinic: clinic
+    } do
       p = create_patient(clinic)
       recepcao = sessao_de_membro!(owner, clinic, :recepcao)
 
       assert base
              |> authed(recepcao)
-             |> patch(~p"/api/patients/#{p.id}", %{"tel" => "x"})
+             |> patch(~p"/api/patients/#{p.id}", %{"tel" => "(11) 98765-0003"})
+             |> json_response(200)
+    end
+
+    test "profissional não atualiza → 403", %{base_conn: base, owner: owner, clinic: clinic} do
+      p = create_patient(clinic)
+      profissional = sessao_de_membro!(owner, clinic, :profissional)
+
+      assert base
+             |> authed(profissional)
+             |> patch(~p"/api/patients/#{p.id}", %{"tel" => "(11) 98765-0004"})
              |> json_response(403)
     end
 
@@ -412,12 +456,26 @@ defmodule ApiWeb.PatientsControllerTest do
       assert rea["patient"]["ativo"]
     end
 
-    test "recepção não arquiva → 403", %{base_conn: base, owner: owner, clinic: clinic} do
+    # Revisão 2026-07-29 (AN-06): arquivar é do balcão também; só o profissional fica de fora.
+    test "recepção arquiva (200)", %{base_conn: base, owner: owner, clinic: clinic} do
       p = create_patient(clinic)
       recepcao = sessao_de_membro!(owner, clinic, :recepcao)
 
+      body =
+        base
+        |> authed(recepcao)
+        |> post(~p"/api/patients/#{p.id}/deactivate")
+        |> json_response(200)
+
+      refute body["patient"]["ativo"]
+    end
+
+    test "profissional não arquiva → 403", %{base_conn: base, owner: owner, clinic: clinic} do
+      p = create_patient(clinic)
+      profissional = sessao_de_membro!(owner, clinic, :profissional)
+
       assert base
-             |> authed(recepcao)
+             |> authed(profissional)
              |> post(~p"/api/patients/#{p.id}/deactivate")
              |> json_response(403)
     end

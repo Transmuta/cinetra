@@ -59,4 +59,49 @@ describe('GET /api/patients/lookup', () => {
 
 		expect(await (await GET(ev('11111111111'))).json()).toEqual({ matches: [] });
 	});
+
+	// AN-10 (HOM-013, resto): o cadastro feito SEM documento — `?nome=&nascimento=` busca pelo
+	// nome na API (que não filtra por data) e ESTE endpoint recorta por nascimento igual.
+	describe('duplicado por nome + nascimento', () => {
+		function evNome(nome: string, nascimento: string) {
+			const qs = new URLSearchParams({ nome, nascimento });
+			return { url: new URL(`http://localhost/api/patients/lookup?${qs}`) } as never;
+		}
+
+		it('busca pelo nome e devolve só quem tem o MESMO nascimento', async () => {
+			apiFetch.mockResolvedValueOnce(
+				json({
+					patients: [
+						{ id: 'p1', nome: 'Mariana Alves', cpf: null, tel: null, nascimento: '1990-05-20' },
+						{ id: 'p2', nome: 'Mariana Alvarenga', cpf: null, tel: null, nascimento: '1980-01-01' },
+						{ id: 'p3', nome: 'Mariana Alvim', cpf: null, tel: null, nascimento: null }
+					]
+				})
+			);
+
+			const res = await GET(evNome('Mariana Alves', '1990-05-20'));
+
+			expect(apiFetch).toHaveBeenCalledWith(
+				expect.anything(),
+				expect.stringContaining('q=Mariana+Alves'),
+				expect.anything()
+			);
+			expect(await res.json()).toEqual({
+				matches: [{ id: 'p1', nome: 'Mariana Alves', cpf: null, tel: null }]
+			});
+		});
+
+		it('nome curto ou data torta nem consultam', async () => {
+			expect(await (await GET(evNome('Ma', '1990-05-20'))).json()).toEqual({ matches: [] });
+			expect(await (await GET(evNome('Mariana', '20/05/1990'))).json()).toEqual({ matches: [] });
+			expect(apiFetch).not.toHaveBeenCalled();
+		});
+
+		it('rede fora degrada para vazio, como no modo por documento', async () => {
+			apiFetch.mockRejectedValueOnce(new Error('down'));
+			expect(await (await GET(evNome('Mariana Alves', '1990-05-20'))).json()).toEqual({
+				matches: []
+			});
+		});
+	});
 });

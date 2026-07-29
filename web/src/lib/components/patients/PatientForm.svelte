@@ -23,11 +23,12 @@
 	import UserSearch from '@lucide/svelte/icons/user-search';
 	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 	import { initials } from '$lib/format';
-	import { patientColor, idade, stripTitle, type Patient } from '$lib/patients';
+	import { patientColor, idade, stripTitle, emailValido, nascimentoValido, type Patient } from '$lib/patients';
 	import { profColor, type Professional } from '$lib/professionals';
 	import { maskCpf, maskTel, maskCep, maskMy, maskUf } from '$lib/masks';
 	import { lookupCep, type CepStatus } from '$lib/cep';
 	import { formatarTelefone, recebeWhatsapp, telefoneValido } from '$lib/telefone';
+	import { isValidCpf } from '$lib/cpf';
 
 	let {
 		patient = null,
@@ -124,26 +125,40 @@
 		tel: string | null;
 	}
 
-	async function lookupDup(cpf: string, tel: string) {
+	async function lookupDup(cpf: string, tel: string, nome: string, nascimento: string) {
 		const cpfDigits = cpf.replace(/\D/g, '');
 		const telDigits = tel.replace(/\D/g, '');
-		// CPF completo tem prioridade; senão, telefone com DDD.
+		// CPF completo tem prioridade; senão, telefone com DDD; por fim (AN-10, o cadastro SEM
+		// documento) nome + data de nascimento — a heurística que o CPF/telefone não pega.
 		const term = cpfDigits.length === 11 ? cpfDigits : telDigits.length >= 10 ? telDigits : '';
+		const nomeTrim = nome.trim();
+		const porNome = !term && nomeTrim.length >= 3 && /^\d{4}-\d{2}-\d{2}$/.test(nascimento);
 
-		if (!term) {
+		if (!term && !porNome) {
 			dup = null;
 			return;
 		}
 
-		dupReq = term;
+		const url = term
+			? `/api/patients/lookup?q=${term}`
+			: `/api/patients/lookup?${new URLSearchParams({ nome: nomeTrim, nascimento })}`;
+
+		dupReq = url;
 
 		try {
-			const res = await fetch(`/api/patients/lookup?q=${term}`);
-			if (!res.ok || dupReq !== term) return; // resposta obsoleta: o campo mudou no meio
+			const res = await fetch(url);
+			if (!res.ok || dupReq !== url) return; // resposta obsoleta: o campo mudou no meio
 
 			const { matches } = (await res.json()) as { matches: DupMatch[] };
 			const hit = matches.find((m) => m.id !== patient?.id);
-			dup = hit ? { nome: hit.nome, campo: term === cpfDigits ? 'CPF' : 'celular' } : null;
+
+			const campo = term
+				? term === cpfDigits
+					? 'CPF'
+					: 'celular'
+				: 'nome e data de nascimento';
+
+			dup = hit ? { nome: hit.nome, campo } : null;
 		} catch {
 			// Rede fora: o aviso é conveniência, nunca barreira — segue sem avisar.
 		}
@@ -152,7 +167,7 @@
 	// Debounce: o documento é digitado aos poucos, não vale uma consulta por tecla.
 	function scheduleDupCheck() {
 		clearTimeout(dupTimer);
-		dupTimer = setTimeout(() => lookupDup(f.cpf, f.tel), 400);
+		dupTimer = setTimeout(() => lookupDup(f.cpf, f.tel, f.nome, f.nascimento), 400);
 	}
 
 	// Timer órfão depois de sair do formulário só gastaria uma consulta à toa.
@@ -222,6 +237,13 @@
 	// D6 (doc 64) / `TelObrigatorio`: o rótulo já trazia o asterisco, mas o botão salvava assim
 	// mesmo e o 422 só aparecia depois da viagem. A regra é a do servidor — ver `telefoneValido`.
 	const telOk = $derived(telefoneValido(f.tel));
+
+	// AN-11 (D10: **barra no salvar**). Os três seguem opcionais — vazio passa; preenchido tem
+	// de ser válido. A régua é a do servidor (`CampoValido`); aqui ela só chega antes da viagem.
+	const cpfOk = $derived(f.cpf.trim() === '' || isValidCpf(f.cpf));
+	const emailOk = $derived(f.email.trim() === '' || emailValido(f.email.trim()));
+	const nascOk = $derived(f.nascimento === '' || nascimentoValido(f.nascimento));
+	const identOk = $derived(cpfOk && emailOk && nascOk);
 
 	function fichaPayload() {
 		const clean = Object.fromEntries(
@@ -376,7 +398,7 @@
 					{@render cardHead(User, SECTIONS[0].t, SECTIONS[0].sub, counts.ident, SECTIONS[0].total)}
 					<label class="mb-3 block">
 						{@render label('Nome completo', true)}
-						<input bind:value={f.nome} placeholder="Nome do paciente" class={inputCls} />
+						<input bind:value={f.nome} oninput={scheduleDupCheck} placeholder="Nome do paciente" class={inputCls} />
 					</label>
 					<label class="mb-3 block">
 						{@render label('Nome social (caso aplicável)')}
@@ -410,7 +432,8 @@
 					<div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
 						<label class="block">
 							{@render label(nascLabel)}
-							<input type="date" bind:value={f.nascimento} class={inputCls} />
+							<!-- AN-10: nome + nascimento também consultam o duplicado (o cadastro sem documento). -->
+							<input type="date" bind:value={f.nascimento} oninput={scheduleDupCheck} onchange={scheduleDupCheck} class={inputCls} />
 						</label>
 						<label class="block">
 							{@render label('RG')}
@@ -700,6 +723,12 @@
 				<TriangleAlert size={14} /> {error}
 			{:else if !telOk && f.tel.trim() !== ''}
 				<TriangleAlert size={14} /> Telefone incompleto — use DDD + número.
+			{:else if !cpfOk}
+				<TriangleAlert size={14} /> CPF inválido — confira os dígitos.
+			{:else if !emailOk}
+				<TriangleAlert size={14} /> E-mail inválido — use nome@dominio.
+			{:else if !nascOk}
+				<TriangleAlert size={14} /> Data de nascimento inválida.
 			{:else}
 				<!-- Era "nenhum campo é obrigatório", e a frase sobreviveu à `TelObrigatorio`: o
 				     asterisco já estava no rótulo do telefone e o rodapé seguia prometendo o
@@ -715,7 +744,7 @@
 		>
 		<SubmitButton
 			emVoo={submitting}
-			disabled={!nomeOk || !telOk}
+			disabled={!nomeOk || !telOk || !identOk}
 			class="inline-flex items-center gap-1.5 rounded-lg bg-primary px-5 py-2 text-[13px] font-semibold text-on-primary hover:bg-primary-hover disabled:opacity-60"
 		>
 			{editing ? 'Salvar' : 'Cadastrar paciente'}

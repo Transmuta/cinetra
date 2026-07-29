@@ -99,8 +99,8 @@ defmodule Api.Records.PatientListTest do
   describe "busca (q)" do
     setup do
       {_owner, clinic, scope} = owner_and_clinic()
-      create(clinic, "Mariana Alves", %{cpf: "123.456.789-00", tel: "(11) 98888-7777"})
-      create(clinic, "João Souza", %{cpf: "999.888.777-66", tel: "(11) 91111-2222"})
+      create(clinic, "Mariana Alves", %{cpf: "123.456.789-09", tel: "(11) 98888-7777"})
+      create(clinic, "João Souza", %{cpf: "111.444.777-35", tel: "(11) 91111-2222"})
       %{scope: scope}
     end
 
@@ -110,7 +110,7 @@ defmodule Api.Records.PatientListTest do
     end
 
     test "por dígitos do CPF, mesmo com a máscara guardada na coluna", %{scope: scope} do
-      # a coluna guarda "123.456.789-00"; o termo é só dígito
+      # a coluna guarda "123.456.789-09"; o termo é só dígito
       assert nomes(Records.list_clinic_patients(scope, q: "45678")) == ["Mariana Alves"]
     end
 

@@ -107,6 +107,27 @@ export function idade(nascimento: string | null, hoje: Date = new Date()): numbe
 	return a >= 0 && a < 130 ? a : null;
 }
 
+// ---- Validação de identificação (AN-11 / D10: barra no salvar) ----
+// Espelhos de `Api.Records.Patient.Validations.CampoValido` — a autoridade é o servidor; os
+// helpers validam um VALOR presente (campo vazio segue opcional, quem decide isso é o form).
+
+/** A forma mínima `algo@algo.tld` — a mesma régua do servidor; quem confirma é o envio. */
+export function emailValido(email: string): boolean {
+	return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+/**
+ * Data ISO (`<input type="date">`) nem no futuro nem antes de 1900 — os dois erros de digitação
+ * que uma data bem-formada deixa passar. Lexicográfico funciona porque é YYYY-MM-DD.
+ */
+export function nascimentoValido(iso: string, hoje: Date = new Date()): boolean {
+	if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return false;
+	if (iso < '1900-01-01') return false;
+
+	const hojeIso = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}-${String(hoje.getDate()).padStart(2, '0')}`;
+	return iso <= hojeIso;
+}
+
 // ---- Segmento da sidebar (Todos / Ativos / Inativos / Com responsável) ----
 // Eixo único como o `pacFiltro` do protótipo (:1437); a v1 só expõe os segmentos calculáveis
 // hoje (pacote/faltas dependem de F3/agenda). O recorte é aplicado **no servidor** (viaja em

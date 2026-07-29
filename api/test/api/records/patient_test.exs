@@ -39,7 +39,7 @@ defmodule Api.Records.PatientTest do
 
   @full %{
     nome_social: "Mari",
-    cpf: "123.456.789-00",
+    cpf: "123.456.789-09",
     rg: "12.345.678-9",
     genero: "Feminino",
     estado_civil: "Solteiro(a)",
@@ -80,7 +80,7 @@ defmodule Api.Records.PatientTest do
       p = Records.create_patient!("Mariana Alves", @full, tenant: clinic.id, actor: owner)
 
       assert p.nome == "Mariana Alves"
-      assert p.cpf == "123.456.789-00"
+      assert p.cpf == "123.456.789-09"
       assert p.rg == "12.345.678-9"
       assert p.medico == "Dr. Silva"
       assert p.crm == "CRM/SP 123456"
@@ -158,6 +158,70 @@ defmodule Api.Records.PatientTest do
     end
   end
 
+  defp criar(clinic, owner, extra) do
+    Records.create_patient(
+      "Validação",
+      Map.merge(%{tel: Api.Generators.telefone_unico()}, extra),
+      tenant: clinic.id,
+      actor: owner
+    )
+  end
+
+  defp erro_no_campo?({:error, %Ash.Error.Invalid{errors: errors}}, campo) do
+    Enum.any?(errors, &(Map.get(&1, :field) == campo))
+  end
+
+  # AN-11 / HOM-012 (D10: **barra no salvar**, diverge do "duplicado só avisa" por decisão
+  # explícita). Só o que veio preenchido é validado — obrigatório continua sendo nome + telefone.
+  describe "validação de identificação (AN-11)" do
+    test "CPF com dígito verificador errado barra, no campo certo" do
+      {owner, clinic} = owner_and_clinic()
+      assert criar(clinic, owner, %{cpf: "123.456.789-00"}) |> erro_no_campo?(:cpf)
+    end
+
+    test "CPF válido passa, com ou sem máscara" do
+      {owner, clinic} = owner_and_clinic()
+      assert {:ok, _} = criar(clinic, owner, %{cpf: "390.533.447-05"})
+      assert {:ok, _} = criar(clinic, owner, %{cpf: "39053344705"})
+    end
+
+    test "e-mail sem forma de e-mail barra" do
+      {owner, clinic} = owner_and_clinic()
+      assert criar(clinic, owner, %{email: "mari.example.com"}) |> erro_no_campo?(:email)
+      assert {:ok, _} = criar(clinic, owner, %{email: "mari@example.com"})
+    end
+
+    test "nascimento no futuro barra; passado plausível passa" do
+      {owner, clinic} = owner_and_clinic()
+
+      assert criar(clinic, owner, %{nascimento: Date.add(Date.utc_today(), 2)})
+             |> erro_no_campo?(:nascimento)
+
+      assert {:ok, _} = criar(clinic, owner, %{nascimento: ~D[1990-05-20]})
+    end
+
+    test "nascimento antes de 1900 barra (dedo a mais no ano)" do
+      {owner, clinic} = owner_and_clinic()
+      assert criar(clinic, owner, %{nascimento: ~D[1889-01-01]}) |> erro_no_campo?(:nascimento)
+    end
+
+    test "os três vazios continuam passando — obrigatório é só nome e telefone" do
+      {owner, clinic} = owner_and_clinic()
+      assert {:ok, _} = criar(clinic, owner, %{})
+    end
+
+    test "no update a mesma régua vale" do
+      {owner, clinic} = owner_and_clinic()
+      {:ok, p} = criar(clinic, owner, %{})
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               Records.update_patient(p, %{cpf: "111.111.111-11"},
+                 tenant: clinic.id,
+                 actor: owner
+               )
+    end
+  end
+
   describe "atualização" do
     test "edita campos parcialmente sem zerar os demais" do
       {owner, clinic} = owner_and_clinic()
@@ -197,7 +261,10 @@ defmodule Api.Records.PatientTest do
                )
     end
 
-    test "recepção e profissional NÃO criam, atualizam nem arquivam (Forbidden)" do
+    # Revisão de 2026-07-29 (AN-06): a matriz publicada expôs a divergência — quem cadastra
+    # paciente no balcão é a RECEPÇÃO (o mesmo racional do telefone obrigatório: "cobrar é
+    # quando a pessoa está na frente de quem digita"), e a policy só deixava owner/admin.
+    test "recepção cria, atualiza e arquiva a ficha" do
       {owner, clinic} = owner_and_clinic()
 
       alvo =
@@ -206,22 +273,43 @@ defmodule Api.Records.PatientTest do
           actor: owner
         )
 
-      for papel <- [:recepcao, :profissional] do
-        user = member_with_role(clinic, papel)
-        opts = [tenant: clinic.id, actor: user]
+      recepcao = member_with_role(clinic, :recepcao)
+      opts = [tenant: clinic.id, actor: recepcao]
 
-        # Com telefone VÁLIDO de propósito: sem ele a ação para na validação e devolve
-        # `Invalid` antes de chegar à policy — o teste passaria a provar outra coisa.
-        assert {:error, %Ash.Error.Forbidden{}} =
-                 Records.create_patient("X", %{tel: Api.Generators.telefone_unico()}, opts)
+      assert {:ok, _} =
+               Records.create_patient(
+                 "Pela Recepção",
+                 %{tel: Api.Generators.telefone_unico()},
+                 opts
+               )
 
-        # Telefone VÁLIDO aqui também: "hack" agora é recusado pela validação, e o teste
-        # passaria a provar "campo inválido" em vez de "papel sem permissão".
-        assert {:error, %Ash.Error.Forbidden{}} =
-                 Records.update_patient(alvo, %{tel: Api.Generators.telefone_unico()}, opts)
+      assert {:ok, _} =
+               Records.update_patient(alvo, %{tel: Api.Generators.telefone_unico()}, opts)
 
-        assert {:error, %Ash.Error.Forbidden{}} = Records.deactivate_patient(alvo, %{}, opts)
-      end
+      assert {:ok, _} = Records.deactivate_patient(alvo, %{}, opts)
+    end
+
+    test "profissional NÃO cria, atualiza nem arquiva (Forbidden)" do
+      {owner, clinic} = owner_and_clinic()
+
+      alvo =
+        Records.create_patient!("Alvo", %{tel: Api.Generators.telefone_unico()},
+          tenant: clinic.id,
+          actor: owner
+        )
+
+      user = member_with_role(clinic, :profissional)
+      opts = [tenant: clinic.id, actor: user]
+
+      # Com telefone VÁLIDO de propósito: sem ele a ação para na validação e devolve
+      # `Invalid` antes de chegar à policy — o teste passaria a provar outra coisa.
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Records.create_patient("X", %{tel: Api.Generators.telefone_unico()}, opts)
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Records.update_patient(alvo, %{tel: Api.Generators.telefone_unico()}, opts)
+
+      assert {:error, %Ash.Error.Forbidden{}} = Records.deactivate_patient(alvo, %{}, opts)
     end
 
     test "todos os membros leem o cadastro (inclusive médico/CRM — sem field policy)" do
@@ -252,7 +340,7 @@ defmodule Api.Records.PatientTest do
       arquivado = Records.deactivate_patient!(p, %{}, tenant: clinic.id, actor: owner)
 
       refute arquivado.ativo
-      assert arquivado.cpf == "123.456.789-00"
+      assert arquivado.cpf == "123.456.789-09"
     end
 
     test "reactivate volta ativo: true" do

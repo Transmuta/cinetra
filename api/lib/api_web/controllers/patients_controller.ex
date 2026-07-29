@@ -125,9 +125,13 @@ defmodule ApiWeb.PatientsController do
     }
   end
 
+  # Escrita da ficha: owner/admin E recepção (revisão 2026-07-29, AN-06 — quem cadastra no
+  # balcão é a recepção; a policy do recurso é a mesma lista). Profissional fica de fora.
+  @papeis_de_escrita [:owner, :admin, :recepcao]
+
   # POST /api/patients — cria a ficha (só o nome é obrigatório).
   def create(conn, params) do
-    with_admin_scope(conn, fn scope ->
+    with_roles_scope(conn, @papeis_de_escrita, fn scope ->
       case Records.create_clinic_patient(scope, input(params)) do
         {:ok, patient} ->
           conn |> put_status(:created) |> json(%{patient: patient_json(patient)})
@@ -140,21 +144,21 @@ defmodule ApiWeb.PatientsController do
 
   # PATCH /api/patients/:id — atualização parcial da ficha.
   def update(conn, %{"id" => id} = params) do
-    with_admin_scope(conn, fn scope ->
+    with_roles_scope(conn, @papeis_de_escrita, fn scope ->
       write(conn, scope, id, &Records.update_clinic_patient(scope, &1, input(params)))
     end)
   end
 
   # POST /api/patients/:id/deactivate — arquiva (some da lista de ativos, sem apagar).
   def deactivate(conn, %{"id" => id}) do
-    with_admin_scope(conn, fn scope ->
+    with_roles_scope(conn, @papeis_de_escrita, fn scope ->
       write(conn, scope, id, &Records.deactivate_clinic_patient(scope, &1))
     end)
   end
 
   # POST /api/patients/:id/reactivate — reativa.
   def reactivate(conn, %{"id" => id}) do
-    with_admin_scope(conn, fn scope ->
+    with_roles_scope(conn, @papeis_de_escrita, fn scope ->
       write(conn, scope, id, &Records.reactivate_clinic_patient(scope, &1))
     end)
   end

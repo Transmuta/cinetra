@@ -103,6 +103,106 @@ describe('PatientForm — novo', () => {
 		}
 	});
 
+	// AN-10 (HOM-013, resto): o cadastro feito SEM documento — mesmo nome e mesma data de
+	// nascimento avisam, pelo mesmo aviso do CPF/telefone. Continua só avisando, nunca barrando.
+	it('avisa duplicado por nome + data de nascimento', async () => {
+		const fetchMock = vi.fn(
+			async () =>
+				new Response(
+					JSON.stringify({
+						matches: [{ id: 'outro', nome: 'Mariana Alves', cpf: null, tel: null }]
+					}),
+					{ status: 200, headers: { 'content-type': 'application/json' } }
+				)
+		);
+		vi.stubGlobal('fetch', fetchMock);
+		try {
+			const { getByPlaceholderText, getByLabelText, getByText } = render(PatientForm, {
+				props: { professionals }
+			});
+			await fireEvent.input(getByPlaceholderText('Nome do paciente'), {
+				target: { value: 'Mariana Alves' }
+			});
+			await fireEvent.input(getByLabelText(/Data de nascimento/), {
+				target: { value: '1990-05-20' }
+			});
+
+			await vi.waitFor(() => expect(getByText(/Possível duplicado/)).toBeInTheDocument());
+			expect(getByText(/nome e data de nascimento/)).toBeInTheDocument();
+			expect(fetchMock).toHaveBeenCalledWith(
+				'/api/patients/lookup?nome=Mariana+Alves&nascimento=1990-05-20'
+			);
+		} finally {
+			vi.unstubAllGlobals();
+		}
+	});
+
+	// AN-11 (D10: **barra no salvar** — diverge do "duplicado só avisa" por decisão explícita).
+	// A régua é a do servidor (`CampoValido`); aqui ela chega antes da viagem.
+	describe('identificação inválida barra o salvar (AN-11)', () => {
+		// Tipo estrutural: o `RenderResult` genérico do testing-library não sobrevive ao
+		// svelte-check quando viaja por parâmetro — só as queries usadas interessam aqui.
+		interface Q {
+			getByPlaceholderText(text: string): HTMLElement;
+			getByLabelText(text: RegExp | string): HTMLElement;
+			getByRole(role: string, opts?: { name?: string | RegExp }): HTMLElement;
+			getByText(text: RegExp | string): HTMLElement;
+		}
+
+		async function preencherMinimo(r: Q) {
+			await fireEvent.input(r.getByPlaceholderText('Nome do paciente'), {
+				target: { value: 'Mariana' }
+			});
+			await fireEvent.input(r.getByLabelText(/Telefone \/ WhatsApp/), {
+				target: { value: '11987654321' }
+			});
+		}
+
+		it('CPF com DV errado desabilita e o rodapé diz o porquê', async () => {
+			const r = render(PatientForm, { props: { professionals } });
+			await preencherMinimo(r);
+			const save = r.getByRole('button', { name: 'Cadastrar paciente' });
+
+			await fireEvent.input(r.getByPlaceholderText('000.000.000-00'), {
+				target: { value: '12345678900' }
+			});
+			expect(save).toBeDisabled();
+			expect(r.getByText(/CPF inválido/)).toBeInTheDocument();
+
+			await fireEvent.input(r.getByPlaceholderText('000.000.000-00'), {
+				target: { value: '39053344705' }
+			});
+			expect(save).toBeEnabled();
+		});
+
+		it('e-mail sem forma de e-mail desabilita', async () => {
+			const r = render(PatientForm, { props: { professionals } });
+			await preencherMinimo(r);
+
+			await fireEvent.input(r.getByPlaceholderText('email@exemplo.com'), {
+				target: { value: 'mari.example.com' }
+			});
+			expect(r.getByRole('button', { name: 'Cadastrar paciente' })).toBeDisabled();
+			expect(r.getByText(/E-mail inválido/)).toBeInTheDocument();
+		});
+
+		it('nascimento no futuro desabilita', async () => {
+			const r = render(PatientForm, { props: { professionals } });
+			await preencherMinimo(r);
+
+			await fireEvent.input(r.getByLabelText(/Data de nascimento/), {
+				target: { value: '2099-01-01' }
+			});
+			expect(r.getByRole('button', { name: 'Cadastrar paciente' })).toBeDisabled();
+		});
+
+		it('os três vazios seguem opcionais — só nome e telefone habilitam', async () => {
+			const r = render(PatientForm, { props: { professionals } });
+			await preencherMinimo(r);
+			expect(r.getByRole('button', { name: 'Cadastrar paciente' })).toBeEnabled();
+		});
+	});
+
 	it('não consulta duplicado com CPF incompleto', async () => {
 		const fetchMock = vi.fn();
 		vi.stubGlobal('fetch', fetchMock);
