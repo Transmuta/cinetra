@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import SubmitButton from '$lib/components/SubmitButton.svelte';
+	import { envioPorItem } from '$lib/forms.svelte';
 	import Plus from '@lucide/svelte/icons/plus';
 	import Pencil from '@lucide/svelte/icons/pencil';
 	import Archive from '@lucide/svelte/icons/archive';
@@ -26,6 +28,10 @@
 	const split = $derived(splitByStatus(data.appointmentTypes));
 
 	let modal = $state<{ type: AppointmentType | null } | null>(null);
+
+	// Arquivar/restaurar têm um form por linha, então o "em voo" é POR ITEM — um booleano só
+	// giraria os botões da lista inteira.
+	const linha = envioPorItem<string>();
 
 	// Erro a exibir dentro do modal (quando o salvamento falhou).
 	const modalError = $derived(
@@ -85,14 +91,14 @@
 
 		{#if canManage}
 			{#if arquivado}
-				<form method="POST" action="?/restore" use:enhance>
+				<form method="POST" action="?/restore" use:enhance={linha.submit(t.id)}>
 					<input type="hidden" name="id" value={t.id} />
-					<button
-						type="submit"
-						class="flex shrink-0 items-center gap-1.5 rounded-md border border-edge bg-surface px-2.5 py-1.5 text-[12px] font-semibold text-teal-text hover:bg-surface-2"
+					<SubmitButton
+						emVoo={linha.emVoo(t.id)}
+						class="flex shrink-0 items-center gap-1.5 rounded-md border border-edge bg-surface px-2.5 py-1.5 text-[12px] font-semibold text-teal-text hover:bg-surface-2 disabled:opacity-60"
 					>
 						<RotateCcw size={13} /> Restaurar
-					</button>
+					</SubmitButton>
 				</form>
 			{:else}
 				<button
@@ -105,15 +111,18 @@
 				</button>
 				<!-- Arquivar é neutro, não uma lixeira vermelha: a ação é reversível (T9) e
 				     não confirma nada (T6) — o protótipo também não confirmava (:1211). -->
-				<form method="POST" action="?/archive" use:enhance>
+				<form method="POST" action="?/archive" use:enhance={linha.submit(t.id)}>
 					<input type="hidden" name="id" value={t.id} />
-					<button
-						type="submit"
+					<!-- `trocaConteudo`: botão só de ícone — o giro entra NO LUGAR do arquivo, senão o
+					     botão de 30px teria dois glifos disputando o espaço. -->
+					<SubmitButton
+						emVoo={linha.emVoo(t.id)}
+						trocaConteudo
 						title="Arquivar"
-						class="grid size-7.5 shrink-0 place-items-center rounded-[7px] border border-edge bg-surface text-muted hover:bg-surface-2"
+						class="grid size-7.5 shrink-0 place-items-center rounded-[7px] border border-edge bg-surface text-muted hover:bg-surface-2 disabled:opacity-60"
 					>
 						<Archive size={14} />
-					</button>
+					</SubmitButton>
 				</form>
 			{/if}
 		{/if}

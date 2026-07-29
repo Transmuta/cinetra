@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import { enhance } from '$app/forms';
-	import type { SubmitFunction } from '@sveltejs/kit';
+	import SubmitButton from '$lib/components/SubmitButton.svelte';
+	import { envio as criarEnvio } from '$lib/forms.svelte';
 	import Info from '@lucide/svelte/icons/info';
 	import ShieldCheck from '@lucide/svelte/icons/shield-check';
 	import Stethoscope from '@lucide/svelte/icons/stethoscope';
@@ -33,7 +34,6 @@
 		untrack(() => (member && INVITABLE_ROLES.includes(member.papel) ? member.papel : 'recepcao'))
 	);
 	let professionalId = $state(untrack(() => member?.professional_id ?? ''));
-	let submitting = $state(false);
 
 	const ROLE_ICONS: Record<Papel, typeof ShieldCheck> = {
 		owner: ShieldCheck,
@@ -42,14 +42,14 @@
 		recepcao: User
 	};
 
-	const submit: SubmitFunction = () => {
-		submitting = true;
-		return async ({ result, update }) => {
-			submitting = false;
-			await update({ reset: false });
+	// `reset: false`: o erro volta para dentro do modal — limpar os campos junto apagaria o que
+	// a pessoa precisa corrigir (ver `$lib/forms.svelte.ts`).
+	const envio = criarEnvio({
+		reset: false,
+		aoResponder: (result) => {
 			if (result.type === 'success') onClose();
-		};
-	};
+		}
+	});
 
 	// Os botões do rodapé vivem fora do <form> (no snippet footer do shell) e se
 	// associam a ele pelo atributo form= — assim o corpo rola e o rodapé fica.
@@ -57,7 +57,7 @@
 </script>
 
 <Modal title={editing ? 'Editar membro' : 'Convidar membro'} {onClose} maxWidth="max-w-[500px]">
-	<form id={formId} method="POST" action={editing ? '?/update' : '?/invite'} use:enhance={submit}>
+	<form id={formId} method="POST" action={editing ? '?/update' : '?/invite'} use:enhance={envio.submit}>
 		{#if editing}
 			<input type="hidden" name="id" value={member?.id} />
 			<div class="mb-4 rounded-md border border-edge bg-surface-2 px-3 py-2.5">
@@ -142,13 +142,13 @@
 		>
 			Cancelar
 		</button>
-		<button
-			type="submit"
+		<SubmitButton
+			emVoo={envio.emVoo}
 			form={formId}
-			disabled={submitting || (papel === 'profissional' && !professionalId)}
-			class="rounded-md bg-primary px-4 py-2.25 text-[13.5px] font-semibold text-on-primary hover:bg-primary-hover disabled:opacity-60"
+			disabled={papel === 'profissional' && !professionalId}
+			class="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2.25 text-[13.5px] font-semibold text-on-primary hover:bg-primary-hover disabled:opacity-60"
 		>
 			{editing ? 'Salvar' : 'Enviar convite'}
-		</button>
+		</SubmitButton>
 	{/snippet}
 </Modal>

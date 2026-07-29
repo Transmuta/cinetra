@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import { enhance } from '$app/forms';
-	import type { SubmitFunction } from '@sveltejs/kit';
+	import SubmitButton from '$lib/components/SubmitButton.svelte';
+	import { envio } from '$lib/forms.svelte';
 	import Circle from '@lucide/svelte/icons/circle';
 	import { maskCnpj, normalizeCnpj, isValidCnpj } from '$lib/cnpj';
 	import { canManageClinic } from '$lib/session';
@@ -34,9 +35,9 @@
 		endereco = data.clinic.endereco ?? '';
 	}
 
-	const save: SubmitFunction = () => {
-		return async ({ result, update }) => {
-			await update({ reset: false });
+	const save = envio({
+		reset: false,
+		aoResponder: (result) => {
 			if (result.type === 'success') {
 				sync();
 				toast('Dados da clínica salvos');
@@ -44,8 +45,8 @@
 				const message = result.data?.error;
 				toast(typeof message === 'string' ? message : 'Não foi possível salvar.', 'error');
 			}
-		};
-	};
+		}
+	});
 
 	function discard() {
 		sync();
@@ -61,7 +62,7 @@
 <div class="mx-auto max-w-[760px] px-4 py-4 md:px-6">
 	<section class="mb-3 rounded-[10px] border border-edge bg-surface p-4">
 		{#if canManage}
-			<form method="POST" action="?/save" use:enhance={save} class="space-y-4">
+			<form method="POST" action="?/save" use:enhance={save.submit} class="space-y-4">
 				<div>
 					<label for="nome" class="mb-1 block text-[12px] font-medium text-muted">
 						Nome da clínica <span class="text-danger">*</span>
@@ -133,13 +134,13 @@
 						</button>
 					{/if}
 
-					<button
-						type="submit"
+					<SubmitButton
+						emVoo={save.emVoo}
 						disabled={!podeSalvar}
-						class="rounded-lg bg-primary px-4 py-2 text-[13px] font-semibold text-on-primary hover:bg-primary-hover disabled:opacity-60"
+						class="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-[13px] font-semibold text-on-primary hover:bg-primary-hover disabled:opacity-60"
 					>
 						Salvar
-					</button>
+					</SubmitButton>
 				</div>
 			</form>
 		{:else}

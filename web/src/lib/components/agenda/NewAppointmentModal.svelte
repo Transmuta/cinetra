@@ -3,6 +3,8 @@
 	import { untrack } from 'svelte';
 	import { enhance } from '$app/forms';
 	import Modal from '$lib/components/Modal.svelte';
+	import SubmitButton from '$lib/components/SubmitButton.svelte';
+	import { envio as criarEnvio } from '$lib/forms.svelte';
 	import Field, { CONTROL_CLASS, CONTROL_PX } from '$lib/components/Field.svelte';
 	import PatientPicker from './PatientPicker.svelte';
 	import ConflictErrorBox from './ConflictErrorBox.svelte';
@@ -83,6 +85,10 @@
 	// Encaixe NÃO libera indisponibilidade (D14): fora do expediente não há saída a oferecer.
 	const ofereceEncaixe = $derived(conflito && podeEncaixe && !encaixe);
 
+	// `reset: false`: o 422 de conflito volta PARA DENTRO deste modal, com a saída de encaixe —
+	// limpar o form junto apagaria a escolha que a pessoa precisa reconfirmar.
+	const envio = criarEnvio({ reset: false });
+
 	const podeSalvar = $derived(selected.length > 0 && !!profId && !!typeId);
 
 	function pick(p: AgendaPatient) {
@@ -92,7 +98,7 @@
 </script>
 
 <Modal title={titulo} {onClose} maxWidth="max-w-[520px]">
-	<form id="novo-agendamento" method="POST" action="?/criar" use:enhance>
+	<form id="novo-agendamento" method="POST" action="?/criar" use:enhance={envio.submit}>
 		<input type="hidden" name="starts_at" value={startsAt} />
 		<input type="hidden" name="patient_ids" value={JSON.stringify(selected.map((p) => p.id))} />
 
@@ -164,13 +170,13 @@
 		>
 			Cancelar
 		</button>
-		<button
-			type="submit"
+		<SubmitButton
+			emVoo={envio.emVoo}
 			form="novo-agendamento"
 			disabled={!podeSalvar}
-			class="rounded-md bg-primary px-3.5 py-2 text-[13px] font-semibold text-on-primary disabled:cursor-not-allowed disabled:opacity-60"
+			class="inline-flex items-center gap-1.5 rounded-md bg-primary px-3.5 py-2 text-[13px] font-semibold text-on-primary disabled:cursor-not-allowed disabled:opacity-60"
 		>
 			Agendar
-		</button>
+		</SubmitButton>
 	{/snippet}
 </Modal>

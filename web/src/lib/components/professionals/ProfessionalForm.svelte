@@ -6,6 +6,7 @@
 	// do form — tudo salva junto no `?/save`, que o `+page.server` orquestra.
 	import { untrack } from 'svelte';
 	import { enhance } from '$app/forms';
+	import SubmitButton from '$lib/components/SubmitButton.svelte';
 	import ConflictsModal from '$lib/components/scheduling/ConflictsModal.svelte';
 	import { parseFutureConflicts, type FutureConflicts } from '$lib/scheduling-conflicts';
 	import type { SubmitFunction } from '@sveltejs/kit';
@@ -40,7 +41,7 @@
 	import { validateDayPeriods, formatDate, formatPeriods, type Period } from '$lib/scheduling';
 	import { maskCpf, maskTel, maskCep, maskCnpj, maskAno, maskUf } from '$lib/masks';
 	import { lookupCep, type CepStatus } from '$lib/cep';
-	import { telefoneValido } from '$lib/telefone';
+	import { formatarTelefone, telefoneValido } from '$lib/telefone';
 
 	let {
 		professional = null,
@@ -71,7 +72,9 @@
 			cpf: professional?.cpf ?? '',
 			rg: professional?.rg ?? '',
 			estado_civil: professional?.estado_civil ?? '',
-			tel: professional?.tel ?? '',
+			// Mascarado ao semear, como na ficha do paciente: se o valor gravado vier em E.164, o
+			// `maskTel` do `oninput` conta os 13 dígitos, corta os dois últimos e promove o DDI a DDD.
+			tel: formatarTelefone(professional?.tel) ?? '',
 			email: professional?.email ?? '',
 			cep: professional?.cep ?? '',
 			endereco: professional?.endereco ?? '',
@@ -81,7 +84,7 @@
 			cidade: professional?.cidade ?? '',
 			uf: professional?.uf ?? '',
 			emergencia_nome: professional?.emergencia_nome ?? '',
-			emergencia_tel: professional?.emergencia_tel ?? '',
+			emergencia_tel: formatarTelefone(professional?.emergencia_tel) ?? '',
 			profissao: professional?.profissao ?? '',
 			crefito: professional?.crefito ?? '',
 			registro_uf: professional?.registro_uf ?? '',
@@ -716,13 +719,13 @@
 			class="rounded-lg border border-edge bg-surface px-4 py-2 text-[13px] font-semibold text-ink hover:bg-surface-2"
 			>Cancelar</a
 		>
-		<button
-			type="submit"
-			disabled={!canSave || submitting}
-			class="rounded-lg bg-primary px-5 py-2 text-[13px] font-semibold text-on-primary hover:bg-primary-hover disabled:opacity-60"
+		<SubmitButton
+			emVoo={submitting}
+			disabled={!canSave}
+			class="inline-flex items-center gap-1.5 rounded-lg bg-primary px-5 py-2 text-[13px] font-semibold text-on-primary hover:bg-primary-hover disabled:opacity-60"
 		>
 			{editing ? 'Salvar' : 'Cadastrar profissional'}
-		</button>
+		</SubmitButton>
 	</footer>
 </form>
 

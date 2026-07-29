@@ -22,8 +22,11 @@
 	import SwitchToggle from '$lib/components/scheduling/SwitchToggle.svelte';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import Drawer from '$lib/components/Drawer.svelte';
+	import SubmitButton from '$lib/components/SubmitButton.svelte';
+	import { envio, envioPorItem } from '$lib/forms.svelte';
 	import MessageTimeline from '$lib/components/agenda/MessageTimeline.svelte';
 	import { algumPodeReceber, type MessageParticipant } from '$lib/messages';
+	import { formatarTelefone } from '$lib/telefone';
 	import {
 		STATUS_META,
 		attendanceSelo,
@@ -106,6 +109,24 @@
 	let presencaJustificada = $state('false');
 	let presencaMotivo = $state('');
 
+	// Cada mutação daqui é um POST que leva o seu tempo, e quase nenhuma era idempotente: sem
+	// sinal no botão, o segundo clique de quem achou que "não pegou" chega como 409 de versão.
+	// Os forms escondidos são UM para as N linhas, então a chave do "em voo" só se conhece no
+	// clique — daí o `submitDinamico` (ver `$lib/forms.svelte.ts`).
+	const presencaEnvio = envioPorItem<string>();
+	const confirmEnvio = envioPorItem<string>();
+	const cancelEnvio = envio({
+		aoResponder: () => {
+			cancelando = false;
+		}
+	});
+	const excluirEnvio = envio({
+		aoResponder: () => {
+			excluindo = false;
+		}
+	});
+	const reabrirEnvio = envio();
+
 	// O `await tick()` NÃO é cerimônia: sem ele o `requestSubmit()` roda no mesmo tick da
 	// atribuição, o Svelte 5 ainda não escreveu os `value` dos inputs escondidos, e o form sai com
 	// os campos VAZIOS — o servidor responde "Participante ou ação não informados" (400). Achado no
@@ -182,7 +203,6 @@
 	let cancelForm = $state<HTMLFormElement>();
 
 	function confirmarCancelamento() {
-		cancelando = false;
 		cancelForm?.requestSubmit();
 	}
 
@@ -193,7 +213,6 @@
 	let excluirForm = $state<HTMLFormElement>();
 
 	function confirmarExclusao() {
-		excluindo = false;
 		excluirForm?.requestSubmit();
 	}
 
@@ -225,17 +244,19 @@
 			<!-- Doc 52 / D-H4: era um `onToast('Confirmação enviada por WhatsApp')` que não enviava
 			     nada. Agora submete de verdade; sem `patient_id`, vale para todos os participantes
 			     que ainda podem receber. -->
-			<button
+			<SubmitButton
 				type="button"
 				onclick={() => enviarConfirmacao()}
-				disabled={!podeConfirmar}
+				emVoo={confirmEnvio.emVoo('')}
+				disabled={!podeConfirmar || confirmEnvio.algumEmVoo}
 				title={podeConfirmar
 					? undefined
 					: 'Ninguém deste agendamento pode receber agora — o motivo está em Comunicação'}
+				size={15}
 				class="flex flex-1 items-center justify-center gap-2 rounded-lg border border-edge bg-surface px-3 py-2.5 text-[13px] font-semibold hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-surface"
 			>
 				<Send size={15} /> Enviar confirmação
-			</button>
+			</SubmitButton>
 		{/if}
 
 		{#if podeExcluir}
@@ -329,17 +350,19 @@
 				<div class="mt-1.5 flex flex-wrap items-center gap-1.5">
 					{#each acoes as ac (ac.kind)}
 						{@const Icon = ICON_PRESENCA[ac.icon as keyof typeof ICON_PRESENCA]}
-						<button
+						<SubmitButton
 							type="button"
 							onclick={() =>
 								ac.kind === 'no_show' ? abrirFalta(p.id, p.nome) : marcarPresenca(p.id, ac.kind)}
-							disabled={ac.disabled}
+							emVoo={presencaEnvio.emVoo(`${p.id}:${ac.kind}`)}
+							disabled={ac.disabled || presencaEnvio.algumEmVoo}
 							title={ac.title}
+							size={13}
 							class="flex items-center gap-1.5 rounded-lg border border-edge px-2 py-1.5 text-[12px] font-semibold transition-colors hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-55"
 						>
 							<Icon size={13} />
 							{ac.label}
-						</button>
+						</SubmitButton>
 					{/each}
 
 					{#if presenca.status === 'faltou'}
@@ -377,7 +400,13 @@
 		<!-- O form é um só para as N linhas × 4 verbos (o mesmo padrão do cancelar): os campos são
 		     preenchidos no clique e submetidos. `expected_version` é a do BLOCO — a versão vive lá,
 		     e o 409 continua sendo o mesmo guard do resto da agenda. -->
-		<form method="POST" action="?/presenca" use:enhance bind:this={presencaForm} class="hidden">
+		<form
+			method="POST"
+			action="?/presenca"
+			use:enhance={presencaEnvio.submitDinamico(() => `${presencaPatient}:${presencaKind}`)}
+			bind:this={presencaForm}
+			class="hidden"
+		>
 			<input type="hidden" name="id" value={appt.id} />
 			<input type="hidden" name="expected_version" value={appt.version} />
 			<input type="hidden" name="patient_id" value={presencaPatient} />
@@ -417,7 +446,7 @@
 					{#if presencaSolo}{@render selo(presencaSolo)}{/if}
 				</div>
 				<div class="mt-0.5 flex items-center gap-2 text-[12px] text-faint">
-					{#if soloPaciente.tel}<span class="font-mono">{soloPaciente.tel}</span>{/if}
+					{#if soloPaciente.tel}<span class="font-mono">{formatarTelefone(soloPaciente.tel)}</span>{/if}
 					{#if soloPaciente.faltas != null}<span>· {soloPaciente.faltas} falta(s)</span>{/if}
 				</div>
 				{#if presencaSolo}{@render controlesPresenca(soloPaciente, presencaSolo)}{/if}
@@ -473,7 +502,13 @@
 
 			<!-- Fora do laço porque é submetido de fora dele (pela confirmação), e porque leva um
 			     campo que nenhuma outra ação tem. -->
-			<form method="POST" action="?/cancelar" use:enhance bind:this={cancelForm} class="hidden">
+			<form
+				method="POST"
+				action="?/cancelar"
+				use:enhance={cancelEnvio.submit}
+				bind:this={cancelForm}
+				class="hidden"
+			>
 				<input type="hidden" name="id" value={appt.id} />
 				<input type="hidden" name="expected_version" value={appt.version} />
 				<input type="hidden" name="cancel_reason" value={motivo} />
@@ -482,7 +517,13 @@
 			<!-- Excluir (doc 40): submetido pela confirmação do rodapé. Fica aqui, sob `podeMexer`,
 			     como o de cancelar — o botão que o dispara mora no rodapé, mas o form é o mesmo id +
 			     versão de sempre. -->
-			<form method="POST" action="?/excluir" use:enhance bind:this={excluirForm} class="hidden">
+			<form
+				method="POST"
+				action="?/excluir"
+				use:enhance={excluirEnvio.submit}
+				bind:this={excluirForm}
+				class="hidden"
+			>
 				<input type="hidden" name="id" value={appt.id} />
 				<input type="hidden" name="expected_version" value={appt.version} />
 			</form>
@@ -490,22 +531,29 @@
 			<!-- Confirmação ao paciente (doc 52 §6). Submetido pelo rodapé (todos) ou pelo
 			     "Reenviar" de uma linha da timeline (um participante). Sem `expected_version`: mandar
 			     mensagem não muda o bloco, então não disputa a versão dele. -->
-			<form method="POST" action="?/confirmar" use:enhance bind:this={confirmarForm} class="hidden">
+			<form
+				method="POST"
+				action="?/confirmar"
+				use:enhance={confirmEnvio.submitDinamico(() => confirmarPatient)}
+				bind:this={confirmarForm}
+				class="hidden"
+			>
 				<input type="hidden" name="id" value={appt.id} />
 				<input type="hidden" name="patient_id" value={confirmarPatient} />
 			</form>
 
 			{#if terminal}
 				<!-- Reabrir → agendado (D-E4.2): desfaz um clique errado. -->
-				<form method="POST" action="?/reabrir" use:enhance>
+				<form method="POST" action="?/reabrir" use:enhance={reabrirEnvio.submit}>
 					<input type="hidden" name="id" value={appt.id} />
 					<input type="hidden" name="expected_version" value={appt.version} />
-					<button
-						type="submit"
-						class="flex w-full items-center justify-center gap-2 rounded-lg border border-edge bg-surface px-3 py-2.5 text-[13px] font-semibold hover:bg-surface-2"
+					<SubmitButton
+						emVoo={reabrirEnvio.emVoo}
+						size={15}
+						class="flex w-full items-center justify-center gap-2 rounded-lg border border-edge bg-surface px-3 py-2.5 text-[13px] font-semibold hover:bg-surface-2 disabled:opacity-60"
 					>
 						<RotateCcw size={15} /> Reabrir agendamento
-					</button>
+					</SubmitButton>
 				</form>
 			{/if}
 		{/if}
@@ -527,6 +575,7 @@
 		title="Cancelar agendamento"
 		confirmLabel="Cancelar agendamento"
 		cancelLabel="Voltar"
+		submitting={cancelEnvio.emVoo}
 		onConfirm={confirmarCancelamento}
 		onClose={() => (cancelando = false)}
 	>
@@ -555,6 +604,7 @@
 		title="Registrar falta de {faltando.nome}"
 		confirmLabel="Registrar falta"
 		cancelLabel="Voltar"
+		submitting={presencaEnvio.algumEmVoo}
 		onConfirm={confirmarFalta}
 		onClose={() => (faltando = null)}
 	>
@@ -581,6 +631,7 @@
 		title="Excluir agendamento"
 		confirmLabel="Excluir agendamento"
 		cancelLabel="Voltar"
+		submitting={excluirEnvio.emVoo}
 		onConfirm={confirmarExclusao}
 		onClose={() => (excluindo = false)}
 	>

@@ -6,6 +6,8 @@
 	import { untrack } from 'svelte';
 	import { enhance } from '$app/forms';
 	import Modal from '$lib/components/Modal.svelte';
+	import SubmitButton from '$lib/components/SubmitButton.svelte';
+	import { envio as criarEnvio } from '$lib/forms.svelte';
 	import Field, { CONTROL_CLASS, CONTROL_PX } from '$lib/components/Field.svelte';
 	import ConflictErrorBox from './ConflictErrorBox.svelte';
 	import EncaixeCheckbox from './EncaixeCheckbox.svelte';
@@ -87,11 +89,15 @@
 	);
 	const ofereceEncaixe = $derived(conflito && podeEncaixe && !encaixe);
 
+	// `reset: false` pelo mesmo motivo do criar: o conflito (422) e o "recarregue" (409) voltam
+	// para dentro deste modal.
+	const envio = criarEnvio({ reset: false });
+
 	const mudou = $derived(startsAt !== appt.starts_at || profId !== appt.professional_id || encaixe);
 </script>
 
 <Modal title="Remarcar sessão" {onClose} maxWidth="max-w-[460px]">
-	<form id="remarcar" method="POST" action="?/remarcar" use:enhance>
+	<form id="remarcar" method="POST" action="?/remarcar" use:enhance={envio.submit}>
 		<input type="hidden" name="id" value={appt.id} />
 		<input type="hidden" name="expected_version" value={appt.version} />
 		<input type="hidden" name="starts_at" value={startsAt} />
@@ -145,13 +151,13 @@
 		>
 			Cancelar
 		</button>
-		<button
-			type="submit"
+		<SubmitButton
+			emVoo={envio.emVoo}
 			form="remarcar"
 			disabled={!mudou}
-			class="rounded-md bg-primary px-3.5 py-2 text-[13px] font-semibold text-on-primary disabled:cursor-not-allowed disabled:opacity-60"
+			class="inline-flex items-center gap-1.5 rounded-md bg-primary px-3.5 py-2 text-[13px] font-semibold text-on-primary disabled:cursor-not-allowed disabled:opacity-60"
 		>
 			Remarcar
-		</button>
+		</SubmitButton>
 	{/snippet}
 </Modal>

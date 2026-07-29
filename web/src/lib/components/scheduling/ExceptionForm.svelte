@@ -3,7 +3,8 @@
 	// "Fechar o dia inteiro" / "Horário específico" + períodos condicionais. Envia para a action
 	// `?/add`; reseta no sucesso. `tipo` e `periods` viajam por hidden inputs.
 	import { enhance } from '$app/forms';
-	import type { SubmitFunction } from '@sveltejs/kit';
+	import SubmitButton from '$lib/components/SubmitButton.svelte';
+	import { envio as criarEnvio } from '$lib/forms.svelte';
 	import PeriodEditor from './PeriodEditor.svelte';
 	import { validateDayPeriods, type ExceptionKind, type Period } from '$lib/scheduling';
 	import ConflictsModal from '$lib/components/scheduling/ConflictsModal.svelte';
@@ -15,18 +16,16 @@
 	let nome = $state('');
 	let tipo = $state<ExceptionKind>('fechado');
 	let periods = $state<Period[]>([['08:00', '12:00']]);
-	let submitting = $state(false);
 
 	// A3/D12 — o 409 `future_conflicts` abre o modal com a lista. É aviso, não escolha: não há
 	// "criar mesmo assim".
 	let conflitos = $state<FutureConflicts | null>(null);
 
-	const submit: SubmitFunction = () => {
-		submitting = true;
-		return async ({ result, update }) => {
-			submitting = false;
-			await update({ reset: false });
-
+	// `reset: false` e limpeza à mão: os campos são `$state`, então quem os zera é o código —
+	// e só no sucesso (ver `$lib/forms.svelte.ts`).
+	const envio = criarEnvio({
+		reset: false,
+		aoResponder: (result) => {
 			if (result.type === 'success') {
 				data = '';
 				nome = '';
@@ -36,8 +35,8 @@
 			} else if (result.type === 'failure') {
 				conflitos = parseFutureConflicts(result.data?.code, result.data?.meta);
 			}
-		};
-	};
+		}
+	});
 
 
 	const seg =
@@ -50,7 +49,7 @@
 <form
 	method="POST"
 	action="?/add"
-	use:enhance={submit}
+	use:enhance={envio.submit}
 	class="mb-3.5 rounded-[10px] border border-edge bg-surface-2 p-3"
 >
 	<div class="mb-2.5 flex flex-wrap gap-2">
@@ -101,13 +100,13 @@
 		<input type="hidden" name="periods" value={JSON.stringify(periods)} />
 	{/if}
 
-	<button
-		type="submit"
-		disabled={submitting || data === '' || periodsInvalid}
-		class="rounded-lg bg-primary px-3.5 py-2 text-[13px] font-semibold text-on-primary hover:bg-primary-hover disabled:opacity-60"
+	<SubmitButton
+		emVoo={envio.emVoo}
+		disabled={data === '' || periodsInvalid}
+		class="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-[13px] font-semibold text-on-primary hover:bg-primary-hover disabled:opacity-60"
 	>
 		Adicionar exceção
-	</button>
+	</SubmitButton>
 
 	{#if error}
 		<p class="mt-2.5 text-[12.5px] font-medium text-danger">{error}</p>

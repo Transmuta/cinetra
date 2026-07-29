@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import { enhance } from '$app/forms';
-	import type { SubmitFunction } from '@sveltejs/kit';
+	import SubmitButton from '$lib/components/SubmitButton.svelte';
+	import { envio } from '$lib/forms.svelte';
 	import Circle from '@lucide/svelte/icons/circle';
 	import WeeklyHoursEditor from '$lib/components/scheduling/WeeklyHoursEditor.svelte';
 	import {
@@ -37,9 +38,9 @@
 	// "salvar mesmo assim", então não há o que reenviar.
 	let conflitos = $state<FutureConflicts | null>(null);
 
-	const save: SubmitFunction = () => {
-		return async ({ result, update }) => {
-			await update({ reset: false });
+	const save = envio({
+		reset: false,
+		aoResponder: (result) => {
 			if (result.type === 'success') {
 				draft = clone(data.clinicHours);
 				conflitos = null;
@@ -62,9 +63,8 @@
 					);
 				}
 			}
-		};
-	};
-
+		}
+	});
 
 	function discard() {
 		draft = clone(data.clinicHours);
@@ -106,15 +106,15 @@
 					</button>
 				{/if}
 
-				<form method="POST" action="?/save" use:enhance={save}>
+				<form method="POST" action="?/save" use:enhance={save.submit}>
 					<input type="hidden" name="clinic_hours" value={JSON.stringify(draft)} />
-					<button
-						type="submit"
+					<SubmitButton
+						emVoo={save.emVoo}
 						disabled={!dirty || hasErrors}
-						class="rounded-lg bg-primary px-4 py-2 text-[13px] font-semibold text-on-primary hover:bg-primary-hover disabled:opacity-60"
+						class="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-[13px] font-semibold text-on-primary hover:bg-primary-hover disabled:opacity-60"
 					>
 						Salvar
-					</button>
+					</SubmitButton>
 				</form>
 			</div>
 		{:else}

@@ -15,6 +15,8 @@
 	import CalendarClock from '@lucide/svelte/icons/calendar-clock';
 	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 	import Modal from '$lib/components/Modal.svelte';
+	import SubmitButton from '$lib/components/SubmitButton.svelte';
+	import { envio as criarEnvio } from '$lib/forms.svelte';
 	import Field, { CONTROL_CLASS, CONTROL_PX } from '$lib/components/Field.svelte';
 	import type { Package as Pkg } from '$lib/packages';
 
@@ -43,6 +45,10 @@
 
 	// Sem nada marcado não há o que aplicar — o servidor recusa com `nada_a_aplicar`, e deixar o
 	// botão vivo só para receber 422 é ruído.
+	// Massa mexe em TODAS as sessões futuras do pacote — a ação mais cara da ficha, e a que mais
+	// paga por um segundo clique. `reset: false`: o 409 volta com a prévia dentro do modal.
+	const envio = criarEnvio({ reset: false });
+
 	const podeAplicar = $derived((mudarProf && !!profId) || (mudarHora && !!hhmm));
 
 	// O "aplicar mesmo assim" só aparece DEPOIS de um conflito, como na criação da série: é a
@@ -56,7 +62,7 @@
 		method="POST"
 		action="?/bulkAdjustPackage"
 		bind:this={form}
-		use:enhance
+		use:enhance={envio.submit}
 		class="flex flex-col gap-3.5"
 		id="bulk-adjust-form"
 	>
@@ -139,13 +145,13 @@
 		>
 			Voltar
 		</button>
-		<button
-			type="submit"
+		<SubmitButton
+			emVoo={envio.emVoo}
 			form="bulk-adjust-form"
 			disabled={!podeAplicar}
 			class="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-[13px] font-semibold text-on-primary disabled:cursor-not-allowed disabled:opacity-50"
 		>
 			<CalendarClock size={15} /> Aplicar
-		</button>
+		</SubmitButton>
 	{/snippet}
 </Modal>

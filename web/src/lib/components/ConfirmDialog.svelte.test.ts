@@ -40,10 +40,15 @@ describe('ConfirmDialog', () => {
 		expect(onClose).toHaveBeenCalledOnce();
 	});
 
-	it('desabilita a confirmação enquanto submitting', () => {
+	// Desabilitar sozinho não é feedback: um botão apagado parece quebrado, e a pessoa insiste no
+	// clique. O giro (e o `aria-busy`, para quem usa leitor de tela) diz que a ação está indo.
+	it('enquanto submitting, desabilita E mostra que está indo', () => {
 		const { getByRole } = render(ConfirmDialog, {
 			props: { ...base, submitting: true, onConfirm: noop, onClose: noop }
 		});
-		expect(getByRole('button', { name: 'Remover acesso' })).toBeDisabled();
+		const botao = getByRole('button', { name: 'Remover acesso' });
+		expect(botao).toBeDisabled();
+		expect(botao).toHaveAttribute('aria-busy', 'true');
+		expect(botao.querySelector('.animate-spin')).not.toBeNull();
 	});
 });

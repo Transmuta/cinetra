@@ -5,9 +5,16 @@
 	// clicável além das duas respostas. Se o link não vale mais, a frase diz o que fazer — falar
 	// com a clínica — em vez de mostrar um erro técnico.
 	import { enhance } from '$app/forms';
+	import SubmitButton from '$lib/components/SubmitButton.svelte';
+	import { envioPorItem } from '$lib/forms.svelte';
 	import Check from '@lucide/svelte/icons/check';
 	import CalendarClock from '@lucide/svelte/icons/calendar-clock';
 	import type { ActionData, PageData } from './$types';
+
+	// Dois botões, um form: a chave do "em voo" é o `value` do botão clicado. Quem responde por
+	// WhatsApp está no celular, muitas vezes em rede ruim — sem sinal nenhum o toque parece
+	// perdido e a pessoa toca no OUTRO botão, mandando a resposta contrária.
+	const resposta = envioPorItem<string>();
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
@@ -70,24 +77,28 @@
 					</span>
 				</div>
 			{:else}
-				<form method="POST" use:enhance class="mt-5 flex flex-col gap-2">
-					<button
-						type="submit"
+				<form method="POST" use:enhance={resposta.submitPeloBotao} class="mt-5 flex flex-col gap-2">
+					<SubmitButton
+						emVoo={resposta.emVoo('confirmou')}
+						disabled={resposta.algumEmVoo}
 						name="resposta"
 						value="confirmou"
-						class="flex items-center justify-center gap-2 rounded-lg bg-teal px-4 py-3 text-[14px] font-bold text-white hover:opacity-90"
+						size={17}
+						class="flex items-center justify-center gap-2 rounded-lg bg-teal px-4 py-3 text-[14px] font-bold text-white hover:opacity-90 disabled:opacity-60"
 					>
 						<Check size={17} /> Confirmar presença
-					</button>
+					</SubmitButton>
 
-					<button
-						type="submit"
+					<SubmitButton
+						emVoo={resposta.emVoo('quer_remarcar')}
+						disabled={resposta.algumEmVoo}
 						name="resposta"
 						value="quer_remarcar"
-						class="flex items-center justify-center gap-2 rounded-lg border border-edge px-4 py-3 text-[14px] font-semibold hover:bg-surface-2"
+						size={17}
+						class="flex items-center justify-center gap-2 rounded-lg border border-edge px-4 py-3 text-[14px] font-semibold hover:bg-surface-2 disabled:opacity-60"
 					>
 						<CalendarClock size={17} /> Preciso remarcar
-					</button>
+					</SubmitButton>
 				</form>
 
 				{#if form && 'error' in form && form.error}

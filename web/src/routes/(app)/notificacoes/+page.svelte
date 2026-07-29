@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import SubmitButton from '$lib/components/SubmitButton.svelte';
+	import { envio, envioPorItem } from '$lib/forms.svelte';
 	import { goto, invalidate } from '$app/navigation';
 	import { page as pageState } from '$app/state';
 	import { navigateQuery } from '$lib/querystring';
@@ -49,6 +51,12 @@
 	// com um invalidate explícito, e navegar para `/agenda` não reexecuta o layout — é o mesmo
 	// layout. Sem esta linha o número fica velho até a próxima recarga completa. O caminho de
 	// baixo não precisa dele porque `update()` já invalida tudo.
+	// "Ler todas" é um botão só; o ✓ de cada linha é um por item — daí os dois rastreadores.
+	// Abrir a linha (`openRow`) fica de fora: aquilo NAVEGA, e um giro num link que já está
+	// saindo da tela é ruído.
+	const lerTodas = envio();
+	const lerUma = envioPorItem<string>();
+
 	function openRow(n: AppNotification) {
 		return () =>
 			async ({ result, update }: { result: { type: string }; update: () => Promise<void> }) => {
@@ -80,14 +88,14 @@
 
 		<div class="flex shrink-0 items-center gap-2">
 			{#if unread > 0}
-				<form method="POST" action="?/readAll" use:enhance>
-					<button
-						type="submit"
-						class="inline-flex items-center gap-1.5 rounded-lg border border-edge bg-surface px-3 py-1.5 text-sm font-medium text-ink transition-colors hover:bg-surface-2"
+				<form method="POST" action="?/readAll" use:enhance={lerTodas.submit}>
+					<SubmitButton
+						emVoo={lerTodas.emVoo}
+						class="inline-flex items-center gap-1.5 rounded-lg border border-edge bg-surface px-3 py-1.5 text-sm font-medium text-ink transition-colors hover:bg-surface-2 disabled:opacity-60"
 					>
 						<CheckCheck size={15} />
 						Marcar todas como lidas
-					</button>
+					</SubmitButton>
 				</form>
 			{/if}
 
@@ -159,18 +167,24 @@
 					     de enhance de propósito — o padrão do SvelteKit revalida tudo, e é o que faz o
 					     realce sumir e o badge do sino cair sem sair da tela. -->
 					{#if !n.read}
-						<form method="POST" action="?/read" use:enhance class="flex shrink-0 items-center pr-3">
+						<form
+							method="POST"
+							action="?/read"
+							use:enhance={lerUma.submit(n.id)}
+							class="flex shrink-0 items-center pr-3"
+						>
 							<!-- Em repouso já se lê como botão (borda + ícone teal, não um cinza apagado);
 							     no hover vira teal sólido. Antes era `text-faint` sem borda, e ao vivo
 							     passava por enfeite da linha. -->
-							<button
-								type="submit"
+							<SubmitButton
+								emVoo={lerUma.emVoo(n.id)}
+								trocaConteudo
 								title="Marcar como lida"
-								aria-label='Marcar "{n.title}" como lida'
-								class="grid size-8 place-items-center rounded-lg border border-teal-border bg-surface text-teal-text transition-colors hover:border-teal hover:bg-teal hover:text-white"
+								ariaLabel={'Marcar "' + n.title + '" como lida'}
+								class="grid size-8 place-items-center rounded-lg border border-teal-border bg-surface text-teal-text transition-colors hover:border-teal hover:bg-teal hover:text-white disabled:opacity-60"
 							>
 								<Check size={16} />
-							</button>
+							</SubmitButton>
 						</form>
 					{/if}
 				</li>

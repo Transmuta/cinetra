@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import type { SubmitFunction } from '@sveltejs/kit';
+	import SubmitButton from '$lib/components/SubmitButton.svelte';
+	import { envio, envioPorItem } from '$lib/forms.svelte';
 	import UserPlus from '@lucide/svelte/icons/user-plus';
 	import Pencil from '@lucide/svelte/icons/pencil';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
@@ -61,16 +62,15 @@
 	// O POST sai de um form escondido, submetido quando o usuário confirma.
 	let revoking = $state<Member | null>(null);
 	let revokeForm: HTMLFormElement | undefined;
-	let revokeSubmitting = $state(false);
 
-	const revokeSubmit: SubmitFunction = () => {
-		revokeSubmitting = true;
-		return async ({ update }) => {
-			revokeSubmitting = false;
+	const revogacao = envio({
+		aoResponder: () => {
 			revoking = null;
-			await update();
-		};
-	};
+		}
+	});
+	// Reenviar convite é um botão por linha — o "em voo" é por item (a chave é o e-mail, que é
+	// o que o form manda), senão um clique giraria o ícone de toda a equipe.
+	const reenvio = envioPorItem<string>();
 </script>
 
 <svelte:head><title>Equipe & acessos · Cinetra</title></svelte:head>
@@ -78,15 +78,17 @@
 <!-- Ações da linha (reusadas no card mobile e na grade desktop). -->
 {#snippet rowActions(m: Member)}
 	{#if m.status === 'pendente'}
-		<form method="POST" action="?/resend" use:enhance>
+		<form method="POST" action="?/resend" use:enhance={reenvio.submit(m.email)}>
 			<input type="hidden" name="email" value={m.email} />
-			<button
-				type="submit"
+			<SubmitButton
+				emVoo={reenvio.emVoo(m.email)}
+				trocaConteudo
 				title="Reenviar convite"
-				class="grid size-8 place-items-center rounded-md border border-edge bg-surface text-muted hover:bg-surface-2"
+				ariaLabel="Reenviar convite para {m.email}"
+				class="grid size-8 place-items-center rounded-md border border-edge bg-surface text-muted hover:bg-surface-2 disabled:opacity-60"
 			>
 				<Send size={14} />
-			</button>
+			</SubmitButton>
 		</form>
 	{/if}
 	<button
@@ -261,7 +263,7 @@
 	bind:this={revokeForm}
 	method="POST"
 	action="?/revoke"
-	use:enhance={revokeSubmit}
+	use:enhance={revogacao.submit}
 	class="hidden"
 >
 	<input type="hidden" name="id" value={revoking?.id ?? ''} />
@@ -271,7 +273,7 @@
 	<ConfirmDialog
 		title="Remover acesso"
 		confirmLabel="Remover acesso"
-		submitting={revokeSubmitting}
+		submitting={revogacao.emVoo}
 		onConfirm={() => revokeForm?.requestSubmit()}
 		onClose={() => (revoking = null)}
 	>

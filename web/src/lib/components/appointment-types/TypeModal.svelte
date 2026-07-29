@@ -3,7 +3,8 @@
 	// grid [duração | cor], paleta de ícones, checkbox de grupo e capacidade condicional.
 	import { untrack } from 'svelte';
 	import { enhance } from '$app/forms';
-	import type { SubmitFunction } from '@sveltejs/kit';
+	import SubmitButton from '$lib/components/SubmitButton.svelte';
+	import { envio as criarEnvio } from '$lib/forms.svelte';
 	import Field from '$lib/components/Field.svelte';
 	import Modal from '$lib/components/Modal.svelte';
 	import {
@@ -38,21 +39,20 @@
 	let cor = $state(untrack(() => type?.cor ?? DEFAULT_COR));
 	let icon = $state(untrack(() => type?.icon ?? DEFAULT_ICON));
 	let grupo = $state(untrack(() => type?.grupo ?? false));
-	let submitting = $state(false);
 
 	// Os numéricos não precisam de binding: quem submete o valor é o próprio input (name=),
 	// e ninguém aqui lê de volta. Só o `nome` é reativo — é ele que libera o Salvar.
 	const duracaoInicial = untrack(() => type?.duracao_minutos ?? DEFAULT_DURACAO);
 	const capacidadeInicial = untrack(() => type?.capacidade ?? capacidadePadrao);
 
-	const submit: SubmitFunction = () => {
-		submitting = true;
-		return async ({ result, update }) => {
-			submitting = false;
-			await update({ reset: false });
+	// `reset: false`: o erro volta para dentro do modal, e limpar os campos junto apagaria o que
+	// a pessoa precisa corrigir (ver `$lib/forms.svelte.ts`).
+	const envio = criarEnvio({
+		reset: false,
+		aoResponder: (result) => {
 			if (result.type === 'success') onClose();
-		};
-	};
+		}
+	});
 
 	// Os botões do rodapé vivem fora do <form> (no snippet footer do shell) e se associam a
 	// ele pelo atributo form= — assim o corpo rola e o rodapé fica.
@@ -64,7 +64,7 @@
 	{onClose}
 	maxWidth="max-w-[480px]"
 >
-	<form id={formId} method="POST" action="?/save" use:enhance={submit}>
+	<form id={formId} method="POST" action="?/save" use:enhance={envio.submit}>
 		{#if type}
 			<input type="hidden" name="id" value={type.id} />
 		{/if}
@@ -155,13 +155,13 @@
 		>
 			Cancelar
 		</button>
-		<button
-			type="submit"
+		<SubmitButton
+			emVoo={envio.emVoo}
 			form={formId}
-			disabled={submitting || nome.trim() === ''}
-			class="rounded-md bg-primary px-4 py-2.25 text-[13.5px] font-semibold text-on-primary hover:bg-primary-hover disabled:opacity-60"
+			disabled={nome.trim() === ''}
+			class="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2.25 text-[13.5px] font-semibold text-on-primary hover:bg-primary-hover disabled:opacity-60"
 		>
 			Salvar
-		</button>
+		</SubmitButton>
 	{/snippet}
 </Modal>

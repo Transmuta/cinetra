@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import SubmitButton from '$lib/components/SubmitButton.svelte';
+	import { envio } from '$lib/forms.svelte';
 	import { invalidateAll } from '$app/navigation';
 	import ChevronLeft from '@lucide/svelte/icons/chevron-left';
 	import Pencil from '@lucide/svelte/icons/pencil';
@@ -19,6 +21,9 @@
 	import { patientColor, convLabel, idade, prefNomes, canManagePatients } from '$lib/patients';
 	import { canManageAttachments } from '$lib/attachments';
 	import PackageList from '$lib/components/patients/PackageList.svelte';
+
+	// Arquivar/reativar recarregam a ficha inteira — sem sinal, o clique parecia perdido.
+	const situacao = envio();
 	import PackageCreateModal from '$lib/components/patients/PackageCreateModal.svelte';
 	import PackageBulkModal from '$lib/components/patients/PackageBulkModal.svelte';
 	import PatientUpcoming from '$lib/components/patients/PatientUpcoming.svelte';
@@ -226,10 +231,14 @@
 				<b>Paciente arquivado</b> — não aparece na lista de ativos.
 			</span>
 			{#if canManage}
-				<form method="POST" action="?/reactivate" use:enhance>
-					<button class="inline-flex items-center gap-1.5 rounded-lg border border-edge bg-surface px-3.5 py-2 text-[13px] font-semibold text-ink hover:bg-surface-2">
+				<form method="POST" action="?/reactivate" use:enhance={situacao.submit}>
+					<SubmitButton
+						emVoo={situacao.emVoo}
+						size={15}
+						class="inline-flex items-center gap-1.5 rounded-lg border border-edge bg-surface px-3.5 py-2 text-[13px] font-semibold text-ink hover:bg-surface-2 disabled:opacity-60"
+					>
 						<ArchiveRestore size={15} /> Reativar
-					</button>
+					</SubmitButton>
 				</form>
 			{/if}
 		</div>
@@ -280,13 +289,15 @@
 				{/if}
 				{#if canManage}
 					{#if p.ativo}
-						<form method="POST" action="?/deactivate" use:enhance>
-							<button
+						<form method="POST" action="?/deactivate" use:enhance={situacao.submit}>
+							<SubmitButton
+								emVoo={situacao.emVoo}
 								title="Arquivar paciente"
-								class="flex items-center gap-1.5 rounded-[9px] border border-edge bg-surface px-3.5 py-2 text-[13px] font-semibold text-muted hover:bg-surface-2"
+								size={15}
+								class="flex items-center gap-1.5 rounded-[9px] border border-edge bg-surface px-3.5 py-2 text-[13px] font-semibold text-muted hover:bg-surface-2 disabled:opacity-60"
 							>
 								<Archive size={15} /> Arquivar
-							</button>
+							</SubmitButton>
 						</form>
 					{/if}
 					<a

@@ -11,6 +11,7 @@
 	import CalendarDays from '@lucide/svelte/icons/calendar-days';
 	import CalendarClock from '@lucide/svelte/icons/calendar-clock';
 	import Modal from '$lib/components/Modal.svelte';
+	import SubmitButton from '$lib/components/SubmitButton.svelte';
 	import Field, { CONTROL_CLASS, CONTROL_PX } from '$lib/components/Field.svelte';
 	import PatientPicker from '$lib/components/agenda/PatientPicker.svelte';
 	import ConflictErrorBox from '$lib/components/agenda/ConflictErrorBox.svelte';
@@ -21,6 +22,7 @@
 	import { TIME_WINDOW_LABEL, type Entry, type Priority, type Professional, type Rule, type TimeWindow } from '$lib/waitlist';
 	import type { AgendaPatient, SearchResult } from '$lib/agenda';
 	import type { Period } from '$lib/scheduling';
+	import { envio as criarEnvio } from '$lib/forms.svelte';
 
 	let {
 		entry = null,
@@ -52,6 +54,11 @@
 	let obs = $state(untrack(() => entry?.obs ?? ''));
 
 	const editando = $derived(!!entry);
+
+	// `reset: false` porque o erro fica DENTRO do modal: limpar os campos junto com o 422 apagaria
+	// o que a pessoa acabou de preencher (ver `$lib/forms.svelte.ts`).
+	const envio = criarEnvio({ reset: false });
+
 	const podeSalvar = $derived(editando || selected.length > 0);
 	const erro = $derived(
 		form?.action === 'enqueue' || form?.action === 'atualizar' ? form?.error : undefined
@@ -117,7 +124,12 @@
 </script>
 
 <Modal title={editando ? 'Editar item da fila' : 'Adicionar à fila de espera'} {onClose} maxWidth="max-w-[560px]">
-	<form id="fila-form" method="POST" action={editando ? '?/atualizar' : '?/enqueue'} use:enhance>
+	<form
+		id="fila-form"
+		method="POST"
+		action={editando ? '?/atualizar' : '?/enqueue'}
+		use:enhance={envio.submit}
+	>
 		{#if entry}<input type="hidden" name="id" value={entry.id} />{/if}
 		<input type="hidden" name="professional_ids" value={JSON.stringify(profIds)} />
 		<input type="hidden" name="janela" value={janela} />
@@ -312,13 +324,13 @@
 		>
 			Cancelar
 		</button>
-		<button
-			type="submit"
+		<SubmitButton
+			emVoo={envio.emVoo}
 			form="fila-form"
 			disabled={!podeSalvar}
-			class="rounded-md bg-primary px-3.5 py-2 text-[13px] font-semibold text-on-primary disabled:cursor-not-allowed disabled:opacity-60"
+			class="inline-flex items-center gap-1.5 rounded-md bg-primary px-3.5 py-2 text-[13px] font-semibold text-on-primary disabled:cursor-not-allowed disabled:opacity-60"
 		>
 			{editando ? 'Salvar' : 'Adicionar à fila'}
-		</button>
+		</SubmitButton>
 	{/snippet}
 </Modal>

@@ -7,7 +7,8 @@
 	// nasceu construído e calado de propósito, e é aqui que ele acorda.
 	import { untrack } from 'svelte';
 	import { enhance } from '$app/forms';
-	import type { SubmitFunction } from '@sveltejs/kit';
+	import SubmitButton from '$lib/components/SubmitButton.svelte';
+	import { envio } from '$lib/forms.svelte';
 	import Circle from '@lucide/svelte/icons/circle';
 	import Info from '@lucide/svelte/icons/info';
 	import SwitchToggle from '$lib/components/scheduling/SwitchToggle.svelte';
@@ -49,9 +50,9 @@
 		fim = String(data.clinic.msg_silencio_fim ?? 8);
 	}
 
-	const save: SubmitFunction = () => {
-		return async ({ result, update }) => {
-			await update({ reset: false });
+	const save = envio({
+		reset: false,
+		aoResponder: (result) => {
 			if (result.type === 'success') {
 				sync();
 				toast('Configuração de comunicação salva');
@@ -59,8 +60,8 @@
 				const message = result.data?.error;
 				toast(typeof message === 'string' ? message : 'Não foi possível salvar.', 'error');
 			}
-		};
-	};
+		}
+	});
 
 	const inputCls =
 		'h-[38px] w-[86px] rounded-lg border border-edge bg-surface px-2.5 text-[13.5px] text-ink';
@@ -71,7 +72,7 @@
 <div class="mx-auto max-w-[760px] px-4 py-4 md:px-6">
 	<section class="mb-3 rounded-[10px] border border-edge bg-surface p-4">
 		{#if canManage}
-			<form method="POST" action="?/save" use:enhance={save} class="space-y-5">
+			<form method="POST" action="?/save" use:enhance={save.submit} class="space-y-5">
 				<!-- Confirmação na criação -->
 				<div class="flex items-start justify-between gap-4">
 					<div>
@@ -207,13 +208,13 @@
 						</button>
 					{/if}
 
-					<button
-						type="submit"
+					<SubmitButton
+						emVoo={save.emVoo}
 						disabled={!dirty || horasInvalidas}
-						class="rounded-lg bg-primary px-4 py-2 text-[13px] font-semibold text-on-primary hover:bg-primary-hover disabled:opacity-60"
+						class="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-[13px] font-semibold text-on-primary hover:bg-primary-hover disabled:opacity-60"
 					>
 						Salvar
-					</button>
+					</SubmitButton>
 				</div>
 			</form>
 		{:else}

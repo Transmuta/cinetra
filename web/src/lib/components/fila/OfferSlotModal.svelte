@@ -10,6 +10,7 @@
 	import CalendarClock from '@lucide/svelte/icons/calendar-clock';
 	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
 	import Modal from '$lib/components/Modal.svelte';
+	import SubmitButton from '$lib/components/SubmitButton.svelte';
 	import Field, { CONTROL_CLASS, CONTROL_PX } from '$lib/components/Field.svelte';
 	import EncaixeCheckbox from '$lib/components/agenda/EncaixeCheckbox.svelte';
 	import ConflictErrorBox from '$lib/components/agenda/ConflictErrorBox.svelte';
@@ -21,6 +22,7 @@
 	import { ruleLabel, slotDateLabel, TIME_WINDOW_LABEL, type Entry, type Professional, type Slot } from '$lib/waitlist';
 	import type { AppointmentType } from '$lib/appointment-types';
 	import type { Papel } from '$lib/session';
+	import { envio as criarEnvio } from '$lib/forms.svelte';
 
 	let {
 		entry,
@@ -58,6 +60,13 @@
 
 	const tipos = $derived(appointmentTypes.filter((t) => t.ativo));
 	let typeId = $state('');
+
+	// Converter é a ação cara do modal (cria o agendamento e tira o item da fila), e reclicar aqui
+	// é pior que na lista: dois POSTs disputando o mesmo horário viram um 422 de conflito contra o
+	// agendamento que o primeiro acabou de criar. `reset: false` porque o 422 (`schedule_conflict`)
+	// reabre a saída de Encaixe neste mesmo modal.
+	const envio = criarEnvio({ reset: false });
+
 	// O tipo default entra quando os tipos chegam (o prop existe no mount, mas fica explícito).
 	$effect(() => {
 		if (!typeId && tipos.length) typeId = tipos[0].id;
@@ -152,7 +161,7 @@
 
 	{#if selected}
 		<!-- Passo de conversão: a vaga escolhida + tipo/observação, submetido a ?/converter. -->
-		<form id="fila-converter" method="POST" action="?/converter" use:enhance>
+		<form id="fila-converter" method="POST" action="?/converter" use:enhance={envio.submit}>
 			<input type="hidden" name="id" value={entry.id} />
 			<input type="hidden" name="starts_at" value={startsAt} />
 			<input type="hidden" name="professional_id" value={selected.professional_id} />
@@ -253,14 +262,14 @@
 			>
 				<ArrowLeft size={14} /> Horários
 			</button>
-			<button
-				type="submit"
+			<SubmitButton
+				emVoo={envio.emVoo}
 				form="fila-converter"
 				disabled={!typeId}
-				class="rounded-md bg-primary px-3.5 py-2 text-[13px] font-semibold text-on-primary disabled:cursor-not-allowed disabled:opacity-60"
+				class="inline-flex items-center gap-1.5 rounded-md bg-primary px-3.5 py-2 text-[13px] font-semibold text-on-primary disabled:cursor-not-allowed disabled:opacity-60"
 			>
 				Agendar
-			</button>
+			</SubmitButton>
 		{:else}
 			<button
 				type="button"

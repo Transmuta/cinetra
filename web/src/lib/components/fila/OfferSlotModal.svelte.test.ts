@@ -3,8 +3,17 @@ import '@testing-library/jest-dom/vitest';
 import { render, screen, cleanup } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 
-vi.mock('$app/forms', () => ({ enhance: () => ({ destroy() {} }) }));
+// Guarda a `SubmitFunction` do componente para o teste poder disparar o envio sem POST de verdade.
+const submitSpy = vi.hoisted(() => ({ fn: undefined as unknown }));
+vi.mock('$app/forms', () => ({
+	enhance: (_form: HTMLFormElement, fn?: unknown) => {
+		submitSpy.fn = fn;
+		return { destroy() {} };
+	}
+}));
 
+import { tick } from 'svelte';
+import type { SubmitFunction } from '@sveltejs/kit';
 import OfferSlotModal from './OfferSlotModal.svelte';
 import type { Entry, Professional, Slot } from '$lib/waitlist';
 import type { AppointmentType } from '$lib/appointment-types';
@@ -184,5 +193,29 @@ describe('OfferSlotModal — conflito na conversão', () => {
 		});
 		await user().click(await screen.findByRole('button', { name: /09:00/ }));
 		expect(screen.queryByRole('button', { name: /marcar como encaixe/i })).not.toBeInTheDocument();
+	});
+});
+
+// Converter cria agendamento e tira o item da fila — reclicar por falta de sinal faz dois POSTs
+// disputarem o mesmo horário, e o segundo volta como conflito contra o que o primeiro criou.
+describe('OfferSlotModal — enviando', () => {
+	it('trava o Agendar e mostra o giro enquanto o POST está em voo', async () => {
+		render(OfferSlotModal, { props: base });
+		await user().click(await screen.findByRole('button', { name: /09:00/ }));
+
+		const botao = screen.getByRole('button', { name: 'Agendar' });
+		expect(botao).toBeEnabled();
+
+		const submit = submitSpy.fn as SubmitFunction;
+		const depois = submit({} as Parameters<SubmitFunction>[0]);
+		await tick();
+
+		expect(botao).toBeDisabled();
+		expect(botao).toHaveAttribute('aria-busy', 'true');
+		expect(botao.querySelector('.animate-spin')).not.toBeNull();
+
+		await (await depois)?.({ update: async () => {} } as never);
+		await tick();
+		expect(botao).toBeEnabled();
 	});
 });

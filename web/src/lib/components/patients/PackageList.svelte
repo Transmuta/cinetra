@@ -9,6 +9,8 @@
 	import Plus from '@lucide/svelte/icons/plus';
 	import CalendarClock from '@lucide/svelte/icons/calendar-clock';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
+	import SubmitButton from '$lib/components/SubmitButton.svelte';
+	import { envio, envioPorItem } from '$lib/forms.svelte';
 	import { statusLabel, type Package as Pkg } from '$lib/packages';
 
 	let {
@@ -28,6 +30,17 @@
 
 	// O pacote em confirmação de cancelamento (destrutivo → ConfirmDialog). O form escondido é
 	// submetido pelo `requestSubmit()` do dialog — mesmo padrão do "remover acesso" (equipe).
+	// Pausar/retomar é um form por pacote (em voo POR ITEM); cancelar é um form escondido só.
+	const pausa = envioPorItem<string>();
+	// O diálogo fechava ANTES da resposta (`cancelling = null` no começo do callback): sumia a
+	// confirmação e nada dizia que a operação estava indo. Agora ele fica, girando, e só fecha
+	// quando o servidor responde.
+	const cancelamento = envio({
+		aoResponder: () => {
+			cancelling = null;
+		}
+	});
+
 	let cancelling = $state<Pkg | null>(null);
 	let cancelForm = $state<HTMLFormElement | null>(null);
 
@@ -107,24 +120,26 @@
 					{#if canManage && (pkg.status === 'ativo' || pkg.status === 'pausado')}
 						<div class="mt-2.5 flex items-center gap-2">
 							{#if pkg.status === 'ativo'}
-								<form method="POST" action="?/pausePackage" use:enhance>
+								<form method="POST" action="?/pausePackage" use:enhance={pausa.submit(pkg.id)}>
 									<input type="hidden" name="package_id" value={pkg.id} />
-									<button
-										type="submit"
-										class="inline-flex items-center gap-1.5 rounded-[7px] border border-edge px-2.5 py-1 text-[12px] font-semibold text-muted hover:text-ink"
+									<SubmitButton
+										emVoo={pausa.emVoo(pkg.id)}
+										size={13}
+										class="inline-flex items-center gap-1.5 rounded-[7px] border border-edge px-2.5 py-1 text-[12px] font-semibold text-muted hover:text-ink disabled:opacity-60"
 									>
 										<Pause size={13} /> Pausar
-									</button>
+									</SubmitButton>
 								</form>
 							{:else}
-								<form method="POST" action="?/resumePackage" use:enhance>
+								<form method="POST" action="?/resumePackage" use:enhance={pausa.submit(pkg.id)}>
 									<input type="hidden" name="package_id" value={pkg.id} />
-									<button
-										type="submit"
-										class="inline-flex items-center gap-1.5 rounded-[7px] border border-edge px-2.5 py-1 text-[12px] font-semibold text-muted hover:text-ink"
+									<SubmitButton
+										emVoo={pausa.emVoo(pkg.id)}
+										size={13}
+										class="inline-flex items-center gap-1.5 rounded-[7px] border border-edge px-2.5 py-1 text-[12px] font-semibold text-muted hover:text-ink disabled:opacity-60"
 									>
 										<Play size={13} /> Retomar
-									</button>
+									</SubmitButton>
 								</form>
 							{/if}
 							<!-- Massa (doc 41 etapa 3): mexe nas sessões FUTURAS do pacote. Só com o pacote
@@ -159,12 +174,7 @@
 	method="POST"
 	action="?/cancelPackage"
 	class="hidden"
-	use:enhance={() => {
-		return async ({ update }) => {
-			cancelling = null;
-			await update();
-		};
-	}}
+	use:enhance={cancelamento.submit}
 >
 	<input type="hidden" name="package_id" value={cancelling?.id ?? ''} />
 </form>
@@ -173,6 +183,7 @@
 	<ConfirmDialog
 		title="Cancelar pacote"
 		confirmLabel="Cancelar pacote"
+		submitting={cancelamento.emVoo}
 		onConfirm={() => cancelForm?.requestSubmit()}
 		onClose={() => (cancelling = null)}
 	>

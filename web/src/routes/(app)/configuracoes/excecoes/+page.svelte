@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import SubmitButton from '$lib/components/SubmitButton.svelte';
+	import { envioPorItem } from '$lib/forms.svelte';
 	import Clock from '@lucide/svelte/icons/clock';
 	import CalendarOff from '@lucide/svelte/icons/calendar-off';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
@@ -11,6 +13,9 @@
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
 	const canManage = $derived(canManageSchedule(data.me.papel));
+
+	// Uma linha por exceção, então o "em voo" é POR ITEM: um booleano só giraria a lista inteira.
+	const linha = envioPorItem<string>();
 
 	// Erro do "Adicionar" vai para dentro do formulário; erro do excluir vira toast.
 	const formError = $derived(form && !form.ok && form.action === 'add' ? (form.error ?? null) : null);
@@ -63,16 +68,17 @@
 				</div>
 
 				{#if canManage}
-					<form method="POST" action="?/delete" use:enhance>
+					<form method="POST" action="?/delete" use:enhance={linha.submit(exc.id)}>
 						<input type="hidden" name="id" value={exc.id} />
-						<button
-							type="submit"
+						<SubmitButton
+							emVoo={linha.emVoo(exc.id)}
+							trocaConteudo
 							title="Remover exceção"
-							aria-label="Remover exceção"
-							class="grid size-7.5 shrink-0 place-items-center rounded-[7px] border border-edge bg-surface text-danger hover:bg-surface-2"
+							ariaLabel="Remover exceção"
+							class="grid size-7.5 shrink-0 place-items-center rounded-[7px] border border-edge bg-surface text-danger hover:bg-surface-2 disabled:opacity-60"
 						>
 							<Trash2 size={14} />
-						</button>
+						</SubmitButton>
 					</form>
 				{/if}
 			</div>

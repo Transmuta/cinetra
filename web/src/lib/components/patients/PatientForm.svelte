@@ -6,6 +6,7 @@
 	// `?/save`, que o `+page.server` orquestra.
 	import { untrack, onDestroy } from 'svelte';
 	import { enhance } from '$app/forms';
+	import SubmitButton from '$lib/components/SubmitButton.svelte';
 	import type { SubmitFunction } from '@sveltejs/kit';
 	import ChevronLeft from '@lucide/svelte/icons/chevron-left';
 	import User from '@lucide/svelte/icons/user';
@@ -26,7 +27,7 @@
 	import { profColor, type Professional } from '$lib/professionals';
 	import { maskCpf, maskTel, maskCep, maskMy, maskUf } from '$lib/masks';
 	import { lookupCep, type CepStatus } from '$lib/cep';
-	import { recebeWhatsapp, telefoneValido } from '$lib/telefone';
+	import { formatarTelefone, recebeWhatsapp, telefoneValido } from '$lib/telefone';
 
 	let {
 		patient = null,
@@ -54,7 +55,11 @@
 			estado_civil: patient?.estado_civil ?? '',
 			nascimento: patient?.nascimento ?? '',
 			responsavel: patient?.responsavel ?? '',
-			tel: patient?.tel ?? '',
+			// Mascarado ao semear: o banco guarda E.164 (`NormalizeTel`, doc 52 §9) e o campo é o
+			// mesmo que a recepção lê. Sem isto a edição reabria com `+5511987654321` — e pior:
+			// o `maskTel` do `oninput` conta 13 dígitos, corta os dois últimos e promove o DDI a
+			// DDD (`(55) 11987-6543`) no primeiro toque de tecla.
+			tel: formatarTelefone(patient?.tel) ?? '',
 			email: patient?.email ?? '',
 			cep: patient?.cep ?? '',
 			endereco: patient?.endereco ?? '',
@@ -65,7 +70,7 @@
 			uf: patient?.uf ?? '',
 			emergencia_nome: patient?.emergencia_nome ?? '',
 			emergencia_parentesco: patient?.emergencia_parentesco ?? '',
-			emergencia_tel: patient?.emergencia_tel ?? '',
+			emergencia_tel: formatarTelefone(patient?.emergencia_tel) ?? '',
 			profissao: patient?.profissao ?? '',
 			empresa: patient?.empresa ?? '',
 			medico: patient?.medico ?? '',
@@ -708,12 +713,12 @@
 			class="rounded-lg border border-edge bg-surface px-4 py-2 text-[13px] font-semibold text-ink hover:bg-surface-2"
 			>Cancelar</a
 		>
-		<button
-			type="submit"
-			disabled={!nomeOk || !telOk || submitting}
-			class="rounded-lg bg-primary px-5 py-2 text-[13px] font-semibold text-on-primary hover:bg-primary-hover disabled:opacity-60"
+		<SubmitButton
+			emVoo={submitting}
+			disabled={!nomeOk || !telOk}
+			class="inline-flex items-center gap-1.5 rounded-lg bg-primary px-5 py-2 text-[13px] font-semibold text-on-primary hover:bg-primary-hover disabled:opacity-60"
 		>
 			{editing ? 'Salvar' : 'Cadastrar paciente'}
-		</button>
+		</SubmitButton>
 	</footer>
 </form>

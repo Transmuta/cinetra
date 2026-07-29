@@ -4,6 +4,7 @@
 	// TriangleAlert) e rodapé "Voltar" (btnS) + ação sólida em danger (btnP vermelho).
 	import type { Snippet } from 'svelte';
 	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
+	import Loader from '@lucide/svelte/icons/loader-circle';
 	import Modal from './Modal.svelte';
 
 	let {
@@ -43,12 +44,16 @@
 		>
 			{cancelLabel}
 		</button>
+		<!-- O `disabled` sozinho não é feedback: numa ação destrutiva que leva um segundo, o botão
+		     apagado parece quebrado e a pessoa clica de novo. O giro diz "está indo". -->
 		<button
 			type="button"
 			onclick={onConfirm}
 			disabled={submitting}
-			class="rounded-md bg-danger px-4 py-2.25 text-[13.5px] font-bold text-white hover:opacity-90 disabled:opacity-60"
+			aria-busy={submitting}
+			class="inline-flex items-center gap-1.5 rounded-md bg-danger px-4 py-2.25 text-[13.5px] font-bold text-white hover:opacity-90 disabled:opacity-60"
 		>
+			{#if submitting}<Loader size={14} class="animate-spin" />{/if}
 			{confirmLabel}
 		</button>
 	{/snippet}

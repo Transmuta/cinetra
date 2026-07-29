@@ -3,8 +3,18 @@ import '@testing-library/jest-dom/vitest';
 import { render, screen, cleanup } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 
-vi.mock('$app/forms', () => ({ enhance: () => ({ destroy() {} }) }));
+// O `enhance` guarda a `SubmitFunction` que o componente passou, para que o teste possa DISPARAR o
+// envio sem um POST de verdade — é a única forma de exercitar o estado "enviando" do botão.
+const submitSpy = vi.hoisted(() => ({ fn: undefined as unknown }));
+vi.mock('$app/forms', () => ({
+	enhance: (_form: HTMLFormElement, fn?: unknown) => {
+		submitSpy.fn = fn;
+		return { destroy() {} };
+	}
+}));
 
+import { tick } from 'svelte';
+import type { SubmitFunction } from '@sveltejs/kit';
 import AddToWaitlistModal from './AddToWaitlistModal.svelte';
 import type { Entry, Professional } from '$lib/waitlist';
 
@@ -146,5 +156,31 @@ describe('AddToWaitlistModal — editar', () => {
 			props: { ...editProps, form: { action: 'atualizar', error: 'Regra inválida: informe os dias.' } }
 		});
 		expect(screen.getByText('Regra inválida: informe os dias.')).toBeInTheDocument();
+	});
+});
+
+// Enquanto o POST está em voo o botão precisa DIZER isso. Sem sinal nenhum a pessoa conclui que o
+// clique não pegou e clica de novo — foi assim que o "só vai no terceiro clique" ficou plausível.
+describe('AddToWaitlistModal — enviando', () => {
+	it('trava o botão e mostra o giro enquanto o POST está em voo', async () => {
+		render(AddToWaitlistModal, { props: { ...base, entry } });
+
+		const botao = screen.getByRole('button', { name: 'Salvar' });
+		expect(botao).toBeEnabled();
+		expect(botao).not.toHaveAttribute('aria-busy', 'true');
+
+		const submit = submitSpy.fn as SubmitFunction;
+		const depois = submit({} as Parameters<SubmitFunction>[0]);
+		await tick();
+
+		expect(botao).toBeDisabled();
+		expect(botao).toHaveAttribute('aria-busy', 'true');
+		expect(botao.querySelector('.animate-spin')).not.toBeNull();
+
+		// Resposta chegou: destrava (o fechar/limpar é da PÁGINA, pelo `form`; `reset: false`
+		// preserva o preenchido quando o servidor recusa).
+		await (await depois)?.({ update: async () => {} } as never);
+		await tick();
+		expect(botao).toBeEnabled();
 	});
 });
