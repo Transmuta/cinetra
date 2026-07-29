@@ -62,6 +62,47 @@ describe('AuthForm', () => {
 		expect(queryByLabelText('Nome')).toBeNull();
 	});
 
+	it('sem aceite (login): não repete a nota legal, porque não se cria conta aqui', () => {
+		const { queryByRole } = render(AuthForm, { props: { ...baseProps, form: null } });
+
+		expect(queryByRole('link', { name: /termos de uso/i })).toBeNull();
+		expect(queryByRole('link', { name: /política de privacidade/i })).toBeNull();
+	});
+
+	// Decisão de 2026-07-29: o aceite é NOTA, não caixa de seleção. O cadastro tem dois caminhos
+	// (magic link e Google) e o Google sai da página por um `<a>`, que caixa nenhuma consegue
+	// travar sem JavaScript. Uma nota que cobre os dois vale mais que um `required` que só vale
+	// em um deles.
+	it('aceite (cadastro): a nota leva aos dois documentos', () => {
+		const { getByRole } = render(AuthForm, { props: { ...baseProps, aceite: true, form: null } });
+
+		expect(getByRole('link', { name: /termos de uso/i })).toHaveAttribute('href', '/termos');
+		expect(getByRole('link', { name: /política de privacidade/i })).toHaveAttribute(
+			'href',
+			'/privacidade'
+		);
+	});
+
+	it('aceite: a nota diz que vale para os dois caminhos de cadastro', () => {
+		const { container } = render(AuthForm, { props: { ...baseProps, aceite: true, form: null } });
+		const nota = container.querySelector('[data-testid="aceite"]')!;
+
+		expect(nota.textContent).toMatch(/google/i);
+		expect(nota.textContent).toMatch(/criar.*conta|continuar/i);
+	});
+
+	// O aceite fica DEPOIS dos dois botões: é o que o cobre tanto o envio do link quanto a saída
+	// para o Google. Antes do primeiro botão, ele leria como condição só do formulário.
+	it('aceite: a nota vem depois do botão do Google', () => {
+		const { container, getByRole } = render(AuthForm, {
+			props: { ...baseProps, aceite: true, form: null }
+		});
+		const google = getByRole('link', { name: 'Entrar com Google' });
+		const nota = container.querySelector('[data-testid="aceite"]')!;
+
+		expect(google.compareDocumentPosition(nota) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+	});
+
 	it('collectName (cadastro): renderiza campo de nome e ecoa o valor no erro', () => {
 		const { getByLabelText } = render(AuthForm, {
 			props: { ...baseProps, collectName: true, form: { nome: 'Ana', error: 'Informe seu e-mail.' } }

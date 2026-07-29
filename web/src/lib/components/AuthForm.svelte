@@ -9,7 +9,8 @@
 		submitLabel,
 		googleLabel,
 		googleHref = '/auth/google',
-		collectName = false
+		collectName = false,
+		aceite = false
 	}: {
 		form?: { sent?: boolean; email?: string; nome?: string; error?: string } | null;
 		submitLabel: string;
@@ -17,6 +18,8 @@
 		googleHref?: string;
 		// Cadastro por magic link coleta o nome; login (/entrar) não.
 		collectName?: boolean;
+		// Nota de aceite dos documentos legais: só a tela que CRIA conta a mostra.
+		aceite?: boolean;
 	} = $props();
 
 	let submitting = $state(false);
@@ -115,7 +118,7 @@
 	</form>
 
 	<div
-		style="display:flex;align-items:center;gap:14px;margin:22px 0;color:#B0AA9C;font-size:13px"
+		style="display:flex;align-items:center;gap:14px;margin:22px 0;color:#696456;font-size:13px"
 	>
 		<span style="flex:1;height:1px;background:#E6E2D8"></span>ou<span
 			style="flex:1;height:1px;background:#E6E2D8"
@@ -140,4 +143,30 @@
 			<GoogleIcon /> {googleLabel}
 		{/if}
 	</a>
+
+	{#if aceite}
+		<!-- Aceite dos documentos legais (decisão de 2026-07-29): NOTA, não caixa de seleção.
+		     O cadastro tem dois caminhos e o do Google sai da página por um `<a>` de navegação
+		     completa; uma caixa obrigatória travaria só o formulário, e sem JavaScript nem isso.
+		     Por ficar DEPOIS dos dois botões, a nota cobre os dois, que é o que o aceite precisa
+		     cobrir. -->
+		<!-- `#736E63` (o mesmo cinza do subtítulo do card) e não um tom mais claro: a varredura axe
+		     reprovou #8C8678 aqui com 3,29:1, abaixo do mínimo de 4,5:1 da WCAG AA para texto
+		     pequeno. Nota legal ilegível é pior que nota legal ausente. -->
+		<p
+			data-testid="aceite"
+			style="font-size:13px;line-height:1.55;color:#736E63;margin:18px 0 0;text-align:center"
+		>
+			Ao criar sua conta, por e-mail ou com o Google, você concorda com os
+			<a href="/termos" style="color:#4E7468;font-weight:600;text-decoration:underline;text-underline-offset:2px"
+				>Termos de Uso</a
+			>
+			e a
+			<a
+				href="/privacidade"
+				style="color:#4E7468;font-weight:600;text-decoration:underline;text-underline-offset:2px"
+				>Política de Privacidade</a
+			>.
+		</p>
+	{/if}
 {/if}

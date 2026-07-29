@@ -17,7 +17,15 @@
 />
 
 <AuthCard title="Criar sua conta" subtitle="14 dias grátis. Sem cartão de crédito.">
-	<AuthForm {form} collectName submitLabel="Criar conta grátis" googleLabel="Continuar com Google" />
+	<!-- `aceite`: esta é a tela que cria conta, então é aqui que os documentos legais são aceitos
+	     (por nota, cobrindo o magic link e o Google). `/entrar` não mostra a nota. -->
+	<AuthForm
+		{form}
+		collectName
+		aceite
+		submitLabel="Criar conta grátis"
+		googleLabel="Continuar com Google"
+	/>
 
 	{#snippet footer()}
 		Já tem conta?

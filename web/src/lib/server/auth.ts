@@ -1,6 +1,6 @@
 import { error, fail, redirect, type RequestEvent } from '@sveltejs/kit';
 import { apiFetch, SESSION_COOKIE } from './api';
-import { canonical } from '$lib/seo';
+import { cabecalhoPublico } from '$lib/seo';
 import type { Me } from '$lib/session';
 
 // Carrega a sessão (`/api/auth/me`) pelo BFF. Retorna `null` quando não há sessão válida.
@@ -70,7 +70,7 @@ export async function loadAuthPage(
 	event: RequestEvent
 ): Promise<{ canonical: string; origem: string }> {
 	await redirectIfAuthenticated(event);
-	return { canonical: canonical(event.url), origem: event.url.origin };
+	return cabecalhoPublico(event.url);
 }
 
 // Action compartilhada por /entrar e /criar-conta: pede o magic link (ADR-015). O BFF só

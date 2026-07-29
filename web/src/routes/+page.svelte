@@ -1,9 +1,13 @@
 <script lang="ts">
 	// Landing pública Cinetra (interface/Cinetra Landing.dc.html). Paleta quente escopada em
 	// .cn-root (cinetra.css); a arte orgânica é FlowArt; CTAs levam a /criar-conta e /entrar.
-	import Logo from '$lib/components/Logo.svelte';
 	import Mark from '$lib/components/Mark.svelte';
 	import FlowArt from '$lib/components/cinetra/FlowArt.svelte';
+	// Topo e rodapé saíram daqui para serem compartilhados com /privacidade e /termos, que precisam
+	// do mesmo chrome. Aqui a navegação segue por âncora pura (sem prefixo): as seções são desta
+	// própria página.
+	import SiteHeader from '$lib/components/cinetra/SiteHeader.svelte';
+	import SiteFooter from '$lib/components/cinetra/SiteFooter.svelte';
 	import Seo from '$lib/components/Seo.svelte';
 	import { SITE, FAQ, jsonLd } from '$lib/seo';
 	import '$lib/styles/cinetra.css';
@@ -129,41 +133,7 @@
 	<a href="#conteudo" class="cn-skip">Pular para o conteúdo</a>
 
 	<!-- NAV -->
-	<header
-		style="position:sticky;top:0;z-index:60;background:#F6F4EF;border-bottom:1px solid #E6E2D8"
-	>
-		<div
-			class="cn-topbar"
-			style="max-width:1160px;margin:0 auto;padding:13px 30px;display:flex;align-items:center;gap:34px"
-		>
-			<a href="/" aria-label="Cinetra, página inicial" style="display:flex;align-items:center"
-				><Logo class="h-5.75 w-auto" /></a
-			>
-			<nav
-				class="cn-navlinks"
-				aria-label="Seções da página"
-				style="display:flex;gap:26px;margin-left:8px;font-size:14.5px;font-weight:500;color:#5A5448"
-			>
-				<a href="#dores" style="transition:color .2s">As dores</a>
-				<a href="#recursos" style="transition:color .2s">Recursos</a>
-				<a href="#precos" style="transition:color .2s">Planos</a>
-				<a href="#duvidas" style="transition:color .2s">Dúvidas</a>
-			</nav>
-			<div style="margin-left:auto;display:flex;align-items:center;gap:6px">
-				<a
-					href="/entrar"
-					class="cn-hover-nav"
-					style="color:#212A37;font-size:14.5px;font-weight:600;padding:8px 14px;border-radius:9px">Entrar</a
-				>
-				<a
-					href="/criar-conta"
-					class="cn-hover-dark"
-					style="background:#212A37;color:#fff;font-size:14.5px;font-weight:600;padding:9px 16px;border-radius:9px"
-					>Começar grátis</a
-				>
-			</div>
-		</div>
-	</header>
+	<SiteHeader />
 
 	<!-- A página não tinha landmark nenhum: todo o conteúdo era filho direto de uma `div`. As
 	     seções abaixo NÃO foram reindentadas de propósito — recuar 630 linhas por um wrapper
@@ -405,7 +375,7 @@
 						</div>
 						<div style="flex:1">
 							<div style="font-size:13px;font-weight:700">Carlos Eduardo</div>
-							<div style="font-size:11px;color:#697077">Avaliação · Dr. Rafael</div>
+							<div style="font-size:11px;color:#616870">Avaliação · Dr. Rafael</div>
 						</div>
 					</div>
 					<div
@@ -846,20 +816,6 @@
 
 	</main>
 
-	<!-- FOOTER -->
-	<footer class="cn-foot" style="border-top:1px solid #E6E2D8;padding:44px 0;background:#F6F4EF">
-		<div
-			class="cn-footrow"
-			style="max-width:1160px;margin:0 auto;padding:0 30px;display:flex;flex-wrap:wrap;gap:24px;align-items:center;justify-content:space-between"
-		>
-			<Logo class="h-6.5 w-auto" />
-			<div style="display:flex;gap:24px;font-size:14px;color:#696356;flex-wrap:wrap">
-				<a href="#recursos" style="transition:color .2s">Recursos</a>
-				<a href="#precos" style="transition:color .2s">Planos</a>
-				<a href="#duvidas" style="transition:color .2s">Dúvidas</a>
-				<a href="/entrar" style="transition:color .2s">Entrar</a>
-			</div>
-			<div style="font-size:13px;color:#696356">© 2026 Cinetra · Feito para clínicas de fisioterapia</div>
-		</div>
-	</footer>
+	<!-- FOOTER. É por aqui que /privacidade e /termos são alcançáveis, em toda página pública. -->
+	<SiteFooter />
 </div>

@@ -152,6 +152,134 @@
 	text-wrap: pretty;
 }
 
+/* Documentos legais (/privacidade e /termos). Prosa longa, não superfície de conversão: a
+   medida da linha manda, e não a largura da coluna. `65ch` é o intervalo confortável de leitura,
+   e é ele que decide onde o texto para, não o grid de 1160px da landing. */
+.cn-legal {
+	max-width: 65ch;
+}
+.cn-legal section + section {
+	margin-top: 44px;
+}
+.cn-legal h2 {
+	font-size: 26px;
+	line-height: 1.25;
+	letter-spacing: -0.015em;
+	font-weight: 700;
+	margin: 0 0 14px;
+	text-wrap: pretty;
+}
+.cn-legal p {
+	margin: 0 0 14px;
+	font-size: 16.5px;
+	line-height: 1.68;
+	color: #575249;
+	text-wrap: pretty;
+}
+.cn-legal ul {
+	margin: 0 0 14px;
+	padding: 0;
+	list-style: none;
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+/* Marcador desenhado, e não `list-style`: é o mesmo ponto sálvia dos bullets da seção "as
+   dores", para o documento não estrear uma linguagem visual própria. */
+.cn-legal li {
+	position: relative;
+	padding-left: 20px;
+	font-size: 16.5px;
+	line-height: 1.6;
+	color: #575249;
+	text-wrap: pretty;
+}
+.cn-legal li::before {
+	content: '';
+	position: absolute;
+	left: 2px;
+	top: 0.66em;
+	width: 5px;
+	height: 5px;
+	border-radius: 50%;
+	background: #7fa59a;
+}
+.cn-legal strong {
+	color: #212a37;
+	font-weight: 700;
+}
+
+/* Cartão para o documento par, no fim do texto. */
+.cn-legal-par {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	margin-top: 52px;
+	padding: 22px 24px;
+	background: #fff;
+	border: 1px solid #e6e2d8;
+	border-radius: 16px;
+	transition:
+		border-color 0.2s,
+		transform 0.2s;
+}
+.cn-legal-par:hover {
+	border-color: #212a37;
+	transform: translateY(-2px);
+}
+
+/* Sumário: a única navegação dentro de um texto que ninguém lê inteiro. Gruda abaixo do topo
+   sticky (63px + folga) e rola sozinho quando a lista é mais alta que a janela. */
+.cn-sumario {
+	position: sticky;
+	top: 88px;
+	/* Rola sozinho quando a lista é mais alta que a janela: com 14 seções ela já passa em
+	   notebook de 768px de altura, e sem isto o fim do índice ficaria inalcançável. Barra fina
+	   porque ela encosta no texto, e a grossa do sistema leria como divisória de coluna. */
+	max-height: calc(100dvh - 120px);
+	overflow: auto;
+	scrollbar-width: thin;
+	scrollbar-color: #dcd8ce transparent;
+}
+.cn-sumario ol {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+	counter-reset: sec;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+.cn-sumario li {
+	counter-increment: sec;
+}
+.cn-sumario a {
+	display: flex;
+	gap: 10px;
+	padding: 7px 10px;
+	border-radius: 8px;
+	font-size: 14px;
+	line-height: 1.4;
+	color: #575249;
+	text-wrap: pretty;
+	transition:
+		background 0.2s,
+		color 0.2s;
+}
+/* O número é secundário pelo TAMANHO (11px mono contra 14px), não por um cinza claro: o tom que
+   a hierarquia pedia (#a8a294) dá 2,6:1 contra o papel, longe dos 4,5:1 da WCAG AA. */
+.cn-sumario a::before {
+	content: counter(sec, decimal-leading-zero);
+	font-family: 'Martian Mono', monospace;
+	font-size: 11px;
+	color: #696356;
+	padding-top: 2px;
+}
+.cn-sumario a:hover {
+	background: #ece9e1;
+	color: #212a37;
+}
+
 /* Colapsos responsivos do protótipo (:35-42). */
 @media (max-width: 900px) {
 	.cn-navlinks,
@@ -263,6 +391,28 @@
 @media (max-width: 900px) {
 	.cn-authsplit {
 		grid-template-columns: 1fr !important;
+	}
+
+	/* Documento legal empilhado: o sumário vira um bloco no topo, com régua separando-o do
+	   texto. `sticky` aqui seria pior que inútil — numa tela de 390px a lista de 14 itens
+	   ocuparia a janela inteira e grudaria por cima da leitura. */
+	.cn-legalgrid {
+		grid-template-columns: 1fr !important;
+		gap: 30px !important;
+	}
+	.cn-sumario {
+		position: static;
+		max-height: none;
+		overflow: visible;
+		padding-bottom: 26px;
+		border-bottom: 1px solid #dcd8ce;
+	}
+	.cn-legal-h1 {
+		font-size: clamp(30px, 8.5vw, 40px) !important;
+	}
+	/* A medida de linha já cabe na tela; o teto em `ch` só criaria um vão à direita. */
+	.cn-legal {
+		max-width: 100%;
 	}
 }
 

@@ -38,11 +38,26 @@ export function canonical(url: URL): string {
 	return `${url.origin}${caminho || '/'}`;
 }
 
+/**
+ * O que o `<head>` de uma página pública precisa e só o servidor conhece.
+ *
+ * Os dois campos andam sempre juntos (a canônica e a origem do `og:image`, que exige URL
+ * absoluta) e saem da mesma `event.url`. Existir como função é o que impede a quinta página
+ * pública de montar o objeto à mão e esquecer um dos dois.
+ */
+export function cabecalhoPublico(url: URL): { canonical: string; origem: string } {
+	return { canonical: canonical(url), origem: url.origin };
+}
+
 /** Páginas públicas que entram no sitemap. O resto do app exige sessão e não se indexa. */
 export const PAGINAS_PUBLICAS = [
 	{ caminho: '/', prioridade: '1.0', frequencia: 'weekly' },
 	{ caminho: '/criar-conta', prioridade: '0.8', frequencia: 'monthly' },
-	{ caminho: '/entrar', prioridade: '0.5', frequencia: 'monthly' }
+	{ caminho: '/entrar', prioridade: '0.5', frequencia: 'monthly' },
+	// Documentos legais: prioridade baixa (não são porta de entrada de busca), mas indexáveis de
+	// propósito. Quem procura "política de privacidade cinetra" antes de assinar precisa achar.
+	{ caminho: '/privacidade', prioridade: '0.3', frequencia: 'yearly' },
+	{ caminho: '/termos', prioridade: '0.3', frequencia: 'yearly' }
 ] as const;
 
 /**
