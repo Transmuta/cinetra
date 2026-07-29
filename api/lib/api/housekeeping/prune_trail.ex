@@ -29,7 +29,7 @@ defmodule Api.Housekeeping.PruneTrail do
   ## Como respeita a RLS
 
   `audit_events` tem a mesma `tenant_isolation` das demais tabelas (ADR-018), e o job roda como
-  `movimento_app` no servidor real. Por isso a varredura é **por clínica**, cada uma dentro de
+  `cinetra_app` no servidor real. Por isso a varredura é **por clínica**, cada uma dentro de
   `Api.Repo.with_clinic/2` — um `DELETE` sem GUC apagaria zero linha (e passaria no `mix test`,
   onde o sandbox conecta como superusuário: a armadilha de sempre).
 

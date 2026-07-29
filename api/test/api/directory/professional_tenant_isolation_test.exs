@@ -6,7 +6,7 @@ defmodule Api.Directory.ProfessionalTenantIsolationTest do
 
   A RLS (ADR-018, defesa-em-profundidade) **não** é exercida aqui: o sandbox de teste conecta
   como `postgres` (BYPASSRLS). Ela foi provada manualmente na auditoria conectando como
-  `movimento_app`.
+  `cinetra_app`.
   """
   use Api.DataCase, async: false
 

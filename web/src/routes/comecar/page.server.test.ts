@@ -74,11 +74,11 @@ describe('action default /comecar (cria a clínica)', () => {
 
 	it('sucesso (primeiro acesso) → cria com trim, NÃO troca tenant, redirect 303 para a home', async () => {
 		onboardClinic.mockResolvedValue({ ok: true, status: 201, clinicId: 'c1' });
-		await expect(actions.default(formEvent({ nome: '  Studio Movimento  ' }))).rejects.toMatchObject({
+		await expect(actions.default(formEvent({ nome: '  Studio Cinetra  ' }))).rejects.toMatchObject({
 			status: 303,
 			location: '/'
 		});
-		expect(onboardClinic).toHaveBeenCalledWith(expect.anything(), 'Studio Movimento');
+		expect(onboardClinic).toHaveBeenCalledWith(expect.anything(), 'Studio Cinetra');
 		expect(switchTenant).not.toHaveBeenCalled();
 	});
 

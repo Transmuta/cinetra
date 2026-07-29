@@ -54,7 +54,7 @@ bate **primeiro no HML**, dias antes de chegar na main. É a mitigação mais fo
 
 - **CI (GitHub Actions, [`.github/workflows/ci.yml`](../.github/workflows/ci.yml))** = o **portão**.
   Roda em todo PR e push: `mix format --check`, `compile --warnings-as-errors`, `mix coveralls`
-  (gate 80%), o job **`api-rls`** (conecta como `movimento_app` NOBYPASSRLS e prova a RLS),
+  (gate 80%), o job **`api-rls`** (conecta como `cinetra_app` NOBYPASSRLS e prova a RLS),
   `svelte-check` + coverage do web. **Continua no GitHub, igual.**
 - **Dokploy** = só o **deploy**: clona a branch, builda a imagem arm64 no A1 e sobe. Disparado
   por **webhook**, no fim do workflow, **só quando o CI fica verde**.
@@ -175,7 +175,7 @@ o pipeline. **HML tem os seus próprios** — nunca compartilhe segredo/banco/bu
 | `STACK` | env | `prod` ou `hml` (nomes únicos no Traefik) |
 | `WEB_HOST` | env | domínio único do ambiente (não há `API_HOST` — BFF-only) |
 | `POSTGRES_PASSWORD` / `POSTGRES_DB` | env | banco do ambiente |
-| `DATABASE_APP_USER` / `DATABASE_APP_PASSWORD` | env | role restrito `movimento_app` |
+| `DATABASE_APP_USER` / `DATABASE_APP_PASSWORD` | env | role restrito `cinetra_app` |
 | `SECRET_KEY_BASE` / `TOKEN_SIGNING_SECRET` | env | `raise` no boot se faltar |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | env | client do ambiente |
 | `R2_ACCOUNT_ID` / `R2_BUCKET` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | env | bucket do ambiente |

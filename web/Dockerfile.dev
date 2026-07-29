@@ -1,4 +1,4 @@
-# Dev image for the Movimento web BFF (SvelteKit + Svelte 5 runes).
+# Dev image for the Cinetra web BFF (SvelteKit + Svelte 5 runes).
 # node_modules is baked here and preserved via an anonymous volume in compose,
 # while the source is bind-mounted for live reload.
 FROM node:22

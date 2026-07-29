@@ -158,7 +158,7 @@ defmodule Api.Messaging.Templates do
   # lista `:vars` é o que impede exemplo e ordem de divergirem.
   @exemplos %{
     "paciente" => "Maria",
-    "clinica" => "Clínica Movimento",
+    "clinica" => "Clínica Cinetra",
     "data" => "28/07/2026",
     "hora" => "14:00",
     "quantas" => "3 sessões",

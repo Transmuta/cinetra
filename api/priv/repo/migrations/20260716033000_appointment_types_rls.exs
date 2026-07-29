@@ -3,7 +3,7 @@ defmodule Api.Repo.Migrations.AppointmentTypesRls do
   RLS como defesa-em-profundidade da tenancy por atributo (ADR-018), espelhando
   `ProfessionalsRls`. Mesmo que o filtro do Ash (`WHERE clinic_id = ...`) seja contornado
   (query crua, bug, authorize?: false sem tenant), o Postgres só devolve linhas do
-  `clinic_id` setado na GUC `movimento.clinic_id`. Sem GUC → 0 linhas (fail-closed).
+  `clinic_id` setado na GUC `cinetra.clinic_id`. Sem GUC → 0 linhas (fail-closed).
 
   Migration escrita à mão e separada da autogerada de propósito: o gerador do Ash não
   conhece as policies, e o Postgres recusa ALTER em coluna usada por policy — então o RLS
@@ -20,8 +20,8 @@ defmodule Api.Repo.Migrations.AppointmentTypesRls do
 
     execute """
     CREATE POLICY tenant_isolation ON appointment_types
-      USING (clinic_id = current_setting('movimento.clinic_id', true)::uuid)
-      WITH CHECK (clinic_id = current_setting('movimento.clinic_id', true)::uuid)
+      USING (clinic_id = current_setting('cinetra.clinic_id', true)::uuid)
+      WITH CHECK (clinic_id = current_setting('cinetra.clinic_id', true)::uuid)
     """
   end
 

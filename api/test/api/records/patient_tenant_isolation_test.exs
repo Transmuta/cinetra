@@ -5,7 +5,7 @@ defmodule Api.Records.PatientTenantIsolationTest do
   nunca enxerga o paciente de outra — o gêmeo do `ProfessionalTenantIsolationTest`.
 
   A RLS (ADR-018, defesa-em-profundidade) **não** é exercida aqui: o sandbox conecta como
-  `postgres` (BYPASSRLS). Ela é provada por psql como `movimento_app` no bate-volta.
+  `postgres` (BYPASSRLS). Ela é provada por psql como `cinetra_app` no bate-volta.
   """
   use Api.DataCase, async: false
 

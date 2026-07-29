@@ -142,7 +142,7 @@ achou o achado.
 | CR-6 | `participant_removed` entra em `EVENTOS_DE_BLOCO` | teste do canal falso: o handler recebe |
 | CR-7 | inverte o `with`: destinatário (1 query) antes do bloco (4) | `queries <= 2` sem destinatário |
 
-Verde ao fim: api **941/0** (91,8%), gate `:rls` **7/0** como `movimento_app`, web **1269/1269**
+Verde ao fim: api **941/0** (91,8%), gate `:rls` **7/0** como `cinetra_app`, web **1269/1269**
 (91,3% stmts), `svelte-check` 0 erros.
 
 ---
@@ -157,7 +157,7 @@ Verde ao fim: api **941/0** (91,8%), gate `:rls` **7/0** como `movimento_app`, w
 > falha alto, em vez de sumir do histórico em silêncio.
 >
 > Medido **pelo caminho da aplicação** (a lição do doc 35: índice só conta se o SQL que o Ash emite
-> o usar), na clínica de 10.185 blocos, como `movimento_app`:
+> o usar), na clínica de 10.185 blocos, como `cinetra_app`:
 >
 > ```
 > Limit (actual time=0.025..0.197 rows=51)  Buffers: shared hit=48
@@ -183,7 +183,7 @@ Verde ao fim: api **941/0** (91,8%), gate `:rls` **7/0** como `movimento_app`, w
 O registro original do achado:
 
 **O conserto do CR-4 trocou uma curva de crescimento por outra.** O plano novo, como
-`movimento_app` na clínica de 10.185 blocos:
+`cinetra_app` na clínica de 10.185 blocos:
 
 ```
 Limit  (actual time=4.742..4.748 rows=51 loops=1)  Buffers: shared hit=291
@@ -206,7 +206,7 @@ ficam planas. É migration + sincronização, ou seja, decisão de schema: não 
 conserto de bate-volta.
 
 **Não re-medido:** o caso do papel `profissional` (o nested loop de 679 iterações). A clínica de
-volume do `movimento_dev` só tem membership `owner`, e criar uma de `profissional` é escrita no
+volume do `cinetra_dev` só tem membership `owner`, e criar uma de `profissional` é escrita no
 banco de dev — que eu não faço sem seu aval.
 
 ---
@@ -327,7 +327,7 @@ não a previu.
 > retomada não achava a própria presença segurada e abortava a transação com "participante não
 > encontrado neste agendamento".
 >
-> Medido, na turma de dois (o cenário do achado), e re-medido sob RLS como `movimento_app`:
+> Medido, na turma de dois (o cenário do achado), e re-medido sob RLS como `cinetra_app`:
 >
 > ```
 > pausar:  bloco.pkg_hold = false · participantes visíveis = [colega] · presença do pacote: pkg_hold = true
@@ -491,7 +491,7 @@ Sessão seguinte à auditoria, para zerar §4 e §5. O que mudou de fato:
 | §5f índice/trilha | índice redundante derrubado (`CONCURRENTLY`); `PruneTrail` com cron diário e retenção em config |
 | §5g BFF órfão | `bulkCancelPackage` removido, com o motivo no lugar da função |
 
-**Verde ao fim:** api **953/0** (91,3%), gate `:rls` **15/0** como `movimento_app` (três casos
+**Verde ao fim:** api **953/0** (91,3%), gate `:rls` **15/0** como `cinetra_app` (três casos
 novos: warm + espelho do horário, presença segurada, poda da trilha), web **1266/1266** (91,4%
 stmts), `svelte-check` 0 erros.
 

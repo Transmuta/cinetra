@@ -1,7 +1,7 @@
 # 26 — Auditoria bate-volta: fatia Agenda
 
 Auditoria em 5 rodadas da Entrega 1 da agenda ([25](25-agenda.md)), commits
-`f5b455e..8d1d6a6`, contra a **stack rodando**: `psql` como `movimento_app` (NOBYPASSRLS),
+`f5b455e..8d1d6a6`, contra a **stack rodando**: `psql` como `cinetra_app` (NOBYPASSRLS),
 `mix test`, `curl` concorrente na API, `mix run` com membership real, e Playwright no
 navegador. Nenhum achado entrou aqui sem output de sonda.
 
@@ -88,7 +88,7 @@ exec env DATABASE_USER="${APP_USER}" DATABASE_PASSWORD="${APP_PASS}" mix phx.ser
 ```
 
 O `DATABASE_USER: postgres` do compose é o usuário **privilegiado, para migrations/DDL**; o
-servidor sobe como `movimento_app`. Todas as sondas feitas por `exec` — as minhas e as de dois
+servidor sobe como `cinetra_app`. Todas as sondas feitas por `exec` — as minhas e as de dois
 subagentes — mediram um ambiente que não serve requisição nenhuma.
 
 `pg_stat_activity` desfaz a dúvida em uma linha:
@@ -96,14 +96,14 @@ subagentes — mediram um ambiente que não serve requisição nenhuma.
 ```
     usename    | conexoes
 ---------------+----------
- movimento_app |       10     ← o servidor
+ cinetra_app |       10     ← o servidor
  postgres      |        1     ← o psql da própria sonda
 ```
 
 E o experimento decisivo, a mesma chamada sob os dois roles:
 
 ```
-### como movimento_app (o role do servidor real) ###
+### como cinetra_app (o role do servidor real) ###
 SEM in_clinic/with_clinic : 0 profissionais
 COM in_clinic/with_clinic : 2 profissionais
 
@@ -122,7 +122,7 @@ configuração. Três medições independentes erraram igual porque todas herdar
 não checada. Para sondar como o servidor:
 
 ```bash
-docker compose exec -e DATABASE_USER=movimento_app -e DATABASE_PASSWORD=movimento_app api ...
+docker compose exec -e DATABASE_USER=cinetra_app -e DATABASE_PASSWORD=cinetra_app api ...
 ```
 
 ### Causa E (web)
@@ -159,15 +159,15 @@ que não havia sido testado:
 **A RLS isola as tabelas de versão** (contrariando uma ressalva do próprio conserto):
 
 ```
-movimento_app, sem GUC   → appt_versions=0  att_versions=0
-movimento_app, com GUC   → appt_versions=5
+cinetra_app, sem GUC   → appt_versions=0  att_versions=0
+cinetra_app, com GUC   → appt_versions=5
 ```
 
 **O custo da RLS no plano é nulo** — a policy vira `One-Time Filter`, avaliada uma vez:
 
 ```
 Result  (cost=0.15..8.17 rows=1)
-  One-Time Filter: ((current_setting('movimento.clinic_id', true))::uuid = '019f7c5b-...'::uuid)
+  One-Time Filter: ((current_setting('cinetra.clinic_id', true))::uuid = '019f7c5b-...'::uuid)
 ```
 
 ## 5. O que ficou para decisão humana
@@ -175,9 +175,9 @@ Result  (cost=0.15..8.17 rows=1)
 ### 5.1 Estrutural
 
 **(a) `mix test` não exercita a RLS** — a suíte conecta como `postgres` (BYPASSRLS), então um
-bug de GUC ausente passa verde. **Dev exercita** (o servidor sobe como `movimento_app`), o que
+bug de GUC ausente passa verde. **Dev exercita** (o servidor sobe como `cinetra_app`), o que
 faz de "rodar a tela" um detector real — e foi ele que pegou os três bugs da construção.
-**Correção pendente:** uma parte da suíte rodando como `movimento_app`, para que o gate do CI
+**Correção pendente:** uma parte da suíte rodando como `cinetra_app`, para que o gate do CI
 também pegue. Não aplicado: mexe no sandbox do Ecto e é decisão de infra.
 
 **(b) A autoridade do recorte ficou em dois lugares.** O conserto de escrita
@@ -341,7 +341,7 @@ o job `api-rls` no CI).
 ### 7.5 Estado ao fim da passada
 
 Backend **531 testes / 90,0%** · Web **771 testes / 93,0%** · gate RLS **7/7 como
-`movimento_app`** · endpoints verificados ao vivo sob o role restrito, com 2 profissionais × 3
+`cinetra_app`** · endpoints verificados ao vivo sob o role restrito, com 2 profissionais × 3
 dias devolvendo períodos reais. (Números após o bate-volta da §8.)
 
 Um desvio honesto de medição, registrado porque quase virou falso positivo: a primeira sonda ao
@@ -451,6 +451,6 @@ descuido.
 vínculo, logou por magic link como `bruno.recepcao@example.com` — e esse fluxo **aceita o
 convite pendente**: a membership dele em "Clínica Fidelidade" passou de `pendente` para
 `ativo`. Foi via HTTP, não escrita direta, mas mudou estado sem avisar. E a validação da
-migração exigiu dropar o banco de **teste**, o que derrubou os grants do role `movimento_app` e
+migração exigiu dropar o banco de **teste**, o que derrubou os grants do role `cinetra_app` e
 fez o gate de RLS falhar em 6 de 7 até o `setup_app_role.sql` ser reaplicado — falha de
 ambiente, não de código, mas que por um momento pareceu regressão.

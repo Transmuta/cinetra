@@ -1,6 +1,6 @@
 # Contrato de API
 
-O contrato entre `movimento-web` (BFF SvelteKit) e `movimento-api` (Phoenix + Ash),
+O contrato entre `cinetra-web` (BFF SvelteKit) e `cinetra-api` (Phoenix + Ash),
 e entre o navegador e os Phoenix Channels. É a fronteira que o [ADR-002](00-decisoes.md#adr-002--backend-em-elixir--ash-exposto-como-api-rest)
 e o [ADR-005](00-decisoes.md#adr-005--sveltekit-como-bff-nunca-como-cliente-de-banco) tornam
 o único ponto de acordo entre os dois runtimes. Este documento expande e **corrige**

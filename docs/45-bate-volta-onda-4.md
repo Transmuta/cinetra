@@ -9,7 +9,7 @@ checklist não pegaria, a 3 deu conta da fila inteira (a 4 não foi necessária)
 tudo e achou um item novo no código dos próprios consertos.
 
 **Verde ao fim:** API **1009 testes / 0 falhas / 91,1%**, gate `:rls` **20/0** como
-`movimento_app`, web **1275 / 0** e `svelte-check` limpo, `mix format --check-formatted` e
+`cinetra_app`, web **1275 / 0** e `svelte-check` limpo, `mix format --check-formatted` e
 `--warnings-as-errors` sem ruído.
 
 ---
@@ -46,7 +46,7 @@ lendo.
 | Índices novos não usados | **REFUTADO** | `pg_stat_user_indexes` pelo caminho da app: `inbox_index` idx_scan 4, `unread_index` idx_scan 1 |
 | Índice redundante | **REFUTADO** | O parcial não é prefixo do outro: predicados distintos, e os dois anexam |
 | Paginação ausente | **REFUTADO** | É o próprio #54; teto de 200 em `Api.Pagination` |
-| `clinics` sem GUC voltando vazio no servidor | **REFUTADO** | `pg_class.relrowsecurity`: `clinics` **f**, `memberships` **f** (globais por ADR-017). Como `movimento_app` sem GUC: 23 clínicas visíveis |
+| `clinics` sem GUC voltando vazio no servidor | **REFUTADO** | `pg_class.relrowsecurity`: `clinics` **f**, `memberships` **f** (globais por ADR-017). Como `cinetra_app` sem GUC: 23 clínicas visíveis |
 | Pool vs concorrência | **PARCIAL** → §4 | `pool_size: 10` contra `housekeeping: 2 + notifications: 5`. É o D-R, que já estava aberto — este diff o agravou |
 | N+1 no request | **NÃO SE APLICA** | Os caminhos novos de request são leitura paginada + COUNT |
 
@@ -186,7 +186,7 @@ segunda passada existiu para fechá-las — e as duas que ninguém tinha olhado 
 
 | Lacuna | Resultado |
 | --- | --- |
-| **Sonda 2 do IDOR** (RLS cross-tenant), nunca rodada | **REFUTADO com prova.** Como `movimento_app` com a GUC da clínica A: `a_ve_a = 66`, `a_ve_b = 0`, `SELECT` sem `WHERE` = 66 (não 71), e `UPDATE` cross-tenant = **UPDATE 0**. A segunda defesa existe e morde |
+| **Sonda 2 do IDOR** (RLS cross-tenant), nunca rodada | **REFUTADO com prova.** Como `cinetra_app` com a GUC da clínica A: `a_ve_a = 66`, `a_ve_b = 0`, `SELECT` sem `WHERE` = 66 (não 71), e `UPDATE` cross-tenant = **UPDATE 0**. A segunda defesa existe e morde |
 | **`web/` nunca exercido no browser** | **2 achados** — ver CR-1 e CR-2 abaixo |
 | **`SELECT *` desnecessário** | **REFUTADO com prova, e a auto-revisão estava errada.** Mesmo plano e **mesmos 4 buffers** com 18 colunas ou com 2, sobre 11 linhas reais: a tupla do heap vem inteira de qualquer jeito. Eu tinha chamado isso de "achado provável" **lendo a lista de colunas** — o mesmo erro do D-A. Só reabre se `obs` passar do limiar de TOAST |
 | **Rodada 2 rasa** | Fluxo real contado + fronteira forçada: o fluxo rendeu o CR-1; a fronteira **REFUTOU** o IDOR por HTTP (404 e `updated_at` da linha alheia intacto, 5 dias antigo) |

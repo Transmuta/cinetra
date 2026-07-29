@@ -110,7 +110,7 @@ Status possíveis: `Aceita` · `Proposta` · `Substituída por ADR-nn`
 
 **Status:** Aceita
 
-**Decisão.** Dois apps Fly (`movimento-api` em Elixir, `movimento-web` em Node), Postgres gerenciado, object storage compatível com S3 (Tigris ou Cloudflare R2). Instrumentação com **OpenTelemetry puro**; o backend de telemetria (Grafana Cloud, Honeycomb) é configuração, não código.
+**Decisão.** Dois apps Fly (`cinetra-api` em Elixir, `cinetra-web` em Node), Postgres gerenciado, object storage compatível com S3 (Tigris ou Cloudflare R2). Instrumentação com **OpenTelemetry puro**; o backend de telemetria (Grafana Cloud, Honeycomb) é configuração, não código.
 
 **Justificativa.** Clustering BEAM entre nós Fly deixa o `Phoenix.PubSub` distribuído praticamente de graça, o que o ADR-004 exige. OTel sem SDK proprietário mantém a porta aberta caso um requisito de jurisdição force VPS própria.
 
@@ -290,16 +290,16 @@ Dark mode continua por `data-theme` (`@custom-variant dark`), não por `class` n
 **Contexto.** O [ADR-017](#adr-017--tenancy-por-atributo-clinic_id-em-vez-de-schema-por-tenant) trocou isolamento físico (schema) por lógico (o Ash injeta `WHERE clinic_id = …`). O risco residual: dado de saúde de todas as clínicas convive na mesma tabela, e **uma** query crua (`Repo`/`Ecto`), um `authorize?: false` sem tenant ou um bug de filtro vazaria entre clínicas. Depender só de disciplina de app é frágil demais para LGPD Art. 11.
 
 **Decisão.** Ligar **PostgreSQL Row-Level Security** nas tabelas por-tenant, impondo o isolamento **no próprio banco**. Verificado empiricamente (POC na `professionals`):
-1. **Policy por `clinic_id`** em cada tabela por-tenant: `ENABLE`/`FORCE ROW LEVEL SECURITY` + `CREATE POLICY … USING/WITH CHECK (clinic_id = current_setting('movimento.clinic_id', true)::uuid)`. Sem a GUC setada → **0 linhas (fail-closed)**.
-2. **Role de app restrito** (`movimento_app`, `NOSUPERUSER`/`NOBYPASSRLS`, não-dono): o `phx.server` conecta como ele e fica **sujeito** à RLS. **Migrations rodam como `postgres`** (superusuário, bypassa RLS para DDL). ⚠️ Sem trocar o role, RLS é teatro — superusuário/dono ignoram policies.
-3. **GUC por transação** via `Api.Repo.with_clinic/2` (`set_config('movimento.clinic_id', clinic_id, true)` dentro de uma transação). O ponto de injeção no app é o **plug de scope da sessão** (ADR-014), que embrulha o trabalho por-tenant do request — a finalizar junto da fatia de auth.
+1. **Policy por `clinic_id`** em cada tabela por-tenant: `ENABLE`/`FORCE ROW LEVEL SECURITY` + `CREATE POLICY … USING/WITH CHECK (clinic_id = current_setting('cinetra.clinic_id', true)::uuid)`. Sem a GUC setada → **0 linhas (fail-closed)**.
+2. **Role de app restrito** (`cinetra_app`, `NOSUPERUSER`/`NOBYPASSRLS`, não-dono): o `phx.server` conecta como ele e fica **sujeito** à RLS. **Migrations rodam como `postgres`** (superusuário, bypassa RLS para DDL). ⚠️ Sem trocar o role, RLS é teatro — superusuário/dono ignoram policies.
+3. **GUC por transação** via `Api.Repo.with_clinic/2` (`set_config('cinetra.clinic_id', clinic_id, true)` dentro de uma transação). O ponto de injeção no app é o **plug de scope da sessão** (ADR-014), que embrulha o trabalho por-tenant do request — a finalizar junto da fatia de auth.
 
 **Justificativa.** Devolve, no banco, a garantia "física" que o [ADR-017](#adr-017--tenancy-por-atributo-clinic_id-em-vez-de-schema-por-tenant) abriu mão — sem os schemas. Muda o modo de falha de **"esqueci o filtro ⇒ vaza"** (perigoso) para **"esqueci a GUC ⇒ 0 linhas"** (seguro). É a mitigação #1 do ADR-017, agora imposta pelo Postgres.
 
 **Consequências.**
-- **Docker/dev:** o entrypoint cria o role `movimento_app` + grants, roda migrations como `postgres`, e sobe o server como `movimento_app` — "mesma experiência", agora com RLS ligada (verificado: endpoints existentes seguem OK).
+- **Docker/dev:** o entrypoint cria o role `cinetra_app` + grants, roda migrations como `postgres`, e sobe o server como `cinetra_app` — "mesma experiência", agora com RLS ligada (verificado: endpoints existentes seguem OK).
 - **Toda tabela por-tenant** ganha RLS na migration (via SQL de `ENABLE/FORCE/POLICY`); recursos globais (`users`/`clinics`/`memberships`) **não** têm RLS.
-- **Teste de IDOR** (mitigação #2 do ADR-017) passa a **conectar como `movimento_app`** e provar que query crua sem GUC não vê nada e que cross-tenant é bloqueado (INSERT com `WITH CHECK`).
+- **Teste de IDOR** (mitigação #2 do ADR-017) passa a **conectar como `cinetra_app`** e provar que query crua sem GUC não vê nada e que cross-tenant é bloqueado (INSERT com `WITH CHECK`).
 - **Leitura consolidada cross-tenant** (owner multi-unidade) exige um caminho deliberado: GUC com lista de `clinic_id` (`clinic_id = ANY(...)`) ou um role separado — a desenhar na fatia de relatórios.
 - **Custo:** operações por-tenant precisam passar por `with_clinic/2` (transação). Sem isso, retornam 0 linhas — falha segura, mas exige o padrão consistente no app.
 

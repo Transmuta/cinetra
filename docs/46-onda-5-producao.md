@@ -59,7 +59,7 @@ handshake não protege navegação nenhuma.
 
 ## 3. S3 — a CSP carregava os dois ambientes
 
-O `connect-src` listava, fixos, `localhost:4010` **e** `movimento-api.fly.dev`: o build de
+O `connect-src` listava, fixos, `localhost:4010` **e** `cinetra-api.fly.dev`: o build de
 produção levava a origem de dev junto. Inexplorável (ninguém serve `localhost` do browser da
 vítima), mas é a CSP afirmando algo que o desenho não afirma — e o próximo host entraria na
 lista pelo mesmo caminho.
@@ -192,7 +192,7 @@ diferença é que aí ela funcionaria.
 ## 7. Verde ao fim
 
 - **API:** 1018 testes + 17 doctests, **0 falhas**, cobertura **91,2%** (piso 80); gate `:rls`
-  **20/0** como `movimento_app`; `mix format --check-formatted` e `--warnings-as-errors` limpos.
+  **20/0** como `cinetra_app`; `mix format --check-formatted` e `--warnings-as-errors` limpos.
 - **Web:** **1286 testes / 0 falhas** em 137 arquivos, `svelte-check` **0 erros**, cobertura
   **91,5% stmts / 77,4% branches** (pisos 80/75).
 - **Ao vivo:** WebSocket conectando e entrando nos tópicos pelo subprotocolo (`CONNECTED TO

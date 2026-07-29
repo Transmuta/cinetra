@@ -18,7 +18,7 @@ protótipo cita a linha verificada em `interface/Movimento.dc.html`.
 ## 1. OpenTelemetry: tracing distribuído do BFF até o Ash
 
 A topologia de rede tem três saltos que importam para um trace: o browser chama o
-`movimento-web` (SvelteKit, Node), que chama o `movimento-api` (Phoenix, Elixir),
+`cinetra-web` (SvelteKit, Node), que chama o `cinetra-api` (Phoenix, Elixir),
 que fala com o Postgres e com o object storage. Um pedido que renderiza a agenda do
 dia atravessa os três. Sem propagação de contexto, cada serviço produz traces
 órfãos e a pergunta "por que o SSR da agenda demorou 1,2 s?" fica sem resposta.
@@ -28,7 +28,7 @@ o backend que recebe os spans (Grafana Tempo, Honeycomb, um coletor self-hosted)
 configuração via variável de ambiente. Isso é o que mantém a porta aberta caso um
 requisito de jurisdição force sair de um SaaS de telemetria (ver §9).
 
-### 1.1 Lado Elixir (`movimento-api`)
+### 1.1 Lado Elixir (`cinetra-api`)
 
 Três pacotes de auto-instrumentação cobrem a maior parte do caminho quente sem
 código manual:
@@ -84,14 +84,14 @@ profissionais candidatos, nº de regras ativas, dias varridos). Assim o trace ex
 
 **Instrumentar os Phoenix Channels.** O tempo real (ADR-004) não passa pelo BFF: o
 browser abre o WebSocket direto contra o Phoenix. Isso significa que o trace do
-Channel **não** tem um pai vindo do Node — ele nasce no `movimento-api`. O
+Channel **não** tem um pai vindo do Node — ele nasce no `cinetra-api`. O
 `opentelemetry_phoenix` instrumenta join e handle_in; o que importa acrescentar é o
 atributo de tópico (`clinic:<id>:agenda:<data>`) para conseguir agrupar latência de
 broadcast por clínica e por dia. Um broadcast de `appointment_rescheduled` que chega
 lento a todos os clientes de um tópico é um sintoma de fan-out excessivo, e o span
 com o tópico é o que torna isso diagnosticável.
 
-### 1.2 Lado Node (`movimento-web`)
+### 1.2 Lado Node (`cinetra-web`)
 
 O BFF é o **início** do trace na maioria dos fluxos de tela. Ele precisa de duas
 coisas: gerar o contexto de trace no `handle` do SvelteKit e **injetar `traceparent`**
@@ -104,7 +104,7 @@ import { NodeSDK } from '@opentelemetry/sdk-node';
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
 
 new NodeSDK({
-  serviceName: 'movimento-web',
+  serviceName: 'cinetra-web',
   instrumentations: [getNodeAutoInstrumentations()] // instrumenta o fetch → injeta traceparent
 }).start();
 ```
@@ -300,7 +300,7 @@ get "/ready",  HealthController, :ready    # 200 se DB + migrações + pool OK
 
 ```toml
 # NAO-VERIFICADO: confirmar contra hexdocs ao scaffoldar
-# fly.toml (movimento-api)
+# fly.toml (cinetra-api)
 [[http_service.checks]]
   method = "GET"
   path = "/ready"
@@ -309,7 +309,7 @@ get "/ready",  HealthController, :ready    # 200 se DB + migrações + pool OK
   grace_period = "10s"   # tempo pra subir antes do primeiro check contar
 ```
 
-O `movimento-web` (Node) tem seu próprio `/health`, e seu `/ready` deve verificar que
+O `cinetra-web` (Node) tem seu próprio `/health`, e seu `/ready` deve verificar que
 **consegue alcançar a API** — porque um BFF que sobe sem a API atrás é inútil e não
 deve receber tráfego.
 
@@ -325,8 +325,8 @@ mais do SSR justamente porque os dois serviços ficam colados na mesma região.
 
 | App | Runtime | Papel | Escala |
 |---|---|---|---|
-| `movimento-api` | Elixir/Phoenix release | API JSON:API + Channels + Oban | ≥ 2 instâncias (clustering + HA) |
-| `movimento-web` | Node/`adapter-node` | BFF SvelteKit | ≥ 2 instâncias |
+| `cinetra-api` | Elixir/Phoenix release | API JSON:API + Channels + Oban | ≥ 2 instâncias (clustering + HA) |
+| `cinetra-web` | Node/`adapter-node` | BFF SvelteKit | ≥ 2 instâncias |
 
 Duas instâncias de API não são só disponibilidade: são o mínimo para o clustering
 BEAM que o PubSub distribuído exige (§5.3).
@@ -346,7 +346,7 @@ e atrasa boot), e uma migração longa seguraria o health check.
 
 ```toml
 # NAO-VERIFICADO: confirmar contra hexdocs ao scaffoldar
-# fly.toml (movimento-api)
+# fly.toml (cinetra-api)
 [deploy]
   release_command = "/app/bin/movimento eval 'Movimento.Release.migrate()'"
   strategy = "rolling"
@@ -373,7 +373,7 @@ end
 
 O ADR-004 quer `Phoenix.PubSub` distribuído, e o ADR-008 diz que o clustering BEAM
 entre nós Fly deixa isso "praticamente de graça". Concretamente: com dois nós de
-`movimento-api` conectados num cluster Erlang, um broadcast originado no nó A chega a
+`cinetra-api` conectados num cluster Erlang, um broadcast originado no nó A chega a
 um cliente conectado no nó B sem broker externo. Sem cluster, um atendente conectado
 ao nó A não veria a remarcação feita por outro atendente cujo request caiu no nó B — e
 a agenda "ao vivo" mentiria dependendo de em qual instância cada browser pousou.
@@ -391,11 +391,11 @@ A descoberta de nós no Fly usa o DNS interno (`<app>.internal`,
 # NAO-VERIFICADO: confirmar contra hexdocs ao scaffoldar
 # application.ex — DNSCluster resolvendo o DNS interno do Fly
 {DNSCluster, query: System.get_env("DNS_CLUSTER_QUERY") || :ignore}
-# DNS_CLUSTER_QUERY = "movimento-api.internal"
+# DNS_CLUSTER_QUERY = "cinetra-api.internal"
 ```
 
 Isso exige que o release use nome de nó longo com o IP privado (`RELEASE_DISTRIBUTION=name`,
-`RELEASE_NODE=movimento-api@<ipv6-privado>`), configuração que o gerador de release do
+`RELEASE_NODE=cinetra-api@<ipv6-privado>`), configuração que o gerador de release do
 Fly costuma preencher no `rel/env.sh.eex`. **NAO-VERIFICADO: confirmar contra hexdocs
 ao scaffoldar.**
 

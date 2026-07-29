@@ -21,7 +21,7 @@ export function apiPublicOrigin(): string {
 //
 // `x-forwarded-for` — o IP real do cliente, para as chaves de rate limit por IP da API (doc 13,
 // causa A). A API é interna, então confia neste header vindo só do BFF; `getClientAddress()` já
-// resolve o IP real atrás da edge via ADDRESS_HEADER (web/fly.toml).
+// resolve o IP real atrás da edge via ADDRESS_HEADER (compose.dokploy.yml).
 //
 // As chamadas SEM sessão são justamente as que mais dependem dele: sem ator, a API só tem o IP
 // como chave. Sem o header, todo tráfego anônimo do produto (respostas de paciente, callbacks de

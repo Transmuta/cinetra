@@ -16,7 +16,7 @@ defmodule Api.Messaging.TemplatesTest do
   alias Api.Messaging.Templates
 
   @vars %{
-    "clinica" => "Clínica Movimento",
+    "clinica" => "Clínica Cinetra",
     "paciente" => "Maria Aparecida da Silva",
     "data" => "28/07/2026",
     "hora" => "14:00",

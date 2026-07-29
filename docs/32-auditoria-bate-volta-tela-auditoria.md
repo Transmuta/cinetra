@@ -5,7 +5,7 @@ Auditoria da fatia que construiu a tela de auditoria: `read :audit_log` paginada
 encadeado + enriquecimento), `GET /api/audit` (`AuditController`, owner·admin) e a tela SvelteKit
 (`+page`, `AuditEntry`, `FieldDiff`, link no `Sidebar`).
 
-Contra a **stack rodando**: `psql` como `movimento_app` (NOBYPASSRLS) e `postgres`
+Contra a **stack rodando**: `psql` como `cinetra_app` (NOBYPASSRLS) e `postgres`
 (`EXPLAIN ANALYZE`), `ConnCase` exercendo o pipeline real do `ApiWeb.Router` com sessão de magic
 link, telemetria `[:api, :repo, :query]` contando queries. Três eixos caçados em paralelo
 (segurança, performance, refatoração), cada achado provado por sonda antes de existir.
@@ -117,7 +117,7 @@ que acompanha esse crescimento:
 
 ## 6. Provas-chave (coladas)
 
-**RLS das tabelas de versão** (`movimento_app`, NOBYPASSRLS, em transação com ROLLBACK):
+**RLS das tabelas de versão** (`cinetra_app`, NOBYPASSRLS, em transação com ROLLBACK):
 
 ```
 sem GUC                       → appt 0 / att 0

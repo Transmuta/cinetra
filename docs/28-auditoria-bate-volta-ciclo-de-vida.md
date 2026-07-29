@@ -1,7 +1,7 @@
 # 28 — Auditoria bate-volta: Entrega 4 (ciclo de vida)
 
 Auditoria em rodadas da Entrega 4 da agenda (doc 25 §8d/§9), contra a **stack rodando** —
-`mix test`/`ConnCase`, `psql` como `movimento_app` (NOBYPASSRLS), telemetria de query,
+`mix test`/`ConnCase`, `psql` como `cinetra_app` (NOBYPASSRLS), telemetria de query,
 `EXPLAIN (ANALYZE, BUFFERS)` e `svelte-check`. Três eixos em paralelo (segurança, performance,
 refatoração), cada achado provado por sonda.
 
@@ -24,8 +24,8 @@ não-commitado da sessão (28 modificados + arquivos novos do ciclo de vida).
   remarcar para a coluna de colega → `Ash.Error.Forbidden`. Provado por `mix test` probe.
 - **A9 no `:reschedule`:** `encaixe: true` por `profissional` → `Forbidden` (`@encaixe_actions`
   inclui `:reschedule`). Sem encaixe → `{:ok, _}`.
-- **RLS/GUC nas transições + cascata:** probe como `movimento_app` (`rolbypassrls=false`):
-  `SET LOCAL movimento.clinic_id` antes de cada `UPDATE`; `appointments` e `attendances`
+- **RLS/GUC nas transições + cascata:** probe como `cinetra_app` (`rolbypassrls=false`):
+  `SET LOCAL cinetra.clinic_id` antes de cada `UPDATE`; `appointments` e `attendances`
   (cascata) gravaram, versões inseridas, `WITH CHECK` não barrou. Leitura cross-tenant: GUC=A vê
   só A, 0 de B; sem GUC, 0 linhas.
 - **Cross-tenant + vazamento pelo 409:** owner de A cancela id **real** de B com `version`
@@ -70,7 +70,7 @@ Nenhum de segurança. Os itens foram levados um a um; o veredito de cada:
    Bounded (1 transação, não escala). *Se for mexer:* devolver as attendances do `after_action` e
    bifurcar status × reschedule.
 3. **Fan-out do tempo real** (`load_visible_appointment` por assinante) — **MEDIDO** (stress
-   local, `movimento_app`, bloco turma de 8 = o mais pesado). Uma releitura: **~9 ms / 3 SELECTs**.
+   local, `cinetra_app`, bloco turma de 8 = o mais pesado). Uma releitura: **~9 ms / 3 SELECTs**.
    Uma escrita dispara K releituras concorrentes (gargalo = `pool_size` 10):
 
    | K assinantes | parede | queries/escrita |

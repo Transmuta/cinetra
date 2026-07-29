@@ -34,9 +34,9 @@ config :api, :google_oauth,
 # sobrescrever as chaves aqui apagaria a escolha de `config/test.exs` — `runtime.exs` roda
 # DEPOIS dos configs por ambiente.
 #
-# As quatro variáveis são segredo (Fly secrets em produção, `.env` gitignored em dev). Sem elas o
-# sistema sobe normalmente e só a fatia de anexos responde 503 — anexo não pode ser motivo de a
-# clínica inteira não abrir.
+# As quatro variáveis são segredo (secrets do stack em produção, `.env` gitignored em dev). Sem
+# elas o sistema sobe normalmente e só a fatia de anexos responde 503 — anexo não pode ser motivo
+# de a clínica inteira não abrir.
 if config_env() != :test do
   config :api, Api.Storage,
     adapter: Api.Storage.R2,
@@ -74,7 +74,7 @@ if config_env() != :test do
   config :api, Api.Messaging.PatientEmails,
     remetente:
       {System.get_env("MAIL_FROM_NAME") || "Cinetra",
-       System.get_env("MAIL_FROM") || "nao-responda@movimento.local"}
+       System.get_env("MAIL_FROM") || "nao-responda@cinetra.local"}
 
   # Segredos de assinatura dos webhooks. Sem eles o endpoint recusa **tudo** — fail closed, e a
   # alternativa (aceitar sem verificar) seria um endpoint aberto de escrita cujo sintoma é nenhum.

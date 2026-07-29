@@ -84,8 +84,8 @@ defmodule Api.Repo.Migrations.AgendaConstraintAndRls do
 
       execute """
       CREATE POLICY tenant_isolation ON #{table}
-        USING (clinic_id = current_setting('movimento.clinic_id', true)::uuid)
-        WITH CHECK (clinic_id = current_setting('movimento.clinic_id', true)::uuid)
+        USING (clinic_id = current_setting('cinetra.clinic_id', true)::uuid)
+        WITH CHECK (clinic_id = current_setting('cinetra.clinic_id', true)::uuid)
       """
     end
   end

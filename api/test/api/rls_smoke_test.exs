@@ -1,7 +1,7 @@
 defmodule Api.RlsSmokeTest do
   @moduledoc """
   O gate que faltava: exercita os caminhos por-tenant com o **mesmo role do servidor**
-  (`movimento_app`, NOBYPASSRLS), e não com o `postgres` do resto da suíte.
+  (`cinetra_app`, NOBYPASSRLS), e não com o `postgres` do resto da suíte.
 
   ## Por que este arquivo existe
 
@@ -10,8 +10,8 @@ defmodule Api.RlsSmokeTest do
   passa verde no `mix test` e devolve **lista vazia** no servidor real. A mesma chamada,
   sob os dois roles:
 
-      movimento_app, SEM in_clinic : 0 profissionais
-      movimento_app, COM in_clinic : 2 profissionais
+      cinetra_app, SEM in_clinic : 0 profissionais
+      cinetra_app, COM in_clinic : 2 profissionais
       postgres                     : 2 profissionais
 
   Essa classe de bug mordeu três vezes numa fatia só e era invisível ao gate de cobertura.
@@ -19,10 +19,10 @@ defmodule Api.RlsSmokeTest do
   ## Como rodar
 
       # local (exige o role criado no banco de teste — ver priv/sql/setup_app_role.sql)
-      DATABASE_USER=movimento_app DATABASE_PASSWORD=movimento_app mix test --only rls
+      DATABASE_USER=cinetra_app DATABASE_PASSWORD=cinetra_app mix test --only rls
 
   No CI é o job `api-rls`. Sob `postgres` estes testes também passam — só que sem provar
-  nada; é rodando como `movimento_app` que eles viram gate.
+  nada; é rodando como `cinetra_app` que eles viram gate.
 
   ## O que é asserção aqui
 
@@ -111,7 +111,7 @@ defmodule Api.RlsSmokeTest do
   # O sandbox de teste roda o teste inteiro dentro de UMA transação. Como a GUC é `SET LOCAL`,
   # a primeira escrita do `fixture/0` (que a seta via `SetTenantGuc`) a deixa **pendurada** até
   # o fim do teste — e qualquer leitura posterior a herda de graça. Resultado: uma leitura sem
-  # `in_clinic` passa verde mesmo sob `movimento_app`, e o gate vira decoração.
+  # `in_clinic` passa verde mesmo sob `cinetra_app`, e o gate vira decoração.
   #
   # Verificado: com o `in_clinic` do `load_agenda` removido de propósito, o arquivo passava.
   # Zerando a GUC antes da leitura, ele falha — que é o comportamento correto.
@@ -119,7 +119,7 @@ defmodule Api.RlsSmokeTest do
   # Em produção não existe herança: cada request chega numa transação nova, sem GUC. Zerar
   # aqui **reproduz a precondição real** em vez de inventar uma.
   defp sem_guc do
-    Api.Repo.query!("SELECT set_config('movimento.clinic_id', '', true)")
+    Api.Repo.query!("SELECT set_config('cinetra.clinic_id', '', true)")
     :ok
   end
 
@@ -135,7 +135,7 @@ defmodule Api.RlsSmokeTest do
       if bypass do
         IO.puts(
           "\n  [rls] AVISO: rodando como #{user} (BYPASSRLS) — este arquivo não prova nada. " <>
-            "Use DATABASE_USER=movimento_app.\n"
+            "Use DATABASE_USER=cinetra_app.\n"
         )
       end
 
@@ -354,7 +354,7 @@ defmodule Api.RlsSmokeTest do
     #
     # **O que este teste NÃO prova, e foi medido:** que aquela leitura precisa do `in_clinic`.
     # Tirando o `in_clinic` de `checar_profissional/2`, este teste continua **verde** sob
-    # `movimento_app`. A razão é o sandbox: a suíte roda tudo numa transação só, então a GUC que o
+    # `cinetra_app`. A razão é o sandbox: a suíte roda tudo numa transação só, então a GUC que o
     # `in_clinic` anterior (o `get_package!` do próprio `adjust_grade`) pendurou com `SET LOCAL`
     # ainda vale quando a checagem roda — nem o `sem_guc()` acima adianta, porque `adjust_grade`
     # reseta a GUC antes de chegar lá. É o limite conhecido deste gate: ele prova a porta de
@@ -362,8 +362,8 @@ defmodule Api.RlsSmokeTest do
     #
     # A necessidade do `in_clinic` está provada **fora** da suíte, por psql direto:
     #
-    #     movimento_app, sem a GUC : 0 profissionais
-    #     movimento_app, com a GUC : 1 profissional
+    #     cinetra_app, sem a GUC : 0 profissionais
+    #     cinetra_app, com a GUC : 1 profissional
     #
     # Sem ele, em produção (transação por ação, sem GUC herdada) TODO ajuste de grade recusaria
     # com `:profissional_invalido`. O que este teste guarda é o caminho ponta a ponta sob o role
@@ -821,7 +821,7 @@ defmodule Api.RlsSmokeTest do
     # estrutural (o comportamento passa verde com o bug em pé, porque a GUC do `autorizar/3` fica
     # pendurada no sandbox) e vale para todo recurso por-tenant, não só para o anexo. Está em
     # `Api.TenantGucTest`. Este teste continua útil pelo outro lado: prova que o ciclo completo
-    # roda sob `movimento_app` sem estourar.
+    # roda sob `cinetra_app` sem estourar.
     test "remover apaga a linha e os bytes" do
       ctx = fixture()
       anexo = anexo(ctx)
@@ -863,7 +863,7 @@ defmodule Api.RlsSmokeTest do
     # roda **fora de request**, e o webhook roda **sem tenant nenhum**. Os dois já falharam em
     # desenvolvimento exatamente pelo modo que este arquivo existe para pegar — silêncio.
 
-    test "o job de envio lê a mensagem e grava o resultado sob movimento_app" do
+    test "o job de envio lê a mensagem e grava o resultado sob cinetra_app" do
       ctx = fixture()
       message = mensagem(ctx)
 
@@ -921,7 +921,7 @@ defmodule Api.RlsSmokeTest do
 
     test "a RESPOSTA do paciente acha a mensagem sem tenant (o link do e-mail)" do
       # O bug que o bate-volta pegou ao vivo: a rota pública `/api/reply/:token` conhece só o
-      # `message_id` (do token) e roda **sem GUC nenhuma**. Sob `movimento_app` a policy comparava
+      # `message_id` (do token) e roda **sem GUC nenhuma**. Sob `cinetra_app` a policy comparava
       # `clinic_id = NULL`, não casava linha, e todo link legítimo respondia `link_invalido` — com
       # os 7 testes da rota verdes, porque o sandbox conecta como `postgres`.
       #
@@ -940,7 +940,7 @@ defmodule Api.RlsSmokeTest do
       assert achada.id == message.id, "a resposta do paciente não acha a mensagem sob RLS"
     end
 
-    test "a resposta 'quer remarcar' escreve na caixa da recepção sob movimento_app (doc 65 §5)" do
+    test "a resposta 'quer remarcar' escreve na caixa da recepção sob cinetra_app (doc 65 §5)" do
       # O fan-out da resposta do paciente roda a partir de uma rota **pública**: não há sessão,
       # não há GUC do request, e ele escreve N linhas em `notifications` (por-tenant, sob RLS).
       # Sem a GUC certa, a escrita não erra alto — a caixa fica vazia e ninguém descobre que o
@@ -965,7 +965,7 @@ defmodule Api.RlsSmokeTest do
                Api.Notifications.list_inbox(ctx.scope).results
     end
 
-    test "o aviso da massa por pacote alcança o paciente sob movimento_app" do
+    test "o aviso da massa por pacote alcança o paciente sob cinetra_app" do
       # `avisa_o_paciente/6` acha a âncora, lê a clínica e grava a mensagem — três leituras
       # por-tenant depois do commit da massa. Sem GUC, a âncora volta `nil` e a mensagem some em
       # silêncio: a massa "funciona" e o paciente não é avisado.

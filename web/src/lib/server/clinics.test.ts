@@ -24,13 +24,13 @@ function event(fetchImpl: ReturnType<typeof vi.fn>) {
 describe('onboardClinic (BFF do onboarding)', () => {
 	it('201 → ok, devolve o id da clínica e faz POST /api/clinics com o nome no corpo', async () => {
 		const fetch = vi.fn().mockResolvedValue(json({ clinic: { id: 'c1', nome: 'X' } }, 201));
-		const res = await onboardClinic(event(fetch), 'Studio Movimento');
+		const res = await onboardClinic(event(fetch), 'Studio Cinetra');
 
 		expect(res).toEqual({ ok: true, status: 201, clinicId: 'c1' });
 		const [url, init] = fetch.mock.calls[0];
 		expect(url).toBe('http://localhost:4000/api/clinics');
 		expect(init.method).toBe('POST');
-		expect(JSON.parse(init.body as string)).toEqual({ nome: 'Studio Movimento' });
+		expect(JSON.parse(init.body as string)).toEqual({ nome: 'Studio Cinetra' });
 	});
 
 	it('422 → mensagem sobre o nome', async () => {

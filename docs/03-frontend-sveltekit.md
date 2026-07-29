@@ -946,7 +946,7 @@ cita. Cada risco com mitigação concreta. Alinhada com
 ## 10. Estrutura de diretórios
 
 ```
-movimento-web/
+cinetra-web/
 ├─ src/
 │  ├─ app.html                      # %sveltekit.html% com <html lang="pt-BR" data-theme data-density>
 │  ├─ hooks.server.ts               # sessão (cookie) → locals; estampa theme/lang no HTML

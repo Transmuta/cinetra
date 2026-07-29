@@ -82,7 +82,7 @@ defmodule Api.Messaging.SendJob do
   # `tenant:` **e** GUC, e as duas por motivos diferentes: o `tenant:` é o filtro do Ash (sem ele a
   # leitura de recurso por-tenant nem roda — levanta "require a tenant"), e a GUC é o que a RLS do
   # Postgres exige. Faltar o primeiro dá erro alto; faltar o segundo devolve **vazio calado** sob
-  # `movimento_app`, e o job "funciona" sem enviar nada — invisível no `mix test`, onde o sandbox
+  # `cinetra_app`, e o job "funciona" sem enviar nada — invisível no `mix test`, onde o sandbox
   # bypassa RLS. Os dois já custaram fatia (doc 09, materialização de pacote).
   defp ler(clinic_id, message_id) do
     Api.Repo.with_clinic(clinic_id, fn ->

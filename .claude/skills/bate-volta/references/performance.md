@@ -1,7 +1,7 @@
 # Performance — query e indexação
 
 **Meça, não estime.** As sondas do projeto pagam o próprio preço aqui:
-`docker compose exec db psql -U postgres -d movimento_dev` roda `EXPLAIN (ANALYZE, BUFFERS)`
+`docker compose exec db psql -U postgres -d cinetra_dev` roda `EXPLAIN (ANALYZE, BUFFERS)`
 de verdade, e `docker compose exec api mix ...` / `docker compose logs api` mostram as queries
 que a app emite agora. Um plano de query colado vale mais que qualquer parágrafo de suspeita.
 
@@ -18,7 +18,7 @@ Rode `EXPLAIN (ANALYZE, BUFFERS)` em **toda query nova ou alterada** do diff. Co
 `Seq Scan` em tabela que cresce é CONFIRMADO. (Em tabela de 12 linhas o Postgres escolhe seq
 scan de propósito e está certo — considere o tamanho projetado, não o atual.)
 > Nota RLS: a RLS por GUC (ADR-018) adiciona um predicado `clinic_id = current_setting(...)` a
-> toda query do tenant. Rode o `EXPLAIN` **como `movimento_app`** para ver o plano real, com o
+> toda query do tenant. Rode o `EXPLAIN` **como `cinetra_app`** para ver o plano real, com o
 > filtro da policy; o plano como `postgres` (bypass) mente sobre o que a app vive.
 
 **Query sem `LIMIT` / paginação ausente**
@@ -65,7 +65,7 @@ I/O externo. Confronte a concorrência declarada com `Api.Repo.config()[:pool_si
 aparece como **latência de API**, não como problema do worker — o que torna caro de diagnosticar.
 
 **Transação longa segurando a GUC**
-Lembre que o Movimento **abre uma transação por ação** para escopar a GUC da RLS (ADR-018). Uma
+Lembre que a Cinetra **abre uma transação por ação** para escopar a GUC da RLS (ADR-018). Uma
 chamada HTTP externa **dentro** dessa transação segura conexão e locks pelo tempo da rede
 alheia — pior aqui do que no normal, porque a transação existe por design. I/O externo vai em
 `before_transaction`/`after_transaction`, não no meio da ação.

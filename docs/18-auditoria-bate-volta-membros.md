@@ -65,7 +65,7 @@ Ordem: segurança → infra → CI → DRY. Cada um: sonda que achou · teste ve
   Raiz: a leitura por-tenant de `Professional` sob RLS precisa de transação p/ setar o GUC.
 - **Correção:** `Api.Directory.list_clinic_professionals/1` (centraliza o `with_clinic` na camada
   de domínio) + `load: [:user]` via code interface (no lugar do `Ash.load!`).
-- **Re-sonda:** `GET /api/members` sob `movimento_app` → `professionals: ['Dra. Ana Livre']`
+- **Re-sonda:** `GET /api/members` sob `cinetra_app` → `professionals: ['Dra. Ana Livre']`
   (a isolação e o retorno seguem corretos).
 
 ### CI — `svelte-check` quebrado (bloqueava o job web) ✅ corrigido
@@ -84,7 +84,7 @@ Ordem: segurança → infra → CI → DRY. Cada um: sonda que achou · teste ve
   baseline do `develop`; a fatia+fixes subiram +7,3pp — o gate segue na dívida pré-existente do
   `release.ex`, fora do escopo, ver §5).
 - Web: **122 Vitest, 0 falhas**; `svelte-check` limpo; gate de cobertura **95,7%** (verde).
-- Todos os fixes RLS-sensíveis re-provados contra `movimento_app` + o phx.server.
+- Todos os fixes RLS-sensíveis re-provados contra `cinetra_app` + o phx.server.
 - Diff dos consertos auditado: sem achado novo. Resíduo benigno anotado — re-convite duplicado
   pode deixar um `User` órfão (sem membership); inofensivo.
 - Artefatos de sonda no DB de dev (writes das auditorias) removidos.
@@ -110,8 +110,8 @@ Ordem: segurança → infra → CI → DRY. Cada um: sonda que achou · teste ve
 3. **RLS dá falsa confiança nos testes (infra de teste).** `mix test`/`mix run` conectam como
    `postgres` (superuser, **bypassa RLS**), então a asserção de `professionals` no controller
    passaria **mesmo sem** o `with_clinic`. **Sonda:** `professionals count` = 7 (postgres) vs 0
-   (`movimento_app` sem GUC). O bug de RLS desta fatia só foi pego por verificação no
-   browser/`curl`. **Correção candidata:** um teste que conecte como `movimento_app`
+   (`cinetra_app` sem GUC). O bug de RLS desta fatia só foi pego por verificação no
+   browser/`curl`. **Correção candidata:** um teste que conecte como `cinetra_app`
    (NOBYPASSRLS) provando que sem GUC a leitura zera e com GUC filtra — decisão de infra de
    testes (o Ecto Sandbox complica trocar de role).
 

@@ -170,25 +170,25 @@ services:
       - traefik.enable=true
       - traefik.docker.network=dokploy-network
       # /socket -> API (WebSocket do browser). Prioridade > catch-all do web.
-      - traefik.http.routers.movimento-api-socket-${STACK}.rule=Host(`${WEB_HOST}`) && PathPrefix(`/socket`)
-      - traefik.http.routers.movimento-api-socket-${STACK}.entrypoints=websecure
-      - traefik.http.routers.movimento-api-socket-${STACK}.tls.certresolver=letsencrypt
-      - traefik.http.routers.movimento-api-socket-${STACK}.priority=100
-      - traefik.http.routers.movimento-api-socket-${STACK}.service=movimento-api-${STACK}
+      - traefik.http.routers.cinetra-api-socket-${STACK}.rule=Host(`${WEB_HOST}`) && PathPrefix(`/socket`)
+      - traefik.http.routers.cinetra-api-socket-${STACK}.entrypoints=websecure
+      - traefik.http.routers.cinetra-api-socket-${STACK}.tls.certresolver=letsencrypt
+      - traefik.http.routers.cinetra-api-socket-${STACK}.priority=100
+      - traefik.http.routers.cinetra-api-socket-${STACK}.service=cinetra-api-${STACK}
       # /webhooks -> API (provedores externos: Resend e os próximos).
-      - traefik.http.routers.movimento-api-webhooks-${STACK}.rule=Host(`${WEB_HOST}`) && PathPrefix(`/webhooks`)
-      - traefik.http.routers.movimento-api-webhooks-${STACK}.entrypoints=websecure
-      - traefik.http.routers.movimento-api-webhooks-${STACK}.tls.certresolver=letsencrypt
-      - traefik.http.routers.movimento-api-webhooks-${STACK}.priority=100
-      - traefik.http.routers.movimento-api-webhooks-${STACK}.service=movimento-api-${STACK}
+      - traefik.http.routers.cinetra-api-webhooks-${STACK}.rule=Host(`${WEB_HOST}`) && PathPrefix(`/webhooks`)
+      - traefik.http.routers.cinetra-api-webhooks-${STACK}.entrypoints=websecure
+      - traefik.http.routers.cinetra-api-webhooks-${STACK}.tls.certresolver=letsencrypt
+      - traefik.http.routers.cinetra-api-webhooks-${STACK}.priority=100
+      - traefik.http.routers.cinetra-api-webhooks-${STACK}.service=cinetra-api-${STACK}
       # Serviço (compartilhado pelos dois routers) + health pelo Traefik (a imagem não tem curl).
       # Aponta para **/api/ready**, não /api/health: quem decide rotear tráfego precisa saber se a
       # instância consegue SERVIR (banco + pool), não só se o BEAM respira. O /api/health é o
       # liveness — sem I/O, para que um blip do Postgres não faça reiniciar máquina saudável
       # (doc 62 §7.1). Ambas ficam fora do pipeline `:authenticated`.
-      - traefik.http.services.movimento-api-${STACK}.loadbalancer.server.port=4000
-      - traefik.http.services.movimento-api-${STACK}.loadbalancer.healthcheck.path=/api/ready
-      - traefik.http.services.movimento-api-${STACK}.loadbalancer.healthcheck.interval=10s
+      - traefik.http.services.cinetra-api-${STACK}.loadbalancer.server.port=4000
+      - traefik.http.services.cinetra-api-${STACK}.loadbalancer.healthcheck.path=/api/ready
+      - traefik.http.services.cinetra-api-${STACK}.loadbalancer.healthcheck.interval=10s
 
   web:
     build:
@@ -220,18 +220,18 @@ services:
       - traefik.enable=true
       - traefik.docker.network=dokploy-network
       # Catch-all do domínio: tudo que não for /socket nem /webhooks. Prioridade < a da API.
-      - traefik.http.routers.movimento-web-${STACK}.rule=Host(`${WEB_HOST}`)
-      - traefik.http.routers.movimento-web-${STACK}.entrypoints=websecure
-      - traefik.http.routers.movimento-web-${STACK}.tls.certresolver=letsencrypt
-      - traefik.http.routers.movimento-web-${STACK}.priority=1
-      - traefik.http.services.movimento-web-${STACK}.loadbalancer.server.port=3000
+      - traefik.http.routers.cinetra-web-${STACK}.rule=Host(`${WEB_HOST}`)
+      - traefik.http.routers.cinetra-web-${STACK}.entrypoints=websecure
+      - traefik.http.routers.cinetra-web-${STACK}.tls.certresolver=letsencrypt
+      - traefik.http.routers.cinetra-web-${STACK}.priority=1
+      - traefik.http.services.cinetra-web-${STACK}.loadbalancer.server.port=3000
       # Health do BFF, que não existia. Aponta para **/health** (liveness), NÃO para /ready: o
       # /ready depende da API, e tirar o BFF da rotação quando a API pisca faz o site deixar de
       # servir até a página de erro. Degradar é melhor que desaparecer.
       # Quem precisa saber se o PRODUTO está usável é o monitor externo, e esse bate em /ready
       # (doc 62 §9.4) — mesmos dois endpoints, consumidores e semânticas diferentes.
-      - traefik.http.services.movimento-web-${STACK}.loadbalancer.healthcheck.path=/health
-      - traefik.http.services.movimento-web-${STACK}.loadbalancer.healthcheck.interval=10s
+      - traefik.http.services.cinetra-web-${STACK}.loadbalancer.healthcheck.path=/health
+      - traefik.http.services.cinetra-web-${STACK}.loadbalancer.healthcheck.interval=10s
 
   # Backup AGENDADO 1/1h (o pré-deploy cobre t=0).
   backup-cron:

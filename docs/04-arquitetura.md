@@ -23,7 +23,7 @@ Decisões que justificam este desenho: [00-decisoes.md](00-decisoes.md).
                             │  cookie de sessão │  token efêmero
                             ▼                   │
            ┌────────────────────────────┐       │
-           │      movimento-web         │       │
+           │      cinetra-web         │       │
            │  SvelteKit · adapter-node  │       │
            │  BFF: load + form actions  │       │
            │  NÃO tem conexão de banco  │       │
@@ -32,7 +32,7 @@ Decisões que justificam este desenho: [00-decisoes.md](00-decisoes.md).
                         │ Bearer (service)      │
                         ▼                       ▼
            ┌──────────────────────────────────────────────┐
-           │             movimento-api                    │
+           │             cinetra-api                    │
            │  Phoenix · Ash 3.x                           │
            │  ├─ AshJsonApi        (REST)                 │
            │  ├─ Phoenix.Channel   (realtime)             │
@@ -53,14 +53,14 @@ Decisões que justificam este desenho: [00-decisoes.md](00-decisoes.md).
 ```
 
 **Duas regras invioláveis.**
-O `movimento-web` nunca abre conexão com o Postgres — toda autorização acontece num lugar só, dentro do Ash (ADR-005).
+O `cinetra-web` nunca abre conexão com o Postgres — toda autorização acontece num lugar só, dentro do Ash (ADR-005).
 Nenhum módulo de domínio lê o relógio do sistema; o tempo é injetado (ADR-009).
 
 ---
 
 ## 2. Fronteiras e responsabilidades
 
-### `movimento-api` (Elixir · Phoenix · Ash)
+### `cinetra-api` (Elixir · Phoenix · Ash)
 
 Dono de: modelo de domínio, regras de negócio, autorização, criptografia, auditoria, agregados, jobs e o barramento de eventos em tempo real.
 
@@ -79,7 +79,7 @@ Além desses quatro, `computeSerie` ([`:1081`](../interface/Movimento.dc.html#L1
 
 Cada motor é um módulo com funções puras que recebem dados **e o relógio** (ADR-009), testadas isoladamente. As resource actions do Ash apenas os orquestram dentro da transação.
 
-### `movimento-web` (Node · SvelteKit)
+### `cinetra-web` (Node · SvelteKit)
 
 Dono de: SSR, roteamento, composição de tela, estado de UI, e as interações ricas (drag-and-drop, pan, raias da agenda, scroll-spy). Traduz sessão em chamadas autenticadas à API. Não tem regra de negócio — quando precisa decidir, pergunta.
 
@@ -135,8 +135,8 @@ skinparam database {
 
 actor "Usuário (browser)" as u
 
-rectangle "movimento-web\n[SvelteKit · adapter-node]\nBFF: load + form actions\nSSR, sessão, composição" as web <<container>>
-rectangle "movimento-api\n[Phoenix · Ash 3.x]\nDomínio, RBAC, cripto,\nauditoria, realtime, jobs" as api <<container>>
+rectangle "cinetra-web\n[SvelteKit · adapter-node]\nBFF: load + form actions\nSSR, sessão, composição" as web <<container>>
+rectangle "cinetra-api\n[Phoenix · Ash 3.x]\nDomínio, RBAC, cripto,\nauditoria, realtime, jobs" as api <<container>>
 database "PostgreSQL\nmulti-tenant\nbtree_gist" as pg
 rectangle "Object storage S3" as s3 <<externo>>
 rectangle "Coletor OTel" as otel <<externo>>
@@ -344,7 +344,7 @@ O atributo `version` é um `integer` com default `1`. Como a exclusion constrain
 
 ## 8. Resiliência e degradação
 
-O ponto sensível do desenho BFF: o `movimento-web` faz SSR chamando a API por rede. O que acontece quando a API cai no meio de um SSR, ou o WebSocket morre?
+O ponto sensível do desenho BFF: o `cinetra-web` faz SSR chamando a API por rede. O que acontece quando a API cai no meio de um SSR, ou o WebSocket morre?
 
 **SSR com a API indisponível.** Um `load` do SvelteKit que recebe timeout/`5xx` da API **não** deve renderizar tela vazia nem mascarar o erro. Distinguimos por tipo de rota:
 

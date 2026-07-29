@@ -119,7 +119,7 @@ defmodule Api.Directory.AppointmentTypeTest do
       Api.Repo.transaction(fn ->
         {:ok, :verificado} =
           Api.Repo.with_clinic(clinic_id, fn ->
-            %{rows: [[guc]]} = Api.Repo.query!("SELECT current_setting('movimento.clinic_id')")
+            %{rows: [[guc]]} = Api.Repo.query!("SELECT current_setting('cinetra.clinic_id')")
             assert guc == clinic_id
             :verificado
           end)

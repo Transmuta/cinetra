@@ -63,7 +63,7 @@ defmodule Api.Repo.Migrations.BackfillAuditEvents do
 
   `audit_events` tem `FORCE ROW LEVEL SECURITY`, que alcança até o dono da tabela — mas
   **superusuário sempre bypassa** RLS, e migration roda como `postgres`. Por isso o `INSERT`
-  abaixo não precisa da GUC `movimento.clinic_id`. O `clinic_id` de cada linha vem da origem,
+  abaixo não precisa da GUC `cinetra.clinic_id`. O `clinic_id` de cada linha vem da origem,
   então o isolamento continua correto: nenhuma linha muda de clínica no caminho.
 
   ## Campos que não viram linha de diff

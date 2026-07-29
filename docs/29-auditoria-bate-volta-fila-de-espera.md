@@ -7,7 +7,7 @@ domínio `Api.Waitlist` (`WaitlistEntry`, `AvailabilityRule`, `SlotFinder`), `Ap
 `realtime.ts`.
 
 As três caças (segurança, performance, DRY/regras) foram despachadas **em paralelo** a subagentes
-especializados, cada um com a ordem de **provar com sonda** (psql como `movimento_app`, `ConnCase`,
+especializados, cada um com a ordem de **provar com sonda** (psql como `cinetra_app`, `ConnCase`,
 `EXPLAIN`, contagem de queries por telemetria). Nenhum achado sem output de sonda.
 
 ## 1. Onde parou
@@ -23,7 +23,7 @@ N+1 — **defendido e provado**.
 
 | Item | Estado | Sonda |
 | --- | --- | --- |
-| RLS nas 3 tabelas novas | REFUTADO (defende) | psql `movimento_app`: A→B = 0 linhas; INSERT/UPDATE de B sob GUC=A rejeitado |
+| RLS nas 3 tabelas novas | REFUTADO (defende) | psql `cinetra_app`: A→B = 0 linhas; INSERT/UPDATE de B sob GUC=A rejeitado |
 | IDOR (slots/offer/convert/patch/delete de outra clínica) | REFUTADO | ConnCase: todos 404 |
 | `profissional` faz `convert` na coluna de colega | REFUTADO | ConnCase: coluna alheia → 403; própria → 201 |
 | Spoof de `held_by` no corpo do `offer` | REFUTADO | `meta.held_by.id == actor`, não o forjado |
@@ -129,10 +129,10 @@ neles. **Nenhum achado novo** — parou na rodada 2, tudo REFUTADO/NÃO SE APLIC
 
 - **Validações sob RLS não dão falso-positivo.** A preocupação: `ProfessionalInClinic`/
   `PatientInClinic` recusarem uma ref **legítima** da própria clínica porque o lookup leria sem a
-  GUC sob RLS (o furo clássico invisível ao `mix test`/BYPASS). Sonda como `movimento_app`
+  GUC sob RLS (o furo clássico invisível ao `mix test`/BYPASS). Sonda como `cinetra_app`
   (NOBYPASSRLS, o role real do servidor):
   ```
-  current_user real: [["movimento_app"]]
+  current_user real: [["cinetra_app"]]
   ENQUEUE ok (PatientInClinic aceitou paciente legítimo sob RLS)
   OFFER   ok (ProfessionalInClinic aceitou prof legítimo sob RLS)
   CLEANUP ok

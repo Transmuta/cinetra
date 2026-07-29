@@ -23,7 +23,7 @@ defmodule Api.Messaging.PatientEmails do
   """
   import Swoosh.Email
 
-  @default_remetente {"Cinetra", "nao-responda@movimento.local"}
+  @default_remetente {"Cinetra", "nao-responda@cinetra.local"}
 
   @doc """
   Monta e entrega o e-mail de uma `Message` já renderizada.

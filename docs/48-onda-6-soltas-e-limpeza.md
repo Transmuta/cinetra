@@ -11,7 +11,7 @@ de **decisão de produto** antes de existir código.
 >
 > Tudo entregue e verde: **1.082 testes no backend** (18 doctests, 91,2%), **1.336 no web** e os
 > **4 e2e**, `0 falhas`, `svelte-check` limpo, `mix compile --warnings-as-errors` limpo, gate
-> `:rls` verde como `movimento_app`.
+> `:rls` verde como `cinetra_app`.
 >
 > Os dois gates de produto que bloqueavam a onda foram **decididos aqui** e estão registrados no
 > §5 (A3) e no §4 (D-Aud1) — com a medição que sustenta cada um. Um terceiro item, o desenho do

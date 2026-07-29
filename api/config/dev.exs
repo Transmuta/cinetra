@@ -5,7 +5,7 @@ config :api, Api.Repo,
   password: System.get_env("DATABASE_PASSWORD", "postgres"),
   hostname: System.get_env("DATABASE_HOST", "localhost"),
   port: String.to_integer(System.get_env("DATABASE_PORT", "5432")),
-  database: System.get_env("DATABASE_NAME", "movimento_dev"),
+  database: System.get_env("DATABASE_NAME", "cinetra_dev"),
   show_sensitive_data_on_connection_error: true,
   pool_size: 10
 

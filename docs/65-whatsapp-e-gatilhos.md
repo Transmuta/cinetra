@@ -211,7 +211,7 @@ conte com ela.**
   código desta fatia rodar.
 * **Web:** 1.645 testes, 90,35 % linhas (gate 80/75). O `svelte-check` acusa 2 erros, os dois em
   `auditoria/` — trabalho de outra sessão em voo, não desta fatia.
-* **Gate `:rls`** (role `movimento_app`, NOBYPASSRLS): dois testes novos, e os dois cobrem escrita
+* **Gate `:rls`** (role `cinetra_app`, NOBYPASSRLS): dois testes novos, e os dois cobrem escrita
   **depois** do commit, que é onde a GUC costuma faltar sem erro: a caixa da recepção escrita a
   partir de uma rota pública, e o aviso da massa por pacote.
 * **Teto de queries da massa:** o aviso ao paciente custa **~8 queries por massa**, constante. A

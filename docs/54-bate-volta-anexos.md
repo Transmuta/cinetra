@@ -1,7 +1,7 @@
 # 54 — Bate-volta da fatia de anexos (doc 51)
 
 Auditoria da fatia de anexos do paciente e das correções de design da ficha, contra a **stack
-rodando**: `psql` como `movimento_app`, `curl` no BFF e na API, `EXPLAIN (ANALYZE, BUFFERS)` nos
+rodando**: `psql` como `cinetra_app`, `curl` no BFF e na API, `EXPLAIN (ANALYZE, BUFFERS)` nos
 planos reais, `docker compose logs api` durante os fluxos, Playwright no browser.
 
 **Onde parou:** rodada 5. As duas caças acharam **5 causas-raiz + 3 menores**; todas consertadas.
@@ -44,7 +44,7 @@ A rodada 5 achou mais **um achado dentro do próprio conserto**, também corrigi
 | Item | Estado | Prova |
 | --- | --- | --- |
 | N+1 | **REFUTADO** | uma abertura de ficha → **1** query em `attachments` |
-| Seq scan | **REFUTADO** | os 4 planos novos, como `movimento_app`: `Index Scan Backward` (lista), `Index Only Scan` (cota), `Bitmap Index Scan` (poda), `Index Scan Backward` (trilha). Nenhum `Seq Scan` |
+| Seq scan | **REFUTADO** | os 4 planos novos, como `cinetra_app`: `Index Scan Backward` (lista), `Index Only Scan` (cota), `Bitmap Index Scan` (poda), `Index Scan Backward` (trilha). Nenhum `Seq Scan` |
 | Índice faltando em FK | **REFUTADO** | `on_delete_test.exs` exige índice em que a FK **lidere**; as 3 FKs novas passam |
 | Índice redundante | **REFUTADO** | `[:patient_id]` não é prefixo de `[:clinic_id, :patient_id, :inserted_at]` — colunas líderes diferentes |
 | Paginação ausente | **PARCIAL** → §5 | a lista da ficha é limitada pela cota (100); `list_clinic_attachment_events/2` não tem teto (não roteada) |
@@ -152,7 +152,7 @@ trocar os bytes depois não faz o anexo válido ser descartado.
 FROM "patients" AS p0 LEFT OUTER JOIN LATERAL (SELECT ... count(*) ... FROM "attendances" ...)
 ```
 
-`EXPLAIN (ANALYZE, BUFFERS)` como `movimento_app`, na clínica com **10.185** attendances:
+`EXPLAIN (ANALYZE, BUFFERS)` como `cinetra_app`, na clínica com **10.185** attendances:
 **67 buffers, 0,92 ms** por chamada (o índice certo é usado — `Index Cond` inclui `patient_id` —,
 então escala com o paciente, não com a clínica). O problema não é o custo unitário: é **quem
 paga**. `fetch_clinic_patient/2` é a porta da ficha, do histórico, dos anexos e das **três

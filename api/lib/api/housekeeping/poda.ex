@@ -9,7 +9,7 @@ defmodule Api.Housekeeping.Poda do
   distinto de errar em silêncio:
 
     * **por clínica, dentro de `Api.Repo.with_clinic/2`** — as tabelas têm RLS (ADR-018) e o job
-      roda como `movimento_app`. Um `DELETE` sem a GUC apaga **zero linha** e passa no `mix test`,
+      roda como `cinetra_app`. Um `DELETE` sem a GUC apaga **zero linha** e passa no `mix test`,
       onde o sandbox conecta como superusuário e bypassa RLS. É a armadilha de sempre;
     * **em lotes com teto** — anos de histórico numa transação só seguram conexão do pool e
       incham o WAL de uma vez;

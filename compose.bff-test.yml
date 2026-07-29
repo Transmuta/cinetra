@@ -34,7 +34,7 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: movimento_bff_test
+      POSTGRES_DB: cinetra_bff_test
     networks: [data]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
@@ -53,10 +53,10 @@ services:
         condition: service_healthy
     networks: [data]
     environment:
-      DATABASE_ADMIN_URL: "ecto://postgres:postgres@db/movimento_bff_test"
-      DATABASE_URL: "ecto://movimento_app:movimento_app@db/movimento_bff_test"
-      DATABASE_APP_USER: movimento_app
-      DATABASE_APP_PASSWORD: movimento_app
+      DATABASE_ADMIN_URL: "ecto://postgres:postgres@db/cinetra_bff_test"
+      DATABASE_URL: "ecto://cinetra_app:cinetra_app@db/cinetra_bff_test"
+      DATABASE_APP_USER: cinetra_app
+      DATABASE_APP_PASSWORD: cinetra_app
       SECRET_KEY_BASE: "bff-test-secret-key-base-com-64-bytes-xxxxxxxxxxxxxxxxxxxxxxxxxxx"
       TOKEN_SIGNING_SECRET: "bff-test-token-signing-secret"
       PHX_SERVER: "false"
@@ -70,7 +70,7 @@ services:
         condition: service_completed_successfully
     networks: [data, edge]
     environment:
-      DATABASE_URL: "ecto://movimento_app:movimento_app@db/movimento_bff_test"
+      DATABASE_URL: "ecto://cinetra_app:cinetra_app@db/cinetra_bff_test"
       SECRET_KEY_BASE: "bff-test-secret-key-base-com-64-bytes-xxxxxxxxxxxxxxxxxxxxxxxxxxx"
       TOKEN_SIGNING_SECRET: "bff-test-token-signing-secret"
       PHX_HOST: "cinetra.localhost"

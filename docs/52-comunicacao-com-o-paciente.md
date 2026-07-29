@@ -91,7 +91,7 @@ Levantado no `deps/`, não estimado:
   ([`config.exs:158`](../api/config/config.exs#L158)), porque o adapter `Local` não fala HTTP. Em
   produção vira Finch (ou Req) **com o pool supervisionado**;
 - o `from` precisa de **domínio verificado** (SPF/DKIM/DMARC no DNS). O atual é
-  `nao-responda@movimento.local` — placeholder de dev assumido como tal no
+  `nao-responda@cinetra.local` — placeholder de dev assumido como tal no
   [`Emails`](../api/lib/api/accounts/emails.ex). Verificar o domínio tem passo manual e propagação
   de DNS: é o item de lead time da fase 1, como o template HSM é o da fase 2;
 - **webhook**: o Resend assina via Svix (`svix-id` / `svix-timestamp` / `svix-signature`) e manda
@@ -666,7 +666,7 @@ Nada disto é código:
    sistema sobe normal e o e-mail cai em `/dev/mailbox`;
 2. **domínio verificado** no Resend (SPF/DKIM/DMARC) e o `MAIL_FROM` apontando para ele. É o item
    de lead time da fase 1 — e conserta de tabela o remetente dos e-mails de acesso, que hoje sairiam
-   de `movimento.local`;
+   de `cinetra.local`;
 3. **URL pública para o webhook** (túnel em dev; em produção, `<host>/webhooks/resend`);
 4. **ligar o lembrete** em `/configuracoes/comunicacao` — nasce desligado de propósito;
 5. **submeter o template HSM à Meta** durante a fase 1, não depois (§9).

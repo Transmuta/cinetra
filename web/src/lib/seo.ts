@@ -26,8 +26,8 @@ export const SITE = {
  * A URL canônica desta página.
  *
  * Sai de `event.url`, não de constante: sob `adapter-node` a origem vem do `ORIGIN` do
- * fly.toml, então a mesma função devolve `localhost` em desenvolvimento e o domínio real em
- * produção — sem uma segunda variável para esquecer de trocar.
+ * compose.dokploy.yml, então a mesma função devolve `localhost` em desenvolvimento e o domínio
+ * real em produção — sem uma segunda variável para esquecer de trocar.
  *
  * A query string É descartada de propósito: `?utm_source=…` em campanha criaria uma URL
  * canônica por campanha, que é justamente o conteúdo duplicado que a canônica existe para

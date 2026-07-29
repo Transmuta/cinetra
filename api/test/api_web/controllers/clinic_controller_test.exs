@@ -24,9 +24,9 @@ defmodule ApiWeb.ClinicControllerTest do
 
   describe "POST /api/clinics" do
     test "cria a clínica e torna o usuário owner ativo", %{conn: conn, user: user} do
-      body = conn |> post(~p"/api/clinics", %{nome: "Studio Movimento"}) |> json_response(201)
+      body = conn |> post(~p"/api/clinics", %{nome: "Studio Cinetra"}) |> json_response(201)
 
-      assert %{"clinic" => %{"id" => id, "nome" => "Studio Movimento"}} = body
+      assert %{"clinic" => %{"id" => id, "nome" => "Studio Cinetra"}} = body
       assert is_binary(id)
 
       # o criador virou owner ATIVO da clínica recém-nascida (invariante ≥1 owner).

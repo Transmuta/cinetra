@@ -8,7 +8,7 @@ import { instanteUtc } from './helpers';
  * duas só existem contra a stack de verdade:
  *
  *  1. **É o caminho mais rico de RLS.** Cada passo aqui lê ou escreve por tenant, e o servidor de
- *     verdade conecta como `movimento_app` (NOBYPASSRLS). Um `in_clinic` esquecido devolve lista
+ *     verdade conecta como `cinetra_app` (NOBYPASSRLS). Um `in_clinic` esquecido devolve lista
  *     VAZIA ali e verde no `mix test`, que conecta como superusuário — a classe de bug que já
  *     mordeu três vezes na fatia Agenda. O job `api-rls` do CI só cobre o subconjunto marcado
  *     `@tag :rls`; aqui o caminho HTTP inteiro está sob o mesmo role.

@@ -141,7 +141,7 @@ defmodule Api.MixProject do
   # `mix test` normalmente prepara o banco antes (criar + migrar). Isso exige DDL, que só o
   # usuário privilegiado tem.
   #
-  # O gate de RLS (`mix test --only rls`, job `api-rls` do CI) roda como `movimento_app` —
+  # O gate de RLS (`mix test --only rls`, job `api-rls` do CI) roda como `cinetra_app` —
   # NOBYPASSRLS e, por desenho, **sem CREATE no schema**. Ali o setup precisa ter sido feito
   # antes, como `postgres`, e esta etapa tem de sair do caminho: sem isso o alias derruba a
   # suíte com `ERROR 42501 permission denied for schema public` antes de rodar um teste.

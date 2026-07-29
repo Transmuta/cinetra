@@ -19,7 +19,7 @@ rodada 5 achou um ponto cego no próprio conserto.
 | Bypass do BFF / ataque direto na API | NÃO SE APLICA | nenhum endpoint novo no diff |
 | Tenant vindo do cliente | REFUTADO | `with_attachment/3` resolve por `fetch_clinic_attachment(scope, id)`; o `id` da URL nunca vira tenant |
 | IDOR / BOLA (policy) | REFUTADO | `policy always()` + `HasClinicRole` cobre `action_type(:destroy)`; leitura do bloco `policies` |
-| IDOR / BOLA (RLS, ADR-018) | REFUTADO | `psql -U movimento_app`, GUC da Clínica Beta, `DELETE` de anexo da Moving → **`DELETE 0`**, `count(*) = 0` |
+| IDOR / BOLA (RLS, ADR-018) | REFUTADO | `psql -U cinetra_app`, GUC da Clínica Beta, `DELETE` de anexo da Moving → **`DELETE 0`**, `count(*) = 0` |
 | Broken function level authz | REFUTADO | reflexão: o `:destroy` tem policy; nenhuma action nova |
 | Mass assignment | NÃO SE APLICA | `destroy` não aceita atributo |
 | CORS / CSRF | NÃO SE APLICA | sem rota nova |
@@ -68,7 +68,7 @@ sem GUC?"*, respondido por reflexão do Ash em vez de grep — que virou o resul
 **Uma só, e não é o `Attachment`.** Change global do Ash roda em `[:create, :update]`; `:destroy`
 fica de fora por padrão. O projeto usa `change Api.Tenancy.SetTenantGuc` em bloco global em 12
 recursos, e **nada detectava** quando isso deixava um `destroy` por-tenant sem GUC — falha que só
-existe no servidor real (`movimento_app`, NOBYPASSRLS) e que a suíte não vê, porque o sandbox
+existe no servidor real (`cinetra_app`, NOBYPASSRLS) e que a suíte não vê, porque o sandbox
 conecta como `postgres`.
 
 A sonda que estabeleceu isso, por reflexão sobre todos os recursos por-tenant com `destroy`:
@@ -117,12 +117,12 @@ papel daquele arquivo.
 - app rodando, `DELETE` real depois do conserto — a GUC agora entra na transação do `DELETE`:
   ```
   begin
-  SELECT set_config($1, $2, true) ["movimento.clinic_id", "019f5e60-…"]
+  SELECT set_config($1, $2, true) ["cinetra.clinic_id", "019f5e60-…"]
   DELETE FROM "attachments" AS a0 WHERE (a0."id" = $1) AND (a0."clinic_id"::uuid = $2::uuid)
   commit
   Sent 204 in 323ms
   ```
-- gate `:rls` como `movimento_app`: **28 testes, 0 falhas**;
+- gate `:rls` como `cinetra_app`: **28 testes, 0 falhas**;
 - suíte completa: **1183 testes + 18 doctests, 0 falhas**;
 - `mix format --check-formatted` e `mix compile --warnings-as-errors` limpos.
 
@@ -149,7 +149,7 @@ apaga a duplicação e o ponto cego de uma vez.
 
 **(b) `Attendance.remove` é a mesma forma, ainda desprotegida pelo gate.** Seguro hoje por
 construção do único chamador. O que falta é um teste no `rls_smoke_test.exs` que remova
-participante sob `movimento_app` — assim, se a remoção ganhar porta própria (fora de
+participante sob `cinetra_app` — assim, se a remoção ganhar porta própria (fora de
 `in_clinic`), o gate acusa em vez de a clínica descobrir em produção. Não fiz porque é
 funcionalidade fora do alvo do commit auditado.
 

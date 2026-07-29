@@ -33,7 +33,7 @@ const config = {
 				// Doc 51: o `PUT` do anexo vai direto ao bucket do R2, também sem passar pelo BFF,
 				// então a origem dele entra aqui. `R2_ACCOUNT_ID` é a MESMA variável que a API usa
 				// para assinar — e, como a CSP é build-time, ela precisa de `ARG` no
-				// `Dockerfile.prod` e `[build.args]` no `fly.toml`, não `[env]`.
+				// `Dockerfile.prod` e `args:` no `compose.dokploy.yml`, não `environment:`.
 				'connect-src': connectSrc(process.env.API_PUBLIC_ORIGIN, process.env.R2_ACCOUNT_ID),
 				'base-uri': ['self'],
 				'form-action': ['self'],

@@ -1,4 +1,4 @@
-# Movimento — ambiente de desenvolvimento 100% em container.
+# Cinetra — ambiente de desenvolvimento 100% em container.
 # Sobe: db (Postgres) + api (Phoenix/Ash) + web (SvelteKit BFF).
 #   docker compose up
 # Nada roda local — mix e npm executam dentro dos serviços.
@@ -18,7 +18,7 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: movimento_dev
+      POSTGRES_DB: cinetra_dev
     ports:
       # Host port 5434 (5432/5433 já usados por outros stacks) -> Postgres do container.
       - "5434:5432"
@@ -42,11 +42,11 @@ services:
       DATABASE_HOST: db
       DATABASE_USER: postgres
       DATABASE_PASSWORD: postgres
-      DATABASE_NAME: movimento_dev
+      DATABASE_NAME: cinetra_dev
       # Role restrito do app (NOSUPERUSER/NOBYPASSRLS): o phx.server conecta como ele
       # e fica sujeito às RLS policies (ADR-018).
-      DATABASE_APP_USER: movimento_app
-      DATABASE_APP_PASSWORD: movimento_app
+      DATABASE_APP_USER: cinetra_app
+      DATABASE_APP_PASSWORD: cinetra_app
       PORT: "4000"
       # Google OAuth (ADR-015) — valores vêm do .env (gitignored), não daqui.
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}

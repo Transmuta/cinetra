@@ -8,7 +8,7 @@ config :api, Api.Repo,
   password: System.get_env("DATABASE_PASSWORD", "postgres"),
   hostname: System.get_env("DATABASE_HOST", "localhost"),
   port: String.to_integer(System.get_env("DATABASE_PORT", "5432")),
-  database: "movimento_test#{System.get_env("MIX_TEST_PARTITION")}",
+  database: "cinetra_test#{System.get_env("MIX_TEST_PARTITION")}",
   pool: Ecto.Adapters.SQL.Sandbox,
   pool_size: 10
 

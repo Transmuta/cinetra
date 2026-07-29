@@ -22,7 +22,7 @@ por ele sem ver.
 | --- | --- | --- |
 | Bypass do BFF / ataque direto na API | NÃO SE APLICA | Nenhuma rota nova; o pipeline `:authenticated` não mudou |
 | Tenant vindo do cliente | REFUTADO | `future_conflicts/2` usa `scope.clinic_id`; o `professional_id` das mudanças vem do path e passa por `ensure_professional_in_clinic` **antes** do gate (leitura + ordem do `with`) |
-| IDOR / BOLA | REFUTADO | Os 12 testes de `future_conflicts_test.exs` rodados como **`movimento_app`** (NOBYPASSRLS): 12/0. Inclui "não enxerga a agenda de outra clínica" |
+| IDOR / BOLA | REFUTADO | Os 12 testes de `future_conflicts_test.exs` rodados como **`cinetra_app`** (NOBYPASSRLS): 12/0. Inclui "não enxerga a agenda de outra clínica" |
 | Function-level authz | REFUTADO | As quatro portas são `with_admin_scope`; nenhuma action Ash nova |
 | Mass assignment | REFUTADO | `confirm` é lido por `confirmado?/1`, fora do whitelist que alimenta o `accept` |
 | CORS / CSRF | NÃO SE APLICA | Nenhuma rota de mutação nova |
@@ -153,7 +153,7 @@ folga do profissional sobre agenda → 409 (era 201)
   e a sonda prova (422).
 
 **Gates, depois de tudo:** backend **1.080 testes / 0 falhas**, gate `:rls` **20 testes como
-`movimento_app` / 0 falhas**, web **1.334 / 0**, `svelte-check` limpo,
+`cinetra_app` / 0 falhas**, web **1.334 / 0**, `svelte-check` limpo,
 `mix compile --warnings-as-errors` limpo, as duas coberturas passando.
 
 ## 5. O que ficou para você — **e o que foi decidido depois**

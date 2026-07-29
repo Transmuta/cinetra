@@ -5,7 +5,7 @@ defmodule Api.Repo.Migrations.ProfessionalHoursRls do
   `SchedulingRls` (ADR-018) e `SchedulingIndexTuning` (bate-volta F1).
 
   1. **RLS** (defesa-em-profundidade da tenancy por atributo): mesmo que o filtro do Ash seja
-     contornado, o Postgres só devolve/aceita linhas do `clinic_id` na GUC `movimento.clinic_id`.
+     contornado, o Postgres só devolve/aceita linhas do `clinic_id` na GUC `cinetra.clinic_id`.
      Sem GUC → 0 linhas (fail-closed). Roda como `postgres`; o app conecta NOBYPASSRLS.
 
   2. **Índice de `professional_id`** (leading, sem o `clinic_id` que o Ash prefixaria): o
@@ -20,8 +20,8 @@ defmodule Api.Repo.Migrations.ProfessionalHoursRls do
 
     execute """
     CREATE POLICY tenant_isolation ON professional_hours
-      USING (clinic_id = current_setting('movimento.clinic_id', true)::uuid)
-      WITH CHECK (clinic_id = current_setting('movimento.clinic_id', true)::uuid)
+      USING (clinic_id = current_setting('cinetra.clinic_id', true)::uuid)
+      WITH CHECK (clinic_id = current_setting('cinetra.clinic_id', true)::uuid)
     """
 
     create index(:professional_hours, [:professional_id])

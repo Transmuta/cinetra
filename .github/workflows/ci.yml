@@ -71,7 +71,7 @@ jobs:
   # O job `api` acima conecta como `postgres`, que é SUPERUSER e portanto
   # **bypassa RLS**. Consequência: uma leitura por-tenant que esqueça o
   # `in_clinic`/`with_clinic` passa verde ali e devolve LISTA VAZIA no servidor
-  # real (que conecta como `movimento_app`, NOBYPASSRLS — ver entrypoint.dev.sh).
+  # real (que conecta como `cinetra_app`, NOBYPASSRLS — ver entrypoint.dev.sh).
   #
   # Essa classe de bug já mordeu 3× na fatia Agenda e era invisível ao gate.
   # Este job fecha o buraco: roda os testes marcados `@tag :rls` com o MESMO
@@ -131,24 +131,24 @@ jobs:
         run: mix ash.setup --quiet
 
       # Cria o role + grants + default privileges. Mesmo SQL do entrypoint dev.
-      # O banco é `movimento_test` (config/test.exs) — não o `api_test` default do Phoenix.
+      # O banco é `cinetra_test` (config/test.exs) — não o `api_test` default do Phoenix.
       # Grants são por-banco: apontar para o banco errado deixava o gate decorativo (o passo
       # falhava com ON_ERROR_STOP antes de `mix test --only rls`).
-      - name: Criar role restrito movimento_app
+      - name: Criar role restrito cinetra_app
         run: |
-          PGPASSWORD=postgres psql -h localhost -U postgres -d movimento_test \
+          PGPASSWORD=postgres psql -h localhost -U postgres -d cinetra_test \
             -v ON_ERROR_STOP=1 -q -f priv/sql/setup_app_role.sql
 
-      # A partir daqui o app é `movimento_app`: sujeito às policies de RLS.
+      # A partir daqui o app é `cinetra_app`: sujeito às policies de RLS.
       #
       # `SKIP_DB_SETUP` é obrigatório aqui: o alias `test` prepararia o banco, e o role
       # restrito não tem CREATE no schema (é o desenho). Sem isso o job morre com
       # `ERROR 42501 permission denied for schema public` antes do primeiro teste. O setup
       # já foi feito acima, como `postgres`.
-      - name: Testes de RLS (como movimento_app)
+      - name: Testes de RLS (como cinetra_app)
         env:
-          DATABASE_USER: movimento_app
-          DATABASE_PASSWORD: movimento_app
+          DATABASE_USER: cinetra_app
+          DATABASE_PASSWORD: cinetra_app
           SKIP_DB_SETUP: "1"
         run: mix test --only rls
 

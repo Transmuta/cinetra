@@ -14,7 +14,7 @@ defmodule Api.Tenancy do
   """
 
   @doc """
-  Roda `fun` com o GUC `movimento.clinic_id` setado (ADR-018) e devolve o resultado já
+  Roda `fun` com o GUC `cinetra.clinic_id` setado (ADR-018) e devolve o resultado já
   desembrulhado — `Api.Repo.with_clinic/2` responde `{:ok, _}` porque abre transação.
 
   Só para **leitura**: envolver escrita numa transação externa quebra o caminho de erro (o

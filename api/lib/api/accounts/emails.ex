@@ -15,10 +15,10 @@ defmodule Api.Accounts.Emails do
   """
   import Swoosh.Email
 
-  # A marca, num lugar só. O `from` continua em `movimento.local` porque é placeholder de dev e
+  # A marca, num lugar só. O `from` continua em `cinetra.local` porque é placeholder de dev e
   # trocá-lo é assunto de configuração de domínio, não de copy.
   @marca "Cinetra"
-  @remetente {@marca, "nao-responda@movimento.local"}
+  @remetente {@marca, "nao-responda@cinetra.local"}
 
   @doc """
   Monta e envia o e-mail de magic link. Recebe um `%User{}` (já existe) ou uma string

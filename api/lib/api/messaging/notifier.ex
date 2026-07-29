@@ -154,7 +154,7 @@ defmodule Api.Messaging.Notifier do
   # Tira da fila tudo que ainda não saiu deste bloco.
   #
   # Roda **dentro** de `with_clinic/2` porque a leitura precisa da GUC: solta, a RLS devolveria
-  # lista vazia sob `movimento_app` e o descarte passaria a nunca descartar — em silêncio, e com a
+  # lista vazia sob `cinetra_app` e o descarte passaria a nunca descartar — em silêncio, e com a
   # suíte verde, porque o sandbox do `mix test` roda como superusuário (a lição de
   # `.claude/rules/migrations.md`, que já custou três medições erradas).
   #

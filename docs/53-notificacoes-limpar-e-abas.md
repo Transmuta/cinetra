@@ -90,7 +90,7 @@ executar o que acontece depois do submit.
 
 * **Backend:** 1090 testes + 18 doctests, 0 falhas, 91,3 % (gate 80).
 * **Web:** 1357 testes, 0 falhas, 91,5 % linhas (gate 80/75); `svelte-check` 0 erros/0 avisos.
-* **Gate `:rls`** (role `movimento_app`, NOBYPASSRLS): teste novo — "limpar a caixa alcança as
+* **Gate `:rls`** (role `cinetra_app`, NOBYPASSRLS): teste novo — "limpar a caixa alcança as
   linhas sob RLS". Este é o teste que importa. `bulk_destroy` é DELETE em massa com policy
   filter-check (um SELECT de autorização antes), e **sem a GUC ele não erra alto: apaga zero linha e
   devolve sucesso** — a tela diria "limpo" com a caixa intacta. É a mesma classe de bug do
@@ -99,7 +99,7 @@ executar o que acontece depois do submit.
 * **Teto de O(1):** `clear_all` toca a tabela 2 vezes (1 `COUNT` + 1 `DELETE`), asseverado por
   `Api.QueryCounter`. Sem o teto, o caminho volta a ser O(N) sem ninguém perceber — e numa caixa de
   um ano (20.065 linhas, sonda do #54) isso é um travamento.
-* **Ao vivo** (Chromium, dev sob `movimento_app`): 23 notificações semeadas → filtro "Não lidas (16)"
+* **Ao vivo** (Chromium, dev sob `cinetra_app`): 23 notificações semeadas → filtro "Não lidas (16)"
   esconde as lidas → "Limpar tudo" → confirmação → caixa vazia, badge do sino **some**, `SELECT
   count(*)` no banco devolve 0. Numa segunda passada, com o filtro já na sidebar: abrir "Abriu vaga
   para a fila" levou a `/fila` **e o badge caiu de 6 para 5 sem F5** (o bug acima), e o ✓ da linha

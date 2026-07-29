@@ -25,7 +25,7 @@ fronteira (`periods`/`dow` hostis via `iex` → todos `{:error,_}`, nenhum 500).
 (7 transações no save da semana) e F3 (redundância do índice standalone só aparece ao ver o
 planner escolher o composto). DRY — interface morta e a divergência do `error_field` em Members.
 
-**Segurança: zero achados.** RLS provada de baixo, como o role `movimento_app` (NOBYPASSRLS):
+**Segurança: zero achados.** RLS provada de baixo, como o role `cinetra_app` (NOBYPASSRLS):
 GUC=A não vê linhas de B em `clinic_hours` nem `schedule_exceptions`; sem GUC, 0 linhas
 (fail-closed); INSERT tagueado para outra clínica → `new row violates row-level security policy`.
 Mass-assignment barrado em dobro (whitelist do controller + `accept` da ação). A fatia reusa as

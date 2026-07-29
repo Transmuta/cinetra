@@ -107,7 +107,7 @@ uma caça adversarial pelo browser. **13 achados, 6 causas-raiz, 0 de segurança
 ## 5. Segurança — 0 confirmados
 
 Provado, não lido: recepção leva **403** na API e no web; RLS confirmada por baixo como
-`movimento_app` (NOBYPASSRLS) — `appointments`/`appointments_versions`/`attendances_versions` da
+`cinetra_app` (NOBYPASSRLS) — `appointments`/`appointments_versions`/`attendances_versions` da
 clínica B devolvem **0** com a GUC em A; `user_id` malformado e `' OR 1=1 --` → **422**;
 `record_id` de outra clínica → lista vazia; 308 sem open redirect nem header injection (CR/LF sai
 percent-encodado); nenhum `{@html}`; `clinic_id` não aparece no payload; log sem query string.

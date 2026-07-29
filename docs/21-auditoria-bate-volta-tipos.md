@@ -1,7 +1,7 @@
 # 21 — Auditoria bate-volta: Tipos de atendimento
 
 Auditoria em rodadas da fatia "Tipos de atendimento" (diff não-commitado), provando cada achado
-contra a **stack rodando** (psql como `movimento_app`, `mix test`, `curl` na API, logs, corrida
+contra a **stack rodando** (psql como `cinetra_app`, `mix test`, `curl` na API, logs, corrida
 HTTP real). Método: caça (rodadas 1–2) → consolidação → conserto (3) → verificação (5).
 
 Regra do método: **sem output de sonda, o achado não existe.** Alvo: `git diff HEAD` + arquivos
@@ -17,9 +17,9 @@ higiene barata; **A** e **D** viram handoff por serem estruturais/desproporciona
 
 | Eixo | Item | Estado | Sonda |
 |---|---|---|---|
-| **Seg** | RLS leitura cross-tenant | REFUTADO | `movimento_app`, GUC=A → vê 6 de A, **0** de B |
+| **Seg** | RLS leitura cross-tenant | REFUTADO | `cinetra_app`, GUC=A → vê 6 de A, **0** de B |
 | **Seg** | RLS escrita cross-tenant (INSERT/UPDATE) | REFUTADO | INSERT clinic_id=B → `violates row-level security policy`; UPDATE de B → `UPDATE 0` |
-| **Seg** | Fail-closed (sem GUC / GUC-lixo) | REFUTADO | `movimento_app` sem GUC → **0**; GUC-lixo → **0**. (O "14 linhas" do subagente era `postgres`/BYPASSRLS) |
+| **Seg** | Fail-closed (sem GUC / GUC-lixo) | REFUTADO | `cinetra_app` sem GUC → **0**; GUC-lixo → **0**. (O "14 linhas" do subagente era `postgres`/BYPASSRLS) |
 | **Seg** | `pre_check?` vaza existência cross-tenant | REFUTADO | 3 linhas "Sessão" em 3 clínicas distintas (seria 1 se fosse global) |
 | **Seg** | RBAC recepção escreve | REFUTADO | controller **e** policy: `recepção não cria/atualiza/arquiva/restaura` (403), testes verdes |
 | **Seg** | 2ª porta via AshJsonApi | REFUTADO | `AshJsonApiRouter` só expõe `Api.Meta`; `GET /api/json/appointment*` → 404 |
@@ -84,7 +84,7 @@ nome duplicado. A rodada 2 perguntou "e sob concorrência?" e provou que **não 
   corrompe (o índice único segura — 1 linha persiste).
 - **Sonda:** 20 rodadas × 8 POSTs concorrentes → **15 respostas 500**. Stack trace:
   `ash_postgres 2.10.0 lib/data_layer.ex:3353` (`detail: error.postgres.detail`). No psql,
-  `movimento_app` recebe o `unique_violation` **sem `DETAIL`**; `postgres` recebe com.
+  `cinetra_app` recebe o `unique_violation` **sem `DETAIL`**; `postgres` recebe com.
 - **Por que não corrigi:** a raiz é o AshPostgres lendo `error.postgres.detail` sem proteção
   quando o Postgres omite o DETAIL sob RLS. As correções são decisão de arquitetura — (a) bump do
   `ash_postgres` para versão que faça acesso seguro à chave; (b) advisory lock por

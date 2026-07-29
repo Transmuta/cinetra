@@ -14,7 +14,7 @@ defmodule Api.Notifications.Reminders do
 
   ## 2. A varredura é por clínica, sob a GUC
 
-  As tabelas têm RLS (ADR-018) e o job roda como `movimento_app`. Um `SELECT` cross-tenant não
+  As tabelas têm RLS (ADR-018) e o job roda como `cinetra_app`. Um `SELECT` cross-tenant não
   volta vazio por acaso: volta vazio **sempre**, e passa no `mix test`, onde o sandbox conecta
   como superusuário. Mesmo motivo do `Api.Housekeeping.Poda`, de onde vem o `clinicas/0` — a
   lista de clínicas não é assunto de poda, e esse empréstimo de namespace está anotado como

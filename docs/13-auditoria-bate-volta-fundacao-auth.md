@@ -109,7 +109,7 @@ final: **49 testes, 0 falhas**; `mix compile --warnings-as-errors` limpo; `svelt
 |---|---|---|
 | **B** | `Api.Meta.Ping` + rota + tabela `pings` removidos (migration `drop_pings_scaffold`, reversível); demo de pings tirado do web. | `GET/POST /api/json/pings` → **404** (era 200 público). `to_regclass('pings')` → vazio. |
 | **A** | `Hammer` (ETS, **sliding window**) + `ApiWeb.Plugs.RateLimitAuth` nos endpoints de auth, por e-mail **e** IP; gated a prod (`config :api, rate_limit_enabled` no `prod.exs`). | Teste `rate_limit_auth_test`: 6º pedido do mesmo e-mail → **429**. Flood no dev segue **200** (só-prod, por design). |
-| **C** | `custom_indexes` — `index [:clinic_id]` em `Professional`, `index [:user_id]` em `UserIdentity`. | `EXPLAIN` (como `movimento_app`) → **`Index Scan using professionals_clinic_id_index`** (era Seq Scan). |
+| **C** | `custom_indexes` — `index [:clinic_id]` em `Professional`, `index [:user_id]` em `UserIdentity`. | `EXPLAIN` (como `cinetra_app`) → **`Index Scan using professionals_clinic_id_index`** (era Seq Scan). |
 | **D** | `on_delete: :delete` em **ambas** as FKs de tenant: `UserIdentity.user` e `Professional.clinic` (esta via drop+add constraint em SQL cru — `modify` da coluna falha com `0A000`, pois `clinic_id` é usado na policy RLS). | `pg_get_constraintdef` → as duas com **`ON DELETE CASCADE`**; policy `tenant_isolation` intacta. |
 | **E** (parcial) | Web: `X-Content-Type-Options`, `X-Frame-Options: DENY`, `Referrer-Policy` no `hooks.server.ts`; **sign-out GET→POST** (fecha CSRF de logout, ganha a checagem de origem do SvelteKit). Cookie `secure` já é automático (default do SvelteKit fora de localhost). | `curl -D-` → 3 headers presentes; `GET /auth/sign-out` → **405**, `POST` → 303. |
 | **F** | `overrides: { cookie: "^0.7.0" }` no `web/package.json` (o kit ainda fixa `^0.6`). | `npm audit` → **0 vulnerabilidades**; cookie 0.7.2. |
@@ -174,7 +174,7 @@ e-mail), com resposta neutra ao estourar (não revelar existência de conta).
 **Sonda:**
 ```
 pings (json) sem cookie: HTTP 200
-{"data":[{"attributes":{"message":"via movimento_app"},...,"type":"ping"}], ...}
+{"data":[{"attributes":{"message":"via cinetra_app"},...,"type":"ping"}], ...}
 
 # superfície pública inteira:
 AshJsonApiRouter -> domains: [Api.Meta]
@@ -194,9 +194,9 @@ E **adotar a regra** "todo recurso roteado no AshJsonApi tem authorizer" — hoj
 por-tenant — não tem índice; `user_identities.user_id` (FK) também não.
 **Sonda:**
 ```
--- EXPLAIN como movimento_app, com GUC setada:
+-- EXPLAIN como cinetra_app, com GUC setada:
 Seq Scan on professionals  (cost=0.00..25.00 rows=4 width=80)
-  Filter: (clinic_id = (current_setting('movimento.clinic_id'::text, true))::uuid)
+  Filter: (clinic_id = (current_setting('cinetra.clinic_id'::text, true))::uuid)
 
 -- FKs sem índice de prefixo:
 professionals   | clinic_id | tem_indice_prefixo = f
@@ -275,10 +275,10 @@ provada na mão nesta auditoria; merece regressão automatizada).
 
 ### Sondas usadas (para reproduzir)
 
-- RLS de baixo: `psql -U movimento_app` + `set_config('movimento.clinic_id', <A>, true)` e
+- RLS de baixo: `psql -U cinetra_app` + `set_config('cinetra.clinic_id', <A>, true)` e
   tentativa de ler clínica B → 0 linhas (isolamento **confirmado funcionando**).
 - Rate limit / enumeração: `curl` em `/api/auth/magic-link` (flood + timing existe×inexiste).
 - Fronteira: `curl` sem cookie em `/api/auth/me`, `/switch-tenant`, `/realtime/token`,
   `/api/json/pings`, `/api/json/professionals`.
-- Planos: `EXPLAIN` como `movimento_app`; `pg_indexes`, `pg_constraint`, `information_schema`.
+- Planos: `EXPLAIN` como `cinetra_app`; `pg_indexes`, `pg_constraint`, `information_schema`.
 - Deps: `mix hex.audit`, `npm audit`.

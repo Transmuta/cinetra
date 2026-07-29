@@ -8,7 +8,7 @@ import { criarAgendamento, instanteUtc } from './helpers';
  * dessa arquitetura é sempre o mesmo: uma leitura que esquece o escopo. O que torna essa classe
  * traiçoeira é que ela é **invisível ao `mix test`** — o sandbox conecta como `postgres`, que é
  * SUPERUSER e bypassa RLS, então a leitura sem escopo passa verde ali e vaza (ou volta vazia) no
- * servidor de verdade, que conecta como `movimento_app`. Já mordeu três vezes.
+ * servidor de verdade, que conecta como `cinetra_app`. Já mordeu três vezes.
  *
  * O job `api-rls` do CI fecha parte do buraco, mas só para os testes marcados `@tag :rls`. Aqui a
  * prova é pelo **caminho inteiro**: browser → BFF → API → policy → RLS, com um usuário que não tem

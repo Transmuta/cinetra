@@ -68,7 +68,7 @@ troca o predicado. Exclusion constraint **não** tem forma `CONCURRENTLY` (nem `
 tabela nova (v1), documentado para quando tiver volume. Ver a regra em
 [`.claude/rules/migrations.md`](../.claude/rules/migrations.md) §2.
 
-Provado sob o role restrito `movimento_app` (NOBYPASSRLS), não só no `mix test` (BYPASSRLS): a
+Provado sob o role restrito `cinetra_app` (NOBYPASSRLS), não só no `mix test` (BYPASSRLS): a
 escrita da exclusão passa, o bloco some da leitura e o mesmo horário volta a ser agendável.
 
 ## Tempo real

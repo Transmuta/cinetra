@@ -496,7 +496,7 @@ da sessão (ADR-014), **nunca** de `clinic_id` do cliente. `owner` e `admin` sã
 > a garantia **não** fica só no filtro do Ash: cada tabela por-tenant tem **Row-Level Security**
 > por `clinic_id`, e o app conecta como um role `NOSUPERUSER`/`NOBYPASSRLS`. Assim uma query crua
 > (`Repo`/`Ecto`), um `authorize?: false` sem tenant ou um bug de filtro **não vaza** — o Postgres
-> só devolve linhas do `clinic_id` da GUC `movimento.clinic_id` (sem GUC → 0 linhas, fail-closed).
+> só devolve linhas do `clinic_id` da GUC `cinetra.clinic_id` (sem GUC → 0 linhas, fail-closed).
 > O tenant entra por `Api.Repo.with_clinic/2` no plug de scope (ADR-014). O **teste de IDOR no CI**
 > conecta como o role restrito e prova que cross-tenant não alcança nada (ver [ADR-018](00-decisoes.md)
 > e o checklist de §8). Migrations rodam como `postgres` (bypassa RLS para DDL).

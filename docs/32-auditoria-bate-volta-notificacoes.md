@@ -14,7 +14,7 @@ para decisão. Não houve rodada 4 — a 3 fechou a fila.
 
 | Eixo | Item | Estado | Sonda |
 | --- | --- | --- | --- |
-| **Seg** | Isolamento por tenant (RLS) | REFUTADO | `psql -U movimento_app` + GUC da clínica B → 0 linhas; A → 4; sem GUC → 0 |
+| **Seg** | Isolamento por tenant (RLS) | REFUTADO | `psql -U cinetra_app` + GUC da clínica B → 0 linhas; A → 4; sem GUC → 0 |
 | **Seg** | Vazamento por-usuário (mesma clínica) | REFUTADO | notif. injetada p/ outro recipient não aparece no GET da sessão (RLS deixa clínica passar=5, policy `recipient_id==actor` recorta=4) |
 | **Seg** | Canal WebSocket | REFUTADO | tópico de outra clínica → unauthorized; vínculo revogado → recusa; caixa alheia não vaza (`refute_push`); 6 testes |
 | **Seg** | Fan-out recipient/tenant | REFUTADO | `active_memberships` filtra clinic+status; tenant = clínica do evento; supressão do autor OK |

@@ -376,7 +376,7 @@ depois que o texto for o definitivo.
 
 ## D-15 · O gate `:rls` não alcança leitura interna: a GUC fica pendurada no sandbox
 
-**O que é.** `mix test --only rls` roda como `movimento_app` (NOBYPASSRLS) e é o que prova que uma
+**O que é.** `mix test --only rls` roda como `cinetra_app` (NOBYPASSRLS) e é o que prova que uma
 leitura por-tenant tem `in_clinic`/`with_clinic`. Ele prova isso **da porta de entrada**. Uma
 leitura *interna*, mais adiante no mesmo caminho, ele **não** alcança: o sandbox roda o teste
 inteiro numa transação só, então a GUC que o primeiro `in_clinic` pendurou com `SET LOCAL` continua
@@ -384,12 +384,12 @@ valendo para tudo o que vier depois — inclusive para a leitura que esqueceu de
 
 **Como foi medido** (bate-volta de 2026-07-29, [doc 77](77-bate-volta-observabilidade-e-pacotes.md)):
 removi o `in_clinic` de `Api.Packages.checar_profissional/2` — uma leitura por-tenant nova dentro do
-caminho de escrita de `adjust_grade/3` — e rodei o gate como `movimento_app`. Resultado: **0
+caminho de escrita de `adjust_grade/3` — e rodei o gate como `cinetra_app`. Resultado: **0
 falhas**. O mesmo teste com a regra mutada continuou verde. A necessidade só apareceu no `psql`:
 
 ```
-movimento_app, SEM a GUC : 0 profissionais
-movimento_app, COM a GUC : 1 profissional
+cinetra_app, SEM a GUC : 0 profissionais
+cinetra_app, COM a GUC : 1 profissional
 ```
 
 **O que custa hoje.** Uma falsa sensação de cobertura, que é o pior tipo. O
@@ -403,5 +403,41 @@ como "não existe".
 
 - rodar cada teste `:rls` em transação própria (mexe em `DataCase`, sandbox e `async` — caro);
 - **anotar a regra**: leitura por-tenant nova em caminho de escrita se prova por `psql` sob
-  `movimento_app`, não pelo gate. Vale acrescentar isso à `migrations.md`, ao lado da lição que já
-  está lá, para que o texto pare de prometer mais do que entrega.
+  `cinetra_app`, não pelo gate.
+
+**Metade paga (2026-07-29).** A segunda saída foi feita: a regra 3 de
+[`.claude/rules/migrations.md`](../.claude/rules/migrations.md) passou a dizer o alcance do gate,
+com a medição da mutação e os dois comandos de `psql` (conferidos: 0 sem a GUC, 1 com). Isso também
+fecha uma lacuna que ninguém tinha notado — o CLAUDE.md **já** mandava ler aquele arquivo a
+respeito de RLS, e o texto não estava lá.
+
+**O que continua em pé** é a primeira saída: enquanto o sandbox rodar um teste por transação, o gate
+segue cego para leitura interna. O débito é o *limite do arnês*, não a falta de aviso — a diferença
+é que agora quem escreve teste de RLS é avisado de que precisa mutar a regra para saber se o teste
+vale algo.
+
+---
+
+## D-16 · `x-forwarded-for` é confiado pelo primeiro item, e o proxy anexa
+
+**O que é.** [`ApiWeb.ClientIp`](../api/lib/api_web/client_ip.ex) resolve o IP do cliente pegando
+`List.first/1` do `x-forwarded-for`. O Traefik **anexa** o IP real ao valor que chegou, em vez de
+substituí-lo — então um cliente que mande `X-Forwarded-For: 9.9.9.9` produz `9.9.9.9, <ip real>`, e
+o primeiro item, que é o que vale, é o que o atacante escreveu.
+
+**Como apareceu.** Achado de raspão no rename para Cinetra
+([doc 84 §5](84-rename-movimento-para-cinetra.md)), ao consertar o problema vizinho — o default
+`["fly-client-ip"]` que sobreviveu à saída da Fly. Esse foi consertado com teste de regressão; este
+aqui é anterior e independente, e **não** foi tocado.
+
+**O que custa hoje.** Pouco, por acidente de topologia: a API é interna e só `/socket` e
+`/webhooks` são públicos no Traefik ([doc 59 §3.1](59-deploy-dokploy-oci.md)); as chamadas do BFF
+trazem um `x-forwarded-for` que o próprio BFF escreve, na rede interna, inalcançável de fora. O
+custo aparece se qualquer rota passar a ser pública direto na API — aí as duas chaves de rate
+limit por IP viram controláveis pelo cliente, do mesmo jeito da causa B do
+[doc 68](68-bate-volta-rate-limit-global.md).
+
+**O que o paga.** Escolher a profundidade do XFF em vez do primeiro item — contar da direita para a
+esquerda o número de proxies confiáveis da topologia (é o que o `XFF_DEPTH` do adapter-node faz do
+lado do BFF), e configurá-la junto com o proxy, como já é a regra para a lista de headers
+confiáveis. Meia hora, mais uma decisão explícita sobre quantos hops confiar.

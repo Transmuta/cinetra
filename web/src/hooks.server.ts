@@ -8,13 +8,13 @@ import { fingerprint } from '$lib/fingerprint';
 
 // D2 (doc 47) — a guarda entre o build e o runtime, no boot do servidor.
 //
-// A CSP é fixada no BUILD (`kit.csp` → `[build.args]` do fly.toml) e a origem do WebSocket é
-// lida em RUNTIME (`[env]`). Divergir não dá erro de servidor: dá agenda que para de atualizar
+// A CSP é fixada no BUILD (`kit.csp` → `args:` do compose.dokploy.yml) e a origem do WebSocket é
+// lida em RUNTIME (`environment:`). Divergir não dá erro de servidor: dá agenda que para de atualizar
 // sozinha, com o motivo só no console do browser de quem está usando — um deploy passa verde
 // por cima disso.
 //
 // **Levanta de propósito, em vez de logar.** Divergência aqui significa que o tempo real já
-// está quebrado; recusar subir transforma isso numa release que falha (e o Fly reverte) em vez
+// está quebrado; recusar subir transforma isso numa release que falha (e o Dokploy não promove) em vez
 // de um recurso que some sem ninguém saber. Um log seria a mesma falha silenciosa com uma linha
 // a mais, enquanto o projeto ainda não tem agregação de log.
 const divergencia = conferirOrigem(__CSP_CONNECT_SRC__, apiPublicOrigin());
@@ -46,14 +46,14 @@ export const handle: Handle = async ({ event, resolve }) => {
 	response.headers.set('X-Frame-Options', 'DENY');
 	response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
 
-	// HSTS (H59, Onda 5). O `force_https` do fly.toml faz o **redirect** http→https, e o doc 17
-	// e o prod.exs concluíram daí que o header também era da edge — não é: o proxy do Fly não
-	// emite `Strict-Transport-Security` (só o domínio `*.fly.dev` o tem, o que não vale para
-	// domínio próprio). Sem esta linha, o primeiro acesso de cada browser continua passível de
-	// downgrade, e o redirect esconde o sintoma.
+	// HSTS (H59, Onda 5). O proxy da frente faz o **redirect** http→https, e o doc 17 e o
+	// prod.exs concluíram daí que o header também saía dele — não sai: nem a edge da Fly
+	// (topologia antiga) nem o Traefik do Dokploy emitem `Strict-Transport-Security`. Sem esta
+	// linha, o primeiro acesso de cada browser continua passível de downgrade, e o redirect
+	// esconde o sintoma.
 	//
 	// A condição é o protocolo de `event.url`, que sob adapter-node vem do **`ORIGIN`** (setado no
-	// `web/fly.toml`) — não do protocolo do fio, que atrás da edge do Fly é http interno. Medido
+	// `compose.dokploy.yml`) — não do protocolo do fio, que atrás do Traefik é http interno. Medido
 	// no bate-volta: sem `ORIGIN`, o adapter-node assume `https` e o header sai até sobre http
 	// puro. Isso é inofensivo para o browser (RFC 6797 §8.1 manda ignorar HSTS fora de HTTPS),
 	// mas significa que **quem garante a verdade aqui é o `ORIGIN`**, e não esta condição.

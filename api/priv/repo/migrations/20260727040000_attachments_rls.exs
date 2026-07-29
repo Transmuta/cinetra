@@ -4,7 +4,7 @@ defmodule Api.Repo.Migrations.AttachmentsRls do
 
   Defesa-em-profundidade da tenancy por atributo (ADR-018): mesmo que o `WHERE clinic_id = ...`
   do Ash seja contornado, o Postgres só devolve/aceita linhas do `clinic_id` que está na GUC
-  `movimento.clinic_id`. Sem GUC → 0 linhas (fail-closed).
+  `cinetra.clinic_id`. Sem GUC → 0 linhas (fail-closed).
 
   Aqui o valor é maior que nas outras tabelas: `attachments.chave` é o **endereço do laudo no
   bucket**. Uma leitura que vazasse entre clínicas não vazaria só metadado — vazaria o caminho do
@@ -24,8 +24,8 @@ defmodule Api.Repo.Migrations.AttachmentsRls do
 
       execute """
       CREATE POLICY tenant_isolation ON #{table}
-        USING (clinic_id = current_setting('movimento.clinic_id', true)::uuid)
-        WITH CHECK (clinic_id = current_setting('movimento.clinic_id', true)::uuid)
+        USING (clinic_id = current_setting('cinetra.clinic_id', true)::uuid)
+        WITH CHECK (clinic_id = current_setting('cinetra.clinic_id', true)::uuid)
       """
     end
   end

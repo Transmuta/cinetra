@@ -31,7 +31,7 @@ defmodule Api.Directory do
   end
 
   # Os recursos daqui são por-tenant sob RLS (ADR-018): o Postgres só devolve/aceita linhas
-  # do `clinic_id` que estiver na GUC `movimento.clinic_id`, e a GUC é transação-local.
+  # do `clinic_id` que estiver na GUC `cinetra.clinic_id`, e a GUC é transação-local.
   # Estes wrappers centralizam o `Api.Repo.with_clinic/2` aqui, na camada de domínio, para
   # que controllers/changes não precisem falar com o Repo (regra ash.md).
   #

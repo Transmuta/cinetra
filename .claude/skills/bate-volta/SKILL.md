@@ -1,11 +1,11 @@
 ---
 name: bate-volta
 description: Use para auditar código recém-escrito (o diff da sessão ou de um branch) em 5 rodadas — duas de caça, duas de conserto e uma de verificação — provando cada achado contra a stack rodando (psql no container, mix test, curl na API, logs, Playwright no web) e entregando relatório do que ficou para decisão humana. Cobre segurança por classe de ataque, performance de query e indexação, e refatoração pelas rules do projeto com foco em DRY. Invoque quando pedirem revisão, auditoria, "passa o pente", ou antes de abrir PR de mudança não-trivial — em especial ao entregar uma feature nova.
-compatibility: Claude Code ou qualquer agente compatível com Agent Skills, no monorepo Movimento (api/ Elixir/Ash/Phoenix + web/ SvelteKit) rodando 100% em container via docker compose, com o MCP do Playwright conectado.
+compatibility: Claude Code ou qualquer agente compatível com Agent Skills, no monorepo Cinetra (api/ Elixir/Ash/Phoenix + web/ SvelteKit) rodando 100% em container via docker compose, com o MCP do Playwright conectado.
 metadata:
   version: "3.0.0"
   domain: "review"
-  project: "movimento"
+  project: "cinetra"
 ---
 
 # Bate-volta
@@ -13,11 +13,11 @@ metadata:
 Auditoria em rodadas, contra a **stack rodando** — não contra a leitura do diff.
 
 A diferença entre isto e uma revisão comum é uma só: aqui **nenhum achado existe sem o
-output de uma sonda**. A app do Movimento sobe inteira em container (`docker compose up`:
+output de uma sonda**. A app da Cinetra sobe inteira em container (`docker compose up`:
 `db` + `api` + `web`), então dá pra parar de supor e ir ver: `EXPLAIN (ANALYZE, BUFFERS)` de
 verdade no plano da query via `psql`, o pipeline do `ApiWeb.Router` respondendo a um
 `%Plug.Conn{}` forjado num `ConnCase`, a RLS bloqueando de fato quando você conecta como o
-role restrito `movimento_app`, os `docker compose logs api` mostrando o que a app loga agora.
+role restrito `cinetra_app`, os `docker compose logs api` mostrando o que a app loga agora.
 
 Não há Tidewave aqui. As sondas são o ferramental do próprio projeto — está tudo na seção
 **As sondas deste projeto**, no fim deste arquivo.
@@ -105,8 +105,8 @@ Em vez de conferir itens, **siga os fluxos de verdade e tente quebrá-los**:
 - **Force a fronteira.** Monte o `%Plug.Conn{}` num `ConnCase` (ou dispare `curl` em
   `localhost:4010`) com o token de outra clínica, o `active_clinic_id` que não é seu, o ID que
   não é seu — e rode o pipeline do `ApiWeb.Router`. Veja o que sai do outro lado.
-- **Prove a RLS de baixo.** Conecte no `psql` como `movimento_app` (NOBYPASSRLS), sete a GUC
-  `movimento.clinic_id` para a clínica A e tente `SELECT` das linhas da clínica B. Zero linhas
+- **Prove a RLS de baixo.** Conecte no `psql` como `cinetra_app` (NOBYPASSRLS), sete a GUC
+  `cinetra.clinic_id` para a clínica A e tente `SELECT` das linhas da clínica B. Zero linhas
   é a defesa funcionando; qualquer linha é CONFIRMADO.
 - **Leia o plano, não o código.** `EXPLAIN (ANALYZE, BUFFERS)` nas queries que o fluxo emitiu
   de fato, e não só nas que você achou lendo o diff.
@@ -196,11 +196,11 @@ A stack sobe com `docker compose up` (serviços `db`, `api`, `web`). Prefixe os 
 ### Backend (`api/`) — a app viva
 
 - **SQL de leitura / schema / plano** (equivale ao "execute_sql_query"):
-  `docker compose exec db psql -U postgres -d movimento_dev -c "…"` — o `postgres` é o **dono**
+  `docker compose exec db psql -U postgres -d cinetra_dev -c "…"` — o `postgres` é o **dono**
   e **bypassa a RLS**; use-o para `EXPLAIN`, `information_schema`, `pg_indexes`, `pg_stat_*`.
 - **Prova da RLS** (a sonda que só este projeto tem):
-  `docker compose exec db psql -U movimento_app -d movimento_dev` — o role do app é
-  **NOBYPASSRLS**. Dentro de uma transação, `SELECT set_config('movimento.clinic_id', '<A>', true);`
+  `docker compose exec db psql -U cinetra_app -d cinetra_dev` — o role do app é
+  **NOBYPASSRLS**. Dentro de uma transação, `SELECT set_config('cinetra.clinic_id', '<A>', true);`
   e então tente ler linhas da clínica B. Zero linhas = RLS defendendo (ADR-018).
 - **Forjar `%Plug.Conn{}` / rodar o Router**: escreva/rode um `ConnCase`
   (`docker compose exec api mix test test/…:LINHA`). É o jeito honesto de exercer o pipeline

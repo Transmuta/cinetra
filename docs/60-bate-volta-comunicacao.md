@@ -172,7 +172,7 @@ notifiers → 40 e-mails, sem erro) ficou preso por **teste**.
 | | |
 | --- | --- |
 | Backend | 1263 testes, **2 falhas pré-existentes** (§5), 90,1% |
-| Gate `:rls` como `movimento_app` | as mesmas 2, nenhuma da fatia |
+| Gate `:rls` como `cinetra_app` | as mesmas 2, nenhuma da fatia |
 | Web | 1592 testes, 0 falhas, 90,6% |
 | `mix format --check-formatted` · `svelte-check` | limpos |
 

@@ -65,7 +65,7 @@ reafirma regra é custo puro. As classes que sobram, e o cenário que guarda cad
 | [`tempo-real`](../web/e2e/tempo-real.spec.ts) | WebSocket de verdade: token no subprotocolo, `check_origin` e **CSP** (que é assada no build e só existe em app buildado). O `realtime.test.ts` faz `vi.mock('phoenix')` — a camada do fio ali é dublê. |
 | [`notificacoes`](../web/e2e/notificacoes.spec.ts) | O badge que cai **sem F5**: `goto` não reexecuta load de layout, e o mock no-op de `enhance` esconde isso da unidade. Regressão de bug visto ao vivo. |
 | [`excluir-agendamento`](../web/e2e/excluir-agendamento.spec.ts) | `requestSubmit()` a partir de um ConfirmDialog — sem `await tick()` o Svelte 5 manda o form **vazio**, e o `fireEvent` da unidade não pega. Sete telas usam esse molde. |
-| [`isolamento`](../web/e2e/isolamento.spec.ts) | Vazamento entre clínicas pelo caminho HTTP inteiro, com o role `movimento_app` (NOBYPASSRLS) — o `mix test` conecta como superusuário e é cego a isso. |
+| [`isolamento`](../web/e2e/isolamento.spec.ts) | Vazamento entre clínicas pelo caminho HTTP inteiro, com o role `cinetra_app` (NOBYPASSRLS) — o `mix test` conecta como superusuário e é cego a isso. |
 | [`recepcao`](../web/e2e/recepcao.spec.ts) | RBAC afirmado em três lugares (policy, controller, gating de UX) **concordando**, com contraste owner × recepção na mesma tela. |
 | [`console`](../web/e2e/console.spec.ts) | Varredura do shell: erro de console/CSP em qualquer tela, e `<a>` para endpoint `+server` sem `data-sveltekit-reload` (404 no roteador de cliente). |
 

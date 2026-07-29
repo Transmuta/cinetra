@@ -5,8 +5,8 @@
 //
 // **Por que é build-time:** a `kit.csp` é config do SvelteKit — o header sai do servidor em
 // runtime, mas o valor é fixado no build. Por isso a origem entra pelo `ARG`/`ENV` do
-// `Dockerfile.prod`, e não pelo `[env]` do fly.toml (que é runtime). Uma imagem construída para
-// produção não serve para staging: é o preço de a CSP ser build-time, e está escrito no
+// `Dockerfile.prod`, e não pelo `environment:` do compose (que é runtime). Uma imagem construída
+// para produção não serve para staging: é o preço de a CSP ser build-time, e está escrito no
 // Dockerfile.
 
 /** Origem pública da API em desenvolvimento. Espelha o default de `apiPublicOrigin()` (api.ts). */
@@ -74,9 +74,9 @@ export function connectSrc(apiPublicOrigin, r2AccountId) {
  * A origem que o runtime vai discar está entre as que a CSP **assada** autoriza?
  *
  * Existe porque as duas pontas leem a mesma variável em momentos diferentes: a `kit.csp` fixa o
- * `connect-src` no **build** (por isso `[build.args]` no fly.toml), e o BFF resolve
- * `API_PUBLIC_ORIGIN` em **runtime** (por isso `[env]`). Divergir não dá erro de servidor: dá
- * agenda que para de atualizar sozinha, com o motivo só no console do browser do usuário. É o
+ * `connect-src` no **build** (por isso `args:` no compose.dokploy.yml), e o BFF resolve
+ * `API_PUBLIC_ORIGIN` em **runtime** (por isso `environment:`). Divergir não dá erro de servidor:
+ * dá agenda que para de atualizar sozinha, com o motivo só no console do browser do usuário. É o
  * tipo de falha que um deploy passa verde.
  *
  * Devolve `null` quando está tudo certo, ou a mensagem a levantar. Não levanta aqui: quem decide
@@ -99,6 +99,6 @@ export function conferirOrigem(autorizadas, origemRuntime) {
 		`A CSP assada no build não autoriza a origem que o runtime vai usar para o WebSocket.\n` +
 		`  runtime (API_PUBLIC_ORIGIN):  ${origem}\n` +
 		`  connect-src assado no build: ${autorizadas.join(' ')}\n` +
-		`Iguale API_PUBLIC_ORIGIN em [build.args] e [env] no web/fly.toml (ver docs/17).`
+		`Iguale API_PUBLIC_ORIGIN em args: e environment: no compose.dokploy.yml (ver docs/59).`
 	);
 }

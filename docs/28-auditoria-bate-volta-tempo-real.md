@@ -3,7 +3,7 @@
 Auditoria do diff da **Entrega 3 — tempo real** (WebSocket/Channels da agenda) contra a stack
 rodando. Cinco rodadas: duas de caça (checklist + adversarial, despachadas em paralelo aos três
 eixos), consolidação, conserto e verificação. A regra do método: **nenhum achado sem o output
-de uma sonda** — `psql` como `movimento_app` (RLS real), `mix test`, `iex`, `curl`, `EXPLAIN`,
+de uma sonda** — `psql` como `cinetra_app` (RLS real), `mix test`, `iex`, `curl`, `EXPLAIN`,
 `docker compose logs`, e o Playwright no navegador.
 
 ## 1. Onde parou, e por quê
@@ -29,7 +29,7 @@ checklist + adversarial no seu eixo.
 | --- | --- | --- |
 | Bypass do BFF / ataque direto na API | SEGURO | `curl` sem cookie em `:4010/api/realtime/token` → **401** (rota sob `:authenticated`) |
 | Tenant vindo do cliente | SEGURO | `clinic_id` do tópico conferido por **igualdade exata de byte** contra o do token; case/espaço diferente → `:error` |
-| BOLA / IDOR (o risco central) | SEGURO | `load_visible_appointment` cross-tenant → `nil`; RLS `movimento_app` → **0 linhas**; A7 (colega) → `nil` |
+| BOLA / IDOR (o risco central) | SEGURO | `load_visible_appointment` cross-tenant → `nil`; RLS `cinetra_app` → **0 linhas**; A7 (colega) → `nil` |
 | Function-level authz | SEGURO | `join` com 2 guardas (same_clinic + membership relido do banco); `handle_info` relê pela read com policy |
 | Mass assignment | N/A | `connect` só aceita `"token"`; `join` ignora `_params` |
 | CSRF / CSWSH | SEGURO | auth por **bearer token**, não cookie de ambiente; `check_origin: [web_app_url]` em prod |
@@ -215,7 +215,7 @@ invalidação no `update_clinic_info`), mas é 1 query por **escrita**, não por
 - `mix format --check-formatted` → limpo. `npm run check` → 0 erros/0 warnings.
 - Conserto 1 re-sondado **ao vivo** (Semana atualiza sem refresh; Dia sem regressão).
 - Conserto 2 re-sondado por **log de query** (39 → 6 colunas).
-- Segurança re-provada: RLS `movimento_app` (NOBYPASSRLS) → 0 linhas cross-tenant; `curl` sem
+- Segurança re-provada: RLS `cinetra_app` (NOBYPASSRLS) → 0 linhas cross-tenant; `curl` sem
   cookie → 401; A7 no push → `nil`.
 - **Nenhuma escrita destrutiva foi executada** pelas sondas; os agendamentos criados na
   verificação ao vivo foram criações legítimas pela própria action, na clínica de demo.

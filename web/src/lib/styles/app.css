@@ -1,4 +1,4 @@
-/* Design system do Movimento (ADR-010 / doc 03 §4). Duas camadas:
+/* Design system da Cinetra (ADR-010 / doc 03 §4). Duas camadas:
    1) proveniência — custom properties `--mv-*` com os hex verbatim do protótipo
       (interface/Movimento.dc.html theme() :301-313), trocadas por [data-theme];
    2) utilitários — `@theme inline` mapeia aquelas variáveis para os namespaces do

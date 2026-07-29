@@ -122,7 +122,7 @@ o nome de novo logo abaixo é ruído, não contexto.
 - suíte da API inteira: **1.516 testes, 2 falhas**, as duas pré-existentes em `rls_smoke_test.exs`
   (`bulk_cancel` / `bulk_adjust`) e confirmadas como tais com `git stash` das mudanças desta fatia;
 - `npm run check` (0 erros) e Vitest: 1.856 testes, 0 falhas;
-- **ao vivo**, pelo caminho real (`mix run` no dev, como `movimento_app`, com RLS ligada — o
+- **ao vivo**, pelo caminho real (`mix run` no dev, como `cinetra_app`, com RLS ligada — o
   caminho que já escondeu bug de GUC invisível ao `mix test`): agendar → faltar → justificar →
   reabrir, e depois ler o histórico do bloco:
 

@@ -856,7 +856,7 @@ arquivado / profissional ou paciente inativo são recusados.
 > enums, `Availability`, `LocalTime`, a exclusion constraint, `btree_gist`, `tz`, o relógio no
 > `Api.Scope`, a trilha (A-D6c) em ambos os recursos, `GET/POST /api/appointments` (com sidecar
 > `patients`), `GET /api/availability`, e RLS — **inclusive nas tabelas de versão**. 463 testes,
-> 89,4% de cobertura. RLS verificada por `psql` como `movimento_app` (NOBYPASSRLS) em 4
+> 89,4% de cobertura. RLS verificada por `psql` como `cinetra_app` (NOBYPASSRLS) em 4
 > cenários: sem GUC → 0 linhas; com GUC → só a própria clínica; `INSERT`/`UPDATE` com
 > `clinic_id` alheio → barrados pelo `WITH CHECK`; e a trilha isolada do mesmo jeito.
 > Frontend: rota `/agenda` com visão Dia, o modal de criar, `layoutAppts` portado com teste de
@@ -876,7 +876,7 @@ arquivado / profissional ou paciente inativo são recusados.
 > ### Três bugs apareceram ao vivo: leitura sem a GUC de tenant
 >
 > Sidebar vazia, `/availability` 404 e criar dava 400 — **os três eram a mesma causa**: leitura
-> por-tenant sem a GUC `movimento.clinic_id`, barrada pela RLS. Consertados envolvendo as
+> por-tenant sem a GUC `cinetra.clinic_id`, barrada pela RLS. Consertados envolvendo as
 > leituras em `in_clinic`/`with_clinic` (`load_agenda/4`, `load_availability_sources/3`,
 > `ComputeEndsAt`).
 >
@@ -884,8 +884,8 @@ arquivado / profissional ou paciente inativo são recusados.
 >
 > | Condição | Resultado |
 > | --- | --- |
-> | `movimento_app` (role do servidor), **sem** `in_clinic` | **0 profissionais** |
-> | `movimento_app`, **com** `in_clinic` | 2 profissionais |
+> | `cinetra_app` (role do servidor), **sem** `in_clinic` | **0 profissionais** |
+> | `cinetra_app`, **com** `in_clinic` | 2 profissionais |
 > | `postgres` (o role do `mix test`) | 2 profissionais |
 >
 > Nota importante: `Api.Repo.on_transaction_begin/1` promete injetar a GUC em leitura com
@@ -901,20 +901,20 @@ arquivado / profissional ou paciente inativo são recusados.
 > - `docker-compose.yml` de fato define `DATABASE_USER: postgres` — mas isso é o usuário
 >   **privilegiado, para migrations/DDL**. O `entrypoint.dev.sh` termina com
 >   `exec env DATABASE_USER="${APP_USER}" ... mix phx.server`: **o servidor sobe como
->   `movimento_app`**, sujeito à RLS.
+>   `cinetra_app`**, sujeito à RLS.
 > - `docker compose exec` **não passa pelo entrypoint**. Toda sonda feita por ele — minhas e as
 >   de dois subagentes — conectou como `postgres` e mediu um ambiente que não é o que serve as
->   requisições. `pg_stat_activity` desfaz a dúvida: 10 conexões `movimento_app`, e a única
+>   requisições. `pg_stat_activity` desfaz a dúvida: 10 conexões `cinetra_app`, e a única
 >   `postgres` era o próprio psql da sonda.
 >
 > **Lição:** ao sondar um comportamento dependente de role/ambiente, verifique **quem a sonda
 > é** antes de acreditar no que ela diz (`SELECT current_user`), e prefira observar o processo
 > real (`pg_stat_activity`) a inferir do arquivo de configuração. Para rodar uma sonda como o
-> servidor: `docker compose exec -e DATABASE_USER=movimento_app -e DATABASE_PASSWORD=movimento_app api ...`.
+> servidor: `docker compose exec -e DATABASE_USER=cinetra_app -e DATABASE_PASSWORD=cinetra_app api ...`.
 >
 > **O que continua valendo:** `mix test` roda como `postgres` (BYPASSRLS), então a suíte
 > **não** exercita RLS — bug de GUC passa verde e só aparece ao usar a tela em dev (que é um
-> detector real) ou em produção. A dívida de uma parte da suíte rodar como `movimento_app`
+> detector real) ou em produção. A dívida de uma parte da suíte rodar como `cinetra_app`
 > continua de pé.
 
 **Entrega 2 — Visões e navegação.** Semana, Mês, Lista, `GET /api/appointments/counts` (uma
@@ -1010,7 +1010,7 @@ fora do expediente mas o **arraste não valida disponibilidade** — mesma regra
 > em `mutate.ts`; e as seis actions em `+page.server.ts`. Web 919 testes / 92,9% stmts, 78,3%
 > branch.
 >
-> **RLS verificada por sonda como `movimento_app` (NOBYPASSRLS)**, o detector real (o `mix test`
+> **RLS verificada por sonda como `cinetra_app` (NOBYPASSRLS)**, o detector real (o `mix test`
 > conecta como `postgres`/BYPASS): a cadeia `criar → faltar → reabrir → remarcar` escreveu
 > corretamente sob RLS, o agregado de faltas subiu para 1 e voltou a 0, a trilha
 > (`appointments_versions`/`attendances_versions`) gravou, o `version` avançou 1→4 e o
@@ -1043,7 +1043,7 @@ e [`09:739`](09-contrato-api.md) são resíduo já corrigido por
 > `OfferSlotModal` (reusando `PatientPicker`/`PeriodEditor`), o cliente `connectWaitlist` +
 > `invalidate`. **1014 testes web.**
 >
-> **RLS verificada por `psql` como `movimento_app`** (NOBYPASSRLS, o detector real — o `mix test`
+> **RLS verificada por `psql` como `cinetra_app`** (NOBYPASSRLS, o detector real — o `mix test`
 > é `postgres`/BYPASS): sem GUC → 0 linhas; com GUC → só a própria clínica; `WITH CHECK` barra
 > INSERT com `clinic_id` alheio. **Verificado ao vivo no navegador:** a rota, o ramo `fila` da
 > sidebar (as duas instâncias, o gotcha do CNPJ), o modal de adicionar e a busca de paciente pelo

@@ -7,7 +7,7 @@ deixou como P1–P4 e os gatilhos que sobraram da §3 do [doc 31](31-notificacoe
 **Estado:** construída e verificada em 2026-07-26, e **auditada** em seguida — o bate-volta está
 em [`45`](45-bate-volta-onda-4.md) e corrigiu cinco causas (duas delas de correção, não de
 performance). Números depois da auditoria: API **1009 testes / 0 falhas / 91,1%**, gate `:rls`
-**20/0** como `movimento_app`, web **1275 testes / 0 falhas / 91,5% stmts**, `svelte-check` 0
+**20/0** como `cinetra_app`, web **1275 testes / 0 falhas / 91,5% stmts**, `svelte-check` 0
 erros, `mix format --check-formatted` e `--warnings-as-errors` limpos.
 
 ---
@@ -70,7 +70,7 @@ o acoplamento a esse detalhe do AshPostgres está escrito no recurso — se um u
 emitir o cast, o índice deixa de anexar **em silêncio**, sem nenhum teste vermelho.
 
 Prova final, pelo caminho da app (`Api.Notifications.list_inbox/2` e `unread_count/1` rodando como
-`movimento_app`, 40.071 linhas):
+`cinetra_app`, 40.071 linhas):
 
 ```
 notifications_inbox_index    idx_scan 4   idx_tup_read  218

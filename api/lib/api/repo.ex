@@ -14,15 +14,15 @@ defmodule Api.Repo do
     true
   end
 
-  @tenant_guc "movimento.clinic_id"
+  @tenant_guc "cinetra.clinic_id"
 
   # As GUCs das DUAS portas sem sessão da comunicação com o paciente (doc 52 §10.2). Ver
   # `with_provider_message/2` e `with_message/2` — e o moduledoc delas para por que existem.
-  @provider_guc "movimento.provider_message_id"
-  @message_guc "movimento.message_id"
+  @provider_guc "cinetra.provider_message_id"
+  @message_guc "cinetra.message_id"
 
   @doc """
-  Injeta a GUC `movimento.clinic_id` no início de toda transação **de leitura** que tem um
+  Injeta a GUC `cinetra.clinic_id` no início de toda transação **de leitura** que tem um
   tenant no contexto (ADR-018).
 
   ATENÇÃO ao alcance real: só funciona em `read`. O `transaction_reason` do Ash carrega o
@@ -59,7 +59,7 @@ defmodule Api.Repo do
   defp tenant_from_reason(_reason), do: nil
 
   @doc """
-  Roda `fun` com o GUC `movimento.clinic_id` setado (transação-local) para as RLS
+  Roda `fun` com o GUC `cinetra.clinic_id` setado (transação-local) para as RLS
   policies (ADR-018). Toda operação em recurso por-tenant deve passar por aqui —
   no app, o plug de scope da sessão (ADR-014) é quem chama. `SET LOCAL` exige a
   transação; sem GUC as policies falham fechando (0 linhas).

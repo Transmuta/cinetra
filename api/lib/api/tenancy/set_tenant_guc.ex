@@ -1,6 +1,6 @@
 defmodule Api.Tenancy.SetTenantGuc do
   @moduledoc """
-  Injeta a GUC `movimento.clinic_id` na transação da própria ação, para que a RLS (ADR-018)
+  Injeta a GUC `cinetra.clinic_id` na transação da própria ação, para que a RLS (ADR-018)
   aceite o INSERT/UPDATE de recurso por-tenant.
 
   ## Por que isto existe
@@ -22,7 +22,7 @@ defmodule Api.Tenancy.SetTenantGuc do
   continua sendo ok/error normal.
 
   Nada disso aparece na suíte: o sandbox de teste conecta como `postgres` (BYPASSRLS). Só
-  morde no servidor real (`movimento_app`, NOBYPASSRLS).
+  morde no servidor real (`cinetra_app`, NOBYPASSRLS).
   """
   use Ash.Resource.Change
 

@@ -1,10 +1,10 @@
 defmodule Api.Release do
   @moduledoc """
-  Tarefas de release para produção (sem Mix). Rodam a partir do release compilado — no Fly via
-  `release_command = "/app/bin/api eval Api.Release.setup()"` (fly.toml). Conectam como o role
-  **owner** (`DATABASE_ADMIN_URL`): fazem DDL e criam o role restrito. O app de longa duração
-  conecta como o role **restrito** (`DATABASE_URL` = `movimento_app`, NOBYPASSRLS) e fica
-  sujeito à RLS (ADR-018).
+  Tarefas de release para produção (sem Mix). Rodam a partir do release compilado — no Dokploy
+  pelo serviço `migrate` (`bin/api eval Api.Release.setup()`, `compose.dokploy.yml`), que roda até
+  o fim antes de a API subir. Conectam como o role **owner** (`DATABASE_ADMIN_URL`): fazem DDL e
+  criam o role restrito. O app de longa duração conecta como o role **restrito**
+  (`DATABASE_URL` = `cinetra_app`, NOBYPASSRLS) e fica sujeito à RLS (ADR-018).
 
   - `setup/0`   — roda migrations e provisiona os roles (a ordem importa: tabelas antes
                   dos grants).
@@ -157,9 +157,10 @@ defmodule Api.Release do
   defp repos, do: Application.fetch_env!(@app, :ecto_repos)
 
   # Roda `fun` com o Repo apontado para a conexão de OWNER (`DATABASE_ADMIN_URL`) — migrations/DDL
-  # e criação do role restrito. No Fly o `release_command` e o app compartilham secrets, então
-  # separamos por variável: admin aqui, `DATABASE_URL` (restrito) no runtime do app. Sobrescreve a
-  # config **antes** do `with_repo` (o `url:` opt do with_repo não sobrepõe a url do runtime.exs).
+  # e criação do role restrito. O serviço `migrate` e a API compartilham o mesmo `.env` do stack,
+  # então separamos por variável: admin aqui, `DATABASE_URL` (restrito) no runtime do app.
+  # Sobrescreve a config **antes** do `with_repo` (o `url:` opt do with_repo não sobrepõe a url do
+  # runtime.exs).
   # Sem `DATABASE_ADMIN_URL`, usa a config atual (setups onde a `DATABASE_URL` já é de owner).
   defp with_admin_config(fun) do
     case System.get_env("DATABASE_ADMIN_URL") do

@@ -2,7 +2,7 @@ import type { RequestHandler } from './$types';
 import { PAGINAS_PUBLICAS } from '$lib/seo';
 
 // Sitemap das páginas públicas (doc 57). Rota, e não arquivo em `static/`, porque a URL
-// absoluta depende da origem (`ORIGIN` do fly.toml): um XML estático teria de repetir o
+// absoluta depende da origem (`ORIGIN` do compose.dokploy.yml): um XML estático teria de repetir o
 // domínio à mão e passaria a mentir no dia em que ele mudar.
 export const GET: RequestHandler = ({ url, setHeaders }) => {
 	const urls = PAGINAS_PUBLICAS.map(

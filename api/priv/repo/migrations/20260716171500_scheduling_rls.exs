@@ -3,7 +3,7 @@ defmodule Api.Repo.Migrations.SchedulingRls do
   RLS como defesa-em-profundidade da tenancy por atributo (ADR-018) para `clinic_hours` e
   `schedule_exceptions`, espelhando `AppointmentTypesRls`. Mesmo que o filtro do Ash
   (`WHERE clinic_id = ...`) seja contornado, o Postgres só devolve/aceita linhas do `clinic_id`
-  setado na GUC `movimento.clinic_id`. Sem GUC → 0 linhas (fail-closed).
+  setado na GUC `cinetra.clinic_id`. Sem GUC → 0 linhas (fail-closed).
 
   Escrita à mão e separada da autogerada de propósito: o gerador do Ash não conhece as
   policies, e o Postgres recusa ALTER em coluna usada por policy — o RLS entra depois que as
@@ -21,8 +21,8 @@ defmodule Api.Repo.Migrations.SchedulingRls do
 
       execute """
       CREATE POLICY tenant_isolation ON #{table}
-        USING (clinic_id = current_setting('movimento.clinic_id', true)::uuid)
-        WITH CHECK (clinic_id = current_setting('movimento.clinic_id', true)::uuid)
+        USING (clinic_id = current_setting('cinetra.clinic_id', true)::uuid)
+        WITH CHECK (clinic_id = current_setting('cinetra.clinic_id', true)::uuid)
       """
     end
   end

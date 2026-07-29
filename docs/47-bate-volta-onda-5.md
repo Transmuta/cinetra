@@ -10,7 +10,7 @@ rodada 3 deu conta da fila inteira (a 4 não foi necessária), e a rodada 5 re-s
 perguntou se o próprio conserto criou índice redundante.
 
 **Verde ao fim:** API **1019 testes + 17 doctests / 0 falhas**, gate `:rls` **20/0** como
-`movimento_app`, web **1291 testes / 0 falhas** em 137 arquivos (**91,6% stmts**),
+`cinetra_app`, web **1291 testes / 0 falhas** em 137 arquivos (**91,6% stmts**),
 `svelte-check` limpo, `mix format --check-formatted` limpo. Imagem de **produção** construída e
 servida para conferir os headers de verdade.
 
@@ -26,7 +26,7 @@ Nenhum achado entrou sem output de sonda. Os `REFUTADO` abaixo foram refutados *
 | --- | --- | --- |
 | Fronteira da API sem BFF | **REFUTADO** | `curl` direto na :4010 → `/api/auth/me` **401**, `/api/realtime/token` **401** |
 | Tenant vindo do cliente (WS) | **REFUTADO** | `clinic_id` sai do token assinado, nunca de params; `Parameters: %{"vsn" => "2.0.0"}` no log da conexão |
-| IDOR / BOLA pela relação nova (`Attendance.package`) | **REFUTADO** | `psql -U movimento_app`: com a GUC de outra clínica, `packages` → **0 linhas** e a junção `attendances⋈packages` → **0**; com a GUC da dona, **1** e **4** |
+| IDOR / BOLA pela relação nova (`Attendance.package`) | **REFUTADO** | `psql -U cinetra_app`: com a GUC de outra clínica, `packages` → **0 linhas** e a junção `attendances⋈packages` → **0**; com a GUC da dona, **1** e **4** |
 | Pacote de outra clínica carimbado na presença | **REFUTADO** | `PackageBelongsToPatient` recusa; `participant_package_test.exs:130` ("pacote de outra clínica é recusado") verde depois da mudança |
 | Function-level authz | **NÃO SE APLICA** | Nenhuma action nova no diff — `belongs_to` não cria action |
 | Mass assignment | **REFUTADO** | `accept [:package_id]` é o mesmo de antes; a FK **acrescenta** integridade, não superfície |
@@ -241,7 +241,7 @@ exato em que o erro seria introduzido.
 > ```
 > Error: A CSP assada no build não autoriza a origem que o runtime vai usar para o WebSocket.
 >   runtime (API_PUBLIC_ORIGIN):  https://api.clinica.com.br
->   connect-src assado no build: self https://movimento-api.fly.dev wss://movimento-api.fly.dev
+>   connect-src assado no build: self https://cinetra-api.fly.dev wss://cinetra-api.fly.dev
 > Iguale API_PUBLIC_ORIGIN em [build.args] e [env] no web/fly.toml (ver docs/17).
 > ```
 >

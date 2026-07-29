@@ -25,7 +25,7 @@ tree é churn de rebrand, fora do alvo.)
 
 | Vetor | Estado | Sonda |
 |---|---|---|
-| RLS de verdade (role `movimento_app`, NOBYPASSRLS) | REFUTADO | GUC=clínica A lendo paciente de B → **0 linhas**; sem GUC → **0** (fail-closed); INSERT/UPDATE cross-tenant → `ERROR: new row violates row-level security policy`; UPDATE de linha alheia → `UPDATE 0` |
+| RLS de verdade (role `cinetra_app`, NOBYPASSRLS) | REFUTADO | GUC=clínica A lendo paciente de B → **0 linhas**; sem GUC → **0** (fail-closed); INSERT/UPDATE cross-tenant → `ERROR: new row violates row-level security policy`; UPDATE de linha alheia → `UPDATE 0` |
 | Isolamento cross-tenant pela API | REFUTADO | ConnCase `GET /api/patients/:id` de outra clínica → 404; sem sessão → 401 |
 | `clinic_id` do corpo ignorado | REFUTADO | dupla whitelist (`@campos` controller + `accept @campos` recurso); teste manda `clinic_id` no corpo e a resposta não o tem; foi para a clínica do escopo |
 | RBAC por endpoint | REFUTADO | policies `read: :any` / `write: [:owner,:admin]` + guardas `with_member/admin_scope`; recepção/profissional → 403 |
@@ -97,7 +97,7 @@ propósito**:
 | ~~Busca/paginação server-side~~ | — | — | — | ✅ **FEITO** — ver §6 |
 
 **Nota operacional (dev):** o subagente de segurança criou, para provar a RLS, as clínicas
-`RLS Audit A`/`B` + 1 paciente cada em `movimento_dev` (INSERT/UPDATE cross-tenant foram todos
+`RLS Audit A`/`B` + 1 paciente cada em `cinetra_dev` (INSERT/UPDATE cross-tenant foram todos
 rollback/erro). É lixo de teste inofensivo; some com um `mix ash.reset` de dev quando quiser.
 
 ---

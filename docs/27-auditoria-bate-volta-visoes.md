@@ -1,7 +1,7 @@
 # 27 — Auditoria bate-volta: as visões da agenda (Entrega 2)
 
 Auditoria da **Entrega 2** da fatia agenda (Semana, Mês, Lista e `GET /api/appointments/counts`),
-contra o diff não-commitado sobre `0a07f4c` e a **stack rodando**: `psql` como `movimento_app`
+contra o diff não-commitado sobre `0a07f4c` e a **stack rodando**: `psql` como `cinetra_app`
 (NOBYPASSRLS), telemetria de query no `mix run`, `mix test`, e o navegador em `localhost:5173`.
 
 Três caças por checklist em paralelo (segurança, performance, refatoração) e uma caça
@@ -30,7 +30,7 @@ aplicado **pelo banco**, não em memória — o agendamento do colega não chega
 
 O `professional_id` existe só sob o escopo `profissional` e some sob `owner` — é a
 `OwnAgendaOnly` valendo através da code interface. A RLS segura sozinha em seguida: como
-`movimento_app`, com a GUC da clínica B, a leitura das cinco tabelas da agregação devolve
+`cinetra_app`, com a GUC da clínica B, a leitura das cinco tabelas da agregação devolve
 **0 linhas** da clínica A.
 
 **Performance — 5 achados**, com a medição que interessava: **16 queries, invariantes** em dias,

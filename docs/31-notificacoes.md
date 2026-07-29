@@ -204,7 +204,7 @@ O núcleo v1 das §4 foi construído e verificado. Não commitada.
 - **Web** — rota `/notificacoes` (lista + marcar lida/todas), sino do Rail virou link com badge
   real (`unread` desce do `+layout.server`), realtime no layout subindo o badge sem refresh.
 - **Gates** — backend 700 testes / 91,0 %; web 91,6 %; ambos verdes.
-- **Verificação ao vivo (servidor real, `movimento_app`)** — pegou **um bug que o `mix test` não
+- **Verificação ao vivo (servidor real, `cinetra_app`)** — pegou **um bug que o `mix test` não
   pega** (sandbox bypassa RLS): marcar-lida dava 500/400. Causa: a policy `mark_read` é
   filter-check (`recipient_id == actor`), então o `Ash.can` roda um SELECT sob RLS **antes** do
   `SetTenantGuc` (before_action) — GUC vazia → `''::uuid`. Corrigido rodando a escrita dentro de

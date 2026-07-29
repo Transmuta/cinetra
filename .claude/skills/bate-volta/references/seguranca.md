@@ -27,8 +27,8 @@ defesas que precisam ambas valer: a policy do Ash (actor) e a RLS por GUC (tenan
 cobre a outra.
 > Sonda 1 (policy): `iex` chamando a action com `actor` de A e `id` de B — deve dar forbidden
 > ou not-found, nunca o record.
-> Sonda 2 (RLS, ADR-018): `psql -U movimento_app`, dentro de transação
-> `SELECT set_config('movimento.clinic_id','<A>',true);` e então `SELECT` das linhas de B.
+> Sonda 2 (RLS, ADR-018): `psql -U cinetra_app`, dentro de transação
+> `SELECT set_config('cinetra.clinic_id','<A>',true);` e então `SELECT` das linhas de B.
 > **Zero linhas** é a defesa-em-profundidade funcionando; qualquer linha é CONFIRMADO.
 
 **Broken Function Level Authorization**
@@ -52,7 +52,7 @@ adequados?
 
 ## Autenticação e credenciais
 
-O Movimento é **passwordless** (ADR-015): Google OAuth + Magic Link, via AshAuthentication +
+A Cinetra é **passwordless** (ADR-015): Google OAuth + Magic Link, via AshAuthentication +
 `UserIdentity`. Não há senha para vazar — mas os vetores mudam de lugar, não somem.
 
 **Brute force / enumeração no request de magic link**

@@ -3,7 +3,7 @@ defmodule Api.Repo.Migrations.ProfessionalsRls do
   RLS como defesa-em-profundidade da tenancy por atributo (ADR-018). Mesmo que o
   filtro do Ash (`WHERE clinic_id = ...`) seja contornado (query crua, bug,
   authorize?: false sem tenant), o Postgres só devolve linhas do `clinic_id` setado
-  na GUC `movimento.clinic_id`. Sem GUC → 0 linhas (fail-closed).
+  na GUC `cinetra.clinic_id`. Sem GUC → 0 linhas (fail-closed).
 
   Roda como `postgres` (owner) no deploy/migrate; o app conecta como um role
   NOSUPERUSER/NOBYPASSRLS que fica sujeito à policy.
@@ -16,8 +16,8 @@ defmodule Api.Repo.Migrations.ProfessionalsRls do
 
     execute """
     CREATE POLICY tenant_isolation ON professionals
-      USING (clinic_id = current_setting('movimento.clinic_id', true)::uuid)
-      WITH CHECK (clinic_id = current_setting('movimento.clinic_id', true)::uuid)
+      USING (clinic_id = current_setting('cinetra.clinic_id', true)::uuid)
+      WITH CHECK (clinic_id = current_setting('cinetra.clinic_id', true)::uuid)
     """
   end
 

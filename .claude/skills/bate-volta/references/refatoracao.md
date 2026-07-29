@@ -24,7 +24,7 @@ diferentes. Sintoma: um docstring que afirma ser "o único lugar que faz X" enqu
 arquivo também faz X.
 
 **Constante ou literal repetida**
-Nome de cookie (`_api_key`), nome da GUC (`movimento.clinic_id`), rota, papel de membership,
+Nome de cookie (`_api_key`), nome da GUC (`cinetra.clinic_id`), rota, papel de membership,
 código de erro — escrito à mão em mais de um lugar. Vira module attribute / constante única.
 
 **Regra de negócio ou authz fora da Ash action / policy**

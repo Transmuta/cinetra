@@ -131,10 +131,10 @@ Registro para não parecerem esquecidos — **não** entram nas ondas abaixo:
 ## As frentes
 
 ### Frente 0 — Enablers de medição 🟡 PARCIAL
-- **D-M** ✅ — subconjunto `@tag :rls` rodando como `movimento_app` (NOBYPASSRLS); o gate do CI
+- **D-M** ✅ — subconjunto `@tag :rls` rodando como `cinetra_app` (NOBYPASSRLS); o gate do CI
   estava quebrado e passou a morder (provado por mutação). **[T]**
 - **D-S** ❌ **removido** — o seed foi escrito e semeou o dev, mas ia embarcado na imagem de
-  produção sem guarda de ambiente. O dado de volume permanece no `movimento_dev`; o gerador,
+  produção sem guarda de ambiente. O dado de volume permanece no `cinetra_dev`; o gerador,
   se voltar, tem de nascer fora de `priv/`. **[T]**
 
 ### Frente 1 — Quick wins / higiene ✅ FEITA
@@ -254,7 +254,7 @@ Registro para não parecerem esquecidos — **não** entram nas ondas abaixo:
 
 - **D-S:** seed **idempotente repetível**, versionado no repo, numa clínica de teste dedicada;
   não toca dados existentes.
-- **D-M:** subconjunto marcado **`@tag :rls`** rodando como `movimento_app`; resto da suíte segue
+- **D-M:** subconjunto marcado **`@tag :rls`** rodando como `cinetra_app`; resto da suíte segue
   como `postgres`.
 - **D-P:** **empurra no gap / primeira ocorrência no ambíguo** (determinístico, silencioso).
 - **Entrega:** commits pequenos **direto na `develop`** (sem branch/PR nesta onda).
@@ -271,7 +271,7 @@ Registro para não parecerem esquecidos — **não** entram nas ondas abaixo:
 
 | Item | Estado |
 | --- | --- |
-| **D-M** | Gate de RLS do CI **estava quebrado** (apontava para `api_test`); consertado e provado verde (7 testes `:rls` como `movimento_app`) |
+| **D-M** | Gate de RLS do CI **estava quebrado** (apontava para `api_test`); consertado e provado verde (7 testes `:rls` como `cinetra_app`) |
 | **D-T** | `mint` 1.9.1→1.9.3 — fecha CVE-2026-58229 (DoS) e CVE-2026-59249 (smuggling) |
 | **H61** / **I69** | BFF paralelo (`Promise.all`) / comentário do rail |
 | **D-E**, **D-P**, **H60** | **já estavam feitos** — confirmados, sem ação |
@@ -284,8 +284,8 @@ Registro para não parecerem esquecidos — **não** entram nas ondas abaixo:
 
 | Item | Estado |
 | --- | --- |
-| **D-A** | ✅ **fechado em 2026-07-24 — sem índice novo.** O conserto foi o par do A2: `CHECK (ends_at <= starts_at + interval '480 minutes')` no banco **e** o corte `starts_at > from − 8h` no `:in_range` (`Preparations.WindowLowerBound`). Medido no SQL que a app emite, sobre as 10.204 linhas do `movimento_dev`: **Seq Scan / 10.099 linhas descartadas / 231 buffers / 1,41 ms** → **Index Scan em `appointments_clinic_id_starts_at_index` / 103 buffers / 0,11 ms**, com a **mesma resposta** (105 = 105 linhas). Detalhe abaixo |
-| ~~**D-A**~~ | ❌ (histórico) O índice GiST **nunca anexava**: o Ash emite `tsrange(a0."starts_at"::timestamp, …)` e o índice foi criado sem cast — expressão de índice não casa. Provado por `pg_stat_user_indexes` (contador parado enquanto a app rodava) e pelo plano real sob `movimento_app`: **Seq Scan descartando 10.098 linhas**. Saldo: +1.096 kB e **+43% de latência de INSERT** por ganho zero, e o predicado reescrito ficou **mais lento** que o original. **Volta ao backlog** — ver "D-A, o diagnóstico correto" abaixo |
+| **D-A** | ✅ **fechado em 2026-07-24 — sem índice novo.** O conserto foi o par do A2: `CHECK (ends_at <= starts_at + interval '480 minutes')` no banco **e** o corte `starts_at > from − 8h` no `:in_range` (`Preparations.WindowLowerBound`). Medido no SQL que a app emite, sobre as 10.204 linhas do `cinetra_dev`: **Seq Scan / 10.099 linhas descartadas / 231 buffers / 1,41 ms** → **Index Scan em `appointments_clinic_id_starts_at_index` / 103 buffers / 0,11 ms**, com a **mesma resposta** (105 = 105 linhas). Detalhe abaixo |
+| ~~**D-A**~~ | ❌ (histórico) O índice GiST **nunca anexava**: o Ash emite `tsrange(a0."starts_at"::timestamp, …)` e o índice foi criado sem cast — expressão de índice não casa. Provado por `pg_stat_user_indexes` (contador parado enquanto a app rodava) e pelo plano real sob `cinetra_app`: **Seq Scan descartando 10.098 linhas**. Saldo: +1.096 kB e **+43% de latência de INSERT** por ganho zero, e o predicado reescrito ficou **mais lento** que o original. **Volta ao backlog** — ver "D-A, o diagnóstico correto" abaixo |
 | **D-S** | ❌ **REMOVIDO.** O seed não tinha guarda de ambiente e `priv/` é embarcado no release (`Dockerfile.prod: COPY priv priv`). Como `clinics`/`users`/`memberships` **não têm RLS**, rodá-lo por engano contra produção deixaria usuário, clínica e membership `owner` reais antes de falhar |
 | **D-C** | ✅ Paginação offset+keyset, `required?: false` (nenhum chamador muda). Testes reforçados no bate-volta: empates reais no keyset e guarda de truncamento (101 > `default_limit`) |
 | **D-D** | ✅ **já estava feito** (`load_availability_window`, `professional_id` múltiplo, `timezone` no `/auth/me`) — e **coberto por teste** que trava a ordem de grandeza |
@@ -324,7 +324,7 @@ teste que lê `pg_get_constraintdef` e compara com a constante do Elixir — é 
 
 **O que continua sem rede:** nenhum teste fixa **plano**. Um `EXPLAIN` na suíte seria teatro — com
 tabela de dezenas de linhas o planner escolhe Seq Scan e está certo. A medição de plano vive fora
-da suíte, no `movimento_dev`, e o roteiro está acima.
+da suíte, no `cinetra_dev`, e o roteiro está acima.
 
 ### Frente 3 (tempo real & escrita) — COMPLETA
 
@@ -422,7 +422,7 @@ Achados desta leva que valem além dela:
   só, então o primeiro `in_clinic` do caminho deixa a GUC pendurada. Tirar o `in_clinic` de uma
   leitura **interna** continua passando o gate. Ele prova a porta de entrada e a escrita.
 
-Verde ao fim: api **928/0** (91,7% de cobertura), gate RLS **7/0** como `movimento_app`, web
+Verde ao fim: api **928/0** (91,7% de cobertura), gate RLS **7/0** como `cinetra_app`, web
 **1268/1268** (91,3% stmts), `svelte-check` 0 erros. Verificação ao vivo no browser: falta por
 participante → rollup + contador de faltas, justificar → contador volta, massa move as 4 sessões
 do pacote e o histórico da ficha reflete.
@@ -450,7 +450,7 @@ inferior (`ends_at`) vira filtro. O que estava errado era a **solução e a medi
 A infra do D-M **já estava semeada**: existe [`test/api/rls_smoke_test.exs`](../api/test/api/rls_smoke_test.exs)
 com `@moduletag :rls` e o job `api-rls` em [`ci.yml`](../.github/workflows/ci.yml). Porém o passo
 que cria o role restrito conecta em `psql -d api_test`, enquanto o banco de teste é
-`movimento_test` ([`config/test.exs`](../api/config/test.exs)). Com `ON_ERROR_STOP=1` o passo
+`cinetra_test` ([`config/test.exs`](../api/config/test.exs)). Com `ON_ERROR_STOP=1` o passo
 falha antes de `mix test --only rls`; como o CI só dispara em push→`main`/PR e o trabalho corre na
 `develop`, **o gate nunca rodou verde**. Correção do D-M nesta onda = tornar o gate real (nome do
 banco correto) + provar verde, e não remontá-lo do zero.
@@ -486,15 +486,15 @@ docker run -d --rm --name pg -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=post
   -e POSTGRES_DB=postgres -p 5432:5432 postgres:16
 
 cd api && DATABASE_HOST=localhost mix deps.get
-DATABASE_HOST=localhost MIX_ENV=test mix ash.setup     # cria movimento_test
+DATABASE_HOST=localhost MIX_ENV=test mix ash.setup     # cria cinetra_test
 DATABASE_HOST=localhost MIX_ENV=test mix test          # suíte (como postgres, BYPASSRLS)
 ```
 
-**Gate de RLS** (como `movimento_app`, NOBYPASSRLS — é o que prova GUC/tenancy):
+**Gate de RLS** (como `cinetra_app`, NOBYPASSRLS — é o que prova GUC/tenancy):
 
 ```bash
-docker exec -i pg psql -U postgres -d movimento_test -v ON_ERROR_STOP=1 < priv/sql/setup_app_role.sql
-DATABASE_HOST=localhost DATABASE_USER=movimento_app DATABASE_PASSWORD=movimento_app \
+docker exec -i pg psql -U postgres -d cinetra_test -v ON_ERROR_STOP=1 < priv/sql/setup_app_role.sql
+DATABASE_HOST=localhost DATABASE_USER=cinetra_app DATABASE_PASSWORD=cinetra_app \
   SKIP_DB_SETUP=1 MIX_ENV=test mix test --only rls
 ```
 
@@ -503,7 +503,7 @@ DATABASE_HOST=localhost DATABASE_USER=movimento_app DATABASE_PASSWORD=movimento_
 `DATABASE_PORT` (parametrizado nesta leva, default 5432) é o que permite alcançar o Postgres do
 compose na :5434 a partir do host.
 
-> **Dado de volume.** O `movimento_dev` **tem ~10,2k agendamentos** numa clínica dedicada
+> **Dado de volume.** O `cinetra_dev` **tem ~10,2k agendamentos** numa clínica dedicada
 > ("Volume (perf)"), úteis para medir. O script que os gerou **foi removido** do repositório (ver
 > D-S acima): `priv/` embarca no release e ele não tinha guarda de ambiente. Se o volume precisar
 > ser recriado, o gerador deve nascer **fora de `priv/`** — em `test/support/` (que não vai para a

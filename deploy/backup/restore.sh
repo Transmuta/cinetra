@@ -5,7 +5,7 @@
 # SEPARADO e extraia as linhas; raramente se sobrescreve prod inteiro.
 #
 # Uso: /restore.sh <objeto-no-bucket> <database-alvo>
-#   ex: /restore.sh prod/daily/prod-20260726.dump.age movimento_restore
+#   ex: /restore.sh prod/daily/prod-20260726.dump.age cinetra_restore
 #
 # Se o objeto for .age, precisa da chave PRIVADA age em BACKUP_AGE_IDENTITY (caminho de arquivo),
 # que vive FORA do servidor e você monta só na hora do restore.

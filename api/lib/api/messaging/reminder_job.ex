@@ -29,7 +29,7 @@ defmodule Api.Messaging.ReminderJob do
 
   ## Varredura por clínica, sob a GUC
 
-  As tabelas têm RLS (ADR-018) e o job roda como `movimento_app`. Um `SELECT` cross-tenant não
+  As tabelas têm RLS (ADR-018) e o job roda como `cinetra_app`. Um `SELECT` cross-tenant não
   volta vazio por acaso: volta vazio **sempre**, e passa no `mix test`, onde o sandbox conecta
   como superusuário. Mesmo cuidado do `Api.Notifications.Reminders`.
   """

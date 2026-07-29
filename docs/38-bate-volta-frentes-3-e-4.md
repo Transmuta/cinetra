@@ -55,7 +55,7 @@ falta é o olho humano no render do diálogo.
 | --- | --- |
 | Bypass do BFF / ataque direto na API | **NÃO SE APLICA** — nenhuma rota nova; `/api/waitlist` já existia e segue sob `:authenticated` |
 | Tenant vindo do cliente | **REFUTADO** — `clinic_id` continua saindo só do escopo; os params novos (`limit`/`offset`/`prio`/`mode`) não tocam tenancy |
-| IDOR / BOLA (superfície nova: `holds` na lista) | **REFUTADO** por sonda RLS: como `movimento_app` com a GUC da clínica A, `SELECT count(*) FROM slot_holds` da clínica B → **0 linhas** (idem `waitlist_entries`) |
+| IDOR / BOLA (superfície nova: `holds` na lista) | **REFUTADO** por sonda RLS: como `cinetra_app` com a GUC da clínica A, `SELECT count(*) FROM slot_holds` da clínica B → **0 linhas** (idem `waitlist_entries`) |
 | Function level authorization | **REFUTADO** — `live_holds/1` passa pela policy de `SlotHold`; `entry_counts/1` roda `Ash.Query.for_read(:queued)` com escopo |
 | Mass assignment | **REFUTADO** — nenhum `accept` novo; `cancel_reason` já era aceito pela ação `:cancel` |
 | CORS / CSRF | **NÃO SE APLICA** — sem endpoint de mutação novo |
@@ -163,7 +163,7 @@ Verde ao fim: api **786/0** (4 doctests), gate RLS **7/0**, web **1178/1178**, `
 **O que é.** A ordem da fila (`urgente → baixa`, depois tempo de espera) é um `CASE` no `ORDER BY`.
 Com `OFFSET`, o Postgres ordena **todas** as linhas da clínica antes de recortar a página.
 
-**A sonda** (como `movimento_app`, com a GUC da clínica):
+**A sonda** (como `cinetra_app`, com a GUC da clínica):
 
 ```
 Limit  (cost=9.55..9.56 rows=2)
@@ -171,7 +171,7 @@ Limit  (cost=9.55..9.56 rows=2)
         Sort Key: (CASE WHEN (prio = 'urgente') THEN 0 … END), inserted_at
         Sort Method: quicksort  Memory: 25kB
         ->  Bitmap Heap Scan on waitlist_entries
-              Recheck Cond: (clinic_id = current_setting('movimento.clinic_id', true)::uuid)
+              Recheck Cond: (clinic_id = current_setting('cinetra.clinic_id', true)::uuid)
 ```
 
 **Por que não foi corrigido.** A fila é bounded por natureza (pacientes esperando encaixe) e o

@@ -3,7 +3,7 @@
 // O `adapter-node` pré-comprime os arquivos de `_app/` no build (`.gz`/`.br`, servidos pelo
 // sirv ANTES do handler do SvelteKit) — mas o HTML do SSR é gerado por request e sai **cru**.
 // A landing são 56 KB de HTML: medido no Lighthouse, 42 KB de desperdício por request, e não há
-// camada na frente que conserte isso — a edge do Fly não comprime (só faz o redirect de HTTPS,
+// camada na frente que conserte isso — o Traefik não comprime (só faz o redirect de HTTPS,
 // mesma lição do HSTS na Onda 5, doc 46).
 //
 // `CompressionStream` é padrão web e existe no Node desde a 18: não precisa de dependência nova

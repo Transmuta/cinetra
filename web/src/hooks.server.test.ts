@@ -62,8 +62,8 @@ describe('handle (headers de segurança, auditoria doc 13)', () => {
 	});
 });
 
-// H59 (Onda 5). O `force_https` do Fly faz o REDIRECT http→https, mas o proxy dele não emite
-// HSTS — o header tem de sair da aplicação. A premissa contrária estava escrita no doc 17 e no
+// H59 (Onda 5). O proxy da frente faz o REDIRECT http→https, mas não emite HSTS — o header tem
+// de sair da aplicação. A premissa contrária estava escrita no doc 17 e no
 // prod.exs, e teria ido para produção sem ninguém notar: o redirect esconde o sintoma.
 describe('handle (HSTS, H59)', () => {
 	async function headerEm(url: string) {
@@ -73,7 +73,7 @@ describe('handle (HSTS, H59)', () => {
 	}
 
 	it('em https emite Strict-Transport-Security com 2 anos e includeSubDomains', async () => {
-		expect(await headerEm('https://movimento-web.fly.dev/agenda')).toBe(
+		expect(await headerEm('https://cinetra.com.br/agenda')).toBe(
 			'max-age=63072000; includeSubDomains'
 		);
 	});
@@ -93,9 +93,9 @@ describe('handle (HSTS, H59)', () => {
 describe('handle (o que decide o HSTS é o ORIGIN, não o fio)', () => {
 	it('a origem reportada pelo SvelteKit é a fonte — é ela que o ORIGIN define', async () => {
 		const { resolve } = fakeResolve();
-		// Mesmo cenário do adapter-node atrás da edge do Fly: request http interno, ORIGIN https.
+		// Mesmo cenário do adapter-node atrás do proxy: request http interno, ORIGIN https.
 		const res = await handle({
-			event: fakeEvent(undefined, 'https://movimento-web.fly.dev/agenda'),
+			event: fakeEvent(undefined, 'https://cinetra.com.br/agenda'),
 			resolve
 		} as never);
 
@@ -106,7 +106,7 @@ describe('handle (o que decide o HSTS é o ORIGIN, não o fio)', () => {
 });
 
 // Doc 57. O HTML do SSR saía cru — o `adapter-node` pré-comprime só os arquivos do build, e a
-// edge do Fly não comprime nada (mesma lição do HSTS acima).
+// proxy da frente não comprime nada (mesma lição do HSTS acima).
 describe('handle (compressão do HTML do SSR)', () => {
 	const html = '<!doctype html>'.padEnd(3000, 'x');
 

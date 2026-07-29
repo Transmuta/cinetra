@@ -1,4 +1,4 @@
-# Instruções do projeto Movimento
+# Instruções do projeto Cinetra
 
 ## Documentação e saídas — SEMPRE local, NUNCA cloud
 
@@ -26,7 +26,7 @@ Regras que essa prática carrega:
   que só aparece atravessando a fronteira (string do JSON vs `%Date{}` do domínio) → **teste
   que atravessa a fronteira**; teste de unidade do lado de dentro já provou que não pega.
 - **Bug de RLS/GUC/tenant não se prova com `mix test`** — a suíte roda como superusuário e é
-  cega para isso. Use o gate `mix test --only rls` (roda como `movimento_app`) e/ou a
+  cega para isso. Use o gate `mix test --only rls` (roda como `cinetra_app`) e/ou a
   verificação ao vivo. Ver `.claude/rules/migrations.md` e as lições dos docs de bate-volta.
 - **Nunca "conserto agora e cubro depois".** O commit que entra na branch já traz o teste.
 - Se por algum motivo o bug for realmente intestável de forma automatizada, **diga isso
@@ -111,7 +111,7 @@ Tudo roda em container; do host use `docker.exe compose exec` (serviços `api`, 
 mix test                      # suíte
 mix test test/api/x_test.exs:42
 mix coveralls                 # suíte + gate de cobertura (o CI usa este)
-mix test --only rls           # gate de RLS, roda como movimento_app
+mix test --only rls           # gate de RLS, roda como cinetra_app
 mix format --check-formatted && mix compile --warnings-as-errors
 mix ash.codegen --dev         # iterar; no fim, mix ash.codegen <nome_da_mudanca>
 

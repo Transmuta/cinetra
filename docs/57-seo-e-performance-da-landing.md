@@ -420,5 +420,5 @@ E o toggle de cobrança ganhou `role="group"` + `aria-pressed`: sem isso o leito
   = 2,31:1). É a mesma folha, mas é tela de autenticação, não a landing — conserto de uma linha
   para quando alguém mexer ali.
 * **Domínio próprio.** A canônica, o sitemap e o `og:image` saem todos do `ORIGIN`
-  (`web/fly.toml`), hoje `https://movimento-web.fly.dev`. **Quando o domínio da Cinetra entrar, é
+  (`web/fly.toml`), hoje `https://cinetra-web.fly.dev`. **Quando o domínio da Cinetra entrar, é
   só trocar o `ORIGIN`** — nenhuma URL está escrita à mão em lugar nenhum.

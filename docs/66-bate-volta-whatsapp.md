@@ -23,7 +23,7 @@ humana (§5).
 | --- | --- | --- |
 | Rota pública nova (`/webhooks/zernio`) sem assinatura | REFUTADO | `curl` sem header → **401**; com assinatura errada → **401**; corpo sempre `{"error":"assinatura_invalida"}` |
 | Fail-closed sem segredo configurado | REFUTADO | Dev não tem `ZERNIO_WEBHOOK_SECRET`: toda chamada responde 401 |
-| Estreiteza da exceção da RLS (o webhook lê sem tenant) | REFUTADO | Como `movimento_app`: com a GUC do provider setada, `count(*) = 1`; sem ela, `0` |
+| Estreiteza da exceção da RLS (o webhook lê sem tenant) | REFUTADO | Como `cinetra_app`: com a GUC do provider setada, `count(*) = 1`; sem ela, `0` |
 | **Amplificação por replay na rota pública de resposta** | 🔴 **CONFIRMADO** | §2, causa A |
 | Tenant vindo do cliente | REFUTADO | O webhook resolve o tenant pelo id do provider (uma linha); a resposta, pelo token assinado |
 | Mass assignment no campo novo da clínica | REFUTADO | `zernio_account_id` não está em `accept` de nenhuma ação e é `public?=false` |
@@ -143,7 +143,7 @@ da rodada 1 continuam valendo. Dois pontos conferidos no código novo:
 * **Backend:** 1.459 testes, **90,3 %** (gate 80), `mix format --check-formatted` limpo,
   `mix compile --warnings-as-errors` limpo.
 * **Web:** 1.664 testes, 0 falhas.
-* **Gate `:rls`** (`movimento_app`, NOBYPASSRLS): verde, exceto as duas falhas do §5.
+* **Gate `:rls`** (`cinetra_app`, NOBYPASSRLS): verde, exceto as duas falhas do §5.
 
 ---
 

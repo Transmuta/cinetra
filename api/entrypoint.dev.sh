@@ -5,11 +5,11 @@
 set -euo pipefail
 
 DB_HOST="${DATABASE_HOST:-db}"
-DB_NAME="${DATABASE_NAME:-movimento_dev}"
+DB_NAME="${DATABASE_NAME:-cinetra_dev}"
 ADMIN_USER="${DATABASE_USER:-postgres}"
 ADMIN_PASS="${DATABASE_PASSWORD:-postgres}"
-APP_USER="${DATABASE_APP_USER:-movimento_app}"
-APP_PASS="${DATABASE_APP_PASSWORD:-movimento_app}"
+APP_USER="${DATABASE_APP_USER:-cinetra_app}"
+APP_PASS="${DATABASE_APP_PASSWORD:-cinetra_app}"
 
 echo "==> mix deps.get"
 mix deps.get

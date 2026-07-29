@@ -89,7 +89,7 @@ O filtro por `resource` sozinho anda de carona no segundo; o filtro por `action`
 
 Migration própria, no molde de
 [`20260719200000_agenda_constraint_and_rls.exs`](../api/priv/repo/migrations/20260719200000_agenda_constraint_and_rls.exs).
-**Verificação por `psql` como `movimento_app`** entra no critério de pronto: `mix test` conecta
+**Verificação por `psql` como `cinetra_app`** entra no critério de pronto: `mix test` conecta
 como `postgres` (BYPASSRLS) e furo aqui passa verde — é a armadilha que já custou 3 bugs na fatia
 de Tipos e 1 no doc 58.
 
@@ -315,7 +315,7 @@ log. Passou a registrar só os **nomes dos campos**.
 
 ### Refutado com sonda (estava certo)
 
-RLS de `audit_events` bloqueia leitura e escrita cross-tenant como `movimento_app`
+RLS de `audit_events` bloqueia leitura e escrita cross-tenant como `cinetra_app`
 (`new row violates row-level security policy`); IDOR e mass-assignment barrados; sem SQLi na
 migration de backfill (toda interpolação vem de literal de módulo); sem XSS; a redação de CPF/RG
 de fato não grava o valor; o enriquecimento **não** é N+1 (2 queries constantes de 5 a 200
@@ -362,7 +362,7 @@ migration seguinte. O índice é criado e dropado dentro do próprio `up`.
 - **A revisão da retenção com o jurídico** (D-Aud5). O número está em `Api.Audit.retencao_dias/0`
   e no `config.exs`, num lugar só.
 - **O `DROP` da dep `ash_paper_trail`** do `mix.exs`: as tabelas já saíram, a dep continua.
-- **`audit_events` no gate `:rls`.** A RLS foi provada à mão como `movimento_app` (leitura
+- **`audit_events` no gate `:rls`.** A RLS foi provada à mão como `cinetra_app` (leitura
   cross-tenant devolve 0 linhas; `INSERT` cross-tenant é recusado pela policy), mas o arquivo
   `rls_smoke_test.exs` ainda não a exercita como as demais tabelas.
 - **`Api.Audit.Acesso.registrar/7`** tem seis posicionais que descrevem a mesma entidade; e

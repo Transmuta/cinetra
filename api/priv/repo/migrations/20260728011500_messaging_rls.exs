@@ -25,7 +25,7 @@ defmodule Api.Repo.Migrations.MessagingRls do
   é o webhook respondendo 200 sem fazer nada e o link do e-mail dizendo "link inválido" — **para
   sempre, e verde no `mix test`**, onde o sandbox conecta como `postgres` e bypassa RLS. Aconteceu:
   o webhook nasceu com a exceção, a resposta do paciente nasceu sem, e só o bate-volta ao vivo
-  (como `movimento_app`) pegou.
+  (como `cinetra_app`) pegou.
 
   Cada exceção alcança **uma** linha, identificada por um segredo que o chamador já provou possuir
   — a assinatura Svix num caso, o token que nós assinamos no outro. Não há varredura: as duas
@@ -39,7 +39,7 @@ defmodule Api.Repo.Migrations.MessagingRls do
   `22P02 invalid_text_representation` e a query inteira morre. `nullif` faz a comparação voltar a
   ser `NULL`, ou seja **fail-closed**, que é o que a policy sempre pretendeu ser.
 
-  **Nada disto aparece no `mix test`.** A prova é o gate `:rls`, rodando como `movimento_app`
+  **Nada disto aparece no `mix test`.** A prova é o gate `:rls`, rodando como `cinetra_app`
   (NOBYPASSRLS) — parte do critério de pronto da fatia.
   """
   use Ecto.Migration
@@ -51,11 +51,11 @@ defmodule Api.Repo.Migrations.MessagingRls do
     execute """
     CREATE POLICY tenant_isolation ON messages
       USING (
-        clinic_id = nullif(current_setting('movimento.clinic_id', true), '')::uuid
-        OR provider_message_id = nullif(current_setting('movimento.provider_message_id', true), '')
-        OR id = nullif(current_setting('movimento.message_id', true), '')::uuid
+        clinic_id = nullif(current_setting('cinetra.clinic_id', true), '')::uuid
+        OR provider_message_id = nullif(current_setting('cinetra.provider_message_id', true), '')
+        OR id = nullif(current_setting('cinetra.message_id', true), '')::uuid
       )
-      WITH CHECK (clinic_id = nullif(current_setting('movimento.clinic_id', true), '')::uuid)
+      WITH CHECK (clinic_id = nullif(current_setting('cinetra.clinic_id', true), '')::uuid)
     """
 
     execute "ALTER TABLE message_opt_outs ENABLE ROW LEVEL SECURITY"
@@ -65,11 +65,11 @@ defmodule Api.Repo.Migrations.MessagingRls do
     CREATE POLICY tenant_isolation ON message_opt_outs
       USING (
         clinic_id IS NULL
-        OR clinic_id = nullif(current_setting('movimento.clinic_id', true), '')::uuid
+        OR clinic_id = nullif(current_setting('cinetra.clinic_id', true), '')::uuid
       )
       WITH CHECK (
         clinic_id IS NULL
-        OR clinic_id = nullif(current_setting('movimento.clinic_id', true), '')::uuid
+        OR clinic_id = nullif(current_setting('cinetra.clinic_id', true), '')::uuid
       )
     """
   end

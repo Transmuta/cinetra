@@ -77,7 +77,7 @@ defmodule Api.Packages.Materializer do
     forcar = Map.get(args, "forcar", false)
 
     # As leituras rodam sob a GUC de tenant (`in_clinic`): sem ela a RLS (ADR-018) lê o
-    # `movimento.clinic_id` vazio e estoura `""::uuid` no job — o mesmo furo que o `mix test`
+    # `cinetra.clinic_id` vazio e estoura `""::uuid` no job — o mesmo furo que o `mix test`
     # (superusuário) não vê. O plano (quais instantes criar) sai daqui já resolvido.
     plan =
       in_clinic(clinic_id, fn ->

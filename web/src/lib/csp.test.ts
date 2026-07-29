@@ -8,10 +8,10 @@ import { socketUrl } from './realtime';
 // mesmo caminho.
 describe('connectSrc (hosts da CSP por ambiente)', () => {
 	it('deriva o par https/wss da origem pública da API', () => {
-		expect(connectSrc('https://movimento-api.fly.dev')).toEqual([
+		expect(connectSrc('https://cinetra.com.br')).toEqual([
 			'self',
-			'https://movimento-api.fly.dev',
-			'wss://movimento-api.fly.dev'
+			'https://cinetra.com.br',
+			'wss://cinetra.com.br'
 		]);
 	});
 
@@ -46,7 +46,7 @@ describe('connectSrc (hosts da CSP por ambiente)', () => {
 
 	// O ponto do S3: o host de dev NÃO pode sobrar no build de produção.
 	it('build de produção não carrega o host de dev', () => {
-		expect(connectSrc('https://movimento-api.fly.dev').join(' ')).not.toContain('localhost');
+		expect(connectSrc('https://cinetra.com.br').join(' ')).not.toContain('localhost');
 	});
 });
 
@@ -57,14 +57,14 @@ describe('connectSrc (hosts da CSP por ambiente)', () => {
 describe('wsOrigin — a fonte única da regra de esquema', () => {
 	it.each([
 		['http://localhost:4010', 'ws://localhost:4010'],
-		['https://movimento-api.fly.dev', 'wss://movimento-api.fly.dev'],
+		['https://cinetra.com.br', 'wss://cinetra.com.br'],
 		['https://api.exemplo.com/', 'wss://api.exemplo.com']
 	])('%s → %s', (origem, esperado) => {
 		expect(wsOrigin(origem)).toBe(esperado);
 	});
 
 	it('a URL do socket e o connect-src da CSP apontam para a MESMA origem', () => {
-		for (const origem of ['http://localhost:4010', 'https://movimento-api.fly.dev']) {
+		for (const origem of ['http://localhost:4010', 'https://cinetra.com.br']) {
 			const autorizada = connectSrc(origem).find((o) => o.startsWith('ws'));
 			expect(socketUrl(origem)).toBe(`${autorizada}/socket`);
 		}
@@ -75,29 +75,29 @@ describe('wsOrigin — a fonte única da regra de esquema', () => {
 // checava que as duas batem, e divergir bloqueia o WebSocket **em silêncio** — o erro só aparece
 // no console do browser do usuário. Esta é a função que transforma o silêncio em falha de boot.
 describe('conferirOrigem — a guarda entre o build e o runtime', () => {
-	const autorizadas = connectSrc('https://movimento-api.fly.dev');
+	const autorizadas = connectSrc('https://cinetra.com.br');
 
 	it('origem que a CSP autoriza passa', () => {
-		expect(conferirOrigem(autorizadas, 'https://movimento-api.fly.dev')).toBeNull();
+		expect(conferirOrigem(autorizadas, 'https://cinetra.com.br')).toBeNull();
 	});
 
 	it('tolera barra no fim dos dois lados', () => {
-		expect(conferirOrigem(autorizadas, 'https://movimento-api.fly.dev/')).toBeNull();
+		expect(conferirOrigem(autorizadas, 'https://cinetra.com.br/')).toBeNull();
 	});
 
-	// O caso real: `[env]` do fly.toml atualizado para o domínio novo, `[build.args]` esquecido.
+	// O caso real: `environment:` do compose atualizado para o domínio novo, `args:` esquecido.
 	it('origem de runtime fora da CSP vira mensagem — com os dois valores', () => {
 		const erro = conferirOrigem(autorizadas, 'https://agenda.clinica.com.br');
 
 		expect(erro).toContain('agenda.clinica.com.br');
-		expect(erro).toContain('movimento-api.fly.dev');
+		expect(erro).toContain('cinetra.com.br');
 	});
 
 	// O outro caso real: build sem o ARG. A CSP sai com localhost e produção disca o host real.
 	it('build sem o ARG (CSP de dev) contra runtime de produção é pego', () => {
 		const cspDeDev = connectSrc(undefined);
 
-		expect(conferirOrigem(cspDeDev, 'https://movimento-api.fly.dev')).toContain('localhost');
+		expect(conferirOrigem(cspDeDev, 'https://cinetra.com.br')).toContain('localhost');
 	});
 
 	// Dev e CI: os dois lados caem no MESMO default, então a guarda não pode disparar por omissão
