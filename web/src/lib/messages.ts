@@ -157,14 +157,41 @@ export function respostaTexto(m: Message): string | null {
 /**
  * O reenvio faz sentido para este participante?
  *
- * Sim quando não há mensagem nenhuma **e o motivo não é opt-out** (§10.4: quem pediu para parar
- * não recebe por insistência de botão), ou quando a última tentativa falhou. Uma mensagem em
- * trânsito ou já entregue não precisa de reenvio — e oferecê-lo convida a recepção a duplicar
- * comunicação com o paciente.
+ * Sim quando não há mensagem nenhuma **e nada bloqueia o envio**, ou quando a última tentativa
+ * falhou. Uma mensagem em trânsito ou já entregue não precisa de reenvio — e oferecê-lo convida a
+ * recepção a duplicar comunicação com o paciente.
+ *
+ * `semEnvio` preenchido é exatamente o `{:skip, motivo}` do `Dispatch.avaliar/2` (o BFF só o
+ * devolve quando não há mensagem): clicar ali dispara, a API responde 201 e o disparo é pulado
+ * **pelo mesmo motivo** que a linha acima já explicou. Um botão que promete ação e devolve a
+ * mesma frase manda a recepção insistir num lugar onde não há o que fazer — e, no
+ * `canal_indisponivel`, o que falta nem é dela (é de quem opera a instalação). Ele reaparece
+ * sozinho quando o motivo deixa de valer: a timeline é reavaliada a cada abertura do drawer.
+ *
+ * O `opt_out` era o único caso barrado aqui (§10.4) — continua barrado, agora pela regra geral.
  */
 export function podeReenviar(p: MessageParticipant): boolean {
-	if (p.mensagens.length === 0) return p.semEnvio !== 'opt_out';
+	if (p.mensagens.length === 0) return !p.semEnvio;
 
 	const ultima = p.mensagens[p.mensagens.length - 1];
 	return ultima.status === 'falhou';
+}
+
+/**
+ * Alguém neste agendamento receberia alguma coisa se o "Enviar confirmação" do rodapé fosse
+ * clicado agora?
+ *
+ * O botão do rodapé dispara para **todos** os participantes, então a pergunta dele não é a do
+ * `podeReenviar` (que é por participante e também evita duplicar o que já saiu): aqui basta que
+ * um único participante esteja desimpedido. Reenviar de propósito uma confirmação já entregue
+ * continua valendo — o que não pode é o botão prometer envio quando a turma inteira está barrada
+ * e o clique só devolve o mesmo motivo em forma de aviso.
+ *
+ * `null` é a timeline ainda carregando: não sabemos, e "não sei" não é "não dá" — o botão fica de
+ * pé e o pior caso é o aviso que já existia.
+ */
+export function algumPodeReceber(participantes: MessageParticipant[] | null): boolean {
+	if (participantes === null) return true;
+
+	return participantes.some((p) => !p.semEnvio);
 }

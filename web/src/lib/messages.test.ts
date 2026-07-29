@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+	algumPodeReceber,
 	instanteDoStatus,
 	podeReenviar,
 	respostaTexto,
@@ -12,7 +13,7 @@ import {
 } from './messages';
 
 // O vocabulário da timeline (doc 52 §6). O que precisa estar preso aqui é a regra do
-// `podeReenviar`: ela é a que decide se a recepção consegue insistir com quem pediu para parar.
+// `podeReenviar`: ela é a que decide se a recepção vê um botão que de fato envia algo.
 
 function msg(over: Partial<Message> = {}): Message {
 	return {
@@ -150,13 +151,18 @@ describe('instanteDoStatus', () => {
 });
 
 describe('podeReenviar', () => {
-	it('oferece envio a quem ainda não recebeu nada', () => {
-		expect(podeReenviar(participante({ semEnvio: 'sem_contato' }))).toBe(true);
+	it('oferece envio a quem ainda não recebeu nada e nada bloqueia', () => {
+		expect(podeReenviar(participante({ semEnvio: null }))).toBe(true);
 	});
 
-	it('NÃO oferece a quem pediu para parar', () => {
-		// A regra do §10.4 na UI: opt-out não se contorna por insistência de botão.
+	it('NÃO oferece quando o envio é impossível agora', () => {
+		// Todo motivo aqui é um `{:skip, _}` do Dispatch: o clique voltaria com a MESMA frase que a
+		// linha acima já mostra. O opt-out é o §10.4 (não se contorna por insistência de botão); o
+		// canal indisponível nem é da recepção.
 		expect(podeReenviar(participante({ semEnvio: 'opt_out' }))).toBe(false);
+		expect(podeReenviar(participante({ semEnvio: 'sem_contato' }))).toBe(false);
+		expect(podeReenviar(participante({ semEnvio: 'sem_consentimento' }))).toBe(false);
+		expect(podeReenviar(participante({ semEnvio: 'canal_indisponivel' }))).toBe(false);
 	});
 
 	it('oferece reenvio quando a última tentativa falhou', () => {
@@ -176,5 +182,43 @@ describe('podeReenviar', () => {
 		});
 
 		expect(podeReenviar(p)).toBe(false);
+	});
+});
+
+describe('algumPodeReceber', () => {
+	it('basta um desimpedido na turma', () => {
+		// O botão do rodapé dispara para todos: com um participante alcançável, ele tem o que fazer.
+		expect(
+			algumPodeReceber([
+				participante({ semEnvio: 'canal_indisponivel' }),
+				participante({ attendanceId: 'a2', patientId: 'p2', semEnvio: null })
+			])
+		).toBe(true);
+	});
+
+	it('com a turma inteira barrada, não há o que enviar', () => {
+		expect(
+			algumPodeReceber([
+				participante({ semEnvio: 'canal_indisponivel' }),
+				participante({ attendanceId: 'a2', patientId: 'p2', semEnvio: 'opt_out' })
+			])
+		).toBe(false);
+	});
+
+	it('quem já recebeu continua alcançável — reenviar de propósito é legítimo', () => {
+		// Diferente do `podeReenviar`, que evita duplicar sozinho: aqui foi a recepção que pediu.
+		expect(algumPodeReceber([participante({ mensagens: [msg({ status: 'entregue' })] })])).toBe(
+			true
+		);
+	});
+
+	it('carregando não é impossível', () => {
+		// `null` é a timeline em voo. Desabilitar por desconhecimento piscaria o botão a cada
+		// abertura do drawer.
+		expect(algumPodeReceber(null)).toBe(true);
+	});
+
+	it('sem participante nenhum, nada a enviar', () => {
+		expect(algumPodeReceber([])).toBe(false);
 	});
 });

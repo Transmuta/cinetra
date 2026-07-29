@@ -23,7 +23,7 @@
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import Drawer from '$lib/components/Drawer.svelte';
 	import MessageTimeline from '$lib/components/agenda/MessageTimeline.svelte';
-	import type { MessageParticipant } from '$lib/messages';
+	import { algumPodeReceber, type MessageParticipant } from '$lib/messages';
 	import {
 		STATUS_META,
 		attendanceSelo,
@@ -156,6 +156,13 @@
 	const podeExcluir = $derived(canExcludeAppointment(appt.status));
 	const mostraRodape = $derived(podeMexer && (!terminal || podeExcluir));
 
+	// O "Enviar confirmação" do rodapé fica de pé mas **desabilitado** quando ninguém do bloco pode
+	// receber agora. Desabilitado, e não escondido como o atalho da timeline: aquele é uma linha a
+	// mais dentro da explicação (que já diz o motivo ao lado), este é a ação principal do drawer —
+	// sumir com ela faria a recepção procurar o que não sumiu, apenas não pode agora. O porquê fica
+	// no `title` e, por extenso, na seção Comunicação logo acima.
+	const podeConfirmar = $derived(algumPodeReceber(mensagens));
+
 	// O erro (409/422) só é do drawer quando a última action foi de ciclo de vida (fonte única
 	// em `$lib/agenda`, não uma lista solta aqui).
 	const erro = $derived(
@@ -221,7 +228,11 @@
 			<button
 				type="button"
 				onclick={() => enviarConfirmacao()}
-				class="flex flex-1 items-center justify-center gap-2 rounded-lg border border-edge bg-surface px-3 py-2.5 text-[13px] font-semibold hover:bg-surface-2"
+				disabled={!podeConfirmar}
+				title={podeConfirmar
+					? undefined
+					: 'Ninguém deste agendamento pode receber agora — o motivo está em Comunicação'}
+				class="flex flex-1 items-center justify-center gap-2 rounded-lg border border-edge bg-surface px-3 py-2.5 text-[13px] font-semibold hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-surface"
 			>
 				<Send size={15} /> Enviar confirmação
 			</button>

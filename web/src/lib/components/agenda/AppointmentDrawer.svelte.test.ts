@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import '@testing-library/jest-dom/vitest';
 import { render, screen, fireEvent } from '@testing-library/svelte';
 import type { Appointment, AgendaPatient, AgendaAppointmentType, AgendaProfessional } from '$lib/agenda';
+import type { MessageParticipant } from '$lib/messages';
 
 vi.mock('$app/forms', () => ({ enhance: () => ({ destroy() {} }) }));
 
@@ -262,6 +263,39 @@ describe('AppointmentDrawer', () => {
 		});
 		expect(screen.getByText(/paciente pediu/)).toBeInTheDocument();
 		expect(screen.queryByRole('button', { name: /Enviar confirmação/ })).not.toBeInTheDocument();
+	});
+
+	// O botão do rodapé promete disparo para o bloco inteiro. Com todo mundo barrado, o clique
+	// voltava com o mesmo motivo que a seção Comunicação já explica — aviso no lugar de ação.
+	describe('"Enviar confirmação" quando ninguém pode receber', () => {
+		function timeline(semEnvio: MessageParticipant['semEnvio']): MessageParticipant[] {
+			return [
+				{ attendanceId: 'at1', patientId: 'pac1', paciente: 'João Silva', mensagens: [], semEnvio }
+			];
+		}
+
+		it('desabilita, com o porquê no title', () => {
+			render(AppointmentDrawer, {
+				props: { appt: appt(), ...base, mensagens: timeline('canal_indisponivel') }
+			});
+
+			const botao = screen.getByRole('button', { name: /Enviar confirmação/ });
+			expect(botao).toBeDisabled();
+			expect(botao).toHaveAttribute('title', expect.stringMatching(/Comunicação/));
+		});
+
+		it('segue habilitado com alguém alcançável', () => {
+			render(AppointmentDrawer, { props: { appt: appt(), ...base, mensagens: timeline(null) } });
+
+			expect(screen.getByRole('button', { name: /Enviar confirmação/ })).toBeEnabled();
+		});
+
+		it('a timeline em voo não desabilita nada', () => {
+			// `mensagens` chega `null` até a busca do drawer voltar; desabilitar ali piscaria o botão.
+			render(AppointmentDrawer, { props: { appt: appt(), ...base, mensagens: null } });
+
+			expect(screen.getByRole('button', { name: /Enviar confirmação/ })).toBeEnabled();
+		});
 	});
 
 	// F3: o motivo do cancelamento existia na coluna e na tela de leitura, mas ninguém o

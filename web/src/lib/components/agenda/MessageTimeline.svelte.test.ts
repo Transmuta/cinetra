@@ -120,7 +120,7 @@ describe('MessageTimeline', () => {
 		it('não aparece sem permissão de escrita', () => {
 			render(
 				MessageTimeline,
-				props({ participantes: [p({ mensagens: [], semEnvio: 'sem_contato' })], podeEnviar: false })
+				props({ participantes: [p({ mensagens: [], semEnvio: null })], podeEnviar: false })
 			);
 
 			expect(screen.queryByRole('button')).not.toBeInTheDocument();
@@ -156,11 +156,25 @@ describe('MessageTimeline', () => {
 			expect(screen.queryByRole('button')).not.toBeInTheDocument();
 		});
 
-		it('diz "Enviar agora" quando nunca saiu nada', () => {
+		it('some quando o envio é impossível — a linha explica, o botão não promete', () => {
+			// O motivo já está na tela; o botão só repetiria a mesma frase depois do 201. Pior no
+			// canal indisponível, onde o conserto nem é da recepção.
+			for (const semEnvio of ['canal_indisponivel', 'sem_contato', 'sem_consentimento'] as const) {
+				render(
+					MessageTimeline,
+					props({ participantes: [p({ mensagens: [], semEnvio })], podeEnviar: true, onReenviar: vi.fn() })
+				);
+
+				expect(screen.queryByRole('button')).not.toBeInTheDocument();
+				cleanup();
+			}
+		});
+
+		it('diz "Enviar agora" quando nunca saiu nada e nada bloqueia', () => {
 			render(
 				MessageTimeline,
 				props({
-					participantes: [p({ mensagens: [], semEnvio: 'sem_contato' })],
+					participantes: [p({ mensagens: [], semEnvio: null })],
 					podeEnviar: true,
 					onReenviar: vi.fn()
 				})
