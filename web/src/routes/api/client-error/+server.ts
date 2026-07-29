@@ -103,7 +103,7 @@ export const POST: RequestHandler = async (event) => {
 		status: typeof corpo.status === 'number' ? corpo.status : undefined,
 		detail,
 		stack,
-		// Chave de agrupamento (doc 73 §opção C). **Recomputada aqui**, nunca lida do corpo — é a
+		// Chave de agrupamento (doc 78 §opção C). **Recomputada aqui**, nunca lida do corpo — é a
 		// quinta guarda deste endpoint, e pela mesma razão das outras quatro: um cliente que
 		// escolhesse o próprio grupo poderia esconder um erro novo dentro de um grupo velho e
 		// ruidoso, que é a forma mais barata de tornar um bug invisível.

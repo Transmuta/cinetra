@@ -32,7 +32,7 @@ ENV R2_ACCOUNT_ID=${R2_ACCOUNT_ID}
 
 RUN npm run build
 
-# Nenhum source map pode entrar na imagem servida (doc 73 §2).
+# Nenhum source map pode entrar na imagem servida (doc 78 §2).
 #
 # O `postbuild` (`scripts/mover-sourcemaps.mjs`) já move os `.map` para fora de `build/client`.
 # Esta linha existe porque **um script não consegue verificar que ele mesmo rodou**: trocar

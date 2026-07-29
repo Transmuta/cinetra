@@ -1,7 +1,7 @@
 # 76 — Traces: o terceiro sinal
 
 > Construído em 2026-07-29. Fecha o trio de sinais: o [doc 62](62-plano-de-logs.md) montou o log,
-> o [doc 74](74-signoz-vs-hyperdx.md) e o compose das métricas montaram o Prometheus, e aqui entra
+> o [doc 79](79-signoz-vs-hyperdx.md) e o compose das métricas montaram o Prometheus, e aqui entra
 > o trace — **Grafana Tempo**, recebendo pelo Alloy que já roda ao lado.
 >
 > Este doc **reverte uma decisão escrita duas vezes**. O porquê está no §1; o que a execução
@@ -12,7 +12,7 @@
 
 ## 1. A decisão que muda, e o que exatamente muda nela
 
-O [doc 62 §12](62-plano-de-logs.md) e o [doc 74 §5](74-signoz-vs-hyperdx.md) recusaram tracing. O
+O [doc 62 §12](62-plano-de-logs.md) e o [doc 79 §5](79-signoz-vs-hyperdx.md) recusaram tracing. O
 argumento central, repetido nos dois e também nos moduledocs de `Api.Correlacao` e do
 `correlacao.ts`, era:
 
@@ -280,7 +280,7 @@ cada serviço, sozinho, parece estar funcionando.
   disco do Tempo mandar, e a decisão vem com medição.
 - **RUM / trace no browser.** Continua fora, pelo [doc 05 §1.2](05-observabilidade-e-producao.md) e
   pelo ADR-007 — o trace começa no BFF.
-- **Migrar para plataforma unificada.** O [doc 74](74-signoz-vs-hyperdx.md) segue valendo: os 97
+- **Migrar para plataforma unificada.** O [doc 79](79-signoz-vs-hyperdx.md) segue valendo: os 97
   painéis em LogQL e o pipeline de redação são o ativo, e agora o Grafana entrega os três sinais.
 
 ---

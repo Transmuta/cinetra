@@ -25,7 +25,7 @@ export default defineConfig(({ mode }) => ({
 		)
 	},
 	build: {
-		// Source map para o stack de produção ser legível (doc 73 §2).
+		// Source map para o stack de produção ser legível (doc 78 §2).
 		//
 		// Sem isto, o `stack` que chega ao Loki tem a forma `at Ki (/_app/immutable/chunks/D3kf9s.js:1:4821)`
 		// — nome de uma letra, arquivo com hash, tudo na linha 1. A captura funciona e o diagnóstico

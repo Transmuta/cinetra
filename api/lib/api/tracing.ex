@@ -10,7 +10,7 @@ defmodule Api.Tracing do
 
   ## Isto reverte uma decisão, de propósito
 
-  O [doc 62 §12](../../../docs/62-plano-de-logs.md) e o [doc 74](../../../docs/74-signoz-vs-hyperdx.md)
+  O [doc 62 §12](../../../docs/62-plano-de-logs.md) e o [doc 79](../../../docs/79-signoz-vs-hyperdx.md)
   recusaram tracing, e o argumento central era que "todo atributo de span é dado exportado" — o
   que pesa num produto com dado de saúde. O argumento valia contra **SaaS**. Não vale contra o
   desenho de hoje: o span nasce aqui, passa pelo Alloy que já roda ao lado e para no volume do

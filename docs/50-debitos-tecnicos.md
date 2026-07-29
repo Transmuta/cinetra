@@ -323,7 +323,7 @@ o mecanismo de descarte já está construído e testado.
 
 ## D-13 · Os documentos legais estão no ar com placeholder e sem revisão jurídica
 
-**O que é.** `/privacidade` e `/termos` ([doc 76](76-paginas-legais-e-aceite.md)) foram escritos
+**O que é.** `/privacidade` e `/termos` ([doc 81](81-paginas-legais-e-aceite.md)) foram escritos
 descrevendo o que o sistema realmente faz, mas **quatro campos do controlador são marcadores**
 (`[RAZÃO SOCIAL]`, `[CNPJ]`, `[ENDEREÇO COMPLETO]`, `[COMARCA/UF]`, mais `[NOME DO ENCARREGADO]`), e
 **nenhum advogado leu o texto**.

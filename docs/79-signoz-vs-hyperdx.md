@@ -1,6 +1,6 @@
 # 74 — SigNoz vs HyperDX: comparativo e recurso necessário
 
-> Comparativo, 2026-07-28. Continua o [doc 73](73-sentry-vale-a-pena.md), que descartou o Sentry e
+> Comparativo, 2026-07-28. Continua o [doc 78](78-sentry-vale-a-pena.md), que descartou o Sentry e
 > nomeou o GlitchTip como saída lateral. Aqui estão os dois candidatos a **plataforma unificada**
 > — o "Datadog open source" de produto único.
 >
@@ -24,7 +24,7 @@
 | **Melhor UI/UX** | **APM e dashboards** | **session replay e primeiro uso** |
 
 **Os dois cabem na VM** — diferente do Sentry self-hosted, que pede ~16 GB e foi descartado por
-isso no doc 73. A questão aqui não é caber; é se compensa.
+isso no doc 78. A questão aqui não é caber; é se compensa.
 
 ---
 

@@ -905,8 +905,8 @@ ele acende sozinho em toda instalação que não seja produção.
   **maior superfície de vazamento** (todo atributo de span é dado exportado). O Prometheus está
   reservado no dimensionamento da §3.2 para que a fase seguinte não exija redimensionar a VM.
 
-  > **Os dois foram construídos depois** — métricas no [doc 74](74-signoz-vs-hyperdx.md) e traces
-  > no [doc 76](76-traces.md), ambos no mesmo Grafana, como esta seção previa. Sobre o argumento
+  > **Os dois foram construídos depois** — métricas no [doc 74](74-metricas-do-servidor.md) e
+  > traces no [doc 76](76-traces.md), ambos no mesmo Grafana, como esta seção previa. Sobre o argumento
   > do vazamento: ele valia contra SaaS, e o desenho escolhido não é esse — o span passa pelo
   > **mesmo Alloy** que já processa este log e para num volume da mesma máquina. O que sobrou do
   > argumento é volume de detalhe, tratado por poda de atributos no agente (doc 76 §4).

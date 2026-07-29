@@ -15,7 +15,7 @@
  * ## As três camadas
  *
  * O algoritmo segue a especificação que o Grafana Cloud publica para o Frontend Observability
- * (doc 73 §opção E) — vale porque cada camada existe para um caso que as outras não cobrem:
+ * (doc 78 §opção E) — vale porque cada camada existe para um caso que as outras não cobrem:
  *
  *   1. **stack com nomes de função significativos** — normaliza o stack e **filtra os frames de
  *      biblioteca**, para que só o nosso código entre no hash;
