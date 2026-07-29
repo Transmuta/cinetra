@@ -47,7 +47,14 @@ function appt(over: Partial<Appointment> = {}): Appointment {
 		created_by_id: null,
 		patient_ids: ['pac1'],
 		participants: [
-			{ patient_id: 'pac1', status: 'prevista', falta_justificada: false, motivo: null, package_id: null }
+			{
+				patient_id: 'pac1',
+				status: 'prevista',
+				falta_justificada: false,
+				motivo: null,
+				package_id: null,
+				package: null
+			}
 		],
 		...over
 	};
@@ -70,11 +77,84 @@ const base = {
 describe('AppointmentDrawer', () => {
 	it('mostra horário local, tipo e o cartão do paciente com faltas', () => {
 		render(AppointmentDrawer, { props: { appt: appt(), ...base } });
-		expect(screen.getByText('08:00–08:50 (50min)')).toBeInTheDocument();
+		// O dia entrou na linha (doc 75, achado G) — e como o `agora` do fixture é o mesmo dia do
+		// bloco, ele vira "hoje".
+		expect(screen.getByTestId('drawer-horario')).toHaveTextContent('hoje · 08:00–08:50 (50min)');
 		expect(screen.getByText('João Silva')).toBeInTheDocument();
 		expect(screen.getByText(/2 falta/)).toBeInTheDocument();
 		// "Abrir ficha" aponta para a ficha do paciente.
 		expect(screen.getByRole('link', { name: /Abrir ficha/ })).toHaveAttribute('href', '/pacientes/pac1');
+	});
+
+	// O topo passou a responder QUEM antes de QUÊ: o paciente é o título, o profissional (com o
+	// registro) é a legenda, e o status desceu para o corpo. Antes o cabeçalho era só o chip de
+	// status — o nome de quem vai ser atendido aparecia a 150px dali, dentro do cartão.
+	describe('cabeçalho', () => {
+		it('o título é o paciente e a legenda é o profissional com o registro', () => {
+			render(AppointmentDrawer, {
+				props: {
+					appt: appt(),
+					...base,
+					professional: { ...professional, nome: 'Dr. Rafael Couto', crefito: 'CREFITO 3/098234-F' }
+				}
+			});
+
+			expect(screen.getByTestId('drawer-titulo')).toHaveTextContent('João Silva');
+			expect(screen.getByTestId('drawer-legenda')).toHaveTextContent(
+				'Dr. Rafael Couto · CREFITO 3/098234-F'
+			);
+		});
+
+		// Sem registro cadastrado a legenda não inventa separador solto.
+		it('profissional sem CREFITO não deixa o separador órfão', () => {
+			render(AppointmentDrawer, { props: { appt: appt(), ...base } });
+			expect(screen.getByTestId('drawer-legenda')).toHaveTextContent('Dra. Ana');
+			expect(screen.getByTestId('drawer-legenda').textContent).not.toContain('·');
+		});
+
+		// Na turma não existe "o paciente" — o título é o tipo, como no cartão do grid. E aí a
+		// linha "Tipo" do corpo repetiria o título, então ela sai.
+		it('turma se intitula pelo tipo, e não repete o tipo abaixo', () => {
+			render(AppointmentDrawer, {
+				props: {
+					appt: appt({ patient_ids: ['pac1'] }),
+					...base,
+					tipo: { ...tipo, nome: 'Pilates', grupo: true, capacidade: 4 }
+				}
+			});
+
+			expect(screen.getByTestId('drawer-titulo')).toHaveTextContent('Pilates');
+			expect(screen.queryByTestId('drawer-tipo')).not.toBeInTheDocument();
+		});
+
+		// O status saiu do cabeçalho, mas continua sendo a primeira coisa do corpo — e continua
+		// saindo de `statusSignal` (achado A).
+		it('o status desceu para o corpo, com o encaixe ao lado', () => {
+			render(AppointmentDrawer, { props: { appt: appt({ encaixe: true }), ...base } });
+			expect(screen.getByTestId('drawer-status')).toHaveTextContent('Agendado');
+			expect(screen.getByText('ENCAIXE')).toBeInTheDocument();
+		});
+
+		// O nome do paciente aparecia DUAS vezes depois que o título passou a ser ele: no topo e
+		// no cartão logo abaixo. Na sessão individual o cartão perde a linha do nome — o selo de
+		// presença sobe para a linha do telefone.
+		it('sessão individual não repete o nome do paciente', () => {
+			render(AppointmentDrawer, { props: { appt: appt(), ...base } });
+			expect(screen.getAllByText('João Silva')).toHaveLength(1);
+		});
+
+		// Na turma cada linha continua precisando do nome: ali ele identifica QUEM é aquela
+		// presença, não o bloco.
+		it('a turma continua nomeando cada participante', () => {
+			render(AppointmentDrawer, {
+				props: {
+					appt: appt({ patient_ids: ['pac1'] }),
+					...base,
+					tipo: { ...tipo, grupo: true, capacidade: 4 }
+				}
+			});
+			expect(screen.getByText('João Silva')).toBeInTheDocument();
+		});
 	});
 
 	it('carrega os campos de versão em cada form (guard de 409)', () => {
@@ -190,7 +270,8 @@ describe('AppointmentDrawer', () => {
 							status: 'faltou',
 							falta_justificada: false,
 							motivo: 'não avisou',
-							package_id: null
+							package_id: null,
+							package: null
 						}
 					]
 				}),
@@ -216,7 +297,14 @@ describe('AppointmentDrawer', () => {
 				appt: appt({
 					status: 'concluido',
 					participants: [
-						{ patient_id: 'pac1', status: 'concluida', falta_justificada: false, motivo: null, package_id: null }
+						{
+							patient_id: 'pac1',
+							status: 'concluida',
+							falta_justificada: false,
+							motivo: null,
+							package_id: null,
+							package: null
+						}
 					]
 				}),
 				...base
@@ -246,7 +334,14 @@ describe('AppointmentDrawer', () => {
 				appt: appt({
 					status: 'faltou',
 					participants: [
-						{ patient_id: 'pac1', status: 'faltou', falta_justificada: false, motivo: null, package_id: null }
+						{
+							patient_id: 'pac1',
+							status: 'faltou',
+							falta_justificada: false,
+							motivo: null,
+							package_id: null,
+							package: null
+						}
 					]
 				}),
 				...base
@@ -403,6 +498,282 @@ describe('AppointmentDrawer', () => {
 		});
 		expect(screen.getByText('Pacientes na turma')).toBeInTheDocument();
 		expect(screen.getByText('1/4')).toBeInTheDocument();
+	});
+
+	// Doc 74: sete arestas do drawer, cada uma com o seu porquê.
+	describe('o que o drawer diz sobre o bloco (doc 75)', () => {
+		const turma: AgendaAppointmentType = { ...tipo, grupo: true, capacidade: 4 };
+
+		const presenca = (status: 'prevista' | 'concluida' | 'faltou', i: number) => ({
+			patient_id: `pac${i}`,
+			status,
+			falta_justificada: false,
+			motivo: null,
+			package_id: null,
+			package: null
+		});
+
+		// Achado A — o mais grave. O cartão usa `statusSignal` desde o D13 e escreve a composição;
+		// o drawer usava `STATUS_META[status]` cru e escrevia a palavra da fase no mesmo bloco, a
+		// 400px de distância. Duas verdades para o mesmo fato.
+		//
+		// O bloco aqui é NÃO-terminal de propósito: o rollup só resolve quando todas as presenças
+		// vivas se resolvem (`Rollup.block_status`), então uma turma com um faltou e uma prevista
+		// continua "confirmada" — e é aí que a composição aparece sem o desfecho de ninguém.
+		it('o chip não mente numa turma parcialmente registrada', () => {
+			render(AppointmentDrawer, {
+				props: {
+					appt: appt({
+						status: 'confirmado',
+						patient_ids: ['pac1', 'pac2'],
+						participants: [presenca('faltou', 1), presenca('prevista', 2)]
+					}),
+					...base,
+					tipo: turma,
+					patients: [...patients, { id: 'pac2', nome: 'Ana Paula', tel: null, ativo: true }]
+				}
+			});
+
+			expect(screen.getByTestId('drawer-status')).toHaveTextContent('0 de 2 concluídas');
+			expect(screen.queryByText('Confirmado')).not.toBeInTheDocument();
+		});
+
+		// O bloco RESOLVIDO dizia o desfecho duas vezes: no chip do topo ("Cancelado") e no selo da
+		// presença logo abaixo ("Cancelada"). Quem manda é a PRESENÇA — o status do bloco é rollup
+		// dela (A2/D13) —, então o chip se cala quando há desfecho a ler ali.
+		it('bloco resolvido não repete o desfecho no topo', () => {
+			render(AppointmentDrawer, {
+				props: {
+					appt: appt({
+						status: 'cancelado',
+						participants: [
+							{
+								patient_id: 'pac1',
+								status: 'cancelada',
+								falta_justificada: false,
+								motivo: null,
+								package_id: null,
+								package: null
+							}
+						]
+					}),
+					...base
+				}
+			});
+
+			expect(screen.queryByTestId('drawer-status')).not.toBeInTheDocument();
+			expect(screen.getByText('Cancelada')).toBeInTheDocument();
+		});
+
+		// ...mas enquanto NÃO há desfecho, o participante fica calado (o selo só existe a partir de
+		// "Previsto"), e a fase do bloco é a única coisa que responde "e aí, como está isso?".
+		it('bloco em andamento mantém a fase no topo', () => {
+			render(AppointmentDrawer, { props: { appt: appt({ status: 'confirmado' }), ...base } });
+			expect(screen.getByTestId('drawer-status')).toHaveTextContent('Confirmado');
+		});
+
+		// O encaixe não é status: ele qualifica o bloco resolvido igual ao que ainda vai acontecer.
+		it('o encaixe sobrevive ao chip que sumiu', () => {
+			render(AppointmentDrawer, {
+				props: { appt: appt({ status: 'cancelado', encaixe: true }), ...base }
+			});
+			expect(screen.queryByTestId('drawer-status')).not.toBeInTheDocument();
+			expect(screen.getByText('ENCAIXE')).toBeInTheDocument();
+		});
+
+		// Achado B — "0 falta(s)" é ruído: ninguém age sobre a ausência de falta. E a turma já o
+		// escondia, então eram duas regras para o mesmo fato na mesma tela.
+		it('falta zero não aparece, e o plural é de gente', () => {
+			render(AppointmentDrawer, {
+				props: { appt: appt(), ...base, patients: [{ ...patients[0], faltas: 0 }] }
+			});
+			expect(screen.queryByText(/falta/)).not.toBeInTheDocument();
+			expect(screen.getByText('João Silva')).toBeInTheDocument();
+		});
+
+		it('uma falta só não vira "1 faltas"', () => {
+			render(AppointmentDrawer, {
+				props: { appt: appt(), ...base, patients: [{ ...patients[0], faltas: 1 }] }
+			});
+			expect(screen.getByText(/1 falta$/)).toBeInTheDocument();
+		});
+
+		// Achado C — `veio_da_fila`/`dias_na_fila` são carimbados na conversão (D-H10) e nenhuma
+		// tela os lia. É o que fecha o ciclo: esta vaga foi coberta pela fila, depois de N dias.
+		it('bloco que veio da fila diz isso, com a espera', () => {
+			render(AppointmentDrawer, {
+				props: { appt: appt({ veio_da_fila: true, dias_na_fila: 6 }), ...base }
+			});
+			expect(screen.getByTestId('drawer-origem')).toHaveTextContent(
+				'Fila de espera · esperou 6 dias'
+			);
+		});
+
+		it('bloco comum não fala em fila', () => {
+			render(AppointmentDrawer, { props: { appt: appt(), ...base } });
+			expect(screen.queryByTestId('drawer-origem')).not.toBeInTheDocument();
+		});
+
+		// Achado D — a observação era uma caixa cinza anônima ao lado de duas idênticas que têm
+		// rótulo ("Motivo do cancelamento", "da remarcação").
+		it('a observação tem rótulo, como os motivos', () => {
+			render(AppointmentDrawer, { props: { appt: appt({ obs: 'levar exame' }), ...base } });
+			expect(screen.getByText('Observação:')).toBeInTheDocument();
+		});
+
+		// Achado G — no celular o painel é `max-w-full` e cobre o cabeçalho da agenda, que era
+		// onde o dia estava. O drawer mostrava só "08:00–08:50".
+		it('o horário carrega o dia', () => {
+			// `agora` num dia diferente do bloco: é o caso que o "hoje" esconde.
+			render(AppointmentDrawer, { props: { appt: appt(), ...base, agora: '2026-07-25T17:00:00Z' } });
+			expect(screen.getByTestId('drawer-horario')).toHaveTextContent(
+				'seg, 20/07 · 08:00–08:50 (50min)'
+			);
+		});
+
+		it('no dia corrente, o dia vira "hoje"', () => {
+			render(AppointmentDrawer, {
+				props: { appt: appt(), ...base, agora: '2026-07-20T17:00:00Z' }
+			});
+			expect(screen.getByTestId('drawer-horario')).toHaveTextContent('hoje · 08:00–08:50');
+		});
+
+		// Achado E — o drawer é a tela de onde a recepção liga.
+		it('o telefone disca', () => {
+			render(AppointmentDrawer, { props: { appt: appt(), ...base } });
+			expect(document.querySelector('a[href^="tel:"]')).toHaveAttribute('href', 'tel:11999');
+		});
+
+		// Achado F — o botão desabilitado repetia o chip do header e ocupava a linha do "Reabrir".
+		it('bloco cancelado não mostra um "Cancelado" desabilitado', () => {
+			render(AppointmentDrawer, { props: { appt: appt({ status: 'cancelado' }), ...base } });
+			expect(screen.queryByRole('button', { name: /Cancelar sessão|^Cancelado$/ })).not.toBeInTheDocument();
+			expect(screen.getByRole('button', { name: /Reabrir/ })).toBeInTheDocument();
+		});
+
+		it('bloco aberto continua oferecendo cancelar', () => {
+			render(AppointmentDrawer, { props: { appt: appt(), ...base } });
+			expect(screen.getByRole('button', { name: /Cancelar sessão/ })).toBeInTheDocument();
+		});
+	});
+
+	// O cartão da agenda passou a dizer "3/10"; o drawer é onde esse número vira frase. E ele mora
+	// DENTRO do participante, não numa seção do bloco: o pacote é por presença (D11) e numa turma
+	// cada um consome do seu.
+	describe('sessão de pacote', () => {
+		const pacote = (over: Record<string, unknown> = {}) => ({
+			nome: 'Pilates 10',
+			sessao: 3,
+			total: 10,
+			falta_punitiva: true,
+			...over
+		});
+
+		const comPacote = (over: Record<string, unknown> = {}, appointment: Record<string, unknown> = {}) =>
+			appt({
+				participants: [
+					{
+						patient_id: 'pac1',
+						status: 'prevista' as const,
+						falta_justificada: false,
+						motivo: null,
+						package_id: 'k1',
+						package: pacote(over),
+						...(appointment.participante as object)
+					}
+				],
+				...appointment
+			});
+
+		it('escreve o pacote e a posição na série', () => {
+			render(AppointmentDrawer, { props: { appt: comPacote(), ...base } });
+			expect(screen.getByText('Pilates 10')).toBeInTheDocument();
+			expect(screen.getByText(/3 de 10/)).toBeInTheDocument();
+		});
+
+		// O saldo saiu: a caixa dizia três coisas onde cabiam duas, e "quantas sobram" é pergunta
+		// da ficha, não do bloco. O campo saiu junto do contrato — ver o teste do controller.
+		it('não fala em saldo', () => {
+			render(AppointmentDrawer, { props: { appt: comPacote(), ...base } });
+			expect(screen.queryByText(/restantes/)).not.toBeInTheDocument();
+		});
+
+		it('sessão avulsa não ganha nada disso', () => {
+			render(AppointmentDrawer, { props: { appt: appt(), ...base } });
+			expect(screen.queryByTestId('drawer-pacote')).not.toBeInTheDocument();
+		});
+
+		// A frase que a recepção precisa ANTES da falta, não depois.
+		it('antes do desfecho, avisa que faltar consome', () => {
+			render(AppointmentDrawer, { props: { appt: comPacote(), ...base } });
+			expect(screen.getByText('Falta debita 1 sessão deste pacote')).toBeInTheDocument();
+		});
+
+		it('depois da falta, diz que debitou', () => {
+			const faltou = appt({
+				status: 'faltou',
+				participants: [
+					{
+						patient_id: 'pac1',
+						status: 'faltou',
+						falta_justificada: false,
+						motivo: null,
+						package_id: 'k1',
+						package: pacote()
+					}
+				]
+			});
+			render(AppointmentDrawer, { props: { appt: faltou, ...base } });
+			expect(screen.getByText('Esta falta debitou 1 sessão')).toBeInTheDocument();
+		});
+
+		// A linha inteira é o link, e ele leva à SEÇÃO de pacotes da ficha — a âncora existe em
+		// `PackageList` para não cair no topo e deixar quem clicou procurando.
+		it('o pacote leva à seção de pacotes da ficha', () => {
+			render(AppointmentDrawer, { props: { appt: comPacote(), ...base } });
+			expect(screen.getByTestId('drawer-pacote').querySelector('a')).toHaveAttribute(
+				'href',
+				'/pacientes/pac1#pacotes'
+			);
+		});
+
+		it('numa turma, cada participante mostra o SEU pacote', () => {
+			const grupo: AgendaAppointmentType = { ...tipo, grupo: true, capacidade: 4 };
+			const turma = appt({
+				patient_ids: ['pac1', 'pac2'],
+				participants: [
+					{
+						patient_id: 'pac1',
+						status: 'prevista',
+						falta_justificada: false,
+						motivo: null,
+						package_id: 'k1',
+						package: pacote()
+					},
+					{
+						patient_id: 'pac2',
+						status: 'prevista',
+						falta_justificada: false,
+						motivo: null,
+						package_id: 'k2',
+						package: pacote({ nome: 'RPG 8', sessao: 1, total: 8 })
+					}
+				]
+			});
+
+			render(AppointmentDrawer, {
+				props: {
+					appt: turma,
+					...base,
+					tipo: grupo,
+					patients: [...patients, { id: 'pac2', nome: 'Ana Paula', tel: null, ativo: true }]
+				}
+			});
+
+			expect(screen.getAllByTestId('drawer-pacote')).toHaveLength(2);
+			expect(screen.getByText('Pilates 10')).toBeInTheDocument();
+			expect(screen.getByText('RPG 8')).toBeInTheDocument();
+		});
 	});
 
 	// AN-12 (doc 64, D11): a vaga que abriu (cancelamento/falta) pergunta à fila "quem cabe

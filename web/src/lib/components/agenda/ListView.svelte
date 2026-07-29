@@ -113,16 +113,20 @@
 					</span>
 
 					{#if row.appt.encaixe}
-						<span class="shrink-0 rounded bg-warning px-1.5 py-px text-[10px] font-bold text-white">
+						<!-- AN-08: texto escuro fixo sobre o âmbar (2,0:1 com branco; 8,6:1 assim). -->
+						<span class="shrink-0 rounded bg-warning px-1.5 py-px text-[10px] font-bold text-[#161a1e]">
 							Encaixe
 						</span>
 					{/if}
 
+					<!-- Todo status tem tom próprio (ver `StatusMeta.tone`), então o chip não precisa mais
+					     do ramo "sem cor". O texto usa a variante `-text` quando ela existe (é o caso
+					     do teal, cujo sólido não tem contraste sobre 14% dele mesmo) e cai no próprio
+					     token quando não existe — a mesma expressão do badge do cartão. -->
 					<span
 						class="shrink-0 rounded-full px-1.5 py-px text-[10.5px] font-semibold"
-						style="background:{row.meta.tone
-							? `color-mix(in srgb, var(--color-${row.meta.tone}) 14%, transparent)`
-							: 'var(--color-surface-2)'};"
+						style="background:color-mix(in srgb, var(--color-{row.meta.tone}) 14%, transparent);
+						       color:var(--color-{row.meta.tone}-text, var(--color-{row.meta.tone}))"
 					>
 						{row.meta.label}
 					</span>
