@@ -164,3 +164,132 @@ loki.write "destino" {
 		enabled = true
 	}
 }
+
+// ================================================================================================
+// TRACES (doc 76)
+// ================================================================================================
+//
+// O segundo pipeline deste arquivo, e ele corre na DIREÇÃO CONTRÁRIA do de cima. Log o agente vai
+// buscar (lê o socket do Docker); span o app EMPURRA para cá. Por isso este lado tem porta
+// escutando, e o outro não.
+//
+//   apps → receptor OTLP → limite de memória → lote → Tempo
+//
+// ## Por que passar pelo agente em vez de o app falar direto com o Tempo
+//
+// Porque este é o lugar onde a poda vai acontecer. A instrumentação começou com os atributos
+// PADRÃO das bibliotecas — que incluem `url.path` com o UUID na rota e o SQL do Ecto —, e a
+// intenção é ir removendo o que não precisa sair. Fazer isso aqui vale para os dois serviços de
+// uma vez, sem rebuild de imagem e sem tocar em código de aplicação; fazer no app significaria a
+// mesma regra escrita em Elixir e em TypeScript, divergindo com o tempo.
+//
+// É a mesma razão pela qual a redação de PII do log mora aqui e não no logger de cada app.
+
+otelcol.receiver.otlp "apps" {
+	// gRPC é o que a API Elixir usa; HTTP é o que o BFF Node usa. Manter as duas é mais barato do
+	// que padronizar: cada SDK tem um caminho que é o batido pela comunidade, e sair dele troca
+	// uma porta por uma classe de bug de codificação.
+	grpc {
+		endpoint = "0.0.0.0:4317"
+	}
+
+	http {
+		endpoint = "0.0.0.0:4318"
+	}
+
+	output {
+		traces = [otelcol.processor.memory_limiter.protecao.input]
+	}
+}
+
+// A cadeia: recebe → limita memória → **poda** → lote → Tempo.
+
+// A salvaguarda que protege o LOG do TRACE.
+//
+// Os dois pipelines dividem um processo e um `mem_limit` de 384m. Sem teto aqui, uma rajada de
+// span (um laço instrumentado, um endpoint novo com N+1) enche a fila do OTel, o container é morto
+// pelo OOM e o que cai junto é a **coleta de log** — que estava funcionando perfeitamente. Com o
+// teto, o excesso de span é RECUSADO na porta (o app recebe erro e reenfileira) e o log segue.
+//
+// Degradar o sinal novo para preservar o sinal que a operação já depende é a troca certa.
+otelcol.processor.memory_limiter "protecao" {
+	check_interval = "1s"
+	limit          = "150MiB"
+
+	output {
+		traces = [otelcol.processor.filter.encanamento.input]
+	}
+}
+
+// ---- PODA 1: o encanamento do banco não é evento ----------------------------------------------
+//
+// Medido num POST /api/appointments real (doc 76 §11): **30 dos 67 spans** eram `begin`, `commit`
+// e `SELECT set_config(...)`. Quase metade do trace dizendo "abriu transação" e "carimbou a GUC do
+// tenant" — e o `set_config` sozinho aparecia 14 vezes, porque é o que o RLS exige a cada
+// transação (ADR-018).
+//
+// Isso não é dado de diagnóstico: é encanamento. E o custo não é só volume — são 30 linhas
+// empurrando para fora da tela as 34 consultas que respondem "onde foi o tempo".
+//
+// O que se perde: enxergar as fronteiras de transação na cascata. Aceito conscientemente — quando
+// a pergunta for essa, ela se responde melhor no log do Postgres do que num trace de aplicação.
+otelcol.processor.filter "encanamento" {
+	// `ignore`: span sem `db.statement` (todo span de HTTP) faz a expressão falhar, e o padrão do
+	// processador é DESCARTAR o span quando a condição erra. Sem esta linha a poda do banco levaria
+	// junto os spans de servidor — o trace inteiro sumiria.
+	error_mode = "ignore"
+
+	traces {
+		// A lista é de condições que DESCARTAM. `(?i)` porque o Ecto emite `begin`/`commit` em
+		// minúsculas e o `SELECT set_config` em maiúsculas.
+		span = [
+			`IsMatch(attributes["db.statement"], "(?i)^(begin|commit|rollback|savepoint|release|select set_config)")`,
+		]
+	}
+
+	output {
+		traces = [otelcol.processor.batch.lotes.input]
+	}
+}
+
+// ---- O LUGAR DA PRÓXIMA PODA ------------------------------------------------------------------
+//
+// Quando um atributo se mostrar dispensável — e a intenção declarada é que vários sejam —, ele sai
+// AQUI, entre o limite de memória e o lote. Um processador a mais na cadeia, e os dois serviços
+// param de mandar aquele campo no mesmo deploy:
+//
+//     otelcol.processor.transform "poda" {
+//       error_mode = "ignore"
+//       trace_statements {
+//         context    = "span"
+//         statements = [
+//           // o caminho com o id do paciente; `http.route` (parametrizada) permanece
+//           `delete_key(attributes, "url.path")`,
+//           // o SQL do Ecto, que é útil na largada e volumoso depois
+//           `delete_key(attributes, "db.statement")`,
+//         ]
+//       }
+//       output { traces = [otelcol.processor.batch.lotes.input] }
+//     }
+//
+// Deixado como comentário DE PROPÓSITO: processador vazio que não remove nada é código morto que
+// parece proteção — a mesma classe de erro do rótulo `level` que saía sempre vazio (§4 acima).
+
+otelcol.processor.batch "lotes" {
+	output {
+		traces = [otelcol.exporter.otlp.tempo.input]
+	}
+}
+
+otelcol.exporter.otlp "tempo" {
+	client {
+		endpoint = sys.env("TEMPO_OTLP_ENDPOINT")
+
+		// Sem TLS: o tráfego não sai do host, exatamente como no datasource do Postgres do
+		// Grafana. Certificado entre containers da mesma máquina custaria rotação e não compraria
+		// ameaça nenhuma que já não implique acesso ao próprio host.
+		tls {
+			insecure = true
+		}
+	}
+}

@@ -49,6 +49,10 @@ defmodule ApiWeb.Endpoint do
   end
 
   plug Plug.RequestId
+  # Logo depois do `RequestId`, e pela mesma razão: carimbar o identificador no Logger antes de
+  # qualquer plug que possa logar. O span já existe aqui — quem o abriu foi o
+  # `opentelemetry_bandit`, no evento de início da requisição, antes de o Bandit chamar o plug.
+  plug ApiWeb.Plugs.TraceMetadata
   plug Plug.Telemetry, event_prefix: [:phoenix, :endpoint]
 
   plug Plug.Parsers,

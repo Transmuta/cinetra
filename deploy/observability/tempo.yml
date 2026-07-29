@@ -1,0 +1,122 @@
+# Tempo — o banco de traces (doc 76).
+#
+# O terceiro sinal. O Loki responde "o que a aplicação fez", o Prometheus "em que estado ela está",
+# e o trace responde a pergunta que nenhum dos dois responde: **onde foi o tempo DESTA requisição**
+# — qual consulta, em que ordem, quanto de cada uma, atravessando BFF e API.
+#
+# ## Por que o Tempo e não uma plataforma unificada
+#
+# O [doc 74](../../docs/74-signoz-vs-hyperdx.md) comparou SigNoz e HyperDX e recomendou nenhum dos
+# dois: o ativo do projeto são os 97 painéis em LogQL e o pipeline de redação de PII do
+# `alloy.alloy`, e os dois candidatos exigiam reescrever ambos para obter, de outra forma, o que o
+# Grafana entrega acrescentando um serviço. Este arquivo é esse serviço.
+#
+# ## O trace fica DENTRO da mesma máquina
+#
+# O argumento que segurou o tracing até aqui (doc 62 §12) era que "todo atributo de span é dado
+# exportado" — pesado num produto com dado de saúde. Ele vale contra SaaS; não vale aqui: o span
+# nasce no app, passa pelo Alloy que já roda ao lado e para neste volume. Mesmo perímetro em que o
+# log já está há meses. O que muda em relação ao log é o VOLUME de detalhe, e é por isso que a
+# poda de atributos mora no Alloy (§ "Redação" do alloy.alloy), num lugar só.
+#
+# ## `metrics_generator`: LIGADO só no `local-blocks`, e a distinção é o ponto
+#
+# O gerador tem processadores com destinos diferentes, e tratá-los como uma coisa só custaria ou o
+# Prometheus ou a ferramenta:
+#
+#   * `span-metrics` e `service-graphs` fazem **remote_write para o Prometheus** — uma série por
+#     rota. Com `url.path` ainda carregando UUID de paciente (a poda é trabalho combinado, doc 76
+#     §4), isso é cardinalidade explosiva num Prometheus que tem teto de disco. **Ficam
+#     desligados**, e ligar é passo seguinte à poda, nunca anterior.
+#
+#   * `local-blocks` guarda os spans recentes em bloco local **aqui dentro**, para responder
+#     TraceQL metrics (`{} | rate()`). Não escreve série em lugar nenhum, então não tem o problema
+#     acima — e é ele, e só ele, que o **Traces Drilldown** do Grafana exige. Sem ele o app abre e
+#     todo painel devolve 500, com os traces perfeitamente presentes na busca.
+
+server:
+  http_listen_port: 3200
+  # Mesma razão do `log_level: warn` do Loki: a ferramenta de observabilidade narrando cada flush
+  # e cada compactação vira log do produto competindo com o log do produto.
+  log_level: warn
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        # Só gRPC, e só do Alloy. Os apps NÃO falam com o Tempo — falam com o Alloy, que é onde a
+        # redação acontece. Um segundo caminho de entrada seria um caminho sem poda.
+        grpc:
+          endpoint: 0.0.0.0:4317
+
+ingester:
+  # Bloco fechado a cada 5 min. O padrão (30 min) mantém o trace recente apenas em memória, e o
+  # caso de uso número um é justamente "isto ficou lento AGORA" — meia hora de espera para poder
+  # consultar tornaria a ferramenta inútil na hora em que ela importa.
+  max_block_duration: 5m
+
+compactor:
+  compaction:
+    # ---- A RETENÇÃO -----------------------------------------------------------------------------
+    #
+    # 7 dias, contra os 30 do Loki e do Prometheus, e a assimetria é deliberada: trace é o sinal
+    # mais caro por byte e o que responde à pergunta mais recente ("por que esta requisição
+    # demorou"). O que precisa de memória longa — quem mexeu, quando, quantas vezes — é a trilha
+    # de auditoria no banco, com backup horário.
+    #
+    # CONSEQUÊNCIA, que precisa ser conhecida: o log carrega `trace_id` por 30 dias e o link
+    # "ver trace" aparece em todos eles. Num log com mais de 7 dias o link abre um trace VAZIO.
+    # Não é defeito, é o custo da assimetria — e subir aqui é uma variável de ambiente
+    # (`TEMPO_RETENTION=720h`) se um dia incomodar mais do que o disco.
+    block_retention: ${TEMPO_RETENTION:-168h}
+
+# ---- TraceQL metrics, que é o que move o Traces Drilldown -----------------------------------
+#
+# NÃO tem `remote_write`: nada daqui vai para o Prometheus, de propósito (ver o cabeçalho). O
+# gerador existe só para manter os blocos locais que respondem `rate()` e `quantile_over_time()`.
+metrics_generator:
+  storage:
+    path: /var/tempo/generator/wal
+  # Onde os blocos do `local-blocks` ficam. Sem este caminho o processador aceita a configuração e
+  # não persiste nada além do bloco em memória — as consultas do Drilldown responderiam só sobre a
+  # janela ativa, o que parece "faltando dado" em vez de configuração incompleta.
+  traces_storage:
+    path: /var/tempo/generator/traces
+  processor:
+    local_blocks:
+      flush_to_storage: true
+
+storage:
+  trace:
+    # Disco local, mesma decisão dos chunks do Loki (doc 62 §3.3): o que tem valor legal está no
+    # BANCO. Trocar para `s3` (R2) é possível e não é retroativo — os blocos antigos ficam.
+    backend: local
+    wal:
+      path: /var/tempo/wal
+    local:
+      path: /var/tempo/blocks
+
+# ---- Tetos de segurança -------------------------------------------------------------------------
+#
+# Não são economia: são o que faz um laço de instrumentação falhar ALTO em vez de consumir a
+# máquina em silêncio. Um `Enum.map` instrumentado por engano dentro de um loop de 10 mil itens é
+# um trace só, com 10 mil spans.
+overrides:
+  defaults:
+    # A lista é EXPLÍCITA e tem um item só. `span-metrics` e `service-graphs` entrariam aqui, e é
+    # justamente o que não queremos antes da poda de atributos — acrescentar um deles é decisão
+    # consciente, com o doc 76 §4 na mão.
+    metrics_generator:
+      processors: [local-blocks]
+    global:
+      # ~50 MB de span num trace só. Acima disso o trace é recusado inteiro e o Tempo registra —
+      # visível, ao contrário de um trace truncado pela metade que parece completo na tela.
+      max_bytes_per_trace: 50000000
+    ingestion:
+      rate_limit_bytes: 20000000
+      burst_size_bytes: 40000000
+
+usage_report:
+  # Não telefona para casa, como o Loki e o Prometheus ao lado. O que sai desta máquina é decisão
+  # explícita, nunca default de fornecedor.
+  reporting_enabled: false

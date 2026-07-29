@@ -12,6 +12,8 @@
  * BFF sai **erro** e o que mais ninguém vê (crash do browser, via `/api/client-error`).
  */
 
+import { trace } from '@opentelemetry/api';
+
 /** Máximos por campo. O evento do browser vem de fora e não pode ditar o tamanho da linha. */
 const LIMITES = { message: 500, stack: 2000, route: 200, extra: 200 } as const;
 
@@ -72,12 +74,35 @@ export function truncar(valor: unknown, max: number): string {
 	return texto.length <= max ? texto : `${texto.slice(0, max)}…[+${texto.length - max}]`;
 }
 
+/**
+ * O `trace_id` da requisição corrente, ou nada.
+ *
+ * É a costura entre o Loki e o Tempo (doc 76): o `derivedFields` do datasource do Loki procura
+ * este campo na linha para oferecer o botão "Ver trace", e o `tracesToLogsV2` faz o caminho de
+ * volta. O lado Elixir emite a mesma chave, pelo mesmo motivo (`ApiWeb.Plugs.TraceMetadata`).
+ *
+ * Devolve `{}` quando não há span — em vez de `trace_id: null`. Campo presente e vazio parece
+ * correlação e não correlaciona nada, e quem lê o log acredita nele.
+ *
+ * Só existe span se `otel.mjs` tiver inicializado o SDK, o que depende de
+ * `OTEL_EXPORTER_OTLP_ENDPOINT`. Sem observabilidade no ambiente, este objeto é sempre vazio e o
+ * log fica idêntico ao que era.
+ */
+function correlacaoDeTrace(): { trace_id?: string } {
+	const span = trace.getActiveSpan();
+	if (!span) return {};
+
+	const { traceId } = span.spanContext();
+	return traceId ? { trace_id: traceId } : {};
+}
+
 function emitir(severity: Severity, message: string, campos: Campos = {}) {
 	const linha = JSON.stringify({
 		time: new Date().toISOString(),
 		severity,
 		service: 'web',
 		message: truncar(message, LIMITES.message),
+		...correlacaoDeTrace(),
 		...campos
 	});
 
