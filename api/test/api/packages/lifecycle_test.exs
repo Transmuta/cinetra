@@ -511,6 +511,42 @@ defmodule Api.Packages.LifecycleTest do
 
       assert {:error, _} = Packages.add_session(scope_before(ctx), pkg.id)
     end
+
+    # O `+1` materializa **antes** de somar ao total, e devolve o motivo quando não dá.
+    #
+    # Antes disto o total subia primeiro e o job vinha depois: com o slot ocupado, o job falhava em
+    # silêncio (o Oban marcava sucesso) e o pacote ficava vendido com N+1 e com N na agenda — sem
+    # erro na tela, sem linha de log, e a divergência só aparecendo quando o paciente cobrasse a
+    # sessão que ninguém marcou.
+    test "slot ocupado: recusa com o motivo e NÃO soma ao total" do
+      ctx = setup_clinic()
+      pkg = criar_e_materializar(ctx)
+      antes = sessoes(ctx, pkg)
+
+      # A próxima data da grade depois da última sessão (seg 2026-08-03, 08:00) ocupada por outro
+      # bloco do mesmo profissional — a exclusion constraint recusa, e `forcar` é falso aqui.
+      outro = paciente!(ctx, "Bloqueio #{unico()}")
+      {:ok, choque} = Scheduling.LocalTime.to_utc(~D[2026-08-03], "08:00", "America/Sao_Paulo")
+
+      {:ok, _} =
+        Scheduling.schedule_appointment(
+          %{
+            starts_at: choque,
+            professional_id: ctx.prof.id,
+            appointment_type_id: ctx.tipo.id,
+            patient_ids: [outro.id]
+          },
+          scope: ctx.scope
+        )
+
+      assert {:error, _motivo} = Packages.add_session(scope_before(ctx), pkg.id)
+
+      # O total continua o que foi vendido…
+      assert Packages.get_package!(pkg.id, scope: ctx.scope).total == 4
+      # …e nenhuma sessão a mais entrou (nem agora, nem por um job pendurado).
+      Oban.drain_queue(queue: :housekeeping)
+      assert length(sessoes(ctx, pkg)) == length(antes)
+    end
   end
 
   describe "−1 sessão (D3: só futura, nunca o passado)" do

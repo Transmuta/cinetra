@@ -365,14 +365,63 @@ defmodule Api.Packages do
   def add_session(%Api.Scope{} = scope, package_id) do
     pkg = in_clinic(scope, fn -> get_package!(package_id, scope: scope) end)
 
-    if pkg.status == :cancelado do
-      {:error, :status_invalido}
-    else
-      with {:ok, maior} <- set_package_total(pkg, %{total: pkg.total + 1}, scope: scope) do
-        enqueue_from(maior, scope, proxima_ancora(scope, package_id), 1)
-        {:ok, maior}
-      end
+    cond do
+      pkg.status == :cancelado ->
+        {:error, :status_invalido}
+
+      # O teto é conferido ANTES de materializar, senão a sessão nasceria e só depois o `set_total`
+      # a recusaria — deixando na agenda uma sessão que o pacote não conta. O número sai do próprio
+      # recurso: escrevê-lo aqui seria uma segunda fonte da mesma verdade.
+      pkg.total + 1 > teto_do_total() ->
+        {:error, :teto_do_pacote}
+
+      true ->
+        somar_sessao(scope, pkg, package_id)
     end
+  end
+
+  # **Materializa primeiro, soma depois** — e a ordem é o conserto de um defeito medido (doc 77).
+  #
+  # Antes o `total` subia e o job vinha atrás: com o slot ocupado, o job falhava em silêncio (o
+  # Oban marcava sucesso) e o pacote ficava vendido com N+1 e com N na agenda. Sem erro na tela,
+  # sem linha de log, e a divergência aparecendo meses depois, quando o paciente cobrasse a sessão
+  # que ninguém marcou.
+  #
+  # Síncrono aqui, e job na criação da série, porque as duas situações têm necessidades opostas: a
+  # série inteira são 40 escritas que não podem segurar a requisição, e uma recusa ali é caso
+  # normal; o `+1` é UMA escrita, e a resposta dela é justamente o que decide se o total pode subir.
+  #
+  # Nada de transação em volta das duas: a materialização já abre a sua (`SetTenantGuc`), e
+  # aninhá-las é o que quebra o caminho de erro e engole notificação (ver `Api.Tenancy`). A ordem
+  # basta — se a sessão não nasce, o total não sobe, e não há o que desfazer.
+  defp somar_sessao(scope, pkg, package_id) do
+    args = %{
+      "package_id" => package_id,
+      "clinic_id" => scope.clinic_id,
+      "forcar" => false,
+      "from" => Date.to_iso8601(proxima_ancora(scope, package_id)),
+      "count" => 1
+    }
+
+    case Api.Packages.Materializer.materializar(package_id, scope.clinic_id, args) do
+      {:ok, 1} ->
+        set_package_total(pkg, %{total: pkg.total + 1}, scope: scope)
+
+      # A grade não produziu data nenhuma daqui para a frente (feriado em todas as ocorrências
+      # projetadas, por exemplo). Nada nasceu, então nada a somar.
+      {:ok, 0} ->
+        {:error, :sem_data_na_grade}
+
+      {:error, motivo} ->
+        {:error, motivo}
+    end
+  end
+
+  defp teto_do_total do
+    Api.Packages.Package
+    |> Ash.Resource.Info.attribute(:total)
+    |> Map.fetch!(:constraints)
+    |> Keyword.fetch!(:max)
   end
 
   @doc """

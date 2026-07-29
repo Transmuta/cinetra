@@ -40,6 +40,40 @@ defmodule Api.Packages.Materializer do
   @impl Oban.Worker
   def perform(%Oban.Job{args: args}) do
     %{"package_id" => package_id, "clinic_id" => clinic_id} = args
+
+    # O job **engole o motivo de propósito**, e isso não é o mesmo silêncio de antes: a recusa já
+    # foi registrada por `create_sessions/3`, com data e razão. O que ele não faz é falhar.
+    #
+    # Falhar poria a fila em retry eterno num caso que é NORMAL — a criação de uma série de 40
+    # sessões pode legitimamente esbarrar num slot ocupado, e é para isso que existe o
+    # `forcar`/encaixe. Quem precisa da resposta na hora não usa o job: usa `materializar/3`
+    # direto, que devolve o motivo (ver `Api.Packages.add_session/2`).
+    case materializar(package_id, clinic_id, args) do
+      {:ok, _criadas} -> :ok
+      {:error, _motivo} -> :ok
+    end
+  end
+
+  @doc """
+  Materializa **agora**, no processo de quem chamou, e devolve o que aconteceu.
+
+  É o mesmo caminho que o `perform/1` roda — a diferença é só quem trata o resultado. Existe
+  porque há duas situações com necessidades opostas:
+
+    * **criar a série inteira** (40 sessões) não pode segurar a requisição HTTP, e uma sessão
+      recusada por conflito ali é caso normal → job, resultado engolido, recusa no log;
+    * **somar UMA sessão** (`+1`) precisa da resposta na hora, porque o `total` do pacote só pode
+      subir se a sessão de fato nasceu. Enfileirar ali era o que produzia pacote vendido com N+1
+      e com N na agenda, sem ninguém saber.
+
+  `args` usa chaves de string por ser o mesmo mapa que o Oban carrega: `from` (ISO), `count` e
+  `forcar` são opcionais e caem no default do pacote quando ausentes.
+
+  Devolve `{:ok, quantas_nasceram}` ou `{:error, motivo}` — o motivo é o erro do Ash da primeira
+  sessão recusada, então o controller o serializa com a mesma máquina de sempre.
+  """
+  @spec materializar(binary(), binary(), map()) :: {:ok, non_neg_integer()} | {:error, term()}
+  def materializar(package_id, clinic_id, args \\ %{}) do
     forcar = Map.get(args, "forcar", false)
 
     # As leituras rodam sob a GUC de tenant (`in_clinic`): sem ela a RLS (ADR-018) lê o
@@ -110,56 +144,57 @@ defmodule Api.Packages.Materializer do
   end
 
   defp create_sessions({:skip, pkg_id}, _clinic_id, _forcar) do
-    # Pacote cancelado antes do job — nada a materializar (ver `build_plan`). Encerra em `:ok`
-    # para o Oban não re-tentar um job que nunca vai ter o que fazer.
+    # Pacote cancelado antes do job — nada a materializar (ver `build_plan`). Zero criadas, e não
+    # é erro: o job nunca vai ter o que fazer, então não há o que re-tentar.
     Logger.info("Pacote #{pkg_id} cancelado antes da materialização; job ignorado")
-    :ok
+    {:ok, 0}
   end
 
   defp create_sessions({:no_grade, pkg_id}, _clinic_id, _forcar) do
-    # Sem grade não há o que materializar — não deveria acontecer (a grade nasce com o pacote), mas
-    # falhar aqui só geraria retry infinito. Registra e encerra.
+    # Sem grade não há o que materializar — não deveria acontecer (a grade nasce com o pacote).
     Logger.error("Pacote #{pkg_id} sem grade na materialização; nada a fazer")
-    :ok
+    {:error, :sem_grade}
   end
 
   defp create_sessions({:error, _reason} = erro, _clinic_id, _forcar), do: erro
 
   defp create_sessions({:ok, pkg, tipo, starts}, clinic_id, forcar) do
-    # O `Enum.each` daqui **descartava** o `{:error, _}` de `create_and_stamp/5` e devolvia `:ok`:
-    # o Oban registrava sucesso, nenhuma linha era escrita e nada em lugar nenhum dizia que a
-    # sessão não nasceu. Foi o que tornou invisível o defeito do `adjust_grade` medido no
-    # bate-volta — as futuras eram canceladas, a re-materialização não acontecia, e o pacote ficava
-    # com zero sessão sem um único sinal.
+    # Aqui havia um `Enum.each` que **descartava** o `{:error, _}` de `create_and_stamp/5` e
+    # devolvia `:ok`: o Oban registrava sucesso, nenhuma linha era escrita e nada em lugar nenhum
+    # dizia que a sessão não nasceu. Foi o que tornou invisível o defeito do `adjust_grade` medido
+    # no bate-volta (doc 77) — as futuras eram canceladas, a re-materialização não acontecia, e o
+    # pacote ficava com zero sessão sem um único sinal.
     #
-    # Continua devolvendo `:ok` de propósito: uma sessão recusada por conflito é caso normal (o
-    # `forcar`/encaixe existe para isso) e transformar isso em erro de job poria a fila em retry
-    # eterno. O que muda é que a recusa passa a ter registro — quem investiga tem por onde começar.
-    starts
-    |> Enum.reduce(0, fn starts_at, falhas ->
-      case Api.Packages.Sessions.create_and_stamp(pkg, tipo, starts_at, clinic_id, forcar) do
-        {:ok, _appt} ->
-          falhas
+    # Agora o resultado SOBE. Quem decide o que fazer com ele é o chamador, porque a resposta certa
+    # depende de quem chamou: o job engole (retry eterno seria pior), o `+1` recusa e devolve o
+    # motivo. O motivo que sobe é o da PRIMEIRA sessão recusada — é a que explica o resto.
+    {criadas, falhas} =
+      Enum.reduce(starts, {0, []}, fn starts_at, {criadas, falhas} ->
+        case Api.Packages.Sessions.create_and_stamp(pkg, tipo, starts_at, clinic_id, forcar) do
+          {:ok, _appt} ->
+            {criadas + 1, falhas}
 
-        {:error, motivo} ->
-          Logger.error(
-            "Materialização: sessão de #{DateTime.to_iso8601(starts_at)} do pacote #{pkg.id} " <>
-              "não foi criada — #{inspect(motivo)}"
-          )
+          {:error, motivo} ->
+            Logger.error(
+              "Materialização: sessão de #{DateTime.to_iso8601(starts_at)} do pacote #{pkg.id} " <>
+                "não foi criada — #{inspect(motivo)}"
+            )
 
-          falhas + 1
-      end
-    end)
-    |> case do
-      0 ->
-        :ok
+            {criadas, [motivo | falhas]}
+        end
+      end)
 
-      falhas ->
+    case Enum.reverse(falhas) do
+      [] ->
+        {:ok, criadas}
+
+      [primeiro | _] ->
         Logger.error(
-          "Materialização do pacote #{pkg.id}: #{falhas} de #{length(starts)} sessões não nasceram"
+          "Materialização do pacote #{pkg.id}: #{length(falhas)} de #{length(starts)} " <>
+            "sessões não nasceram"
         )
 
-        :ok
+        {:error, primeiro}
     end
   end
 
