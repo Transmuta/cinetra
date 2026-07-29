@@ -54,7 +54,15 @@ end
 # entregar e-mail de verdade a ninguém, e um `raise` aqui faria a API não subir por falta de uma
 # chave que só produção precisa.
 if config_env() != :test do
-  if api_key = System.get_env("RESEND_API_KEY") do
+  # `not in [nil, ""]`, e a string vazia é o caso que importa: em Elixir **só `nil` e `false` são
+  # falsos**, então `if System.get_env(...)` casava com `""` e escolhia o Resend sem chave. O envio
+  # então estourava em `Swoosh.Adapter.raise_on_missing_config/2`.
+  #
+  # Não é hipótese: o `docker-compose.yml` define `RESEND_API_KEY: ${RESEND_API_KEY:-}`, ou seja a
+  # variável SEMPRE existe no container — vazia quando não há valor no `.env`. Todo dev subido pelo
+  # compose sem chave ficava com o magic link quebrado e `/dev/mailbox` vazio, contrariando o que
+  # o comentário acima promete. Regressão em `test/api/mailer_config_test.exs`.
+  if (api_key = System.get_env("RESEND_API_KEY")) not in [nil, ""] do
     config :api, Api.Mailer, adapter: Swoosh.Adapters.Resend, api_key: api_key
 
     # O adapter do Resend fala HTTP, e o `config.exs` desliga o cliente (`api_client: false`)
@@ -127,6 +135,52 @@ config :api, Api.Heartbeat,
       "Api.Housekeeping.PruneAttachments" => System.get_env("HEARTBEAT_URL_PRUNE_ATTACHMENTS")
     }
     |> Map.reject(fn {_worker, url} -> is_nil(url) or url == "" end)
+
+# Porta do `/metrics` (doc 74). Só existe env aqui porque o Prometheus raspa por nome de
+# container e porta fixa, e um dia dois stacks na mesma máquina podem precisar diferir.
+#
+# `server?` fica ligado em todo ambiente que não seja teste: em dev também, porque a maneira de
+# descobrir que a coleta quebrou é abrir `/metrics` — e um dev que só descobre em produção não
+# tinha observabilidade, tinha esperança.
+if config_env() != :test do
+  config :api, :metrics,
+    server?: true,
+    port: String.to_integer(System.get_env("METRICS_PORT", "4021"))
+end
+
+# ---- Traces (doc 76) ---------------------------------------------------------------------------
+#
+# UMA variável liga o terceiro sinal: `OTEL_EXPORTER_OTLP_ENDPOINT`. Sem ela o exportador segue
+# `:none` (config.exs) e nada é enviado — que é o estado de quem não subiu observabilidade.
+#
+# O destino é o **Alloy**, não o Tempo. Os spans passam pelo agente pelo mesmo motivo que os logs:
+# é lá que a poda de atributos mora, num lugar só, valendo para a API e para o BFF sem rebuild.
+#
+#     OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4317
+#
+# Nome do serviço e ambiente NÃO são configurados aqui de propósito: o SDK já lê `OTEL_SERVICE_NAME`
+# e `OTEL_RESOURCE_ATTRIBUTES`, que são o padrão do OpenTelemetry e funcionam igual no BFF em Node.
+# Reimplementá-los em Elixir criaria duas fontes de verdade para o mesmo rótulo.
+otlp_endpoint = System.get_env("OTEL_EXPORTER_OTLP_ENDPOINT")
+
+# `config_env() != :test` é OBRIGATÓRIO aqui, e custou uma suíte quebrada para ficar claro: este
+# arquivo roda em TODOS os ambientes, inclusive no `mix test`. Sem a guarda, ligar o trace em dev
+# (a variável no `.env`) sobrescrevia o `span_processor: :simple` do `test.exs`, o
+# `otel_simple_processor_global` deixava de existir e os testes de trace morriam com "no process".
+#
+# Falhava **verde no CI** — que não tem a variável — e vermelho só na máquina de quem ligou
+# observabilidade. Que é a pior direção possível para uma quebra.
+if config_env() != :test and otlp_endpoint not in [nil, ""] do
+  # `:batch` acumula spans e despacha em lote. É o oposto do `:simple` da suíte, e aqui é o certo:
+  # exportar um a um poria uma chamada de rede no caminho de cada requisição servida.
+  config :opentelemetry,
+    span_processor: :batch,
+    traces_exporter: :otlp
+
+  config :opentelemetry_exporter,
+    otlp_protocol: :grpc,
+    otlp_endpoint: otlp_endpoint
+end
 
 if config_env() == :prod do
   # The secret key base is used to sign/encrypt cookies and other secrets.

@@ -72,6 +72,36 @@ defmodule Api.MixProject do
       {:phoenix, "~> 1.8.9"},
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_poller, "~> 1.0"},
+      # Métricas Prometheus da BEAM, do Ecto, do Oban e do Phoenix (doc 74). O log já respondia
+      # "o que a aplicação fez"; isto responde "em que estado ela está" — fila do pool, memória
+      # do processo, latência de fila do Oban. Serve num servidor PRÓPRIO (porta 4021), não pelo
+      # router: o `/metrics` não pode passar por rate limit, autenticação de sessão nem
+      # RequestLogger, e não pode existir rota que o Traefik possa expor por acidente.
+      {:prom_ex, "~> 1.12"},
+      # ---- Traces (doc 76) ----------------------------------------------------------------------
+      #
+      # O terceiro sinal. As métricas acima dizem que o p95 subiu; o trace diz em QUE consulta, de
+      # qual requisição, com o span do BFF por cima. São seis pacotes porque o OTel separa API de
+      # implementação de propósito: `_api` é o que o código chama, `opentelemetry` é o SDK que
+      # coleta, `_exporter` é quem fala OTLP, e os três de instrumentação só pendurram handlers de
+      # `:telemetry` que já existiam.
+      #
+      # Nada disto tem efeito sem `OTEL_EXPORTER_OTLP_ENDPOINT` (ver runtime.exs): sem a variável o
+      # exportador é `:none`, os spans nascem e morrem em memória. É o que mantém dev e teste
+      # inalterados para quem não subiu o stack de observabilidade.
+      {:opentelemetry_api, "~> 1.5"},
+      {:opentelemetry, "~> 1.7"},
+      {:opentelemetry_exporter, "~> 1.10"},
+      # `_bandit` e `_phoenix` são complementares, não alternativos: o primeiro abre o span do
+      # SERVIDOR (chega byte, sai byte, e é ele quem lê o `traceparent` que o BFF mandou); o
+      # segundo acrescenta o que só o framework sabe — rota do router, controller, action.
+      {:opentelemetry_bandit, "~> 0.3"},
+      {:opentelemetry_phoenix, "~> 2.0"},
+      {:opentelemetry_ecto, "~> 1.2"},
+      # O trace atravessa a fila: o job carrega o contexto de quem o enfileirou. É o mesmo buraco
+      # que `Api.Correlacao` fechou com `request_id` no `meta` — aqui ele fecha de novo, agora com
+      # a árvore inteira em vez de só o id.
+      {:opentelemetry_oban, "~> 1.2"},
       # Log em JSON, uma linha por evento (doc 62 §7.1). É a única dep aqui que poderia ter sido
       # escrita à mão — e não foi, de propósito: o formatter precisa encodar metadata arbitrária
       # (pid, ref, tupla, função) sem estourar, e um formatter que levanta derruba o logger, que

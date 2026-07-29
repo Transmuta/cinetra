@@ -19,29 +19,49 @@ defmodule Api.Application do
     # configurada, que é o caso de dev e teste.
     Api.Heartbeat.attach()
 
-    children = [
-      ApiWeb.Telemetry,
-      {DNSCluster, query: Application.get_env(:api, :dns_cluster_query) || :ignore},
-      Api.Repo,
-      # Rate limiters (Hammer/ETS). Sobem em todos os ambientes; a enforcement é gated a prod
-      # nos plugs (auditoria doc 13, causa A). São DOIS, com tabelas separadas: janela deslizante
-      # para o anti-brute-force de auth (preciso, volume baixo) e janela fixa para o limite global
-      # (O(1), tráfego inteiro) — a separação está justificada em cada moduledoc (doc 68, causa A).
-      {Api.RateLimiter, [clean_period: :timer.minutes(1)]},
-      {Api.RateLimiter.Global, [clean_period: :timer.minutes(1)]},
-      {Phoenix.PubSub, name: Api.PubSub},
-      # Cache do fuso da clínica (D-K). Depende do PubSub — é por ele que a invalidação de um
-      # nó chega aos outros (`:persistent_term` é por-nó).
-      Api.Accounts.ClinicTimezone,
-      # Presença de sockets (doc 39): quem está oferecendo qual vaga, agora. Depende do PubSub.
-      ApiWeb.Presence,
-      # Oban — sem cron desde a remoção da reserva de vaga (doc 39); a fila `housekeeping` fica
-      # de pé para o trabalho assíncrono da Fatia 3 (Pacotes). Em teste sobe em modo manual.
-      {Oban, Application.fetch_env!(:api, Oban)},
-      # Start to serve requests, typically the last entry
-      ApiWeb.Endpoint,
-      {AshAuthentication.Supervisor, [otp_app: :api]}
-    ]
+    # Traces (doc 76). Também antes da árvore, e pelo mesmo motivo dos handlers acima: o
+    # `OpentelemetryOban` precisa estar pendurado antes de o Oban subir, senão os jobs que ele
+    # despacha na partida saem sem span e sem pai — e o efeito é um trace pela metade, que engana
+    # mais do que a ausência dele.
+    #
+    # Sem `OTEL_EXPORTER_OTLP_ENDPOINT` isto continua acontecendo, só que o span morre em memória.
+    Api.Tracing.setup()
+
+    children =
+      [
+        ApiWeb.Telemetry,
+        # Métricas Prometheus (doc 74). **Antes do Repo e do Oban, e isto é ordem, não estilo**: os
+        # dois emitem um evento de `init` uma única vez, na partida. Quem sobe depois perde o
+        # evento — e o efeito não é métrica faltando, é o dropdown de repo/instância do painel
+        # nascer vazio, com todas as outras séries presentes. Falha caladíssima.
+        Api.PromEx,
+        {DNSCluster, query: Application.get_env(:api, :dns_cluster_query) || :ignore},
+        Api.Repo,
+        # Rate limiters (Hammer/ETS). Sobem em todos os ambientes; a enforcement é gated a prod
+        # nos plugs (auditoria doc 13, causa A). São DOIS, com tabelas separadas: janela deslizante
+        # para o anti-brute-force de auth (preciso, volume baixo) e janela fixa para o limite global
+        # (O(1), tráfego inteiro) — a separação está justificada em cada moduledoc (doc 68, causa A).
+        {Api.RateLimiter, [clean_period: :timer.minutes(1)]},
+        {Api.RateLimiter.Global, [clean_period: :timer.minutes(1)]},
+        {Phoenix.PubSub, name: Api.PubSub},
+        # O cliente HTTP do Swoosh. Só é USADO quando `RESEND_API_KEY` liga o adapter real
+        # (`runtime.exs` aponta `Swoosh.ApiClient.Finch`), mas sobe sempre: um pool ocioso custa
+        # nada, e subir condicional esconderia exatamente o crash que isto conserta — o primeiro
+        # magic link com a chave ligada morria em "unknown registry: Swoosh.Finch" (500), login
+        # inteiro quebrado. Achado ao vivo em 2026-07-29; regressão em `swoosh_finch_test.exs`.
+        {Finch, name: Swoosh.Finch},
+        # Cache do fuso da clínica (D-K). Depende do PubSub — é por ele que a invalidação de um
+        # nó chega aos outros (`:persistent_term` é por-nó).
+        Api.Accounts.ClinicTimezone,
+        # Presença de sockets (doc 39): quem está oferecendo qual vaga, agora. Depende do PubSub.
+        ApiWeb.Presence,
+        # Oban — sem cron desde a remoção da reserva de vaga (doc 39); a fila `housekeeping` fica
+        # de pé para o trabalho assíncrono da Fatia 3 (Pacotes). Em teste sobe em modo manual.
+        {Oban, Application.fetch_env!(:api, Oban)},
+        # Start to serve requests, typically the last entry
+        ApiWeb.Endpoint,
+        {AshAuthentication.Supervisor, [otp_app: :api]}
+      ] ++ Api.PromEx.metrics_server_children()
 
     # See https://elixir.hexdocs.pm/Supervisor.html
     # for other strategies and supported options

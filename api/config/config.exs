@@ -165,7 +165,19 @@ config :logger, :default_formatter,
   format: "$time $metadata[$level] $message\n",
   # `clinic_id`/`actor_id` são carimbados pelo `LoadScope`; `route`/`status`/`duration_ms` vêm do
   # `ApiWeb.RequestLogger`. Em dev isto sai como texto legível; em prod, como JSON (prod.exs).
-  metadata: [:request_id, :clinic_id, :actor_id, :method, :route, :status, :duration_ms]
+  metadata: [
+    :request_id,
+    # O elo com o Tempo (doc 76). Carimbado por `ApiWeb.Plugs.TraceMetadata` e lido pelo
+    # `derivedFields` do datasource do Loki — sem esta chave na lista, o campo é descartado pelo
+    # formatter e o botão "Ver trace" some do Grafana sem nenhum erro em lugar nenhum.
+    :trace_id,
+    :clinic_id,
+    :actor_id,
+    :method,
+    :route,
+    :status,
+    :duration_ms
+  ]
 
 # **Desliga o logger de requisição do Phoenix** (doc 62 §7.1). Ele emite duas linhas por
 # requisição (`GET /rota` + `Sent 200 in Xµs`) — medido: 41 linhas para 21 requisições. Quem loga
@@ -186,6 +198,41 @@ config :swoosh, :api_client, false
 # `Api.Storage.configured?/0` é falso e o endpoint devolve 503 em vez de oferecer um upload que
 # não tem para onde ir.
 config :api, Api.Storage, adapter: Api.Storage.R2
+
+# Métricas Prometheus (doc 74). O que a APLICAÇÃO sabe sobre si mesma — BEAM, pool do Ecto,
+# filas do Oban, latência por rota. Máquina e container vêm de fora (node_exporter/cAdvisor).
+#
+# `metrics_server: :disabled` **não** desliga as métricas: desliga só o servidor HTTP embutido do
+# PromEx, que usa `Plug.Cowboy`. Quem serve o `/metrics` é um `Bandit` nosso, na árvore de
+# supervisão (`Api.PromEx.metrics_server_spec/0`) — mesmo servidor web do resto da aplicação, e
+# uma dependência a menos.
+#
+# `grafana: :disabled` porque os dashboards deste projeto são ARQUIVO provisionado em
+# `deploy/observability/dashboards/`, versionado junto com o resto. O upload por API do PromEx
+# criaria painel que existe só no volume do Grafana — some ao recriar o container e não aparece
+# em nenhum diff.
+config :api, Api.PromEx,
+  disabled: false,
+  manual_metrics_start_delay: :no_delay,
+  drop_metrics_groups: [],
+  grafana: :disabled,
+  metrics_server: :disabled
+
+# A porta do `/metrics`. NÃO é publicada no compose — só o Prometheus, de dentro da rede do
+# Docker, alcança. Ver o moduledoc de `Api.PromEx` para o porquê de não ser rota do router.
+config :api, :metrics, server?: true, port: 4021
+
+# Traces (doc 76): DESLIGADO por padrão, ligado em `runtime.exs` quando houver endpoint OTLP.
+#
+# O default do SDK é `traces_exporter: :otlp` apontando para `localhost:4317`. Deixá-lo assim
+# faria toda instalação sem stack de observabilidade — dev de quem clonou o repositório, CI,
+# a suíte — tentar exportar span para um endereço que não atende, num laço de reconexão barulhento.
+# Falhar assim é pior que não instrumentar: gasta CPU, polui o log e não produz trace nenhum.
+#
+# `:none` não desliga a instrumentação: os spans continuam nascendo, medindo e sendo descartados
+# no fim. Isso é de propósito — o caminho de código é o MESMO em todo ambiente, então um bug de
+# instrumentação aparece na suíte, e não só em produção.
+config :opentelemetry, traces_exporter: :none
 
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.

@@ -26,7 +26,20 @@ config :logger, level: :info
 config :logger, :default_handler,
   formatter:
     {LoggerJSON.Formatters.Basic,
-     metadata: [:request_id, :clinic_id, :actor_id, :method, :route, :status, :duration_ms]}
+     metadata: [
+       :request_id,
+       # O elo com o Tempo (doc 76). Esta é a lista que VALE em produção — ela sobrescreve a do
+       # `config.exs`, e é dela que sai o JSON que o Alloy embarca e o Loki indexa. Sem a chave
+       # aqui, o `derivedFields` do Grafana não encontra `trace_id` na linha e o botão "Ver trace"
+       # não aparece, com o trace existindo do outro lado e ninguém percebendo.
+       :trace_id,
+       :clinic_id,
+       :actor_id,
+       :method,
+       :route,
+       :status,
+       :duration_ms
+     ]}
 
 # Liga o rate limiting: o dos endpoints de auth (auditoria doc 13, causa A) e o global de
 # 200 req/min (`RateLimitGlobal`) nos demais endpoints. Só em produção: os dois plugs são

@@ -75,7 +75,18 @@ config :api, :web_app_url, System.get_env("WEB_APP_URL", "http://localhost:5173"
 # quando na verdade ele é o mesmo que vira JSON em produção.
 config :logger, :default_formatter,
   format: "[$level] $message $metadata\n",
-  metadata: [:request_id, :clinic_id, :actor_id, :method, :route, :status, :duration_ms]
+  # `:trace_id` precisa estar AQUI também, e não só no `config.exs`: este bloco sobrescreve
+  # aquele, e o formatter descarta silenciosamente toda chave fora da lista (doc 76 §7.6).
+  metadata: [
+    :request_id,
+    :trace_id,
+    :clinic_id,
+    :actor_id,
+    :method,
+    :route,
+    :status,
+    :duration_ms
+  ]
 
 # Set a higher stacktrace during development. Avoid configuring such
 # in production as building large stacktraces may be expensive.
