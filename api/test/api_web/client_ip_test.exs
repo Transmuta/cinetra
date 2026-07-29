@@ -17,10 +17,20 @@ defmodule ApiWeb.ClientIpTest do
     end)
   end
 
+  # A cadeia confiável é configuração de deploy e o default é vazio (só `x-forwarded-for`).
+  # Os testes que exercitam a PRIORIDADE precisam, portanto, declarar a edge explicitamente —
+  # é assim que um ambiente com edge de verdade se configura.
+  defp com_edge_confiavel(header) do
+    Application.put_env(:api, :trusted_client_ip_headers, [header])
+    on_exit(fn -> Application.delete_env(:api, :trusted_client_ip_headers) end)
+  end
+
   describe "ordem de confiança" do
     test "o header confiável configurado vence o x-forwarded-for" do
-      # Na Fly a edge SOBRESCREVE `fly-client-ip`, então ele é à prova de spoof e tem prioridade.
-      assert ClientIp.get(conn([{"fly-client-ip", "1.1.1.1"}, {"x-forwarded-for", "2.2.2.2"}])) ==
+      # Uma edge que SOBRESCREVE o próprio header é à prova de spoof, então tem prioridade.
+      com_edge_confiavel("cf-connecting-ip")
+
+      assert ClientIp.get(conn([{"cf-connecting-ip", "1.1.1.1"}, {"x-forwarded-for", "2.2.2.2"}])) ==
                "1.1.1.1"
     end
 
@@ -33,12 +43,29 @@ defmodule ApiWeb.ClientIpTest do
     end
 
     test "header vazio não engole o próximo da cadeia" do
-      assert ClientIp.get(conn([{"fly-client-ip", ""}, {"x-forwarded-for", "2.2.2.2"}])) ==
+      com_edge_confiavel("cf-connecting-ip")
+
+      assert ClientIp.get(conn([{"cf-connecting-ip", ""}, {"x-forwarded-for", "2.2.2.2"}])) ==
                "2.2.2.2"
     end
 
     test "x-forwarded-for com vários hops usa o primeiro (o cliente)" do
       assert ClientIp.get(conn([{"x-forwarded-for", "2.2.2.2, 10.0.0.1, 10.0.0.2"}])) == "2.2.2.2"
+    end
+  end
+
+  describe "o default acompanha a topologia real" do
+    test "o default NÃO confia em `fly-client-ip` (a edge da Fly saiu)" do
+      # Regressão da migração Fly→Dokploy. O default era `["fly-client-ip"]`, e nenhum ambiente
+      # sobrescreve `:trusted_client_ip_headers` — então em produção, sob Traefik, quem escreve
+      # esse header é o PRÓPRIO cliente: ninguém o sobrescreve nem o remove. Com ele no topo da
+      # cadeia, forjar `Fly-Client-IP` a cada request dá uma chave de rate limit nova por request
+      # e zera os dois limitadores (global e anti-spam do magic link), sem nada quebrar à vista.
+      refute "fly-client-ip" in Application.get_env(:api, :trusted_client_ip_headers, []),
+             "header de edge que não existe mais na topologia não pode ser confiável por default"
+
+      forjado = conn([{"fly-client-ip", "1.1.1.1"}, {"x-forwarded-for", "2.2.2.2"}])
+      assert ClientIp.get(forjado) == "2.2.2.2", "o header forjável não pode vencer no default"
     end
   end
 

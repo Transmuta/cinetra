@@ -14,24 +14,28 @@ defmodule ApiWeb.ClientIp do
 
   ## Por que a lista é configurável, e não constante
 
-  Um header só é confiável se **a topologia garante que alguém o sobrescreve**. Na Fly,
-  `fly-client-ip` é escrito pela edge por cima de qualquer valor do cliente: autoritativo e à
-  prova de spoof. Sob outro proxy — Traefik, por exemplo — ninguém escreve nem remove esse header,
-  e mantê-lo no topo da cadeia entregaria a chave do rate limit para o próprio cliente escrever,
-  transformando os dois limitadores em no-op sem que nada quebre visivelmente (bate-volta doc 68,
-  causa B).
+  Um header só é confiável se **a topologia garante que alguém o sobrescreve**. Numa edge que
+  escreve o header por cima de qualquer valor do cliente (era o caso do `fly-client-ip` na Fly),
+  ele é autoritativo e à prova de spoof. Sob um proxy que não o conhece — o Traefik do Dokploy,
+  hoje — ninguém escreve nem remove esse header, e mantê-lo na cadeia entregaria a chave do rate
+  limit para o próprio cliente escrever, transformando os dois limitadores em no-op sem que nada
+  quebre visivelmente (bate-volta doc 68, causa B).
 
   Isto é, portanto, **configuração de deploy**, não constante de código:
 
-      config :api, trusted_client_ip_headers: ["x-forwarded-for"]
+      config :api, trusted_client_ip_headers: ["cf-connecting-ip"]
 
-  O default preserva a topologia atual (Fly). Ao trocar de edge, ajuste a lista **junto** com a
-  troca do proxy — é a mesma decisão, e separá-las é como o limite vira decorativo.
+  **O default é a lista vazia**: nenhum header de vendor é confiável até que o deploy declare que
+  a edge o sobrescreve. Cai-se então no `x-forwarded-for`, que é o que a topologia atual de fato
+  garante. O default já foi `["fly-client-ip"]` e sobreviveu à saída da Fly — como nenhum ambiente
+  sobrescrevia a lista, o header virou forjável em produção. Ao entrar numa edge nova, adicione o
+  header dela aqui **junto** com a troca do proxy: é a mesma decisão, e separá-las é como o limite
+  vira decorativo.
   """
 
   import Plug.Conn, only: [get_req_header: 2]
 
-  @default_trusted ["fly-client-ip"]
+  @default_trusted []
 
   @doc """
   O IP do cliente, como string. Nunca falha: sem header confiável e sem `x-forwarded-for`, devolve
