@@ -91,6 +91,18 @@ defmodule ApiWeb.RequestLoggerTest do
       assert evento(%{request_path: "/api/ready"}) == ""
     end
 
+    test "barra final não fura o filtro" do
+      # Medido ao vivo: `/api/health/` escapou do match exato e foi para o log. Proxy, monitor e
+      # copiar-colar de URL acrescentam a barra sem avisar — e o ruído volta inteiro.
+      assert evento(%{request_path: "/api/health/"}) == ""
+      assert evento(%{request_path: "/api/ready/"}) == ""
+    end
+
+    test "a raiz continua sendo registrada" do
+      # A normalização não pode transformar "/" em "" e casar com coisa nenhuma.
+      assert evento(%{request_path: "/"}) =~ "requisição"
+    end
+
     test "health check que FALHA gera linha" do
       # O 2xx é ruído; a falha é o sintoma de que a instância saiu da rotação.
       assert evento(%{request_path: "/api/ready", status: 503}) =~ "requisição"

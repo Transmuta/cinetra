@@ -61,9 +61,19 @@ defmodule ApiWeb.RequestLogger do
   # Um health check que FALHA volta a ser interessante: é o sintoma de que a instância saiu da
   # rotação. Só o 2xx é ruído.
   defp registrar?(%{request_path: path, status: status}) when status < 400,
-    do: path not in @silenciosas
+    do: normalizar(path) not in @silenciosas
 
   defp registrar?(_conn), do: true
+
+  # Barra final removida antes de comparar. Medido: `/api/health/` (com barra) escapou do filtro
+  # exato e foi parar no log. Não é hipótese — um proxy, um monitor ou um copiar-colar de URL
+  # acrescenta a barra sem avisar, e o filtro voltaria a deixar passar as 8.640 requisições/dia
+  # que ele existe para descartar. A raiz "/" é preservada.
+  defp normalizar("/"), do: "/"
+
+  defp normalizar(path) when is_binary(path), do: String.trim_trailing(path, "/")
+
+  defp normalizar(path), do: path
 
   defp registrar(conn, duracao) do
     ms = System.convert_time_unit(duracao, :native, :microsecond) / 1000
