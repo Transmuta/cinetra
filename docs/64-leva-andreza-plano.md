@@ -57,14 +57,14 @@ e **um item novo entrou**.
 | `AN-03` | Motivo em **falta e remarcação** (D-H3) | **M** | ✅ **construído** ([§4a](#4a-o-que-foi-construído-an-03-04-05-e-07)) |
 | `AN-04` | Telefone obrigatório em paciente e profissional (D-H5) | **P** | ✅ **construído** |
 | `AN-05` | Fórmula do KPI na tela (HOM-021) | **P** | ✅ **construído** |
-| `AN-06` | Matriz de acesso — **tela no produto** (D-H7, resto) | **P** | decidido |
+| `AN-06` | Matriz de acesso — **tela no produto** (D-H7, resto) | **P** | ✅ **construído** ([§4c](#4c-o-que-foi-construído-an-06-08-10-e-11)) |
 | `AN-07` | `veio_da_fila` + `dias_na_fila` (D-H10) | **P** | ✅ **construído** |
-| `AN-08` | **Acessibilidade** — o mobile já foi (HOM-028, resto) | **M** | decidido (D8) |
-| `AN-10` | Duplicado por nome + nascimento (HOM-013, resto) | **P** | pronto para codar |
-| `AN-11` | Validação de CPF/e-mail/nascimento (HOM-012) | **P** | decidido (D10) |
+| `AN-08` | **Acessibilidade** — o mobile já foi (HOM-028, resto) | **M** | ✅ **auditada + consertos** ([doc 76](76-acessibilidade-auditoria.md); gate do CI pende das decisões de paleta) |
+| `AN-10` | Duplicado por nome + nascimento (HOM-013, resto) | **P** | ✅ **construído** ([§4c](#4c-o-que-foi-construído-an-06-08-10-e-11)) |
+| `AN-11` | Validação de CPF/e-mail/nascimento (HOM-012) | **P** | ✅ **construído** ([§4c](#4c-o-que-foi-construído-an-06-08-10-e-11)) |
 | `AN-12` | Fila: UI "quem cabe aqui" (HOM-018) | **P** | ✅ **construído** ([§4b](#4b-o-que-foi-construído-an-12)) |
-| `AN-13` | Rodar o roteiro §06 como QA guiado (HOM-030) | **P** | pronto |
-| `AN-14` | Pacote na agenda: progresso (HOM-019/020) | **M** | decidido (D12) |
+| `AN-13` | Rodar o roteiro §06 como QA guiado (HOM-030) | **P** | pronto — a única que resta |
+| `AN-14` | Pacote na agenda: progresso (HOM-019/020) | **M** | ✅ **construído** — entregue pelo redesenho do drawer ([doc 75](75-drawer-do-agendamento.md)): selo `3/10` no card individual, pacote por participante no drawer, na forma exata da D12 |
 
 **Todas as 11 entram nesta leva**, na ordem da [§6](#6-ordem-sugerida).
 
@@ -293,6 +293,33 @@ fila, refez a consulta ("ninguém casa") e carimbou `veio_da_fila`/`dias_na_fila
 de expediente apareceu inline. Achado colateral do teste ao vivo: a clínica do seed **não tinha
 `clinic_hours` nenhum**, então toda conversão morria em "a clínica não atende neste dia" — dado
 de seed, não defeito do produto.
+
+### 4c. O que foi construído (`AN-06`, `08`, `10` e `11`)
+
+Fechados em 2026-07-29, na mesma sessão. Verde: API 1631 testes / 0 falhas, web 2043 testes,
+branch 77,26% (gate passa), `svelte-check` 0.
+
+| Frente | Peças |
+| --- | --- |
+| `AN-11` | [`Api.Cpf`](../api/lib/api/cpf.ex) (módulo 11, irmão do `Api.Cnpj`) + [`CampoValido`](../api/lib/api/records/patient/validations/campo_valido.ex) (cpf/e-mail/nascimento, **barra no salvar** — D10) nas ações create/update do Patient; espelho no web (`cpf.ts`, `emailValido`/`nascimentoValido`) com guard de salvar + rodapé no `PatientForm`; teste que atravessa a fronteira (422 com o campo). Fixtures com CPF inválido (`123.456.789-00`) trocadas por válidos |
+| `AN-10` | O lookup de duplicado ganhou o modo `?nome=&nascimento=` — a API busca por nome e o BFF recorta por data igual; o form consulta quando nome (≥3) + nascimento estão preenchidos. Continua **só avisando** (a AN-11 barra formato, não duplicado) |
+| `AN-06` | [`Api.Accounts.AccessMatrix`](../api/lib/api/accounts/access_matrix.ex) — a matriz mora **ao lado das policies**, com **tripwire** ([`access_matrix_test.exs`](../api/test/api/accounts/access_matrix_test.exs)): cada linha conferida contra as `can_*?` dos quatro papéis (mudou policy sem mudar matriz → teste quebra). `GET /api/access-matrix` + tabela em Configurações › Equipe (`AccessMatrixTable`). Limite documentado: sondas de LEITURA não existem (policy de read **filtra**, lição do doc 51) — as células `:propria`/leitura são garantidas pelos testes de recorte e pelos 403 dos controllers |
+| `AN-08` | Auditoria completa no [doc 76](76-acessibilidade-auditoria.md): axe (públicas), contraste **pelos tokens** (sistêmico), inspeção de foco/teclado. Consertados: divisor "ou" do login (2,1→5,4:1), landing 4,49→5,0, badge ENCAIXE (2,0→8,6:1, texto escuro fixo), **foco de diálogo** (Modal/Drawer: abrir foca, fechar devolve — com regressão). Lista aberta: token `faint` reprova nos 2 temas, branco-sobre-teal, badges de status, teclado da agenda, trap completo, skip link — decisões de paleta que o doc 76 §3 enumera. O gate do CI entra depois delas (D8) |
+
+**Revisão de permissão que a matriz provocou (2026-07-29):** publicar a matriz expôs uma
+divergência de produto — a ficha de paciente tinha escrita **só owner/admin** (ADR-016), mas
+quem cadastra e corrige no balcão é a **recepção** (o mesmo racional do telefone obrigatório).
+Revisado: recepção passou a criar/editar/arquivar ficha (policy + controller + matriz + testes
+nos dois níveis); **profissional segue só leitura**, e os textos dos papéis no convite foram
+corrigidos para não prometer o contrário. É exatamente o tipo de deriva que o AN-06 existe
+para pegar — só que a primeira captura foi na direção oposta: a policy é que estava atrás do
+produto.
+
+**Achado colateral 🔴 (fora de a11y, doc 76 §4):** com `RESEND_API_KEY` no ambiente, o primeiro
+magic link morria em **500 — `unknown registry: Swoosh.Finch`** (o `runtime.exs` apontava o
+cliente HTTP e ninguém subia o pool). Login inteiro quebrado em qualquer ambiente com e-mail
+real; consertado no `application.ex` com regressão. E o aviso de ambiente: com a chave no `.env`
+de dev, `/dev/mailbox` fica vazio e os **e2e autenticados quebram por timeout** (não skipam).
 
 ### `AN-03` — Motivo em falta e remarcação **[M]**
 **D-H3** — motivo em todas as ações críticas, **sempre opcional**, texto livre. O cancelamento está
