@@ -121,6 +121,13 @@ services:
       GF_SMTP_USER: ${GRAFANA_SMTP_USER:-}
       GF_SMTP_PASSWORD: ${GRAFANA_SMTP_PASSWORD:-}
       GF_SMTP_FROM_ADDRESS: ${GRAFANA_SMTP_FROM:-}
+      # Datasource do BANCO (doc 73). O Grafana interpola estas no provisionamento. O usuário só
+      # enxerga as views `metrics_*`; ver grafana-datasources.yml.
+      METRICS_DB_HOST: ${METRICS_DB_HOST:-db}
+      METRICS_DB_PORT: ${METRICS_DB_PORT:-5432}
+      METRICS_DB_NAME: ${METRICS_DB_NAME:-movimento_dev}
+      METRICS_DB_USER: ${METRICS_DB_USER:-cinetra_metrics}
+      METRICS_DB_PASSWORD: ${METRICS_DB_PASSWORD:-cinetra_metrics}
     volumes:
       - ./grafana-datasources.yml:/etc/grafana/provisioning/datasources/loki.yml:ro
       - ./grafana-dashboards.yml:/etc/grafana/provisioning/dashboards/cinetra.yml:ro
@@ -135,14 +142,247 @@ services:
       - "${GRAFANA_PORT:-3000}:3000"
     networks:
       - obs
+      # A rede da APLICAÇÃO, para alcançar o Postgres. Só o Grafana entra nela — o Loki e o Alloy
+      # não têm o que fazer lá.
+      - app
+
+  # ---- MÉTRICAS (doc 74) ------------------------------------------------------------------------
+  #
+  # A terceira fonte. Log responde "o que a aplicação fez", as views `metrics_*` respondem "em que
+  # estado o negócio está", e estas três respondem **"em que estado a máquina está"** — a lacuna
+  # que o doc 62 §11.2 registrou por escrito e deixou em aberto.
+  prometheus:
+    image: prom/prometheus:v3.13.1
+    restart: unless-stopped
+    # Série temporal é barata em disco e cara em memória: o Prometheus mantém os blocos das
+    # últimas 2h em RAM. Com ~1.500 séries (medido, ver doc 74 §6) 512m sobra.
+    mem_limit: ${PROMETHEUS_MEM_LIMIT:-512m}
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      # 30 dias, para casar com a retenção do Loki: investigar incidente pulando entre painel de
+      # métrica e painel de log só funciona se os dois alcançarem a mesma data.
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-30d}
+      # Teto de DISCO — e aqui está a diferença em relação ao Loki, que não tem isso e por isso
+      # precisou do `criar-volume-limitado.sh` ao lado. O Prometheus apaga bloco antigo sozinho ao
+      # encostar no limite, então basta configurar.
+      - --storage.tsdb.retention.size=${PROMETHEUS_RETENTION_SIZE:-10GB}
+      # Necessário para o Grafana conseguir apagar série pela UI; sem isso, corrigir uma métrica
+      # com label errado exige recriar o volume inteiro.
+      - --web.enable-admin-api
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      # A lista de alvos da API, separada da configuração porque é a ÚNICA coisa que muda entre
+      # dev e produção — o Prometheus não expande variável de ambiente no `prometheus.yml` (ver o
+      # cabeçalho dele), e um arquivo editado à mão no deploy faz o diff do PR mentir sobre o que
+      # roda em produção.
+      #
+      # Produção: `PROMETHEUS_TARGETS=./targets/api-prod.yml`, que lista os dois stacks com um
+      # `env` cada.
+      - ${PROMETHEUS_TARGETS:-./targets/api-dev.yml}:/etc/prometheus/targets/api.yml:ro
+      - prometheus_data:/prometheus
+    # NÃO publica porta, pelo mesmo motivo do Loki: a lista de alvos, os nomes de fila e o volume
+    # de requisição por rota são reconhecimento pronto para quem estiver olhando.
+    expose:
+      - "9090"
+    networks:
+      - obs
+      # Rede PRÓPRIA, e não a `app` que o Grafana usa — em produção as duas divergem, e a razão é
+      # concreta:
+      #
+      #   * o Grafana precisa alcançar o **Postgres**, que só existe na rede `data` de cada stack;
+      #   * o Prometheus precisa alcançar a **API** dos DOIS stacks, e o `api` está em
+      #     `dokploy-network`, que é externa e compartilhada pela máquina inteira.
+      #
+      # Com uma variável só, escolher `data` deixaria o HML sem métrica e escolher
+      # `dokploy-network` deixaria o Grafana sem banco. Em dev as duas apontam para
+      # `cinetra_default` e nada disso aparece — que é justamente por que precisa estar escrito.
+      - app_metrics
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://localhost:9090/-/healthy | grep -q Healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # A MÁQUINA: CPU, load, memória, swap, disco, rede.
+  #
+  # Roda com `pid: host` e com o sistema de arquivos do host montado SOMENTE LEITURA. Precisa
+  # mesmo: dentro do próprio namespace ele mediria o container, e o container tem um `/proc` que
+  # enxerga um processo só — os números sairiam plausíveis e errados, que é o pior resultado
+  # possível para um painel de capacidade.
+  node-exporter:
+    image: prom/node-exporter:v1.12.1
+    restart: unless-stopped
+    mem_limit: ${NODE_EXPORTER_MEM_LIMIT:-128m}
+    pid: host
+    command:
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --path.rootfs=/host/root
+      # Sem esta exclusão, cada camada de imagem do Docker vira um "sistema de arquivos" no painel
+      # de disco — dezenas de linhas de overlay que empurram para fora a única que importa, a do
+      # volume onde o Postgres escreve.
+      #
+      # As três últimas alternativas são ruído de Docker Desktop no WSL2, medido em dev: 58 das 97
+      # séries de sistema de arquivos eram bind mount interno da ferramenta. Não existem na VM
+      # Linux de produção, e por isso não custam nada ali — ficam para que o painel seja legível
+      # nas duas máquinas.
+      #
+      # `mnt/host/wsl` e `run/desktop` são DOIS conjuntos, com os mesmos diretórios montados duas
+      # vezes por caminhos diferentes. Filtrar só um deixa o outro, e a contagem cai pela metade
+      # em vez de zerar — foi exatamente o que aconteceu ao medir (97 → 45 → 39).
+      - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|run/credentials/.+|var/lib/docker/.+|host/root/var/lib/docker/.+|mnt/host/wsl/.+|run/desktop/.+|parent-distro/.+)($$|/)
+      # `tmpfs` e `9p` entram na lista junto com os pseudo-sistemas. tmpfs é RAM, e já está
+      # contabilizada nos painéis de memória — deixá-la aqui faria "disco em 90%" significar
+      # coisas diferentes em linhas vizinhas do mesmo painel. 9p é o compartilhamento com o
+      # Windows, que não é disco do servidor.
+      - --collector.filesystem.fs-types-exclude=^(autofs|binfmt_misc|bpf|cgroup2?|configfs|debugfs|devpts|devtmpfs|fuse\..*|fusectl|hugetlbfs|iso9660|mqueue|nsfs|overlay|proc|procfs|pstore|rpc_pipefs|securityfs|selinuxfs|squashfs|sysfs|tmpfs|tracefs|9p)$$
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      # `rslave` é o PADRÃO porque é a opção CORRETA num servidor Linux, e o modo de falhar sem
+      # ela é o pior que existe: partição separada (o volume de dados, por exemplo) não propaga
+      # para dentro do container, o coletor stata o caminho e recebe os números do sistema de
+      # arquivos PAI. O painel desenha um disco plausível, com a ocupação errada, e ninguém
+      # desconfia até o disco encher.
+      #
+      # Em Docker Desktop / WSL2 o `/` não é montagem compartilhada e o compose recusa subir com
+      # uma mensagem explícita ("path / is mounted on / but it is not a shared or slave mount").
+      # Ali, e só ali, ponha no `.env.local`:
+      #
+      #     NODE_EXPORTER_ROOTFS=/:/host/root:ro
+      #
+      # Perde-se a visão de partição separada — o que numa máquina de desenvolvimento não muda
+      # nada, porque o disco é um só. Falha ALTA em vez de número errado, que é a troca certa.
+      - ${NODE_EXPORTER_ROOTFS:-/:/host/root:ro,rslave}
+    expose:
+      - "9100"
+    networks:
+      - obs
+
+  # OS CONTAINERS: CPU e memória por container, e o contador de reinícios.
+  #
+  # Responde o que o node exporter não responde — "a memória subiu, mas de QUEM?". E como cada
+  # serviço aqui tem `mem_limit`, o cAdvisor expõe `container_spec_memory_limit_bytes`: dá para
+  # desenhar uso CONTRA o teto, que é a curva que antecede o OOM kill.
+  #
+  # ## Sobre `privileged`
+  #
+  # A documentação do cAdvisor manda rodar privilegiado. Aqui ele roda **sem**, com montagens
+  # somente-leitura, porque privilegiado é estritamente pior que o socket do Docker que o
+  # `alloy` já monta — e aquele ao menos é `:ro`. O que se perde sem privilégio são coletores de
+  # borda (perf events, resctrl); CPU, memória, rede e I/O por container saem normalmente.
+  #
+  # Se um dia um painel ficar vazio por falta de privilégio, a decisão de conceder é HUMANA e vem
+  # com justificativa no doc 74 — não é para ser ligada silenciosamente por quem estiver
+  # depurando.
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.55.1
+    restart: unless-stopped
+    # 512m, e o número tem história: com 384m o working set medido ficou em **337 MiB (87,8% do
+    # teto)** — a um passo do OOM kill. Quem achou foi o painel "Memória por container: % do
+    # próprio teto" desta mesma entrega, no primeiro dia em que existiu.
+    #
+    # Só aumentar o teto seria tratar o sintoma; as quatro opções abaixo cortam o consumo na
+    # origem. O teto maior é a margem, não o remédio.
+    mem_limit: ${CADVISOR_MEM_LIMIT:-512m}
+    command:
+      # Só containers do Docker. Sem isto ele reporta TODO cgroup da máquina, incluindo os do
+      # systemd — centenas de séries que ninguém vai olhar, num Prometheus que tem teto de disco.
+      - --docker_only=true
+      # Guarda 1 min de amostra em memória em vez do padrão. O Prometheus raspa a cada 15 s; o
+      # resto é RAM parada.
+      - --storage_duration=1m
+      # O padrão do cAdvisor é recolher estatística de CADA container a cada **1 segundo**. O
+      # Prometheus raspa a cada 15 s, então 14 de cada 15 amostras eram calculadas, guardadas e
+      # descartadas sem nunca serem lidas.
+      - --housekeeping_interval=15s
+      - --max_housekeeping_interval=60s
+      # Histórico de eventos (OOM, criação, parada) em memória. Quem guarda linha do tempo neste
+      # projeto é o Loki, com 30 dias e busca — não um buffer que morre com o container.
+      - --event_storage_event_limit=default=0
+      - --event_storage_age_limit=default=0
+      # Os labels do compose (projeto, serviço, working-dir, caminho do arquivo…) viravam LABEL
+      # DE MÉTRICA em toda série. É custo dobrado: memória aqui e cardinalidade no Prometheus,
+      # para um dado que o nome do container já carrega.
+      - --store_container_labels=false
+      # Os coletores caros e de alta cardinalidade, desligados. `disk` e `network` ficam.
+      - --disable_metrics=advtcp,cpu_topology,cpuset,hugetlb,memory_numa,percpu,process,referenced_memory,resctrl,sched,tcp,udp
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    devices:
+      # `/dev/kmsg` é o que evita o aviso de boot e permite o coletor de OOM. É um device de
+      # LEITURA do log do kernel — não dá controle sobre a máquina, ao contrário de `privileged`.
+      - /dev/kmsg:/dev/kmsg:r
+    expose:
+      - "8080"
+    networks:
+      - obs
+
+  # ---- TRACES (doc 76) --------------------------------------------------------------------------
+  #
+  # O sinal que faltava, e o único que responde "onde foi o tempo DESTA requisição" atravessando o
+  # BFF e a API. Log e métrica dizem que a tela demorou 3 s; só o trace diz que 2,8 s foram numa
+  # consulta do Ecto disparada duas vezes.
+  #
+  # Recebe SÓ do Alloy (ver `tempo.yml`): é lá que a redação mora, e um segundo caminho de entrada
+  # seria um caminho sem redação.
+  tempo:
+    image: grafana/tempo:2.10.7
+    # `expand-env` pelo mesmo motivo do Loki: um arquivo serve dev e produção, e a retenção vira
+    # variável de ambiente em vez de fork do arquivo.
+    command: ["-config.file=/etc/tempo/tempo.yml", "-config.expand-env=true"]
+    restart: unless-stopped
+    # Trace é rajada: o ingester segura os blocos abertos em memória até fechar (5 min, ver
+    # tempo.yml). 512m cobre o volume do doc 62 §2 com folga larga; o que estoura primeiro num
+    # laço de instrumentação é o teto de trace do `overrides`, não este.
+    mem_limit: ${TEMPO_MEM_LIMIT:-512m}
+    volumes:
+      - ./tempo.yml:/etc/tempo/tempo.yml:ro
+      # Mesmo padrão do Loki: volume nomeado por default, e um CAMINHO em `TEMPO_DATA` transforma
+      # em bind mount — que é como se impõe teto de disco, porque o Tempo também não tem limite de
+      # armazenamento nativo (só retenção por tempo). Ver `criar-volume-limitado.sh` ao lado.
+      - ${TEMPO_DATA:-tempo_data}:/var/tempo
+    environment:
+      TEMPO_RETENTION: ${TEMPO_RETENTION:-168h}
+    # NÃO publica porta, pelo mesmo motivo do Loki e do Prometheus — e aqui o motivo é mais forte:
+    # um trace carrega a rota com id, a consulta SQL e a sequência de chamadas. É o sinal mais
+    # detalhado que a máquina produz.
+    expose:
+      - "3200"
+      - "4317"
+    networks:
+      - obs
+    # SEM healthcheck, e não por esquecimento: a imagem do Tempo é **distroless** — não tem
+    # `/bin/sh` nem `wget`, então todo `test:` falha com "no such file or directory" e o container
+    # fica `unhealthy` para sempre com o serviço funcionando perfeitamente.
+    #
+    # Medido aqui: o healthcheck copiado do Loki (que é busybox e tem os dois) deixou o Tempo
+    # eternamente unhealthy e, por tabela, **impediu o Alloy de subir** — o `depends_on` esperava
+    # uma saúde que nunca ia chegar. Ou seja, a coleta de LOG parou por causa do healthcheck do
+    # trace. Por isso o `depends_on` abaixo é `service_started`.
+    #
+    # A prontidão é verificada de fora, por quem tem cliente HTTP: `verificar.sh` §12.
 
   alloy:
     image: grafana/alloy:v1.12.1
     restart: unless-stopped
-    mem_limit: ${ALLOY_MEM_LIMIT:-256m}
+    # Subiu de 256m junto com o receptor OTLP: o `otelcol.processor.batch` segura lotes de span em
+    # memória antes de despachar, o que o caminho de log (que escreve direto) não fazia.
+    mem_limit: ${ALLOY_MEM_LIMIT:-384m}
     depends_on:
       loki:
         condition: service_healthy
+      tempo:
+        # `service_started`, não `service_healthy` — ver o comentário no serviço acima. E a espera
+        # frouxa custa pouco: o exportador OTLP reconecta sozinho, então um Tempo que demora a
+        # aceitar conexão atrasa os primeiros spans em vez de derrubar o agente.
+        condition: service_started
     command:
       - run
       - --server.http.listen-addr=0.0.0.0:12345
@@ -157,6 +397,9 @@ services:
       # daemon do Docker, então SEM ela ele recolhe todo container da máquina — inclusive de outro
       # projeto e o próprio stack de observabilidade. Ver o comentário no alloy.alloy.
       OBS_PROJETOS: "${OBS_PROJETOS:?defina OBS_PROJETOS - ex. moving, ou movimento-prod|movimento-hml}"
+      # Para onde os spans recebidos são despachados (doc 76). Mesma rede do compose: o nome do
+      # serviço resolve direto.
+      TEMPO_OTLP_ENDPOINT: ${TEMPO_OTLP_ENDPOINT:-tempo:4317}
     volumes:
       - ./alloy.alloy:/etc/alloy/config.alloy:ro
       # Somente leitura no socket do Docker. O agente precisa LER os logs; não precisa criar, parar
@@ -164,14 +407,81 @@ services:
       # equivalente a root na máquina.
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - alloy_data:/var/lib/alloy/data
+    # Porta OTLP para os APPS empurrarem span (doc 76). `expose`, nunca `ports`: quem manda trace
+    # está na rede do Docker, e um receptor OTLP publicado na internet é ingestão anônima aberta —
+    # o Alloy não autentica.
+    expose:
+      - "4317"
+      - "4318"
     networks:
       - obs
+      # A rede da APLICAÇÃO por onde os SPANS chegam. Aqui a direção se inverte em relação ao log:
+      # log o agente vai BUSCAR no socket do Docker; span o app EMPURRA, então o app precisa
+      # alcançar o agente pelo nome. Sem esta linha o `alloy` não resolve de dentro do stack da
+      # aplicação e a instrumentação falha calada — o SDK enfileira, tenta, desiste, e a aplicação
+      # segue perfeita sem trace.
+      #
+      # É uma rede DIFERENTE da do Grafana, e isso importa em produção: o Grafana precisa da rede
+      # onde está o Postgres (`data`), e o **web não entra nela** de propósito (só a API fala com
+      # o banco). Quem tem os dois serviços é a rede `app`. Ligar o agente em `data` deixaria o
+      # BFF sem caminho para o agente — e o sintoma seria metade do trace faltando, não um erro.
+      - app_otlp
 
 volumes:
   loki_data:
   grafana_data:
   alloy_data:
+  # Ao contrário do Loki, este NÃO precisa do truque do volume limitado: o Prometheus tem teto de
+  # tamanho nativo (`--storage.tsdb.retention.size`, acima) e poda sozinho ao encostar nele.
+  prometheus_data:
+  # Este precisa: o Tempo tem retenção por TEMPO e nenhum teto de tamanho, igual ao Loki. Em
+  # produção aponte `TEMPO_DATA` para um ponto de montagem de tamanho fixo.
+  tempo_data:
 
 networks:
   obs:
     driver: bridge
+
+  # Rede da APLICAÇÃO, criada pelo compose dela — aqui só se entra, não se cria (`external`).
+  # Em dev é `cinetra_default`; em produção, a rede `data` do stack, que sai como
+  # `<projeto>_data` (ex.: `cinetra-prod_data`).
+  #
+  # ATENÇÃO — nome errado aqui NÃO degrada, IMPEDE o stack de subir: o compose valida rede externa
+  # antes de criar qualquer container, e junto com o Grafana ficariam de fora o Loki e o Alloy, ou
+  # seja a coleta de log inteira por causa de um painel. Confira com `docker network ls` antes do
+  # primeiro deploy. É falha alta e imediata, não silenciosa — mas é no deploy que ela aparece.
+  app:
+    external: true
+    name: ${APP_NETWORK:-cinetra_default}
+
+  # A rede por onde os SPANS entram (doc 76). Em dev é a mesma de cima — um stack, uma rede. Em
+  # PRODUÇÃO são diferentes, e confundi-las custa metade do trace:
+  #
+  #   * `APP_NETWORK`      = rede do BANCO  (`<projeto>_data`) — é onde o Grafana precisa estar;
+  #   * `APP_NETWORK_OTLP` = rede API↔WEB   (`<projeto>_app`)  — é a única com os DOIS serviços.
+  #
+  # O web não entra na rede do banco de propósito (só a API fala com o Postgres), então o agente
+  # ligado só ali receberia span da API e nunca do BFF.
+  app_otlp:
+    external: true
+    name: ${APP_NETWORK_OTLP:-${APP_NETWORK:-cinetra_default}}
+
+  # A rede por onde o Prometheus RASPA a API (doc 74). Separada da `app` de cima porque em
+  # produção elas divergem:
+  #
+  #   | serviço    | precisa alcançar        | mora em            | rede em produção      |
+  #   | ---------- | ----------------------- | ------------------ | --------------------- |
+  #   | Grafana    | Postgres (views)        | rede `data`        | `cinetra-prod_data`   |
+  #   | Prometheus | `/metrics` dos dois api | `dokploy-network`  | `dokploy-network`     |
+  #
+  # `dokploy-network` é EXTERNA e compartilhada por todos os stacks da máquina, e o serviço `api`
+  # está nela (ver `networks: [data, app, dokploy-network]` em `compose.dokploy.yml`). É o que
+  # permite um Prometheus só raspar produção E homologação, em vez de entrar na rede `data` de
+  # cada stack.
+  #
+  # Em DEV as duas apontam para `cinetra_default`. Duas chaves de rede com o mesmo nome externo são
+  # válidas: cada CONTAINER se conecta uma vez só — o Grafana pela chave `app`, o Prometheus pela
+  # `app_metrics`. O que seria erro é o mesmo container listar as duas.
+  app_metrics:
+    external: true
+    name: ${METRICS_NETWORK:-${APP_NETWORK:-cinetra_default}}

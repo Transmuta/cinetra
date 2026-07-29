@@ -113,6 +113,10 @@ services:
       DATABASE_URL: "ecto://${DATABASE_APP_USER}:${DATABASE_APP_PASSWORD}@db/${POSTGRES_DB}"
       DATABASE_APP_USER: ${DATABASE_APP_USER}
       DATABASE_APP_PASSWORD: ${DATABASE_APP_PASSWORD}
+      # Role de LEITURA do Grafana (doc 73). Ausente = não criado, e os painéis de banco ficam com
+      # erro de conexão — visível, em vez de painel vazio. Ele só recebe SELECT nas views
+      # `metrics_*`; tabela nenhuma, nem por ALTER DEFAULT PRIVILEGES.
+      DATABASE_METRICS_PASSWORD: ${DATABASE_METRICS_PASSWORD:-}
       SECRET_KEY_BASE: ${SECRET_KEY_BASE}
       TOKEN_SIGNING_SECRET: ${TOKEN_SIGNING_SECRET}
       PHX_SERVER: "false"
@@ -147,6 +151,19 @@ services:
       # desligado; faltar a env aqui faria os seis checks alarmarem "não rodou" para sempre.
       HEARTBEAT_BASE_URL: ${HEARTBEAT_BASE_URL:-}
       HEARTBEAT_SLUG_PREFIX: ${HEARTBEAT_SLUG_PREFIX:-}
+      # Traces (doc 76). VAZIO = exportador `:none`: os spans nascem, medem e morrem em memória,
+      # e o serviço fica idêntico ao que era. Para ligar, `http://alloy:4317` — o agente, não o
+      # Tempo, porque é no agente que a poda de atributos mora.
+      #
+      # O `alloy` só resolve daqui se o stack de observabilidade tiver entrado na rede `app`
+      # (`APP_NETWORK_OTLP` no .env dele). Ligar esta variável sem aquilo dá SDK tentando e
+      # desistindo em silêncio, com a aplicação perfeita e sem trace nenhum.
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      # Nome do serviço e ambiente saem daqui (padrão OTel, lido pelo SDK) em vez de config em
+      # Elixir — assim o BFF em Node usa exatamente o mesmo mecanismo. `${STACK}` já distingue
+      # prod de HML no resto do arquivo.
+      OTEL_SERVICE_NAME: cinetra-api
+      OTEL_RESOURCE_ATTRIBUTES: deployment.environment=${STACK}
       PHX_SERVER: "true"
       PORT: "4000"
     labels:
@@ -192,6 +209,12 @@ services:
       API_PUBLIC_ORIGIN: "https://${WEB_HOST}"  # socket wss no mesmo domínio
       ORIGIN: "https://${WEB_HOST}"             # CSRF, URLs absolutas, decide o HSTS
       ADDRESS_HEADER: "X-Forwarded-For"         # sob Traefik (era Fly-Client-IP)
+      # Traces (doc 76). Vazio = o `otel.mjs` não constrói o SDK e o processo fica idêntico.
+      # Porta 4318 (OTLP/HTTP) contra 4317 (gRPC) da API: cada SDK usa o protocolo batido na sua
+      # comunidade, e o Alloy escuta os dois. O `--import ./otel.mjs` já está no Dockerfile.prod.
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT_WEB:-}
+      OTEL_SERVICE_NAME: cinetra-web
+      OTEL_RESOURCE_ATTRIBUTES: deployment.environment=${STACK}
       PORT: "3000"
     labels:
       - traefik.enable=true

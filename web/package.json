@@ -6,6 +6,7 @@
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
+		"postbuild": "node scripts/mover-sourcemaps.mjs",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
@@ -17,6 +18,8 @@
 		"test": "npm run test:unit && npm run test:e2e"
 	},
 	"devDependencies": {
+		"@axe-core/playwright": "^4.12.1",
+		"@opentelemetry/context-async-hooks": "^2.10.0",
 		"@playwright/test": "^1.61.1",
 		"@sveltejs/adapter-node": "^5.5.7",
 		"@sveltejs/kit": "^2.63.0",
@@ -39,6 +42,12 @@
 		"@fontsource-variable/hanken-grotesk": "^5.2.8",
 		"@fontsource/martian-mono": "^5.2.7",
 		"@lucide/svelte": "^1.24.0",
+		"@opentelemetry/api": "^1.9.1",
+		"@opentelemetry/exporter-trace-otlp-http": "^0.221.0",
+		"@opentelemetry/instrumentation-http": "^0.221.0",
+		"@opentelemetry/instrumentation-undici": "^0.31.0",
+		"@opentelemetry/sdk-node": "^0.221.0",
+		"import-in-the-middle": "^3.3.2",
 		"phoenix": "~1.8.0"
 	},
 	"overrides": {

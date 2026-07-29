@@ -3,6 +3,15 @@
 #   docker compose up
 # Nada roda local — mix e npm executam dentro dos serviços.
 
+# Nome de projeto EXPLÍCITO. Sem ele o compose herda o nome do DIRETÓRIO (`moving`), que é o nome
+# antigo do produto — os containers saíam como `moving-api-1` e a marca (Cinetra) não batia com a
+# infra. Fixar aqui também desacopla os nomes do caminho onde o repositório foi clonado.
+#
+# **Precisa ser diferente do projeto de observabilidade** (`cinetra-obs`): o agente de log coleta
+# por allowlist de projeto, e a regex do relabel é ANCORADA — `cinetra` casa só com `cinetra`,
+# nunca com `cinetra-obs`. É isso que impede o Loki de coletar a si mesmo.
+name: cinetra
+
 services:
   db:
     image: postgres:16
@@ -58,6 +67,20 @@ services:
       MAIL_FROM: ${MAIL_FROM:-}
       MAIL_FROM_NAME: ${MAIL_FROM_NAME:-Cinetra}
       WHATSAPP_HABILITADO: ${WHATSAPP_HABILITADO:-false}
+      # ---- Traces (doc 76) --------------------------------------------------------------------
+      #
+      # VAZIO por padrão: sem endpoint o exportador é `:none` e os spans morrem em memória — dev
+      # sem stack de observabilidade continua igual. Para ligar, no `.env` da raiz:
+      #
+      #     OTEL_EXPORTER_OTLP_ENDPOINT_API=http://alloy:4317
+      #
+      # O destino é o Alloy (não o Tempo): é lá que a poda de atributos mora, valendo para os dois
+      # serviços de uma vez. Só resolve com o stack `cinetra-obs` de pé.
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT_API:-}
+      # Lidas pelo próprio SDK (padrão OpenTelemetry), em vez de reimplementadas em Elixir — assim
+      # o rótulo do serviço é definido do mesmo jeito aqui e no BFF em Node.
+      OTEL_SERVICE_NAME: cinetra-api
+      OTEL_RESOURCE_ATTRIBUTES: deployment.environment=dev
     ports:
       # Host 4010 (4000 já usado por outro stack) -> Phoenix do container.
       - "4010:4000"
@@ -86,6 +109,23 @@ services:
       # a origem dele precisa entrar no `connect-src` da CSP. Aqui é o id PÚBLICO da conta — o
       # bucket segue privado, e o acesso é sempre por URL assinada.
       R2_ACCOUNT_ID: ${R2_ACCOUNT_ID:-}
+      # ---- Traces (doc 76) --------------------------------------------------------------------
+      #
+      # VAZIO por padrão: sem o stack de observabilidade rodando, o `otel.mjs` é no-op e o BFF fica
+      # exatamente como era. Para ligar, ponha no `.env` da raiz:
+      #
+      #     OTEL_EXPORTER_OTLP_ENDPOINT_WEB=http://alloy:4318
+      #
+      # Porta 4318 (OTLP/HTTP) aqui, contra 4317 (gRPC) da API — cada SDK tem o caminho batido pela
+      # sua comunidade, e o Alloy escuta os dois. Só resolve com o stack `cinetra-obs` de pé, que é
+      # quem põe o `alloy` nesta rede.
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT_WEB:-}
+      OTEL_SERVICE_NAME: cinetra-web
+      OTEL_RESOURCE_ATTRIBUTES: deployment.environment=dev
+      # `--import` ANTES da aplicação: é o que permite instrumentar `http` e `undici` trocando o
+      # módulo por baixo de quem os importa. Carregado depois, o SDK sobe e não intercepta nada.
+      # Caminho absoluto de propósito — em `NODE_OPTIONS` o relativo depende do cwd do processo.
+      NODE_OPTIONS: --import /app/otel.mjs
     ports:
       - "5173:5173"
     volumes:
