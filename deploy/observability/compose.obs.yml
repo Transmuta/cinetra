@@ -167,9 +167,19 @@ services:
       # precisou do `criar-volume-limitado.sh` ao lado. O Prometheus apaga bloco antigo sozinho ao
       # encostar no limite, então basta configurar.
       - --storage.tsdb.retention.size=${PROMETHEUS_RETENTION_SIZE:-10GB}
-      # Necessário para o Grafana conseguir apagar série pela UI; sem isso, corrigir uma métrica
-      # com label errado exige recriar o volume inteiro.
-      - --web.enable-admin-api
+      # `--web.enable-admin-api` fica FORA, deliberadamente (bate-volta doc 77 §5.3).
+      #
+      # Ela habilita `POST /api/v1/admin/tsdb/delete_series`, que apaga série por HTTP sem
+      # autenticação nenhuma. O Prometheus é `expose` e não `ports`, então isso não vem da
+      # internet — mas vem de QUALQUER container na rede `obs`, e o custo do pior caso é perder o
+      # histórico de métrica justamente durante o incidente em que ele seria lido.
+      #
+      # O que se perde: apagar uma série com label errado pela UI do Grafana. O contorno é recriar
+      # o volume do Prometheus (`docker volume rm`), que em métrica é barato — dado de série
+      # temporal é reconstituído pela raspagem seguinte, ao contrário de log e trace. Trocar uma
+      # capacidade destrutiva permanente por um comando manual raro é a troca certa.
+      #
+      # Para religar em uma investigação pontual, acrescente a flag e derrube o container depois.
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
       # A lista de alvos da API, separada da configuração porque é a ÚNICA coisa que muda entre
