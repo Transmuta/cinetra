@@ -1,3 +1,5 @@
+import { fingerprint } from './fingerprint';
+
 /**
  * Reporta falha do browser ao BFF (doc 62 §7.2).
  *
@@ -53,7 +55,15 @@ export function reportar(origem: string, erro: unknown, extra?: Record<string, u
 
 	// Deduplica: o mesmo erro repetido a cada re-render vira um registro só. Sem isto, o teto
 	// acima seria consumido pelo primeiro erro cíclico e os seguintes ficariam invisíveis.
-	const chave = `${origem}:${message}`;
+	//
+	// A chave é o FINGERPRINT, não `origem:message` — o mesmo bug muda de mensagem entre
+	// ocorrências (o id que aparece nela), e a chave antiga deixava passar N cópias do mesmo
+	// problema, gastando o teto de 10 com uma coisa só.
+	//
+	// Este valor **não é enviado**: a allowlist do endpoint o descartaria, e é ele que recomputa
+	// o agrupamento. Aqui ele serve só para a dedução local. As duas pontas rodam a mesma função
+	// pura, então chegam ao mesmo valor sem uma confiar na outra.
+	const chave = fingerprint(origem, message, stack);
 	if (vistos.has(chave)) return;
 	vistos.add(chave);
 	enviados++;

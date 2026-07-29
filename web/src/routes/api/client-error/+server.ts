@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { log, sanitizarRota, sanitizarTexto, truncar, LIMITES } from '$lib/server/log';
+import { fingerprint } from '$lib/fingerprint';
 
 /**
  * Recebe crash do browser e o transforma em log do servidor (doc 62 §7.2).
@@ -8,7 +9,7 @@ import { log, sanitizarRota, sanitizarTexto, truncar, LIMITES } from '$lib/serve
  * ## Este endpoint aceita dado de fora, então nada aqui confia no cliente
  *
  * É a única rota do BFF que existe para ser chamada por código que roda na máquina de outra
- * pessoa. Quatro guardas, e todas assumem entrada hostil:
+ * pessoa. Cinco guardas, e todas assumem entrada hostil:
  *
  *   1. **Teto de corpo** — recusa payload grande antes de fazer parse;
  *   2. **Rate limit por IP** — sem ele, um laço no browser (ou um script) enche a retenção do dia;
@@ -16,7 +17,10 @@ import { log, sanitizarRota, sanitizarTexto, truncar, LIMITES } from '$lib/serve
  *      são lidos. O resto do JSON é descartado, então um cliente não consegue injetar campo
  *      arbitrário no log (nem um `severity: "info"` para se esconder);
  *   4. **Re-sanitização da rota** — o cliente já sanitiza, mas quem garante é este lado. A
- *      barreira de PII não pode depender de código que o usuário consegue editar.
+ *      barreira de PII não pode depender de código que o usuário consegue editar;
+ *   5. **Fingerprint recomputado** — o agrupamento é calculado aqui, a partir do texto já
+ *      sanitizado, e o valor que o cliente eventualmente mande é ignorado. Escolher o próprio
+ *      grupo permitiria esconder um erro novo dentro de um grupo velho e ruidoso.
  *
  * Não chama a API: o evento é do BFF e morre no stdout do BFF.
  */
@@ -86,15 +90,28 @@ export const POST: RequestHandler = async (event) => {
 		return json({ ok: false }, { status: 400 });
 	}
 
+	const origem = truncar(corpo.origem, 20);
+	// `sanitizarTexto` nos dois campos de TEXTO LIVRE: o stack de um erro de browser carrega a
+	// URL da página, e sanitizar só o campo `route` deixava o id do paciente passar dentro dele.
+	const detail = sanitizarTexto(truncar(corpo.message, LIMITES.message));
+	const stack = sanitizarTexto(truncar(corpo.stack, LIMITES.stack));
+
 	log.error('erro no browser', {
-		origem: truncar(corpo.origem, 20),
+		origem,
 		route: sanitizarRota(truncar(corpo.route, LIMITES.route)),
 		route_id: truncar(corpo.route_id, LIMITES.route),
 		status: typeof corpo.status === 'number' ? corpo.status : undefined,
-		// `sanitizarTexto` nos dois campos de TEXTO LIVRE: o stack de um erro de browser carrega a
-		// URL da página, e sanitizar só o campo `route` deixava o id do paciente passar dentro dele.
-		detail: sanitizarTexto(truncar(corpo.message, LIMITES.message)),
-		stack: sanitizarTexto(truncar(corpo.stack, LIMITES.stack)),
+		detail,
+		stack,
+		// Chave de agrupamento (doc 73 §opção C). **Recomputada aqui**, nunca lida do corpo — é a
+		// quinta guarda deste endpoint, e pela mesma razão das outras quatro: um cliente que
+		// escolhesse o próprio grupo poderia esconder um erro novo dentro de um grupo velho e
+		// ruidoso, que é a forma mais barata de tornar um bug invisível.
+		//
+		// Calculada sobre o texto JÁ sanitizado, e isso não é detalhe: o stack cru traz o uuid do
+		// paciente dentro da URL, então o mesmo bug em duas fichas cairia em dois grupos — o
+		// agrupamento morreria justamente na tela que mais gera erro.
+		fingerprint: fingerprint(origem, detail, stack),
 		user_agent: truncar(event.request.headers.get('user-agent'), LIMITES.extra)
 	});
 

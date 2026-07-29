@@ -148,3 +148,80 @@ describe('POST /api/client-error', () => {
 		expect(saida.length).toBe(antes + 1);
 	});
 });
+
+describe('POST /api/client-error — agrupamento (doc 73 §opção C)', () => {
+	// Afirma a PRESENÇA antes de devolver. Sem isto, os testes de igualdade abaixo passariam com o
+	// campo ausente — `undefined === undefined` é verde, e quatro deles deram verde antes de a
+	// implementação existir. Um teste que passa sem o código é pior que nenhum.
+	function fingerprintDe(linha: string): string {
+		const f = JSON.parse(linha).fingerprint;
+		expect(f, 'o evento não tem campo fingerprint').toBeTypeOf('string');
+		expect(f.length, 'fingerprint vazio').toBeGreaterThan(0);
+		return f;
+	}
+
+	it('carimba um fingerprint no evento', async () => {
+		await POST(
+			evento({ origem: 'kit', message: 'x', stack: 'Error: x\n    at foo (https://a/b.ts:1:2)' })
+		);
+		expect(fingerprintDe(saida[0])).toMatch(/^[a-z0-9]+$/);
+	});
+
+	it('o MESMO problema em ocorrências diferentes recebe o mesmo fingerprint', async () => {
+		await POST(
+			evento({ origem: 'kit', message: 'x', stack: 'Error: x\n    at foo (https://a/b.ts:1:2)' })
+		);
+		await POST(
+			evento({ origem: 'kit', message: 'x', stack: 'Error: x\n    at foo (https://a/b.ts:9:9)' })
+		);
+		expect(fingerprintDe(saida[0])).toBe(fingerprintDe(saida[1]));
+	});
+
+	it('problemas diferentes recebem fingerprints diferentes', async () => {
+		await POST(evento({ origem: 'kit', message: 'a', stack: 'Error\n    at foo (https://a/b.ts:1:2)' }));
+		await POST(evento({ origem: 'kit', message: 'b', stack: 'Error\n    at bar (https://a/c.ts:1:2)' }));
+		expect(fingerprintDe(saida[0])).not.toBe(fingerprintDe(saida[1]));
+	});
+
+	// A propriedade que sustenta o desenho. O cliente também calcula o fingerprint (para deduplicar
+	// antes de enviar), mas o valor dele NUNCA é aceito: o servidor recomputa dos campos recebidos.
+	// Sem isto, um cliente modificado escolheria em qual grupo cair — podendo esconder um erro novo
+	// dentro de um grupo velho e ruidoso, que é o jeito mais barato de tornar um bug invisível.
+	it('IGNORA fingerprint vindo do cliente — recomputa do zero', async () => {
+		await POST(
+			evento({
+				origem: 'kit',
+				message: 'x',
+				stack: 'Error: x\n    at foo (https://a/b.ts:1:2)',
+				fingerprint: 'forjado-pelo-cliente'
+			})
+		);
+		expect(fingerprintDe(saida[0])).not.toBe('forjado-pelo-cliente');
+	});
+
+	// O fingerprint é calculado sobre o stack JÁ sanitizado. Se fosse sobre o cru, dois relatos do
+	// mesmo bug em fichas de pacientes diferentes teriam stacks diferentes (o uuid está na URL
+	// dentro do stack) e cairiam em grupos separados — o agrupamento morreria justamente na tela
+	// que mais gera erro.
+	it('agrupa o mesmo bug em fichas de pacientes diferentes', async () => {
+		const stackDe = (id: string) =>
+			`TypeError: x\n    at Ficha (https://app/pacientes/${id}/ficha.js:1:2)`;
+
+		await POST(
+			evento({
+				origem: 'kit',
+				message: 'x',
+				stack: stackDe('019fab79-6a3d-77f1-8877-f55dab684566')
+			})
+		);
+		await POST(
+			evento({
+				origem: 'kit',
+				message: 'x',
+				stack: stackDe('019fab68-3032-77cb-9618-0824a7327765')
+			})
+		);
+
+		expect(fingerprintDe(saida[0])).toBe(fingerprintDe(saida[1]));
+	});
+});
