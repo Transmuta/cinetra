@@ -1,0 +1,385 @@
+{
+  "uid": "cinetra-agenda",
+  "title": "Cinetra · Agenda e fila",
+  "description": "A operação vista do banco: volume, desfecho, falta, encaixe e fila de espera. É o par interno da tela /relatorios — aquela é do cliente e mostra UMA clínica; esta é nossa e mostra todas, para responder se o produto está fazendo o que promete. Sem paciente em grão nenhum: as views expõem o bloco e a presença, nunca quem estava neles. A janela padrão vai até 30 dias NO FUTURO de propósito: agenda é o único assunto deste conjunto em que o que ainda não aconteceu é a informação principal — com o 'agora' como limite direito, o painel esconde justamente a semana que vem.",
+  "tags": [
+    "cinetra",
+    "banco",
+    "produto"
+  ],
+  "timezone": "browser",
+  "refresh": "5m",
+  "time": {
+    "from": "now-30d",
+    "to": "now+30d"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "db",
+        "label": "Banco",
+        "type": "datasource",
+        "query": "grafana-postgresql-datasource",
+        "current": {},
+        "options": []
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Agendamentos criados",
+      "description": "Blocos criados na janela, já sem os excluídos (doc 40: exclusão é correção de lançamento errado, não desfecho — contá-los inflaria o volume com digitação).",
+      "gridPos": {
+        "h": 5,
+        "w": 5,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "uid": "${db}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT count(*) AS criados FROM metrics_appointments WHERE excluded_at IS NULL AND $__timeFilter(inserted_at)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0
+        }
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Taxa de falta",
+      "description": "Faltas sobre sessões que JÁ TIVERAM desfecho (concluída + faltou). Contar sobre o total afundaria o número com o que ainda vai acontecer. Medida na presença por participante (D10), não no bloco: numa turma, um faltar não é a aula inteira faltar.",
+      "gridPos": {
+        "h": 5,
+        "w": 5,
+        "x": 5,
+        "y": 0
+      },
+      "datasource": {
+        "uid": "${db}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT round(100.0 * count(*) FILTER (WHERE status = 'faltou') / nullif(count(*) FILTER (WHERE status IN ('faltou', 'concluida')), 0), 1) AS taxa FROM metrics_attendances WHERE $__timeFilter(session_starts_at)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 15
+              },
+              {
+                "color": "red",
+                "value": 25
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Cancelamentos",
+      "description": "Blocos cancelados sobre os criados na janela. Cancelamento não é falta: um é aviso prévio (a vaga volta para a fila), o outro é o paciente que não apareceu.",
+      "gridPos": {
+        "h": 5,
+        "w": 5,
+        "x": 10,
+        "y": 0
+      },
+      "datasource": {
+        "uid": "${db}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT round(100.0 * count(*) FILTER (WHERE status = 'cancelado') / nullif(count(*), 0), 1) AS taxa FROM metrics_appointments WHERE excluded_at IS NULL AND $__timeFilter(inserted_at)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1
+        }
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Fila de espera aberta",
+      "description": "Entradas na fila AGORA (ignora o seletor de tempo — é estado, não janela), com a idade da mais antiga em dias. Uma fila que só cresce significa que o motor de vagas não está achando encaixe, ou que ninguém está olhando as ofertas.",
+      "gridPos": {
+        "h": 5,
+        "w": 5,
+        "x": 15,
+        "y": 0
+      },
+      "datasource": {
+        "uid": "${db}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT count(*) AS na_fila, coalesce(round(max(extract(epoch FROM now() - inserted_at)) / 86400.0), 0) AS dias_mais_antiga FROM metrics_waitlist_entries"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0
+        }
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Vieram da fila",
+      "description": "Agendamentos com veio_da_fila. É a única medida direta de que a fatia de fila de espera entrega valor: sem ela, 'a fila funciona' é opinião.",
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 20,
+        "y": 0
+      },
+      "datasource": {
+        "uid": "${db}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT count(*) FILTER (WHERE veio_da_fila) AS da_fila, count(*) FILTER (WHERE encaixe) AS encaixes FROM metrics_appointments WHERE excluded_at IS NULL AND $__timeFilter(inserted_at)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0
+        }
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Blocos por dia, por status",
+      "description": "Pelo dia do ATENDIMENTO (starts_at), não pelo da criação: é assim que se lê agenda. O futuro aparece à direita como agendado/confirmado — o que dá, de quebra, a visão de quanto já está vendido.",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 5
+      },
+      "datasource": {
+        "uid": "${db}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT date_trunc('day', starts_at) AS time, status AS metric, count(*) AS value FROM metrics_appointments WHERE excluded_at IS NULL AND $__timeFilter(starts_at) GROUP BY 1, 2 ORDER BY 1"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "stacking": {
+              "mode": "normal"
+            },
+            "fillOpacity": 80,
+            "lineWidth": 0
+          }
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Horas agendadas por dia",
+      "description": "Soma da duração dos blocos não cancelados. É o mais perto de OCUPAÇÃO que dá para chegar sem cruzar com o expediente de cada profissional — a ocupação canônica (minutos ÷ expediente) mora em /relatorios, onde o expediente é conhecido.",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 5
+      },
+      "datasource": {
+        "uid": "${db}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT date_trunc('day', starts_at) AS time, 'horas' AS metric, round(sum(duracao_minutos) / 60.0, 1) AS value FROM metrics_appointments WHERE excluded_at IS NULL AND status <> 'cancelado' AND $__timeFilter(starts_at) GROUP BY 1 ORDER BY 1"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "h",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 20
+          }
+        }
+      }
+    },
+    {
+      "id": 8,
+      "type": "table",
+      "title": "Falta por profissional",
+      "description": "Onde a falta se concentra. Diferença grande entre profissionais da MESMA clínica raramente é acaso: costuma ser horário (o primeiro da manhã falta mais), perfil de paciente ou combinação de lembrete não configurado.",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 14
+      },
+      "datasource": {
+        "uid": "${db}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT c.nome AS clinica, p.rotulo AS profissional, count(*) FILTER (WHERE at.status IN ('faltou', 'concluida')) AS com_desfecho, count(*) FILTER (WHERE at.status = 'faltou') AS faltas, round(100.0 * count(*) FILTER (WHERE at.status = 'faltou') / nullif(count(*) FILTER (WHERE at.status IN ('faltou', 'concluida')), 0), 1) AS pct FROM metrics_attendances at JOIN metrics_appointments a ON a.id = at.appointment_id LEFT JOIN metrics_professionals p ON p.id = a.professional_id JOIN metrics_clinics c ON c.id = at.clinic_id WHERE $__timeFilter(at.session_starts_at) GROUP BY 1, 2 HAVING count(*) FILTER (WHERE at.status IN ('faltou', 'concluida')) > 0 ORDER BY 5 DESC NULLS LAST LIMIT 25"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "table",
+      "title": "Por tipo de atendimento",
+      "description": "Volume, duração média e falta por tipo. Tipo com falta muito acima da média costuma ser o de sessão longa ou o de avaliação inicial — informação que muda a política de lembrete, não o código.",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 14
+      },
+      "datasource": {
+        "uid": "${db}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT t.nome AS tipo, t.grupo AS turma, count(*) AS blocos, round(avg(a.duracao_minutos)) AS duracao_media, count(*) FILTER (WHERE a.status = 'faltou') AS blocos_com_falta FROM metrics_appointments a JOIN metrics_appointment_types t ON t.id = a.appointment_type_id WHERE a.excluded_at IS NULL AND $__timeFilter(a.starts_at) GROUP BY 1, 2 ORDER BY 3 DESC LIMIT 20"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "table",
+      "title": "Fila de espera — quem está esperando há mais tempo",
+      "description": "Estado atual, por prioridade e janela. `urgente` esperando há semanas é o pior caso do produto: a prioridade existe justamente para isso não acontecer, e nada além deste painel denuncia.",
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 23
+      },
+      "datasource": {
+        "uid": "${db}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT c.nome AS clinica, w.prio AS prioridade, w.janela, count(*) AS entradas, round(max(extract(epoch FROM now() - w.inserted_at)) / 86400.0, 1) AS dias_mais_antiga, round(avg(extract(epoch FROM now() - w.inserted_at)) / 86400.0, 1) AS dias_media FROM metrics_waitlist_entries w JOIN metrics_clinics c ON c.id = w.clinic_id GROUP BY 1, 2, 3 ORDER BY 5 DESC LIMIT 25"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "version": 1
+}

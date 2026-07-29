@@ -206,3 +206,156 @@ groups:
               expression: consulta
               conditions:
                 - evaluator: { type: gt, params: [3] }
+
+  # ---- A MÁQUINA (doc 74) ----------------------------------------------------------------------
+  #
+  # Grupo separado dos de cima por uma diferença de natureza, não de arrumação: os alertas do
+  # `cinetra-criticos` leem o LOG e perguntam "o sistema se comportou mal?". Estes leem MÉTRICA e
+  # perguntam "o sistema ainda tem onde rodar?" — disco, memória, CPU, teto de container.
+  #
+  # A ordem de chegada importa numa investigação: quando os dois disparam juntos, é quase sempre
+  # este grupo que é a causa e o outro que é o sintoma.
+  - orgId: 1
+    name: cinetra-maquina
+    folder: Cinetra
+    interval: 1m
+    rules:
+      - uid: cinetra-disco-cheio
+        title: Disco quase cheio
+        # 10 min de `for` porque disco não enche em rajada — enche em rampa. O que este `for`
+        # descarta é o pico de um build ou de um dump, não o problema.
+        for: 10m
+        condition: alerta
+        # `Alerting` e NÃO `OK`, ao contrário dos alertas de log. A diferença é o que a ausência
+        # significa: log sem linha quer dizer "não houve erro"; métrica de disco sem série quer
+        # dizer que o node-exporter morreu — e aí ninguém está mais olhando o disco.
+        noDataState: Alerting
+        annotations:
+          summary: "Disco em {{ humanizePercentage $values.consulta.Value }} na partição mais cheia"
+          description: >
+            É o risco que o doc 62 §3 nomeia como o real de pôr log e banco na mesma máquina.
+            Disco cheio não degrada: para. O Postgres recusa escrita, o Loki para de ingerir e o
+            backup falha em silêncio. Ver "Cinetra · Servidor" → "Disco: uso por partição" para
+            saber QUAL partição, e "Maiores tabelas" (Infraestrutura) se for o volume do banco.
+            Alívio rápido: `docker system prune` e a retenção do Loki (LOKI_DATA).
+        labels:
+          severity: critico
+        data:
+          - refId: consulta
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: consulta
+              instant: true
+              expr: max(1 - node_filesystem_avail_bytes{fstype=~"ext4|xfs"} / node_filesystem_size_bytes)
+          - refId: alerta
+            datasourceUid: __expr__
+            model:
+              refId: alerta
+              type: threshold
+              expression: consulta
+              conditions:
+                - evaluator: { type: gt, params: [0.85] }
+
+      - uid: cinetra-memoria-maquina
+        title: Memória da máquina no limite
+        for: 15m
+        condition: alerta
+        noDataState: Alerting
+        annotations:
+          summary: "Memória da máquina em {{ humanizePercentage $values.consulta.Value }}"
+          description: >
+            Contra MemAvailable, não MemFree — num servidor saudável MemFree é sempre próximo de
+            zero, porque o Linux usa a RAM livre como cache de disco. Passando daqui o kernel
+            começa a matar container por OOM, e o primeiro a morrer não é necessariamente o
+            culpado. Ver "Cinetra · Servidor" → "Memória por container: % do próprio teto" para
+            achar quem cresceu.
+        labels:
+          severity: critico
+        data:
+          - refId: consulta
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: consulta
+              instant: true
+              expr: 1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes
+          - refId: alerta
+            datasourceUid: __expr__
+            model:
+              refId: alerta
+              type: threshold
+              expression: consulta
+              conditions:
+                - evaluator: { type: gt, params: [0.90] }
+
+      - uid: cinetra-container-no-teto
+        title: Container encostando no próprio teto de memória
+        for: 10m
+        condition: alerta
+        # `OK` aqui, ao contrário dos dois de cima: container que some do cAdvisor pode ter sido
+        # parado de propósito, e alarmar todo `docker compose down` treina a equipe a ignorar.
+        noDataState: OK
+        annotations:
+          summary: "{{ $labels.name }} em {{ humanizePercentage $values.consulta.Value }} do mem_limit"
+          description: >
+            O aviso que chega ANTES do OOM kill. O `mem_limit` por container é a salvaguarda que
+            substituiu a segunda VM (doc 62 §3) — este alerta é como se sabe que ela está prestes
+            a agir. Container morto por OOM reinicia sozinho e some do log: o rastro fica no
+            "Containers agora", na coluna "no ar há".
+        labels:
+          severity: aviso
+        data:
+          - refId: consulta
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: consulta
+              instant: true
+              # O `> 0` no denominador não é enfeite: container SEM `mem_limit` reporta teto zero,
+              # a divisão vira `+Inf`, e `+Inf > 0.9` é verdadeiro — o alerta dispararia para todo
+              # container sem limite, para sempre, no minuto em que fosse provisionado.
+              expr: max by (name) (container_memory_working_set_bytes{name!=""} / (container_spec_memory_limit_bytes{name!=""} > 0))
+          - refId: alerta
+            datasourceUid: __expr__
+            model:
+              refId: alerta
+              type: threshold
+              expression: consulta
+              conditions:
+                - evaluator: { type: gt, params: [0.90] }
+
+      - uid: cinetra-coleta-de-metrica-parada
+        title: Alvo de métrica fora do ar
+        # O irmão do `cinetra-pipeline-parado`, para o outro pipeline. Mesma lição, aprendida no
+        # log e válida aqui: liveness não detecta ausência de dado. Um painel de CPU vazio é
+        # indistinguível de uma CPU ociosa, e sem este alerta a descoberta acontece no incidente
+        # seguinte — quando o histórico que se ia consultar não existe.
+        for: 10m
+        condition: alerta
+        noDataState: Alerting
+        annotations:
+          summary: "{{ $labels.job }} ({{ $labels.instance }}) parou de responder à raspagem"
+          description: >
+            Enquanto durar, TODO painel que depende deste alvo fica vazio sem dizer por quê — e
+            "vazio" lê-se como "tudo calmo". Confira o alvo em
+            `deploy/observability/verificar.sh`, e no dashboard "Cinetra · Servidor" o número
+            "Alvos raspando" contra o total esperado.
+        labels:
+          severity: critico
+        data:
+          - refId: consulta
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: consulta
+              instant: true
+              expr: min(up)
+          - refId: alerta
+            datasourceUid: __expr__
+            model:
+              refId: alerta
+              type: threshold
+              expression: consulta
+              conditions:
+                - evaluator: { type: lt, params: [1] }

@@ -21,8 +21,8 @@ WEB="${WEB:-http://localhost:5173}"
 GRAFANA="${GRAFANA:-http://localhost:3300}"
 GRAFANA_AUTH="${GRAFANA_AUTH:-admin:cinetra-local}"
 # Nome do serviço como o Alloy o rotula (nome do container).
-SVC_API="${SVC_API:-moving-api-1}"
-SVC_WEB="${SVC_WEB:-moving-web-1}"
+SVC_API="${SVC_API:-cinetra-api-1}"
+SVC_WEB="${SVC_WEB:-cinetra-web-1}"
 
 # Acesso ao compose — definido AQUI, no topo, e não no meio do script. A primeira versão declarava
 # estas três variáveis na seção 9; a seção 7, que roda antes, referenciava `$DOCKER` ainda indefinido
@@ -212,9 +212,10 @@ else
     || vermelho "health check ESTÁ no log ($n eventos) — o filtro não pegou"
 fi
 
-# Este não precisa de guarda: a allowlist do agente é por projeto do compose, e os stacks de
-# observabilidade têm nome próprio (`cinetra-obs`, `cinetra-agente`). Zero aqui é a afirmação.
-n=$(linhas '{service=~"(observability|cinetra)-.*"}')
+# `cinetra-obs-` e NÃO `cinetra-` — a app agora também se chama `cinetra`, e o padrão largo
+# passaria a casar com `cinetra-api-1`, reprovando um filtro que está correto. A allowlist do
+# agente é ancorada (`cinetra` casa só com `cinetra`), então zero aqui é a afirmação.
+n=$(linhas '{service=~"cinetra-obs-.*"}')
 [ "$n" = 0 ] \
   && verde "o próprio stack de observabilidade não entra na conta" \
   || vermelho "o stack de obs está sendo coletado ($n linhas)"
@@ -392,6 +393,244 @@ elif [ "${rodando:-0}" -gt 0 ] 2>/dev/null; then
 else
   vermelho "compactor não está rodando — a retenção de 30d não apagaria nada"
 fi
+
+# ---------------------------------------------------------------------------------------------
+titulo "11. Banco no Grafana — e a barreira que impede o painel de virar visor de prontuário"
+
+# Os dashboards de mensagens, agenda, jobs e auditoria (doc 73) leem o BANCO, não o log. Isso põe
+# uma conexão com a base de produção dentro de uma UI web, e a única coisa que separa "painel de
+# operação" de "visor de ficha" é privilégio do Postgres: o role só tem SELECT nas views
+# `metrics_*`, que listam coluna a coluna o que pode sair.
+#
+# Esta seção não confere se o painel está bonito. Confere se a barreira existe — e ela é do tipo
+# que falha ABERTO se alguém "consertar" um GRANT sem entender.
+
+DS_DB="${DS_DB:-cinetra-db}"
+
+# Roda SQL pelo caminho real do painel (datasource proxy do Grafana). Devolve a 1ª célula, ou
+# `ERRO:<mensagem>` — a distinção importa: aqui há asserção que espera SUCESSO e asserção que
+# espera ERRO, e confundir as duas é o jeito clássico de passar por vazio.
+sql() {
+  local q; q=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$1")
+  curl -s -u "$GRAFANA_AUTH" -m 20 -H 'Content-Type: application/json' -X POST \
+    "$GRAFANA/api/ds/query" \
+    -d "{\"queries\":[{\"refId\":\"A\",\"datasource\":{\"uid\":\"$DS_DB\"},\"rawSql\":$q,\"format\":\"table\"}],\"from\":\"now-1h\",\"to\":\"now\"}" 2>/dev/null |
+  python3 -c 'import sys,json
+try:
+    r=json.load(sys.stdin)["results"]["A"]
+    if r.get("error"): print("ERRO:"+str(r["error"])[:120])
+    else:
+        v=r["frames"][0]["data"]["values"]
+        print(v[0][0] if v and v[0] else "")
+except Exception as e: print("ERRO:"+type(e).__name__)' 2>/dev/null
+}
+
+if ! graf /api/datasources | grep -q "\"uid\":\"$DS_DB\""; then
+  printf '  \033[36mi\033[0m datasource "%s" não existe — os painéis de banco estão desligados neste ambiente\n' "$DS_DB"
+else
+  # 1) Conecta e lê as views.
+  r=$(sql "SELECT count(*) FROM metrics_appointments")
+  case "$r" in
+    ERRO:*) vermelho "datasource do banco não responde: ${r#ERRO:}" ;;
+    *)      verde "datasource do banco responde (metrics_appointments: $r linha(s))" ;;
+  esac
+
+  # 2) A ASSERÇÃO QUE IMPORTA: a tabela crua tem de ser NEGADA. Se um dia isto virar verde por
+  # sucesso, é porque alguém deu GRANT em tabela — e nome, CPF, telefone e observação clínica
+  # passaram a estar a um clique de qualquer pessoa com acesso ao Grafana.
+  for t in patients messages audit_events appointments; do
+    r=$(sql "SELECT count(*) FROM $t")
+    case "$r" in
+      ERRO:*permission\ denied*) verde "tabela $t negada ao role do Grafana" ;;
+      ERRO:*)                    vermelho "tabela $t: erro inesperado (${r#ERRO:}) — inconclusivo" ;;
+      *)                         vermelho "PII EXPOSTA: o Grafana LEU $t direto (devolveu '$r')" ;;
+    esac
+  done
+
+  # 3) `patient_id` é o único identificador que o doc 05 §1.3 proíbe de sair. Nenhuma view pode
+  # tê-lo — nem a de mensagens, nem a de presenças, nem a de pacotes.
+  r=$(sql "SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name LIKE 'metrics\\_%' AND column_name IN ('patient_id','cpf','tel','destino','erro','obs','motivo','label','user_label','diff','args','errors','body','title','cancel_reason')")
+  case "$r" in
+    0)      verde "nenhuma view metrics_* expõe patient_id nem coluna de texto livre" ;;
+    ERRO:*) vermelho "não consegui checar as colunas das views (${r#ERRO:})" ;;
+    *)      vermelho "$r coluna(s) PROIBIDA(s) nas views metrics_* — rode a consulta da §11 do verificar.sh" ;;
+  esac
+
+  # 4) View criada depois do role fica sem GRANT e o painel morre com "permission denied" numa
+  # tela só. O laço do provisionamento existe para isso; esta linha prova que ele rodou.
+  r=$(sql "SELECT count(*) FROM pg_views WHERE schemaname='public' AND viewname LIKE 'metrics\\_%' AND NOT has_table_privilege(current_user, 'public.'||viewname, 'SELECT')")
+  case "$r" in
+    0)      verde "todas as views metrics_* estão concedidas ao role do Grafana" ;;
+    ERRO:*) vermelho "não consegui checar os GRANTs (${r#ERRO:})" ;;
+    *)      vermelho "$r view(s) metrics_* SEM grant — rode o setup_metrics_role de novo" ;;
+  esac
+
+  # 5) Regressão específica, e a única que este verificador ganhou por um bug REAL: somar
+  # `appointments.duration_minutos` (que é override e vem NULA no caso comum) desenhava um painel
+  # vazio sem erro nenhum. A view passou a derivar a duração de ends_at-starts_at; se um dia ela
+  # voltar a ser nula, o painel de horas agendadas mente de novo.
+  r=$(sql "SELECT count(*) FROM metrics_appointments WHERE ends_at IS NOT NULL AND duracao_minutos IS NULL")
+  case "$r" in
+    0)      verde "duração efetiva presente em todo bloco com fim definido" ;;
+    ERRO:*) vermelho "não consegui checar a duração efetiva (${r#ERRO:})" ;;
+    *)      vermelho "$r bloco(s) com duracao_minutos NULA — o painel de horas agendadas some" ;;
+  esac
+fi
+
+# ---------------------------------------------------------------------------------------------
+titulo "13. Métricas: máquina, containers e BEAM (doc 74)"
+
+# Log responde "o que a aplicação fez"; as views `metrics_*` respondem "em que estado o negócio
+# está". Esta terceira fonte responde "em que estado a MÁQUINA está" — e ela tem o mesmo modo de
+# falha silencioso das outras duas: alvo que parou de ser raspado deixa o painel VAZIO, e vazio
+# lê-se como "tudo calmo". As asserções abaixo são sobre a coleta existir, não sobre o valor.
+
+# Consulta o Prometheus PELO Grafana (prova a datasource junto). Devolve o nº de séries, ou -1.
+prom() {
+  curl -s -u "$GRAFANA_AUTH" -m 20 --get \
+    "$GRAFANA/api/datasources/proxy/uid/prometheus/api/v1/query" \
+    --data-urlencode "query=$1" 2>/dev/null |
+    python3 -c 'import sys,json
+try:
+    d=json.load(sys.stdin)
+    print(len(d["data"]["result"]) if d.get("status")=="success" else -1)
+except Exception: print(-1)' 2>/dev/null || echo -1
+}
+
+if ! graf /api/datasources | grep -q '"uid":"prometheus"'; then
+  printf '  \033[36mi\033[0m datasource "prometheus" não existe — a fase de métricas não subiu neste ambiente\n'
+else
+  # 1) TODOS os alvos respondendo. `up == 0` casando com alguma coisa é alvo morto; e o alerta
+  # `cinetra-coleta-de-metrica-parada` cobre o mesmo em tempo real.
+  caidos=$(prom 'up == 0')
+  case "$caidos" in
+    0)  verde "todos os alvos do Prometheus estão sendo raspados" ;;
+    -1) vermelho "não consegui consultar o Prometheus pelo Grafana" ;;
+    *)  vermelho "$caidos alvo(s) de métrica fora do ar — painel vazio SEM aviso enquanto durar" ;;
+  esac
+
+  # 2) A máquina. Três famílias distintas, porque node-exporter meio no ar é um estado real:
+  # com `/proc` montado e `/sys` não, CPU sai e disco não.
+  for m in node_cpu_seconds_total node_memory_MemAvailable_bytes node_filesystem_avail_bytes; do
+    n=$(prom "$m")
+    if [ "$n" -gt 0 ] 2>/dev/null; then verde "$m: $n série(s)"
+    else vermelho "$m VAZIO — o painel de máquina correspondente fica em branco"; fi
+  done
+
+  # 3) Os containers. `container_spec_memory_limit_bytes > 0` é a asserção que importa: é o
+  # `mem_limit` do compose chegando ao painel, e é ele que sustenta o argumento do doc 62 §3 de
+  # trocar a segunda VM por limite por container. Sem esse número não há como ver o OOM chegando.
+  n=$(prom 'count(container_spec_memory_limit_bytes > 0)')
+  if [ "$n" -gt 0 ] 2>/dev/null; then verde "cAdvisor reporta o mem_limit dos containers"
+  else vermelho "nenhum container com mem_limit visível — o painel de teto de memória fica vazio"; fi
+
+  # 4) A aplicação. Um por plugin do `Api.PromEx`: um plugin que deixe de casar com a versão da
+  # biblioteca não levanta exceção, só para de emitir — exatamente o defeito que o
+  # `prom_ex_test.exs` cobre do lado do código e que esta seção cobre do lado do ambiente.
+  for m in api_prom_ex_beam_memory_allocated_bytes \
+           api_prom_ex_phoenix_http_requests_total \
+           api_prom_ex_ecto_repo_query_queue_time_milliseconds_bucket \
+           api_prom_ex_oban_queue_length_count \
+           api_prom_ex_application_uptime_milliseconds_count; do
+    n=$(prom "$m")
+    if [ "$n" -gt 0 ] 2>/dev/null; then verde "${m#api_prom_ex_}: $n série(s)"
+    else vermelho "${m#api_prom_ex_} VAZIO — plugin do PromEx parou de emitir"; fi
+  done
+
+  # 5) A ASSERÇÃO DE SEGURANÇA, no mesmo espírito da §11: o `/metrics` e o Prometheus NÃO podem
+  # estar publicados no host. O conteúdo é reconhecimento pronto — inventário de rotas, nomes de
+  # fila, volume de requisição por rota, versão da OTP. A barreira é o compose não publicar a
+  # porta; esta linha é o que percebe se alguém publicar "só para depurar" e esquecer.
+  #
+  # O casamento é por PREFIXO `000*`, e não por igualdade com `000`. O helper `status()` termina
+  # em `|| echo 000`, e quando a conexão é recusada o curl JÁ imprime `000` antes de sair não-zero
+  # — o resultado é a string `000000`. Comparar com `"000"` reprova sempre: a primeira versão
+  # desta checagem acusou "métrica exposta" com as duas portas fechadas, num ambiente onde
+  # `docker ps` mostrava que nada estava publicado.
+  #
+  # Errou para o lado seguro (alarme falso, não silêncio), mas alarme falso é como se ensina uma
+  # equipe a ignorar o verificador.
+  for porta in 4021 9090; do
+    case "$(status "http://localhost:$porta/metrics")$(status "http://localhost:$porta/-/healthy")" in
+      000*000*) verde "porta $porta não está publicada no host" ;;
+      *)        vermelho "porta $porta RESPONDE no host — métrica exposta fora da rede interna" ;;
+    esac
+  done
+fi
+
+# ---------------------------------------------------------------------------------------------
+titulo "12. Dashboards provisionados"
+
+# Painel montado na UI morre com o container, e a VM obs é descartável de propósito. O que
+# garante que ele volte é o arquivo — então o que se verifica é que o ARQUIVO virou dashboard.
+arquivos=$(ls "$DIR/dashboards"/*.json 2>/dev/null | wc -l)
+carregados=$(graf '/api/search?type=dash-db' | grep -o '"uid":"cinetra-[^"]*"' | wc -l)
+
+if [ "$carregados" -ge "$arquivos" ] && [ "$arquivos" -gt 0 ]; then
+  verde "$carregados dashboards carregados para $arquivos arquivo(s) em dashboards/"
+else
+  vermelho "$arquivos arquivo(s) em dashboards/, mas só $carregados carregado(s) — provisionamento falhou (veja o log do Grafana)"
+fi
+
+# ---------------------------------------------------------------------------------------------
+titulo "14. Traces: o terceiro sinal (doc 76)"
+
+# O Tempo NÃO tem healthcheck no compose — a imagem é distroless e todo `test:` falha por falta de
+# `/bin/sh`, deixando o container eternamente `unhealthy` com o serviço perfeito. Quem verifica a
+# prontidão é este bloco, de fora, pelo proxy do Grafana (que prova o datasource junto).
+tempo_pronto=$(graf '/api/datasources/proxy/uid/tempo/ready' | head -c 40)
+
+if printf '%s' "$tempo_pronto" | grep -qi 'ready'; then
+  verde "Tempo pronto e datasource respondendo"
+
+  # OS DOIS serviços, e não "algum": um trace com só a API é metade da história — quer dizer que a
+  # propagação BFF→API quebrou, ou que o agente não está alcançável a partir da rede do web
+  # (`APP_NETWORK_OTLP`). O modo de falhar aqui é silencioso por natureza, porque cada serviço
+  # sozinho parece estar funcionando.
+  servicos=$(graf '/api/datasources/proxy/uid/tempo/api/v2/search/tag/resource.service.name/values')
+
+  for svc in cinetra-api cinetra-web; do
+    if printf '%s' "$servicos" | grep -q "\"$svc\""; then
+      verde "$svc está produzindo spans"
+    else
+      vermelho "$svc SEM span — instrumentação desligada (OTEL_EXPORTER_OTLP_ENDPOINT?) ou agente inalcançável"
+    fi
+  done
+else
+  vermelho "Tempo não respondeu /ready pelo Grafana — serviço no ar? datasource provisionado?"
+fi
+
+# TraceQL metrics — o que move o **Traces Drilldown** (doc 76 §10). Sai do processador
+# `local-blocks` do `metrics_generator`, e a falha é enganosa: a busca de traces continua
+# funcionando, então o Tempo parece saudável, e só o app do Drilldown fica com todo painel em erro.
+if graf '/api/datasources/proxy/uid/tempo/api/metrics/query_range?q=%7B%7D%20%7C%20rate()' |
+   grep -q '"series"'; then
+  verde "TraceQL metrics respondendo (Drilldown de traces funciona)"
+else
+  vermelho "TraceQL metrics FALHOU — processador local-blocks desligado? O Drilldown abre e todo painel dá erro"
+fi
+
+# A COSTURA. Os dois bancos só viram uma ferramenta se a linha de log carregar `trace_id`: é o
+# campo que o `derivedFields` do datasource do Loki procura para oferecer "Ver trace", e o mesmo
+# que o `tracesToLogsV2` usa na volta. Quebrado, nada dá erro — o botão só não aparece.
+if [ "$(recentes '{service=~".+"} |= "trace_id"')" -ge 1 ] 2>/dev/null; then
+  verde "log recente carrega trace_id (o link log↔trace funciona)"
+else
+  vermelho "nenhuma linha recente com trace_id — sem isso o botão 'Ver trace' some do Grafana"
+fi
+
+# Mesma asserção de segurança das §11 e §13, agora para o receptor OTLP. Ele é ingestão ANÔNIMA:
+# o Alloy não autentica, então publicado no host ele aceita span forjado de qualquer origem — e
+# span é o sinal mais detalhado que a máquina produz (rota com id, SQL, sequência de chamadas).
+#
+# Casamento por PREFIXO `000*` pelo mesmo motivo documentado na §13: com conexão recusada o curl
+# imprime `000` e o helper acrescenta outro, resultando em `000000`.
+for porta in 4317 4318 3200; do
+  case "$(status "http://localhost:$porta/")" in
+    000*) verde "porta $porta (OTLP/Tempo) não está publicada no host" ;;
+    *)    vermelho "porta $porta RESPONDE no host — ingestão de trace exposta, e ela não autentica" ;;
+  esac
+done
 
 # ---------------------------------------------------------------------------------------------
 printf '\n\033[1m%d ok, %d falhou\033[0m\n' "$ok" "$falhou"

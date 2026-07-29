@@ -26,12 +26,17 @@
 #   * Segundo block volume na OCI — reabre a divisão de disco em porta de mão única, que foi
 #     justamente o que a consolidação numa máquina só eliminou.
 #
+# Serve ao **Tempo** pelo mesmo motivo (doc 76): traces também têm retenção por tempo e nenhum
+# teto de tamanho. Basta passar outro ponto de montagem — o nome da imagem e o rótulo saem dele.
+#
 # Uso (precisa de root):
 #   sudo ./criar-volume-limitado.sh              # 20G em /var/lib/cinetra/loki
 #   sudo ./criar-volume-limitado.sh 40G /dados/loki
+#   sudo ./criar-volume-limitado.sh 10G /var/lib/cinetra/tempo   # traces
 #
 # Depois, no `.env` do stack:
 #   LOKI_DATA=/var/lib/cinetra/loki
+#   TEMPO_DATA=/var/lib/cinetra/tempo
 #
 # E recrie o serviço:
 #   docker compose -f compose.obs.yml up -d --force-recreate loki
@@ -40,10 +45,13 @@ set -euo pipefail
 
 TAMANHO="${1:-20G}"
 MONTAGEM="${2:-/var/lib/cinetra/loki}"
-IMAGEM="${LOKI_FS_IMAGE:-/var/lib/cinetra/loki.img}"
-# O container `grafana/loki` roda como uid/gid 10001 (verificado). Sem o chown, o Loki sobe e
-# falha ao gravar — e falha de permissão em disco costuma aparecer como "pipeline parado", que
-# manda investigar o lugar errado.
+# Derivado do ponto de montagem: `/var/lib/cinetra/loki` → `/var/lib/cinetra/loki.img`, que é
+# exatamente o caminho fixo que esta linha tinha antes de o script passar a servir dois serviços.
+IMAGEM="${FS_IMAGE:-${LOKI_FS_IMAGE:-${MONTAGEM%/}.img}}"
+ROTULO="cinetra-$(basename "$MONTAGEM")"
+# Loki e Tempo rodam como uid/gid 10001 (verificado em `docker inspect` nas duas imagens). Sem o
+# chown o serviço sobe e falha ao gravar — e falha de permissão em disco costuma aparecer como
+# "pipeline parado", que manda investigar o lugar errado.
 LOKI_UID=10001
 
 [ "$(id -u)" -eq 0 ] || { echo "erro: precisa de root (montar sistema de arquivos)" >&2; exit 1; }
@@ -73,7 +81,7 @@ fallocate -l "$TAMANHO" "$IMAGEM"
 # `-m 0`: sem reserva para root. Num sistema de arquivos dedicado a log, os 5% padrão seriam 1 GB
 # de 20 GB desperdiçados para um usuário que nunca vai escrever aqui.
 echo "==> formatando (ext4)"
-mkfs.ext4 -q -m 0 -L cinetra-loki "$IMAGEM"
+mkfs.ext4 -q -m 0 -L "$ROTULO" "$IMAGEM"
 
 echo "==> montando em $MONTAGEM"
 mount -o loop,noatime "$IMAGEM" "$MONTAGEM"

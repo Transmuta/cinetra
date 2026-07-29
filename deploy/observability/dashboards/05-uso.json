@@ -1,0 +1,358 @@
+{
+  "uid": "cinetra-uso",
+  "title": "Cinetra · Uso e clínicas",
+  "description": "Quem está usando, quanto, e quando. Serve a duas perguntas que nenhum outro painel responde: 'esta clínica parou de usar?' (churn silencioso não gera erro nenhum) e 'a premissa de dimensionamento do doc 62 §2 — ~800 requisições por usuário/dia — está de pé?'. Enquanto ela for estimativa, o plano de retenção repousa sobre um número que ninguém mediu.",
+  "tags": [
+    "cinetra",
+    "logs",
+    "produto"
+  ],
+  "timezone": "browser",
+  "refresh": "5m",
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "env",
+        "label": "Ambiente",
+        "description": "Preenchido a partir dos rótulos que existem no Loki.",
+        "type": "query",
+        "datasource": {
+          "type": "loki",
+          "uid": "loki"
+        },
+        "query": "label_values(env)",
+        "refresh": 1,
+        "sort": 1,
+        "includeAll": false,
+        "multi": false,
+        "current": {},
+        "options": [],
+        "definition": "label_values(env)"
+      },
+      {
+        "name": "parser",
+        "label": "Formato do log",
+        "description": "json em produção (LoggerJSON); logfmt em dev.",
+        "type": "custom",
+        "query": "json,logfmt",
+        "current": {
+          "text": "json",
+          "value": "json"
+        },
+        "options": [
+          {
+            "text": "json",
+            "value": "json",
+            "selected": true
+          },
+          {
+            "text": "logfmt",
+            "value": "logfmt",
+            "selected": false
+          }
+        ]
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Requisições no período",
+      "description": "Total de eventos de requisição da API na janela selecionada. Health check 2xx não entra — o RequestLogger o filtra na origem, senão seriam 34.560/dia de ruído.",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "instant": true,
+          "expr": "sum(count_over_time({env=\"$env\", service=~\".*api.*\"} | $parser | route != \"\" [$__range]))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0
+        }
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Pessoas ativas",
+      "description": "actor_id distintos na janela. É a contagem que o log permite fazer sem tocar em banco — e a única definição honesta de 'usuário ativo' que temos hoje: quem fez pelo menos uma requisição autenticada.",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "instant": true,
+          "expr": "count(sum by (actor_id) (count_over_time({env=\"$env\", service=~\".*api.*\"} | $parser | actor_id != \"\" [$__range])))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0
+        }
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Clínicas ativas",
+      "description": "clinic_id distintos na janela. Comparar com o total de clínicas cadastradas (painel de banco) é o jeito mais barato de ver conta parada.",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "instant": true,
+          "expr": "count(sum by (clinic_id) (count_over_time({env=\"$env\", service=~\".*api.*\"} | $parser | clinic_id != \"\" [$__range])))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0
+        }
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Requisições por pessoa",
+      "description": "A divisão dos dois números anteriores — e o número que o doc 62 §2 ESTIMOU em ~800/dia para calcular retenção e disco. Se aqui der 3.000, o modelo de volume está errado por 4x e a conta de 30 dias precisa ser refeita. Medir isto é mais barato que redimensionar a VM depois.",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "instant": true,
+          "expr": "sum(count_over_time({env=\"$env\", service=~\".*api.*\"} | $parser | route != \"\" [$__range])) / count(sum by (actor_id) (count_over_time({env=\"$env\", service=~\".*api.*\"} | $parser | actor_id != \"\" [$__range])))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0
+        }
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Volume por clínica",
+      "description": "Uma linha que desce e não volta é a conta que parou — e ela não gera erro nenhum, então nenhum alerta a pega. É o painel de retenção de cliente que o log dá de graça.",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 5
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "legendFormat": "{{clinic_id}}",
+          "expr": "topk(10, sum by (clinic_id) (count_over_time({env=\"$env\", service=~\".*api.*\"} | $parser | clinic_id != \"\" [$__auto])))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10
+          }
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Pessoas ativas ao longo do tempo",
+      "description": "Distintos por bucket. O desenho do dia útil aparece aqui: se o pico não bate com o horário de atendimento das clínicas, alguma automação está batendo na API.",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 5
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "legendFormat": "pessoas",
+          "expr": "count(sum by (actor_id) (count_over_time({env=\"$env\", service=~\".*api.*\"} | $parser | actor_id != \"\" [$__auto])))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "lineWidth": 0
+          }
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "table",
+      "title": "Rotas mais usadas",
+      "description": "O mapa do que o produto de fato é, medido em uso e não em intenção. Rota cara e pouco usada é candidata a simplificação; rota muito usada é onde otimizar paga.",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 14
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "instant": true,
+          "format": "table",
+          "expr": "topk(20, sum by (route, method) (count_over_time({env=\"$env\", service=~\".*api.*\"} | $parser | route != \"\" [$__range])))"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "table",
+      "title": "Quem mais bate na API",
+      "description": "actor_id ordenado por volume. Uma pessoa com ordem de grandeza a mais que as outras não costuma ser gente: é aba esquecida recarregando, script, ou tela que refaz a mesma chamada em laço — os três valem investigação.",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 14
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "instant": true,
+          "format": "table",
+          "expr": "topk(15, sum by (actor_id, clinic_id) (count_over_time({env=\"$env\", service=~\".*api.*\"} | $parser | actor_id != \"\" [$__range])))"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Volume por serviço",
+      "description": "API, BFF e banco lado a lado. O BFF loga só erro e requisição lenta (doc 62 §7.2), então a linha dele ser baixa é o esperado — se ela subir, é erro subindo, não uso.",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 23
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "legendFormat": "{{service}}",
+          "expr": "sum by (service) (count_over_time({env=\"$env\"} [$__auto]))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10
+          }
+        }
+      }
+    }
+  ],
+  "schemaVersion": 39,
+  "version": 1
+}
