@@ -149,7 +149,8 @@ describe('AppointmentBlock', () => {
 			patient_id: `pat${i}`,
 			status,
 			falta_justificada: false, motivo: null,
-			package_id: null
+			package_id: null,
+			package: null
 		});
 
 		function turmaProps(statuses: AttendanceStatus[], height = 80) {
@@ -309,5 +310,55 @@ describe('AppointmentBlock', () => {
 		render(AppointmentBlock, { props: base });
 		expect(screen.getByRole('button').getAttribute('aria-label')).toContain('08:00');
 		expect(screen.getByRole('button').getAttribute('aria-label')).toContain('Maria Silva');
+	});
+
+	// O bloco de pacote era idêntico ao avulso: nem que é pacote, nem que sessão da série é.
+	describe('selo de pacote', () => {
+		const emPacote = (props = {}) => ({
+			...base,
+			height: 80,
+			appt: appt({
+				participants: [
+					{
+						patient_id: 'pat1',
+						status: 'prevista' as AttendanceStatus,
+						falta_justificada: false,
+						motivo: null,
+						package_id: 'k1',
+						package: {
+							nome: 'Pilates 10',
+							sessao: 3,
+							total: 10,
+							falta_punitiva: true
+						}
+					}
+				]
+			}),
+			...props
+		});
+
+		it('escreve a posição na série', () => {
+			render(AppointmentBlock, { props: emPacote() });
+			expect(screen.getByTestId('package-badge')).toHaveTextContent('3/10');
+			expect(screen.getByTestId('package-badge')).toHaveAttribute(
+				'title',
+				'Pacote Pilates 10 · sessão 3 de 10'
+			);
+		});
+
+		it('sessão avulsa não ganha selo', () => {
+			render(AppointmentBlock, { props: { ...base, height: 80 } });
+			expect(screen.queryByTestId('package-badge')).not.toBeInTheDocument();
+		});
+
+		// A terceira linha é onde o selo mora; abaixo dela o cartão não tem onde escrever, e o
+		// pacote fica só no rótulo acessível — que não some nunca.
+		it('bloco baixo mantém o pacote no rótulo acessível', () => {
+			render(AppointmentBlock, { props: emPacote({ height: 30 }) });
+			expect(screen.queryByTestId('package-badge')).not.toBeInTheDocument();
+			expect(screen.getByRole('button').getAttribute('aria-label')).toContain(
+				'Pacote Pilates 10 · sessão 3 de 10'
+			);
+		});
 	});
 });

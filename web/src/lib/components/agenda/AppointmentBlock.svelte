@@ -17,7 +17,8 @@
 	//    do tipo já é a linha 3; o pulso saiu porque o badge agora diz "Em atendimento".
 	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 	import Zap from '@lucide/svelte/icons/zap';
-	import { statusSignal, type Appointment } from '$lib/agenda';
+	import Package from '@lucide/svelte/icons/package';
+	import { statusSignal, packageBadge, type Appointment } from '$lib/agenda';
 	import { blockGeometry, type Slot } from '$lib/agenda-layout';
 	import type { AgendaAppointmentType } from '$lib/agenda';
 
@@ -84,8 +85,12 @@
 	// linha própria, com a palavra que faltava.
 	const vagas = $derived(`${appt.patient_ids.length}/${capacidade} vagas ocupadas`);
 
+	// O pacote é do PARTICIPANTE (D11) e vem resolvido do servidor — o cartão não busca nada e não
+	// conta nada: `packageBadge` só escolhe entre "a posição na série" e "quantos em pacote".
+	const pacote = $derived(packageBadge(appt));
+
 	const rotulo = $derived(
-		[startLabel, titulo, tipo?.nome, appt.encaixe ? 'encaixe' : null, badge.label]
+		[startLabel, titulo, tipo?.nome, appt.encaixe ? 'encaixe' : null, pacote?.title, badge.label]
 			.filter(Boolean)
 			.join(' · ')
 	);
@@ -115,6 +120,10 @@
 
 	// A cor sai de `color-mix` sobre o token do tema, e não de um hex calculado em JS: o valor
 	// do token muda entre claro e escuro, e um hex congelado quebraria o modo escuro.
+	//
+	// O `null` aqui é só o da TURMA MISTA (o sinal deixou de ser um status e virou composição) —
+	// todo status tem tom próprio desde que `agendado` e `cancelado` deixaram de compartilhar o
+	// mesmo cinza implícito.
 	const corDoTom = (tom: string | null) => (tom ? `var(--color-${tom})` : 'var(--color-muted)');
 
 	// A borda só é tingida pelo que EXIGE atenção — conflito e pendência. O status não pinta
@@ -210,13 +219,35 @@
 	{/if}
 
 	{#if linhas > 2}
-		<div class="truncate text-[10px] text-faint">
-			{#if grupo}
-				{patientNames.slice(0, 3).join(', ')}{appt.patient_ids.length > 3
-					? ` +${appt.patient_ids.length - 3}`
-					: ''}
-			{:else}
-				{tipo?.nome ?? ''}
+		<div class="flex items-center gap-1">
+			<span class="min-w-0 flex-1 truncate text-[10px] text-faint">
+				{#if grupo}
+					{patientNames.slice(0, 3).join(', ')}{appt.patient_ids.length > 3
+						? ` +${appt.patient_ids.length - 3}`
+						: ''}
+				{:else}
+					{tipo?.nome ?? ''}
+				{/if}
+			</span>
+
+			<!-- O selo de pacote divide a linha do detalhe em vez de ganhar uma quarta linha: a
+			     quarta só existe acima de 78px (a turma usa para as vagas), e a sessão de 30 min
+			     — que é pacote com a mesma frequência das outras — nunca a alcançaria. Aqui ele
+			     aparece a partir de 61px, junto do tipo/pacientes que ele complementa.
+
+			     Ícone COM rótulo, como o conflito e o encaixe da linha 1 (doc 64 §3): o número é o
+			     rótulo, e o `title` escreve por extenso o que ele conta — que é o que muda entre a
+			     sessão individual ("3/10") e a turma ("2"). Sem o número, sobra o ícone dizendo
+			     "isto é pacote", que é mais do que o cartão dizia antes. -->
+			{#if pacote}
+				<span
+					data-testid="package-badge"
+					title={pacote.title}
+					class="flex shrink-0 items-center gap-0.5 rounded bg-teal-subtle px-1 py-px text-[9.5px] font-bold text-teal-text"
+				>
+					<Package size={9} />
+					{pacote.label ?? ''}
+				</span>
 			{/if}
 		</div>
 	{/if}

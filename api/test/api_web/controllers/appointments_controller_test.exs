@@ -1132,6 +1132,143 @@ defmodule ApiWeb.AppointmentsControllerTest do
     end
   end
 
+  describe "sessão de pacote no bloco (o cartão da agenda)" do
+    test "o participante diz o pacote, a sessão e o total", %{conn: conn} do
+      ctx = fixture()
+
+      # Fora de ordem de propósito: a numeração é CRONOLÓGICA (a 2ª da série é a de terça), e não
+      # a ordem em que as linhas nasceram. Materializador e remarcação criam nas duas ordens.
+      {_pkg, [_qua, _seg, _ter]} =
+        pacote_com_sessoes(ctx, [
+          "2026-07-22T11:00:00Z",
+          "2026-07-20T11:00:00Z",
+          "2026-07-21T11:00:00Z"
+        ])
+
+      body =
+        conn
+        |> authed(ctx.owner)
+        |> get("/api/appointments?from=2026-07-20&to=2026-07-22")
+        |> json_response(200)
+
+      sessoes =
+        body["appointments"]
+        |> Enum.sort_by(& &1["starts_at"])
+        |> Enum.map(fn appt ->
+          [participante] = appt["participants"]
+          participante["package"]
+        end)
+
+      assert [
+               %{"nome" => "Pilates 4", "sessao" => 1, "total" => 4},
+               %{"nome" => "Pilates 4", "sessao" => 2, "total" => 4},
+               %{"nome" => "Pilates 4", "sessao" => 3, "total" => 4}
+             ] = sessoes
+    end
+
+    test "sessão avulsa não inventa pacote", %{conn: conn} do
+      ctx = fixture()
+      {_id, _version} = create_appt(conn, ctx)
+
+      body =
+        conn
+        |> authed(ctx.owner)
+        |> get("/api/appointments?from=#{@segunda}")
+        |> json_response(200)
+
+      assert [%{"participants" => [participante]}] = body["appointments"]
+      assert participante["package_id"] == nil
+      assert participante["package"] == nil
+    end
+
+    # O bloco sai por QUATRO portas (GET, POST, transição e push do canal) com uma serialização
+    # só — e o `package` depende de um `load`. Marcar presença é a porta que relê o bloco por
+    # outro caminho: se ela esquecer o load, o cartão perde o pacote no primeiro clique e nenhum
+    # teste do GET percebe.
+    test "o pacote sobrevive à transição de presença", %{conn: conn} do
+      ctx = fixture()
+      {_pkg, [appt]} = pacote_com_sessoes(ctx, ["2026-07-20T11:00:00Z"])
+
+      resp = part_post(conn, ctx, appt.id, ctx.paciente.id, "complete", %{})
+
+      assert [%{"package" => %{"sessao" => 1, "total" => 4}}] =
+               json_response(resp, 200)["appointment"]["participants"]
+    end
+
+    # A pergunta do balcão que o `sessao/total` do cartão não responde: faltar hoje desconta uma
+    # do pacote? É `falta_punitiva`, decidida na venda e imutável (RN-30/31).
+    test "a regra da falta viaja com a sessão", %{conn: conn} do
+      ctx = fixture()
+      pacote_com_sessoes(ctx, ["2026-07-20T11:00:00Z"])
+
+      body =
+        conn
+        |> authed(ctx.owner)
+        |> get("/api/appointments?from=#{@segunda}")
+        |> json_response(200)
+
+      assert [%{"participants" => [%{"package" => pacote}]}] = body["appointments"]
+      assert pacote["falta_punitiva"] == true
+    end
+
+    # O saldo (`Package.restantes`) NÃO viaja: o drawer não o exibe, e campo sem leitor é payload
+    # morto que ainda custa uma subquery por presença. O consumo do pacote segue coberto onde ele
+    # de fato acontece — `Api.Packages.LifecycleTest`.
+    test "o saldo do pacote não viaja no bloco", %{conn: conn} do
+      ctx = fixture()
+      pacote_com_sessoes(ctx, ["2026-07-20T11:00:00Z"])
+
+      body =
+        conn
+        |> authed(ctx.owner)
+        |> get("/api/appointments?from=#{@segunda}")
+        |> json_response(200)
+
+      assert [%{"participants" => [%{"package" => pacote}]}] = body["appointments"]
+      refute Map.has_key?(pacote, "restantes")
+    end
+  end
+
+  # Um pacote com as sessões já vinculadas, sem passar pelo materializador (Oban): o que está sob
+  # teste é o que o bloco **diz**, não como as sessões nascem. Devolve {pacote, agendamentos}.
+  defp pacote_com_sessoes(ctx, instantes) do
+    pkg =
+      Api.Packages.create_package!(
+        %{
+          nome: "Pilates 4",
+          total: 4,
+          falta_punitiva: true,
+          cor: "#0FB5A6",
+          data_inicio: ~D[2026-07-20],
+          patient_id: ctx.paciente.id,
+          appointment_type_id: ctx.tipo.id,
+          grade: %{dows: [1], horarios: %{"1" => "08:00"}, professional_id: ctx.prof.id}
+        },
+        tenant: ctx.clinic.id,
+        actor: ctx.owner
+      )
+
+    appts =
+      Enum.map(instantes, fn starts_at ->
+        {:ok, appt} =
+          Api.Scheduling.schedule_appointment(
+            %{
+              starts_at: starts_at,
+              professional_id: ctx.prof.id,
+              appointment_type_id: ctx.tipo.id,
+              patient_ids: [ctx.paciente.id],
+              package_id: pkg.id
+            },
+            tenant: ctx.clinic.id,
+            authorize?: false
+          )
+
+        appt
+      end)
+
+    {pkg, appts}
+  end
+
   # Sem medir, "otimizei" é alegação — o teto no teste é o que impede a regressão voltar calada.
   defp count_queries(fun, source \\ nil) do
     {_result, n} = Api.QueryCounter.count(fun, source)

@@ -75,6 +75,28 @@ export interface Participant {
 	/** Por que faltou — opcional, texto livre, POR participante (D-H3/D5, doc 64). */
 	motivo: string | null;
 	package_id: string | null;
+	/**
+	 * O pacote **legível** desta presença — `null` quando a sessão é avulsa. O `package_id` ao
+	 * lado é um UUID: não diz que é pacote, não diz qual, e não diz que sessão da série é esta.
+	 */
+	package: PackageSession | null;
+}
+
+/** De que sessão do pacote esta presença é (`Attendance.package_sessao` e companhia). */
+export interface PackageSession {
+	nome: string;
+	/**
+	 * A posição cronológica na série (1 = a primeira). Nula quando o servidor não carregou o
+	 * calculado — a tela então diz "pacote" sem número, em vez de inventar um.
+	 */
+	sessao: number | null;
+	total: number;
+	/**
+	 * Faltar consome sessão neste pacote? Decidido na venda e imutável (RN-30/31). É o que o
+	 * drawer escreve por extenso; o saldo (`Package.restantes`) NÃO viaja aqui — ninguém o exibe,
+	 * e ele custava uma subquery por presença em toda leitura da agenda.
+	 */
+	falta_punitiva: boolean;
 }
 
 /** O profissional como a agenda o consome (subconjunto do diretório). */
@@ -143,11 +165,18 @@ export interface ColumnAvailability extends AvailabilityDay {
 export interface StatusMeta {
 	label: string;
 	/**
-	 * Token de cor do design system (`--color-*`), ou null quando o status não pinta o
-	 * fundo. Guardamos o NOME do token e não um hex porque o tema claro/escuro troca o
-	 * valor em runtime — um hex congelado aqui quebraria o modo escuro.
+	 * Token de cor do design system (`--color-*`). Guardamos o NOME do token e não um hex porque o
+	 * tema claro/escuro troca o valor em runtime — um hex congelado aqui quebraria o modo escuro.
+	 *
+	 * **Todo status tem tom, e nenhum repete o do vizinho.** `agendado` e `cancelado` eram os dois
+	 * `null` ("não pinta o fundo"), e cada tela resolvia esse nulo como `muted` — então dois
+	 * estados opostos ("ainda vai acontecer" / "não vai mais") saíam da mesma cor no ponto do
+	 * cartão, na legenda, na lista e no chip do drawer. O protótipo já os separava
+	 * (`statusMeta` [`:810`]: `muted` para agendado, `faint` para cancelado, que é o de-ênfase de
+	 * quem já saiu da agenda). O `null` sobrou só onde ele significa outra coisa — ver
+	 * `StatusSignal`.
 	 */
-	tone: 'info' | 'teal' | 'success' | 'danger' | null;
+	tone: 'info' | 'teal' | 'success' | 'danger' | 'muted' | 'faint';
 	/** Concluído a 72% de opacidade (protótipo :1672). */
 	dim?: boolean;
 	/** Cancelado sai riscado. */
@@ -166,12 +195,12 @@ export const STATUS_ORDER: readonly AppointmentStatus[] = [
 ] as const;
 
 export const STATUS_META: Record<AppointmentStatus, StatusMeta> = {
-	agendado: { label: 'Agendado', tone: null },
+	agendado: { label: 'Agendado', tone: 'muted' },
 	confirmado: { label: 'Confirmado', tone: 'info' },
 	em_atendimento: { label: 'Em atendimento', tone: 'teal', live: true },
 	concluido: { label: 'Concluído', tone: 'success', dim: true },
 	faltou: { label: 'Faltou', tone: 'danger' },
-	cancelado: { label: 'Cancelado', tone: null, strike: true }
+	cancelado: { label: 'Cancelado', tone: 'faint', strike: true }
 };
 
 // ---------------------------------------------------------------------------
@@ -194,7 +223,12 @@ export const STATUS_META: Record<AppointmentStatus, StatusMeta> = {
 /** O que o ponto e o badge do bloco exibem. Mesma forma do `StatusMeta`, já resolvido. */
 export interface StatusSignal {
 	label: string;
-	tone: StatusMeta['tone'];
+	/**
+	 * O tom do status — ou `null` no ÚNICO caso em que não há status a colorir: a turma mista, em
+	 * que o sinal deixa de ser a palavra e vira a composição ("1 de 4 concluídas"). Aí a cor é
+	 * neutra de propósito: pintar de verde um 1-de-4 é a mesma mentira, só que em cor.
+	 */
+	tone: StatusMeta['tone'] | null;
 	dim?: boolean;
 	strike?: boolean;
 }
@@ -234,6 +268,83 @@ export function statusSignal(
 		// de propósito: pintar de verde um 1-de-4 é a mesma mentira, só que em cor.
 		tone: concluidas === vivas.length ? 'success' : concluidas === 0 ? 'danger' : null,
 		dim: concluidas === vivas.length
+	};
+}
+
+// ---------------------------------------------------------------------------
+// O selo de pacote do bloco
+// ---------------------------------------------------------------------------
+
+/** O que o selo de pacote escreve no cartão. `label` nulo = só o ícone (sem número a dizer). */
+export interface PackageBadge {
+	label: string | null;
+	title: string;
+}
+
+/**
+ * O selo de pacote de um bloco, ou `null` quando nenhuma presença viva veio de pacote.
+ *
+ * O pacote é do PARTICIPANTE, não do bloco (D11) — numa turma cada um consome do seu, e podem ser
+ * pacotes diferentes. Por isso o selo tem duas formas, e o rótulo muda junto com o número:
+ *
+ *  * **um** em pacote (o caso da sessão individual, que é a esmagadora maioria) → a posição na
+ *    série: `3/10`;
+ *  * **mais de um** → a contagem de cabeças. Um `3/10` numa turma de quatro não diria de quem é.
+ *
+ * Presença cancelada não conta: ela saiu do bloco, pela mesma regra do `statusSignal`.
+ */
+export function packageBadge(appt: Pick<Appointment, 'participants'>): PackageBadge | null {
+	const emPacote = appt.participants.filter(
+		(p): p is Participant & { package: PackageSession } =>
+			p.status !== 'cancelada' && p.package != null
+	);
+
+	if (emPacote.length === 0) return null;
+
+	if (emPacote.length > 1) {
+		return { label: String(emPacote.length), title: `${emPacote.length} participantes em pacote` };
+	}
+
+	const { nome, sessao, total } = emPacote[0].package;
+
+	return sessao
+		? { label: `${sessao}/${total}`, title: `Pacote ${nome} · sessão ${sessao} de ${total}` }
+		: { label: null, title: `Pacote ${nome}` };
+}
+
+/** A frase do débito e o tom dela. `tone` nulo = ainda não aconteceu (é previsão, não fato). */
+export interface PackageDebit {
+	label: string;
+	tone: 'success' | 'danger' | null;
+}
+
+/**
+ * O que o pacote desta presença ganhou ou perdeu — a pergunta que a recepção faz em voz alta
+ * quando alguém falta ("isso vai descontar do pacote dela?").
+ *
+ * A regra é do servidor (RN-29/30/31, o agregado `Package.usadas`); aqui só se ESCREVE o que ela
+ * já decidiu, a partir dos três fatos que viajam com a presença: o status, a justificativa e se o
+ * pacote é punitivo. Nada é calculado duas vezes — `restantes` vem pronto do domínio.
+ *
+ * Antes do desfecho a frase é PREVISÃO (tom neutro), e ela existe justamente aí: "faltar hoje
+ * consome uma das 10" é o que muda a conversa com o paciente **antes** da falta, não depois.
+ */
+export function packageDebit(p: Participant): PackageDebit | null {
+	if (!p.package || p.status === 'cancelada') return null;
+
+	const punitiva = p.package.falta_punitiva;
+
+	if (p.status === 'concluida') return { label: 'Sessão debitada do pacote', tone: 'success' };
+
+	if (p.status === 'faltou') {
+		if (p.falta_justificada) return { label: 'Falta justificada — não debitou', tone: 'success' };
+		if (!punitiva) return { label: 'Falta não debita neste pacote', tone: 'success' };
+		return { label: 'Esta falta debitou 1 sessão', tone: 'danger' };
+	}
+
+	return {
+		label: punitiva ? 'Falta debita 1 sessão deste pacote' : 'Falta não debita neste pacote',
+		tone: null
 	};
 }
 
@@ -367,6 +478,27 @@ const LABEL_FMT = new Intl.DateTimeFormat('pt-BR', {
 export function dayLabel(date: string, today: string): string {
 	const label = LABEL_FMT.format(new Date(`${date}T12:00:00Z`));
 	return date === today ? `${label} · hoje` : label;
+}
+
+const SHORT_FMT = new Intl.DateTimeFormat('pt-BR', {
+	weekday: 'short',
+	day: '2-digit',
+	month: '2-digit',
+	timeZone: 'UTC'
+});
+
+/**
+ * "qui, 25/06" — a versão curta, para onde a data é contexto e não título.
+ *
+ * Existe pelo drawer: ele mostrava só `10:00–10:50` porque a data estava no cabeçalho da agenda,
+ * atrás dele. No celular o painel é `max-w-full` e cobre esse cabeçalho — quem abria um bloco
+ * ficava sem saber de que dia ele era.
+ */
+export function shortDayLabel(date: string, today: string): string {
+	// O `Intl` do pt-BR devolve "qui., 25/06"; o ponto da abreviação some porque a linha já é
+	// densa e ele não carrega informação.
+	const label = SHORT_FMT.format(new Date(`${date}T12:00:00Z`)).replace('.', '');
+	return date === today ? 'hoje' : label;
 }
 
 // ---------------------------------------------------------------------------

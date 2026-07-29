@@ -563,11 +563,15 @@ defmodule Api.Scheduling.AppointmentTest do
 
       {:ok, _} = schedule(ctx, %{appointment_type_id: turma.id})
 
-      {:ok, _} =
-        schedule(ctx, %{appointment_type_id: turma.id, patient_ids: [novo_paciente(ctx).id]})
+      entrou = novo_paciente(ctx)
 
+      {:ok, _} = schedule(ctx, %{appointment_type_id: turma.id, patient_ids: [entrou.id]})
+
+      # UMA linha, a de quem entrou: a presença que nasceu junto com a turma não é evento próprio
+      # (quem conta esse fato é "Criou o agendamento", que já nomeia quem está nele).
       %{entries: entries} = Api.Audit.list_events(ctx.scope, resource: :attendance)
-      assert [_, _] = entries
+      assert [evento] = entries
+      assert evento.patient.id == entrou.id
     end
   end
 
@@ -746,12 +750,28 @@ defmodule Api.Scheduling.AppointmentTest do
       assert evento.actor.id == ctx.owner.id
     end
 
-    test "o participante também gera evento (A-D14)" do
+    # Quem entra numa turma que já existe deixa o seu — e é a única linha que diz QUEM entrou (a
+    # do bloco, "Adicionou um participante", não nomeia ninguém). Já a presença que NASCE com o
+    # bloco não é evento próprio: "Criou o agendamento" conta o mesmo fato e já mostra a turma, e
+    # as duas linhas saíam no mesmo instante, dizendo a mesma coisa.
+    test "o participante que entra depois gera evento; o que nasce com o bloco, não (A-D14)" do
       ctx = setup_clinic()
-      {:ok, _appt} = schedule(ctx, %{})
+      turma = grupo_tipo(ctx, 4)
+      {:ok, appt} = schedule(ctx, %{appointment_type_id: turma.id})
+
+      assert %{entries: []} = Api.Audit.list_events(ctx.scope, resource: :attendance)
+
+      entrou = novo_paciente(ctx)
+
+      {:ok, _} =
+        Scheduling.add_appointment_participants(appt, %{patient_ids: [entrou.id]},
+          scope: ctx.scope
+        )
 
       %{entries: entries} = Api.Audit.list_events(ctx.scope, resource: :attendance)
-      assert [_] = entries
+      assert [evento] = entries
+      assert evento.action == "create"
+      assert evento.patient.id == entrou.id
     end
   end
 

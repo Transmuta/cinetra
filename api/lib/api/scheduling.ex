@@ -84,6 +84,26 @@ defmodule Api.Scheduling do
     # vive em `Api.Waitlist`, que consome estas interfaces.
   end
 
+  @doc """
+  O `load` do bloco **como ele sai para a fronteira** — as presenças com o que o cartão da agenda
+  precisa dizer sobre o pacote (`Attendance.package_sessao` e companhia).
+
+  É uma lista só, e não `load: [:attendances]` repetido em cada porta, pelo mesmo motivo que a
+  serialização é uma só (`ApiWeb.AgendaJSON`): o bloco sai por quatro caminhos — o GET da janela,
+  o POST que cria, as transições e o push do canal — e um `load` que divergisse entre eles faria
+  o cartão **perder** o pacote na primeira vez que alguém marcasse presença. O defeito só
+  apareceria depois da escrita, que é o que nenhum teste do GET percorre.
+  """
+  def bloco_load,
+    do: [
+      attendances: [
+        :package_nome,
+        :package_total,
+        :package_sessao,
+        :package_falta_punitiva
+      ]
+    ]
+
   # ---- Agenda: escrita ----
 
   @doc """
@@ -293,7 +313,7 @@ defmodule Api.Scheduling do
 
   defp fetch_for_transition(scope, id, expected_version) do
     case in_clinic(scope, fn ->
-           get_appointment(id, scope: scope, load: [:attendances], not_found_error?: false)
+           get_appointment(id, scope: scope, load: bloco_load(), not_found_error?: false)
          end) do
       {:ok, %{} = appt} ->
         if version_ok?(appt, expected_version),
@@ -324,7 +344,7 @@ defmodule Api.Scheduling do
     do: %{updated | attendances: att}
 
   defp com_attendances(updated, _appt, scope),
-    do: in_clinic(scope, fn -> Ash.load!(updated, [:attendances], scope: scope) end)
+    do: in_clinic(scope, fn -> Ash.load!(updated, bloco_load(), scope: scope) end)
 
   defp version_ok?(_appt, nil), do: true
   defp version_ok?(%{version: version}, expected), do: version == expected
@@ -382,7 +402,7 @@ defmodule Api.Scheduling do
       # frio de uma transição.
       {:ok,
        in_clinic(scope, fn ->
-         get_appointment!(appointment_id, scope: scope, load: [:attendances])
+         get_appointment!(appointment_id, scope: scope, load: bloco_load())
        end)}
     end
   end
@@ -553,7 +573,7 @@ defmodule Api.Scheduling do
         list_appointments!(from, to,
           scope: scope,
           query: [filter: Keyword.get(opts, :filter, [])],
-          load: [:attendances]
+          load: bloco_load()
         )
 
       %{
@@ -582,7 +602,7 @@ defmodule Api.Scheduling do
   def load_visible_appointment(%Api.Scope{} = scope, appointment_id)
       when is_binary(appointment_id) do
     in_clinic(scope, fn ->
-      case get_appointment(appointment_id, scope: scope, load: [:attendances]) do
+      case get_appointment(appointment_id, scope: scope, load: bloco_load()) do
         {:ok, appointment} ->
           %{appointment: appointment, patients: patients_for(scope, [appointment])}
 
@@ -1366,9 +1386,20 @@ defmodule Api.Scheduling do
   Seed do expediente inicial de uma clínica (do `Clinic.onboard`). Recebe `clinic_id` cru — e
   não um `Api.Scope` — porque roda no `onboard`, quando o tenant acabou de nascer e ainda não
   há escopo. A GUC de cada upsert é setada pelo `SetTenantGuc` da própria ação.
+
+  `audit_cascade` cala a trilha destes sete upserts (ver `Api.Audit.Capture`): a semana padrão
+  não é decisão de ninguém, e sete "Mudou o expediente" no minuto zero da clínica afogavam a
+  única linha que conta o fato — "Criou a clínica". Mudar um dia depois tem linha própria.
   """
   def seed_clinic_hours(clinic_id, week) when is_binary(clinic_id) and is_list(week) do
-    Enum.map(week, &set_clinic_hours_day!(&1, tenant: clinic_id, authorize?: false))
+    Enum.map(
+      week,
+      &set_clinic_hours_day!(&1,
+        tenant: clinic_id,
+        authorize?: false,
+        context: %{audit_cascade: true}
+      )
+    )
   end
 
   # ---- ScheduleException (feriados/exceções da clínica) ----

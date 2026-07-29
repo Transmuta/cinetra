@@ -106,9 +106,12 @@
 
 			<!-- O terceiro bloco existe porque a fatia INVENTOU um sinal e quase o deixou de fora
 			     desta legenda: numa turma já registrada o badge deixa de ser a palavra do status e
-			     vira a composição (D13). O ponto que a acompanha é NEUTRO quando a turma é mista — a
-			     mesma cor de "Agendado" e "Cancelado". Três estados, uma cor: sem esta linha, a
-			     legenda reproduziria o HOM-002 dentro da própria correção dele. -->
+			     vira a composição (D13). O ponto que a acompanha é NEUTRO quando a turma é mista — o
+			     mesmo cinza de "Agendado". Dois sinais, uma cor: sem esta linha, a legenda
+			     reproduziria o HOM-002 dentro da própria correção dele.
+
+			     (Eram TRÊS até "Cancelado" ganhar o `faint` que o protótipo já lhe dava — agendado e
+			     cancelado, que são estados opostos, saíam idênticos no ponto.) -->
 			<div class="flex flex-wrap items-center gap-x-2.5 gap-y-1">
 				<span class="text-[10px] font-semibold tracking-wide text-faint uppercase">Turma</span>
 				<span class="flex items-center gap-1 text-[11px] text-muted">

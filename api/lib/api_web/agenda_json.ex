@@ -87,10 +87,37 @@ defmodule ApiWeb.AgendaJSON do
         falta_justificada: att.falta_justificada,
         # O motivo da falta viaja por participante (D-H3/D5) — na turma, cada um tem o seu.
         motivo: att.motivo,
-        package_id: att.package_id
+        package_id: att.package_id,
+        package: package(att)
       }
     end)
   end
 
   defp participants(_appt), do: []
+
+  # "Isto é a sessão 3 de 10 do Pilates" — o que o cartão da agenda precisa dizer e o
+  # `package_id` sozinho (um UUID) não diz. Nulo quando a sessão é avulsa.
+  #
+  # Também nulo quando os calculados não foram carregados: só as portas do bloco pedem o
+  # `Api.Scheduling.bloco_load/0`, e uma serialização que estourasse em `%Ash.NotLoaded{}`
+  # transformaria "esqueci um load" em 500 numa porta lateral. Degrada para o que havia antes —
+  # o `package_id` continua lá.
+  defp package(%{package_id: nil}), do: nil
+
+  defp package(%{package_nome: nome, package_total: total} = att)
+       when is_binary(nome) and is_integer(total) do
+    sessao = att.package_sessao
+
+    %{
+      nome: nome,
+      total: total,
+      sessao: if(is_integer(sessao) and sessao > 0, do: sessao),
+      # A regra da falta é do DRAWER (o cartão usa só `sessao/total`), mas viaja aqui e não num
+      # segundo endpoint: é um campo por presença no mesmo SELECT, contra uma ida a mais ao
+      # servidor toda vez que alguém abre um bloco.
+      falta_punitiva: att.package_falta_punitiva == true
+    }
+  end
+
+  defp package(_att), do: nil
 end

@@ -27,6 +27,9 @@ import {
 	patientNameMap,
 	participantActions,
 	resolvedCount,
+	packageBadge,
+	packageDebit,
+	shortDayLabel,
 	type Appointment,
 	type Participant
 } from './agenda';
@@ -74,9 +77,19 @@ describe('STATUS_META', () => {
 		expect(STATUS_META.em_atendimento.live).toBe(true);
 	});
 
-	it('agendado e cancelado não pintam o fundo (tone nulo)', () => {
-		expect(STATUS_META.agendado.tone).toBeNull();
-		expect(STATUS_META.cancelado.tone).toBeNull();
+	// Cada status tem a SUA cor. `agendado` e `cancelado` viviam os dois com `tone: null` — que a
+	// tela resolvia como `muted` —, então dois estados opostos ("ainda vai acontecer" e "não vai
+	// mais") saíam pintados igual no ponto do cartão, na legenda e no chip do drawer. O protótipo
+	// já os separava (`statusMeta` :810: `muted` para agendado, `faint` para cancelado).
+	it('cada status tem cor própria — nenhuma repetida', () => {
+		const tons = STATUS_ORDER.map((s) => STATUS_META[s].tone);
+		expect(tons).toEqual(['muted', 'info', 'teal', 'success', 'danger', 'faint']);
+		expect(new Set(tons).size).toBe(STATUS_ORDER.length);
+	});
+
+	// Ninguém mais precisa traduzir "sem tom" para uma cor na hora de desenhar: o tom É o token.
+	it('nenhum status fica sem tom', () => {
+		for (const s of STATUS_ORDER) expect(STATUS_META[s].tone).toBeTruthy();
 	});
 });
 
@@ -154,6 +167,16 @@ describe('todayInZone / shiftDate / dayLabel', () => {
 
 	it('quando a data é hoje, ganha o sufixo " · hoje"', () => {
 		expect(dayLabel('2026-06-25', '2026-06-25')).toBe('quinta-feira, 25 de junho · hoje');
+	});
+
+	// A versão curta é do drawer, onde a data é contexto e não título — no celular o painel cobre
+	// o cabeçalho da agenda, que é onde o dia estava.
+	it('shortDayLabel é curto e sem ponto de abreviação', () => {
+		expect(shortDayLabel('2026-06-25', '2026-01-01')).toBe('qui, 25/06');
+	});
+
+	it('shortDayLabel troca a data por "hoje" quando é o dia corrente', () => {
+		expect(shortDayLabel('2026-06-25', '2026-06-25')).toBe('hoje');
 	});
 });
 
@@ -548,7 +571,8 @@ describe('ciclo de vida (Entrega 4)', () => {
 			patient_id: 'pac1',
 			status: 'prevista',
 			falta_justificada: false, motivo: null,
-			package_id: null
+			package_id: null,
+			package: null
 		};
 
 		it('antes de a sessão começar, presente/faltou ficam desabilitados com o title', () => {
@@ -600,4 +624,142 @@ describe('ciclo de vida (Entrega 4)', () => {
 		});
 	});
 
+	// O cartão dizia só horário, nome e tipo: um bloco de pacote era indistinguível de um avulso,
+	// e "que sessão é esta?" só se respondia abrindo a ficha do paciente.
+	describe('packageBadge', () => {
+		const avulso: Participant = {
+			patient_id: 'pac1',
+			status: 'prevista',
+			falta_justificada: false,
+			motivo: null,
+			package_id: null,
+			package: null
+		};
+
+		const doPacote: Participant = {
+			...avulso,
+			package_id: 'k1',
+			package: { nome: 'Pilates 10', sessao: 3, total: 10, falta_punitiva: true }
+		};
+
+		it('sessão avulsa não tem selo', () => {
+			expect(packageBadge(appt({ participants: [avulso] }))).toBeNull();
+			expect(packageBadge(appt())).toBeNull();
+		});
+
+		it('a sessão de pacote diz a posição e o total', () => {
+			const selo = packageBadge(appt({ participants: [doPacote] }));
+			expect(selo?.label).toBe('3/10');
+			expect(selo?.title).toBe('Pacote Pilates 10 · sessão 3 de 10');
+		});
+
+		// O pacote é do participante (D11): numa turma cada um consome do seu, e um "3/10" solto
+		// no cartão não diria de quem é. Vira contagem — e o número só muda de significado junto
+		// com o rótulo, nunca calado.
+		it('turma com mais de um em pacote conta cabeças, não sessões', () => {
+			const selo = packageBadge(
+				appt({
+					participants: [
+						doPacote,
+						{
+							...doPacote,
+							patient_id: 'pac2',
+							package: { nome: 'RPG 8', sessao: 1, total: 8, falta_punitiva: false }
+						},
+						avulso
+					]
+				})
+			);
+			expect(selo?.label).toBe('2');
+			expect(selo?.title).toBe('2 participantes em pacote');
+		});
+
+		// Presença cancelada saiu do bloco (mesma regra do `statusSignal`): o pacote dela não é
+		// mais desta sessão.
+		it('presença cancelada não conta como pacote do bloco', () => {
+			expect(packageBadge(appt({ participants: [{ ...doPacote, status: 'cancelada' }] }))).toBeNull();
+		});
+
+		// `sessao` chega nulo se o servidor não carregou o calculado (uma porta lateral do bloco).
+		// O selo continua dizendo o que sabe — "isto é pacote" — sem inventar número.
+		it('sem a posição, o selo existe mas não mente', () => {
+			const selo = packageBadge(
+				appt({
+					participants: [
+						{
+							...doPacote,
+							package: { nome: 'Pilates 10', sessao: null, total: 10, falta_punitiva: true }
+						}
+					]
+				})
+			);
+			expect(selo?.label).toBeNull();
+			expect(selo?.title).toBe('Pacote Pilates 10');
+		});
+	});
+
+	// "Isso vai descontar do pacote dela?" — a pergunta que a recepção faz em voz alta quando
+	// alguém falta. A regra (RN-29/30/31) é do servidor; aqui só se escreve o que ela decidiu.
+	describe('packageDebit', () => {
+		const base: Participant = {
+			patient_id: 'pac1',
+			status: 'prevista',
+			falta_justificada: false,
+			motivo: null,
+			package_id: 'k1',
+			package: { nome: 'Pilates 10', sessao: 3, total: 10, falta_punitiva: true }
+		};
+
+		const semPacote: Participant = { ...base, package_id: null, package: null };
+
+		it('sem pacote não há o que dizer', () => {
+			expect(packageDebit(semPacote)).toBeNull();
+		});
+
+		it('presença cancelada saiu do bloco — não fala do pacote dela', () => {
+			expect(packageDebit({ ...base, status: 'cancelada' })).toBeNull();
+		});
+
+		it('concluída debitou', () => {
+			expect(packageDebit({ ...base, status: 'concluida' })).toEqual({
+				label: 'Sessão debitada do pacote',
+				tone: 'success'
+			});
+		});
+
+		it('falta punitiva sem justificativa debita, e o tom avisa', () => {
+			expect(packageDebit({ ...base, status: 'faltou' })).toEqual({
+				label: 'Esta falta debitou 1 sessão',
+				tone: 'danger'
+			});
+		});
+
+		it('justificar devolve a sessão — é o que o switch do drawer faz', () => {
+			expect(packageDebit({ ...base, status: 'faltou', falta_justificada: true })).toEqual({
+				label: 'Falta justificada — não debitou',
+				tone: 'success'
+			});
+		});
+
+		// `falta_punitiva` é do PACOTE e imutável (RN-30/31): num não-punitivo a falta nunca
+		// debita, justificada ou não.
+		it('pacote não punitivo não debita falta nenhuma', () => {
+			const naoPunitivo = {
+				...base,
+				status: 'faltou' as const,
+				package: { ...base.package!, falta_punitiva: false }
+			};
+			expect(packageDebit(naoPunitivo)?.tone).toBe('success');
+			expect(packageDebit(naoPunitivo)?.label).toBe('Falta não debita neste pacote');
+		});
+
+		// Antes do desfecho a frase é PREVISÃO, e é aí que ela vale: dizer "faltar hoje consome
+		// uma das 10" muda a conversa com o paciente ANTES da falta. Tom neutro — não aconteceu.
+		it('antes do desfecho, prevê sem alarmar', () => {
+			expect(packageDebit(base)).toEqual({
+				label: 'Falta debita 1 sessão deste pacote',
+				tone: null
+			});
+		});
+	});
 });

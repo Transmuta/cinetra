@@ -220,9 +220,16 @@ defmodule Api.Scheduling.Attendance do
     change Api.Tenancy.SetTenantGuc
 
     # A trilha (doc 63) — ver a nota gêmea em `Appointment` sobre a saída do `AshPaperTrail`.
+    #
+    # `pkg_hold` é gancho interno da série (a pausa do pacote segura a presença), como no bloco:
+    # não é decisão de ninguém, e com ele fora do diff a escrita de `set_pkg_hold` fica vazia e
+    # cala pelo `skip_unchanged`. Quem conta esse fato é "Pausou o pacote", uma linha só em vez de
+    # uma por sessão.
     change {Api.Audit.Capture,
             resource: :attendance,
-            meta: [:patient_id, :appointment_id, :package_id, :status, :session_starts_at]},
+            meta: [:patient_id, :appointment_id, :package_id, :status, :session_starts_at],
+            ignore: [:pkg_hold],
+            skip_unchanged: [:set_pkg_hold]},
            on: [:create, :update, :destroy]
   end
 
@@ -289,12 +296,58 @@ defmodule Api.Scheduling.Attendance do
       attribute_writable? true
       public? true
     end
+
+    # As **irmãs**: as outras presenças do mesmo pacote (inclusive esta). Existe para uma pergunta
+    # só — "de que sessão do pacote estamos falando?" —, respondida pela calculate
+    # `:package_sessao`. É auto-referência por `package_id` nos dois lados, então presença avulsa
+    # (`package_id` nulo) não casa nada, que é o comportamento desejado.
+    has_many :package_siblings, __MODULE__ do
+      source_attribute :package_id
+      destination_attribute :package_id
+    end
   end
 
   calculations do
     # O mesmo predicado do `viva?/1`, para quem pergunta ao **banco** (`filter: [viva?: true]`) em
     # vez de a uma lista já carregada. `expr` desce para o SQL.
     calculate :viva?, :boolean, expr(status not in ^@mortas)
+
+    # ---- "de que sessão do pacote estamos falando?" (o cartão da agenda) ----
+    #
+    # O bloco carregava só o `package_id` — um UUID, que não diz nem que é pacote nem qual sessão
+    # é. Estas três respondem isso sem uma segunda leitura na fronteira: descem no mesmo SELECT
+    # das presenças, e por isso saem iguais pelas quatro portas do bloco (GET, POST, transição e
+    # push do canal), que é o que o moduledoc do `ApiWeb.AgendaJSON` exige.
+    calculate :package_nome, :string, expr(package.nome)
+    calculate :package_total, :integer, expr(package.total)
+
+    # O que o **drawer** pergunta e o `sessao/total` não responde: faltar nesta sessão consome uma
+    # do pacote (RN-30/31)? É a pergunta do balcão, e a resposta é um `boolean` do pacote.
+    #
+    # O saldo (`package.restantes`) chegou a viajar aqui e **saiu**: o drawer deixou de exibi-lo
+    # (a caixa dizia três coisas onde cabiam duas), e campo que ninguém lê é payload morto — com
+    # agravante, porque `restantes` deriva do agregado `usadas` e custava uma subquery por presença
+    # em toda leitura da agenda. Se voltar a ser exibido, volta em uma linha.
+    calculate :package_falta_punitiva, :boolean, expr(package.falta_punitiva)
+
+    # A posição CRONOLÓGICA desta sessão dentro do pacote: quantas sessões do mesmo pacote começam
+    # até ela (inclusive). Contar em vez de guardar um índice é o que faz o número continuar certo
+    # depois de uma remarcação — a sessão que foi para depois da seguinte troca de lugar com ela,
+    # e um `indice` gravado na criação passaria a mentir. É o mesmo raciocínio do `usadas` do
+    # pacote, que o protótipo mantinha à mão e dessincronizava (`package.ex:15`).
+    #
+    # Conta pela relação `:package_siblings` (auto-referência por `package_id`), e não por um
+    # agregado sem relação sobre a própria tabela: **medido** — o agregado desrelacionado perde o
+    # tenant no caminho do AshSql (`handle_attribute_multitenancy` compara o ref a `nil` e avisa),
+    # e a subquery voltava vazia, dando `sessao: nil` com o pacote carregado ao lado. Pela relação,
+    # o corte por `clinic_id` (ADR-017) desce junto.
+    calculate :package_sessao,
+              :integer,
+              expr(
+                count(package_siblings,
+                  query: [filter: expr(session_starts_at <= parent(session_starts_at))]
+                )
+              )
   end
 
   identities do
