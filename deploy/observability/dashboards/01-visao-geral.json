@@ -1,0 +1,362 @@
+{
+  "uid": "cinetra-visao-geral",
+  "title": "Cinetra · Visão geral",
+  "description": "A tela de 30 segundos: dá para trabalhar agora? Tudo derivado de log (doc 62 §10.3) — quando a fase de métricas chegar, estes números virão do Prometheus, mais baratos e com retenção maior.",
+  "tags": [
+    "cinetra",
+    "logs"
+  ],
+  "timezone": "browser",
+  "refresh": "1m",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "env",
+        "label": "Ambiente",
+        "description": "Preenchido a partir dos rótulos que existem no Loki. Fixar 'prod' fazia todo painel abrir vazio em dev — o dashboard tem de se adaptar ao que há, não ao que se esperava haver.",
+        "type": "query",
+        "datasource": {
+          "type": "loki",
+          "uid": "loki"
+        },
+        "query": "label_values(env)",
+        "refresh": 1,
+        "sort": 1,
+        "includeAll": false,
+        "multi": false,
+        "current": {},
+        "options": [],
+        "definition": "label_values(env)"
+      },
+      {
+        "name": "parser",
+        "label": "Formato do log",
+        "description": "json em produção (LoggerJSON); logfmt em dev, onde a API loga texto legível. Existe para o mesmo painel ser verificável nos dois ambientes — dashboard que só dá para conferir depois do deploy não é conferível.",
+        "type": "custom",
+        "query": "json,logfmt",
+        "current": {
+          "text": "json",
+          "value": "json"
+        },
+        "options": [
+          {
+            "text": "json",
+            "value": "json",
+            "selected": true
+          },
+          {
+            "text": "logfmt",
+            "value": "logfmt",
+            "selected": false
+          }
+        ]
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Erros (5xx + crash) por minuto",
+      "description": "O número que decide se há incidente. 5xx é falha nossa; erro de cliente (4xx) não entra de propósito — 401 de sessão expirada e 422 de formulário são rotina.",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate({env=\"$env\", level=\"error\"} [5m])) * 60"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Requisições por minuto",
+      "description": "Volume da API. Uma queda abrupta é tão suspeita quanto um pico: pode ser o BFF fora, não silêncio de usuários.",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate({env=\"$env\", service=~\".*api.*\"} |= \"requisição\" [5m])) * 60"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0
+        }
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "p95 de latência (ms)",
+      "description": "Percentil sobre o campo duration_ms do evento de requisição. Só existe porque o RequestLogger emite UM evento com todos os campos — com as duas linhas originais do Phoenix isto exigiria correlacionar por request_id.",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "quantile_over_time(0.95, {env=\"$env\", service=~\".*api.*\"} | $parser | unwrap duration_ms [5m]) by ()"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 400
+              },
+              {
+                "color": "red",
+                "value": 1500
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Crashes no browser / min",
+      "description": "Erro que acontece na máquina do usuário e que NENHUM outro sinal enxerga. Zero aqui é o normal; qualquer valor sustentado é uma tela quebrada na recepção de alguém.",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate({env=\"$env\"} |= \"erro no browser\" [5m])) * 60"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.2
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Requisições por status",
+      "description": "A forma da barra conta a história: 5xx subindo é incidente; 4xx subindo sozinho costuma ser robô, cliente desatualizado ou rate limit.",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 5
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "legendFormat": "{{status}}",
+          "expr": "sum by (status) (count_over_time({env=\"$env\", service=~\".*api.*\"} | $parser | status != \"\" [$__auto]))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "stacking": {
+              "mode": "normal"
+            },
+            "fillOpacity": 80,
+            "lineWidth": 0
+          }
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Latência p50 · p95 · p99 (ms)",
+      "description": "p99 subindo com p50 estável significa cauda: alguma rota específica degradou. Os dois subindo juntos é o sistema como um todo.",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 5
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "legendFormat": "p50",
+          "expr": "quantile_over_time(0.50, {env=\"$env\", service=~\".*api.*\"} | $parser | unwrap duration_ms [$__auto]) by ()"
+        },
+        {
+          "refId": "B",
+          "legendFormat": "p95",
+          "expr": "quantile_over_time(0.95, {env=\"$env\", service=~\".*api.*\"} | $parser | unwrap duration_ms [$__auto]) by ()"
+        },
+        {
+          "refId": "C",
+          "legendFormat": "p99",
+          "expr": "quantile_over_time(0.99, {env=\"$env\", service=~\".*api.*\"} | $parser | unwrap duration_ms [$__auto]) by ()"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10
+          }
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "logs",
+      "title": "Últimos erros",
+      "description": "A lista para onde se olha depois que um dos números acima acendeu.",
+      "gridPos": {
+        "h": 11,
+        "w": 24,
+        "x": 0,
+        "y": 14
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{env=\"$env\", level=\"error\"}"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none"
+      }
+    }
+  ],
+  "schemaVersion": 39,
+  "version": 1
+}

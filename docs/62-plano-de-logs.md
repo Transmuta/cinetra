@@ -3,12 +3,12 @@
 > Plano de execução, 2026-07-28. Fecha a primeira das lacunas levantadas em
 > [`05-observabilidade-e-producao.md`](05-observabilidade-e-producao.md), que segue como intenção
 > desde antes de existir código. Escopo deste documento: **logs**. Métricas e tracing ficam para
-> um doc irmão — a ordem é deliberada e está justificada na §11.
+> um doc irmão — a ordem é deliberada e está justificada na §12.
 
 O estado de hoje em uma frase: o log é texto plano no stdout de um container, sem agregação, sem
 retenção e sem ninguém olhando. Se a API cair de madrugada, o motivo está numa máquina que talvez
 já tenha reiniciado. Este plano troca isso por uma agregação com 30 dias de retenção, rodando
-**fora da caixa que ela observa** e **dentro do país**.
+**dentro do país** e numa máquina só (ver §3.1 — a segunda VM foi revertida).
 
 ---
 
@@ -80,83 +80,121 @@ Cortar na origem, não na consulta: evento filtrado não custa rede, disco nem r
 
 ## 3. Recurso do servidor — a resposta direta
 
-### 3.1 Duas VMs, não uma
+### 3.1 Uma máquina, não duas (revisão de 2026-07-28)
 
-A cota Always Free do Ampere A1 é **4 OCPU + 24 GB**, e pode ser dividida em até 4 instâncias
-(confirmar no console da OCI antes de provisionar — os termos do free tier mudam). A divisão
-recomendada, que mantém tudo em Vinhedo e custa R$ 0:
+**A primeira versão deste documento pedia uma segunda VM. Estava exagerado.** O argumento era
+"observabilidade junto com o app fica cega quando o app cai". Revisando cada metade dele:
 
-| VM | Shape | Papel |
+- **Perda total da máquina** — quem avisa é o monitor **externo** (§9), não o Loki. E os logs de
+  antes do crash já estão no R2, não no disco local. **A durabilidade vem do object storage, não
+  da segunda VM** — foi a peça que eu tinha atribuído à máquina errada.
+- **Falha de aplicação** (OOM de container, crash loop) — este é o caso real que a separação
+  cobria. E ele se resolve com **limite de memória por container**, que é uma linha de compose.
+
+O custo da separação, por outro lado, era concreto: outra máquina para provisionar, corrigir e
+firewallar, a divisão do disco de 200 GB em porta de mão única, rede entre VMs — e, medido no
+mesmo dia, **duas rodadas de depuração** por DNS entre projetos do compose, uma delas com o agente
+parado sem que nada avisasse.
+
+Fica **uma VM (4 OCPU / 24 GB, 200 GB)** com tudo, e três salvaguardas que fazem o trabalho que a
+separação faria:
+
+| Salvaguarda | Contra o quê | |
 |---|---|---|
-| `app` | **3 OCPU / 18 GB** | Dokploy, Traefik, Postgres, API + web de prod e de HML |
-| `obs` | **1 OCPU / 6 GB** | Loki, Grafana, Prometheus (quando a fase de métricas chegar) |
+| `mem_limit` por container | um componente estrangular os outros por memória | §3.2 |
+| **Teto de disco** para o Loki | o log encher o disco e **derrubar o Postgres** | §3.4 |
+| Monitor **externo** | perder a máquina inteira sem ninguém saber | §9 |
+| *(opcional)* chunks no R2 | perder os 30 dias junto com a máquina | §3.3 |
 
-O A1 usa shape flexível na proporção de 6 GB por OCPU, então essa divisão é a natural.
+As duas primeiras existem porque o log agora divide a máquina com o banco — são elas que fazem o
+trabalho que a separação física faria. A terceira é a única que **não** pode viver aqui dentro,
+por um motivo que nenhum limite resolve: um vigia hospedado no que ele vigia não manda o alerta
+que importa.
 
-**Por que não na mesma máquina.** Observabilidade que roda junto com o app fica cega exatamente
-quando é necessária: OOM, disco cheio, crash loop, daemon do Docker travado. Esses são os modos de
-falha mais prováveis numa máquina que já vai hospedar prod + HML + Postgres + Traefik — o próprio
-[`59`](59-deploy-dokploy-oci.md) lista disco/memória como risco #5. A segunda VM não protege contra
-a região inteira cair, e não precisa: esse caso é coberto pela camada externa da §9.
+### 3.2 Quanto custa, medido
 
-**18 GB sobram para o app?** Sobram. O consumo é da ordem de 1–2 GB de Postgres, 300–500 MB por
-release Elixir, 150–300 MB por instância de SvelteKit, ~100 MB de Traefik e ~1 GB do Dokploy. O pico
-real é o **build** da imagem Elixir, que é guloso; 18 GB absorve com folga.
-
-### 3.2 Memória e disco da VM de observabilidade
-
-| Componente | RAM em regime | Nota |
+| Componente | Limite | Uso real medido |
 |---|---|---|
-| Loki (single binary, monolítico) | 512 MB – 1 GB | Ingestão neste volume é trivial; o pico é consulta longa |
-| Grafana | 256 – 512 MB | |
-| Prometheus *(fase de métricas)* | 1 – 1,5 GB | Reservado agora para não precisar redimensionar depois |
-| SO + daemon do Docker | 700 MB – 1 GB | |
-| **Total em regime** | **≈ 3–4 GB** | Sobra em 6 GB deixa a porta aberta para o Tempo (traces) depois |
+| Loki | 1,5 GB | ~200 MB |
+| Grafana | 512 MB | ~340 MB |
+| Alloy | 256 MB | ~210 MB |
+| **Total** | **~2,2 GB de teto** | **~750 MB em uso** |
 
-O agente coletor roda na **VM do app**, não nesta: some **128–256 MB** lá.
+Numa máquina de 24 GB, a observabilidade inteira custa **~3% da memória** no pior caso. O que
+sobra segue para Postgres, os dois ambientes da aplicação e o pico de build do release Elixir,
+que é o maior consumidor da caixa.
 
-**Disco — a restrição escondida.** O Always Free dá **200 GB de block storage no total, somados
-todos os volumes**. O [`59`](59-deploy-dokploy-oci.md) planejou 100–150 GB pensando em uma máquina
-só; com duas, esse número precisa encolher. A repartição recomendada:
+### 3.3 Onde os chunks ficam: disco local (padrão) ou R2
 
-| VM | Boot volume | Consumo previsto |
-|---|---|---|
-| `app` | **100 GB** | imagens Docker de 2 ambientes, build cache, `pgdata`, logs locais rotacionados |
-| `obs` | **100 GB** | SO + Docker ~10 GB · Loki ≤ 10 GB (teto de projeto) · Prometheus ~10 GB · folga |
+**DECIDIDO (2026-07-28): disco da própria máquina** (`LOKI_OBJECT_STORE=filesystem`). Sem bucket a
+criar, credencial a rodar ou endpoint a configurar — e é o padrão, então não há o que ligar.
 
-**Decidido meio a meio (2026-07-28).** Cabe nos dois lados com folga larga: a `obs` usa ~30 GB dos
-100 mesmo no teto do projeto, e a `app` fica na casa dos 30 GB em regime. A folga da `obs` não é
-desperdício — é o que permite esticar a retenção ou acrescentar o Tempo (traces) depois sem
-redimensionar nada.
+Medido em 2026-07-28: 17,7 MB recebidos ocuparam 1,58 MB de chunks (+1,3 MB de WAL ainda não
+descarregado) — **~6× de compressão**, exatamente a premissa da §2. Extrapolando para o teto do
+projeto, 30 dias cabem em **~6 GB**. Num volume de 200 GB isso é irrelevante.
 
-A variável de verdade do lado da `app` não é o dado, é o **build cache do Docker**: o Dokploy
-constrói na própria máquina, e release Elixir de dois ambientes acumula rápido. O
-`docker system prune` agendado que o [`59`](59-deploy-dokploy-oci.md) já prevê (risco #5) deixa de
-ser higiene e passa a ser o que mantém os 100 GB confortáveis.
+**O que se perde:** com disco local, os 30 dias morrem junto com a máquina. O backup horário cobre
+o **Postgres**, não o volume do Loki — e não deve cobrir: chunks mudam o tempo todo e um tar de
+Loki ativo não sai consistente.
 
-Isso é uma **mudança ao `59`**, não um detalhe: provisionar a VM do app com 150 GB inviabiliza a
-segunda VM sem pagar. E é **porta de mão única** — volume de boot na OCI cresce mas não encolhe, e
-com o total travado em 200 GB não há de onde tirar depois. Decidir antes de criar.
+**Por que isso é aceitável aqui:** o que tem valor legal — a trilha de auditoria (`audit_events`,
+docs 61/63) — vive no **banco**, que é dumpado de hora em hora e cifrado no R2. O Loki guarda log
+*operacional*: diagnóstico, não evidência. Perdê-lo ao recriar a máquina é incômodo, não incidente.
 
-### 3.3 Se o objeto de armazenamento for o R2
+**O custo que a decisão acrescenta:** o volume do Loki passa a dividir disco com o `pgdata`. Um log
+em laço não enche só o log — **derruba o Postgres junto**. A retenção limita a acumulação e o
+`ingestion_rate_mb` limita a taxa, mas nenhum dos dois é teto de disco. Enquanto não houver métrica
+de host (fase de métricas), quem vigia é o `verificar.sh` §10, que reprova acima de 80%.
 
-Recomendado: **os chunks do Loki vão para o R2**, não para o disco da VM. Três razões, e nenhuma é
-espaço:
+**Quando reabrir:** se um dia recriar a máquina sem os 30 dias de diagnóstico passar a doer. São
+quatro variáveis (`LOKI_OBJECT_STORE=s3` + endpoint/bucket/chave), nenhuma mudança de código.
 
-1. A VM de observabilidade vira **descartável**, igual à filosofia de máquina descartável que o
-   [`59` §13](59-deploy-dokploy-oci.md) já adota para o app. Perder a VM deixa de perder os 30 dias.
-2. O projeto **já usa R2** e já tem o padrão de bucket dedicado com chave escopada — anexos de
-   paciente ([`51`](51-ficha-anexos-e-storage.md)) e dumps do banco. Um bucket a mais, `logs`, com
-   credencial própria, não abre superfície nova.
-3. Jurisdição: log é estritamente **menos** sensível que o que já está lá (o dump tem CPF). A decisão
-   de usar R2 já foi tomada e aceita pelo projeto; isto não a reabre.
+> **A troca não é retroativa.** Mudar `object_store` de `filesystem` para `s3` faz os chunks novos
+> irem para o bucket e **deixa os antigos para trás** — o Loki deixa de encontrá-los. Trocar
+> significa recomeçar a janela de 30 dias, ou migrar os arquivos à mão. Decida antes de ter
+> histórico que importe.
 
-Com o R2 atrás, o disco da `obs` guarda só índice e cache — o que reduz o consumo de Loki na VM para
-poucos GB mesmo no teto.
+### 3.4 Teto de disco para o Loki
 
----
+**O Loki não tem limite de armazenamento.** Ele tem retenção por tempo (`retention_period`) e
+limite de taxa (`ingestion_rate_mb`) — nenhum dos dois é teto de espaço. Com tudo numa máquina só
+e chunks em disco local, o volume do Loki divide o disco com o `pgdata`: um log em laço não enche
+só o log, **derruba o Postgres junto**. Quem impõe o teto é o sistema de arquivos.
 
-## 4. A stack
+[`criar-volume-limitado.sh`](../deploy/observability/criar-volume-limitado.sh) cria um arquivo
+esparso de tamanho fixo, formata em ext4, monta e registra no `fstab` (senão o teto some no
+primeiro reboot, silenciosamente). Depois é uma variável:
+
+```bash
+sudo ./criar-volume-limitado.sh 20G       # o padrão; 30 dias no teto do projeto cabem em ~6 GB
+# no .env:  LOKI_DATA=/var/lib/cinetra/loki
+docker compose -f compose.obs.yml up -d --force-recreate loki
+```
+
+Sem `LOKI_DATA`, o compose usa o volume nomeado de sempre — o teto é opcional e não muda nada
+para quem não o quiser.
+
+**Quando enche, degrada de forma VISÍVEL.** O Loki falha ao gravar chunk, o agente acumula erro de
+entrega, as linhas viram descarte — e as duas coisas são detectadas: `verificar.sh` §9 acusa
+"descarte EM CURSO", e o alerta "Pipeline de log parado" dispara em 10 min. É o desenho: o que não
+se pode aceitar é disco cheio derrubando o banco em silêncio.
+
+**A armadilha desta configuração é o teto ficar inativo sem sintoma** — criar o sistema de arquivos
+e esquecer a variável faz o Loki gravar no disco raiz, e tudo parece bem até não estar. Por isso o
+`verificar.sh` §10 reporta o tamanho total do sistema de arquivos de `/loki`: 1 TB significa "sem
+teto"; 20 GB significa "teto ativo". O número denuncia a diferença.
+
+Alternativas descartadas: `docker volume create --opt o=size=` só funciona em tmpfs (volátil) ou
+XFS com project quota — depende do sistema de arquivos do host e falha calado noutros; e um segundo
+block volume na OCI reabriria a divisão de disco em porta de mão única, que foi justamente o que a
+consolidação eliminou.
+
+> **Não executado aqui.** O script precisa de root e monta sistema de arquivos; nesta máquina de
+> desenvolvimento só a sintaxe e a parametrização do compose foram verificadas (com `LOKI_DATA`
+> apontando para um caminho, o volume vira bind mount — conferido). A criação real do sistema de
+> arquivos acontece no servidor.
+
+**Disco:** os 200 GB ficam num volume só## 4. A stack
 
 **Grafana Alloy (agente) → Loki (armazenamento) → Grafana (consulta).**
 
@@ -407,16 +445,27 @@ pings). Para o uptime, que exige alguém **chamar** a nossa URL, é preciso um s
 alguém**. Só e-mail é o erro clássico: alerta às 3h da manhã que chega numa caixa lida às 9h não é
 alerta, é registro histórico.
 
-**Passo 2 — dois projetos no healthchecks.io: `cinetra-prod` e `cinetra-hml`.**
+**Passo 2 — a chave é do PROJETO, não de um check.**
 
-Projetos separados, não checks separados dentro de um só. É o que dá **uma chave por ambiente** —
-e o que impede o erro caro: se prod e HML compartilhassem check, o sinal do HML manteria tudo
-verde com a produção morta.
+Este é o passo em que é fácil pegar a coisa errada, e o erro é caro. Há dois tipos de URL no
+healthchecks.io, e só um serve aqui:
 
-**Passo 3 — sete checks em cada projeto.** O **nome do check tem de ser exatamente o slug** da
-tabela: é assim que a URL é endereçada. *Period* é de quanto em quanto tempo o sinal deve chegar;
-*Grace* é a tolerância antes de alarmar — precisa cobrir a duração normal do job mais a variação,
-senão a primeira execução lenta vira alarme falso.
+| | Formato | Exemplo | Serve? |
+|---|---|---|---|
+| **Ping URL de um check** | `hc-ping.com/<uuid>` | `hc-ping.com/00000000-1111-2222-3333-444444444444` | **Não** — endereça UM check só |
+| **Ping Key do projeto** | `hc-ping.com/<ping-key>` | `hc-ping.com/fqOOd6-F4MMNuCEnzTU01w` | **Sim** — endereça o projeto; o slug escolhe o check |
+
+Repare no formato: a Ping Key **não** tem a cara de UUID (`8-4-4-4-12`). Se a string que você
+copiou tem essa cara, é o UUID de um check — e usá-la como base faria toda ping virar
+`hc-ping.com/<uuid>/reminder`, que não endereça nada. Resultado: os sete checks alarmando "não
+rodou" para sempre.
+
+A Ping Key fica em **Project Settings → Ping Key** (pode ser preciso gerá-la na primeira vez).
+
+**Passo 3 — os checks.** O **nome do check tem de ser exatamente o slug**: é assim que a URL o
+encontra. *Period* é de quanto em quanto tempo o sinal deve chegar; *Grace* é a tolerância antes de
+alarmar — precisa cobrir a duração normal do job mais a variação, senão a primeira execução lenta
+vira alarme falso.
 
 | Slug (= nome do check) | Period | Grace | Quem sinaliza |
 |---|---|---|---|
@@ -428,16 +477,34 @@ senão a primeira execução lenta vira alarme falso.
 | `prune-notifications` | 1 dia | 2 h | `Api.Housekeeping.PruneNotifications` |
 | `prune-attachments` | 1 dia | 2 h | `Api.Housekeeping.PruneAttachments` |
 
-**Passo 4 — UMA variável por ambiente.** Em *Project Settings → Ping Key*, gere a chave do
-projeto. No Dokploy, no stack correspondente:
+**Prod e HML precisam de checks distintos** — compartilhar esconde qual dos dois parou e, pior, o
+sinal do HML mantém o check verde com a produção morta. Duas formas, e o código aceita as duas:
 
-```
-HEARTBEAT_BASE_URL=https://hc-ping.com/<ping-key-do-projeto>
+- **Um projeto só, com prefixo** (funciona sempre): 14 checks nomeados `prod-reminder`,
+  `hml-reminder`, `prod-backup`… Uma Ping Key, e `HEARTBEAT_SLUG_PREFIX` diferencia.
+- **Dois projetos** (`cinetra-prod` e `cinetra-hml`): 7 checks em cada, nomes sem prefixo, uma Ping
+  Key por projeto. Isola melhor — chave vazada do HML não alcança os checks de produção. *(A doc do
+  plano grátis não diz se há limite de projetos; se houver, use a opção acima.)*
+
+**Passo 4 — as variáveis no Dokploy.**
+
+```bash
+# stack prod
+HEARTBEAT_BASE_URL=https://hc-ping.com/<ping-key>
+HEARTBEAT_SLUG_PREFIX=prod-        # só na opção "um projeto"; omita se forem dois projetos
+
+# stack hml
+HEARTBEAT_BASE_URL=https://hc-ping.com/<ping-key>
+HEARTBEAT_SLUG_PREFIX=hml-
 ```
 
-O código monta o resto: `<base>/<slug>` no sucesso e `<base>/<slug>/fail` quando o job estoura. São
-**2 variáveis no total** (uma por stack) em vez de 14 colagens de UUID — e o que distingue produção
-de homologação passa a ser a chave, não a disciplina de não errar nenhuma.
+O código monta o resto: `<base>/<prefixo><slug>` no sucesso e `.../fail` quando o job estoura. São
+**duas variáveis por stack** em vez de 14 colagens de UUID — e o que distingue os ambientes passa a
+ser a configuração, não a disciplina de não errar nenhuma.
+
+> **A Ping Key é credencial.** Quem a tem consegue pingar no seu lugar e manter tudo verde com o
+> sistema morto. Vai na aba Environment do Dokploy, nunca no repositório — mesma regra dos demais
+> segredos do `compose.dokploy.yml`.
 
 > Slug digitado errado **não fica calado**: o serviço cria um check novo para o nome desconhecido,
 > e o check real deixa de receber sinal e alarma no primeiro ciclo. O erro aparece de imediato em
@@ -546,6 +613,109 @@ a classe inteira.
 do teto significa cliente modificado, laço ou abuso — as três coisas que se quer saber. Agora recusa
 **e** registra o tamanho, sem o conteúdo.
 
+### 10.2 Como verificar — [`deploy/observability/verificar.sh`](../deploy/observability/verificar.sh)
+
+Roda contra qualquer ambiente e cobre 21 asserções: health checks dos dois serviços, Grafana e
+datasource, o log chegando de fato, as quatro barreiras de PII, os filtros de ruído, a retenção e
+o readiness reprovando com o banco fora.
+
+```bash
+# local
+./deploy/observability/verificar.sh
+
+# produção
+WEB=https://cinetra.com.br GRAFANA=https://grafana.exemplo \
+GRAFANA_AUTH=admin:senha ./deploy/observability/verificar.sh
+
+# inclui o teste destrutivo (pausa o banco por segundos)
+PAUSAR_DB=1 ./deploy/observability/verificar.sh
+```
+
+**Escrever o verificador achou quatro defeitos que a inspeção não tinha achado** — todos da mesma
+família: coisas que *pareciam* funcionar.
+
+**A redação comia dado operacional.** O regex de CPF era `\d{3}\.?\d{3}\.?\d{3}-?\d{2}` — com todo
+separador opcional e sem delimitador, ele casa com **qualquer corrida de 11 dígitos** e ainda
+atravessa hífen. Medido: `verificar-1785259312-344832` (um timestamp unix) virou
+`verificar-1[CPF]4832`. Pior que não redigir: destrói o dado **e** deixa um `[CPF]` sugerindo que
+havia PII onde havia um id. Corrigido com delimitadores `\b` e separadores obrigatórios.
+
+**A redação de telefone parecia funcionar e não funcionava.** No `stage.replace` o que é
+substituído são os **grupos de captura**, não o match inteiro. Com grupos internos
+(`(\+55…)?(\(\d{2}\)|\b\d{2})`), o resultado medido foi `fone [TELEFONE] 98765-4321`: só o DDD
+saiu, o número ficou. Uma redação que aparenta ter funcionado é pior que nenhuma — ninguém relê a
+linha. Corrigido com um único grupo externo e `(?:…)` por dentro.
+
+**O próprio verificador passava por vazio.** Os quatro greps de PII rodavam sobre a resposta do
+Loki; quando o evento não chegava, "não achei CPF" num corpo inexistente contava como aprovação.
+Ele dizia "tudo verde" exatamente no cenário em que nada estava sendo verificado. Agora há uma
+guarda: sem o evento localizado, a seção inteira reprova.
+
+**E gritava lobo.** A leitura da config do Loki (~80 KB) expirou com timeout curto e o script
+concluiu "retention não é 30d" com a config correta. "Não consegui checar" e "checado e errado"
+são fatos diferentes; conflati-los é a mesma classe de erro do passe por vazio, na direção oposta.
+
+> **Gotcha de operação:** editar um arquivo de config montado por bind mount e rodar
+> `docker compose restart` **não** aplica a mudança — e no Docker Desktop/WSL o container nem
+> volta (o inode do arquivo mudou e o mount quebra; sai com código 127). Use
+> `docker compose up -d --force-recreate <serviço>`.
+
+### 10.3 Dashboards
+
+Três, provisionados **por arquivo** em [`deploy/observability/dashboards/`](../deploy/observability/dashboards/).
+Painel montado na UI morre com o container, e a VM obs é descartável de propósito; em arquivo ele é
+versionado, revisável em PR e reaparece igual depois de um `--force-recreate`.
+
+| Dashboard | Responde |
+|---|---|
+| **Visão geral** | "dá para trabalhar agora?" — erros/min, requisições/min, p95, crashes de browser, status ao longo do tempo, últimos erros |
+| **Requisições** | "onde foi o tempo e quem reclama?" — volume e p95 por rota, rotas que mais falham, volume por clínica, lista das lentas |
+| **Erros e jobs** | as duas classes que sumiam — crash no browser (por origem e por tela) e jobs do Oban (executados e falhados) |
+
+**Variável `$parser`** (`json` | `logfmt`): produção emite JSON, dev emite texto legível. Sem ela os
+painéis da API só poderiam ser conferidos depois do deploy — e dashboard que só dá para verificar
+em produção não é verificável. Com ela, os mesmos painéis foram exercitados em dev contra dado
+real.
+
+**Dois defeitos que só apareceram ao rodar os painéis:**
+
+*O stat de p95 devolvia 115 séries.* `quantile_over_time(… | unwrap duration_ms […])` sem `by ()`
+produz **uma série por combinação de labels** — e o painel, que é um número, viraria um emaranhado.
+`by ()` agrega corretamente (42,7 ms medido). O atalho tentador, `max()` por fora, dá 177,8 ms:
+é o máximo dos p95 por stream, não o p95 do conjunto — estaria errado e parecendo certo.
+
+*A sintaxe de agrupamento estava no lugar errado.* `| unwrap duration_ms by (route) […]` não
+agrupa; o `by` vai **depois** do range: `quantile_over_time(…[…]) by (route)`.
+
+**O que não deu para verificar em dev:** os dois painéis de Oban. Nenhum job rodou na janela de
+teste (`job:stop` não aparece no log de dev), então eles só se provam com tráfego real. Ficam
+marcados aqui em vez de declarados prontos.
+
+### 10.4 Como isso sobe no servidor
+
+Tudo na **mesma máquina** (§3.1), em **dois** stacks do Dokploy — que não é o mesmo que "tudo num
+deploy só", e a diferença é deliberada:
+
+| Stack | Arquivo | Sobe quando |
+|---|---|---|
+| App (db · api · web · backup) | `compose.dokploy.yml` | push em `main` / `develop` |
+| Observabilidade (loki · grafana · alloy) | [`compose.obs.yml`](../deploy/observability/compose.obs.yml) | quando a config de observabilidade mudar |
+
+Separar os **stacks** (não as máquinas) é o que impede um deploy da aplicação de reiniciar a
+coleta de log — inclusive o deploy que quebra e cujos logs você vai precisar ler.
+
+**Um erro que custou uma rodada:** a primeira versão usava `profiles:` para escolher o que subia
+em cada máquina. `--profile` é flag de linha de comando, e a UI do Dokploy não a passa — o coletor
+ficaria fora do deploy automático e seria esquecido no primeiro redeploy, justamente o componente
+que mais precisa acompanhar o app. Sem `profiles`, o arquivo sobe inteiro em qualquer ferramenta.
+
+**Nome de projeto explícito** (`name: cinetra-obs`): é ele que exclui o próprio stack da coleta,
+já que a allowlist do agente é por projeto do compose. Sem ele, o log da ferramenta de log entra
+na conta da retenção do produto.
+
+**Editou config? `--force-recreate`, não `restart`.** Bind mount de arquivo único não é recriado
+por `restart` — e no Docker Desktop/WSL o container nem volta (sai com código 127).
+
 ### Achado fora de escopo, de segurança
 
 Ao instalar a dependência, o `mix hex.audit` acusou **`bandit` 1.12.0 com CVE-2026-65623 (HIGH)** —
@@ -557,7 +727,155 @@ acidental, e o próximo pode não ser.
 
 ---
 
-## 11. O que este plano não faz
+## 11. Usando o Grafana: achar problema, alertar, medir latência
+
+### 11.1 Achar problema — o caminho de sempre
+
+Sempre o mesmo funil, e a ordem importa porque cada passo reduz o volume do seguinte:
+
+1. **"Cinetra · Visão geral"**, últimas 6 h. Quatro números respondem "há incidente?".
+2. O número que acendeu diz **onde olhar**: erro 5xx → *Requisições*; crash → *Erros e jobs*;
+   p95 → *Requisições · Rotas mais lentas*.
+3. No dashboard de detalhe, **agrupe** — por rota, por clínica, por origem. Uma rota isolada é bug
+   localizado; várias juntas é infra; uma clínica só costuma ser dado daquela clínica.
+4. **Explore** (menu lateral) para a linha bruta. Comece estreito e afrouxe:
+   `{env="prod", level="error"}` → `| json` → `| clinic_id="..."`.
+5. Peguei uma linha ruim? O `request_id` dela amarra **todas** as linhas daquela requisição:
+   `{env="prod"} |= "GMZfOQmO363e6FUABILB"`.
+
+Filtre **primeiro por label** (`env`, `service`, `level`) e só depois por conteúdo. Label estreita
+para poucos streams; `|=` e `| json` trabalham sobre o que sobrou. A ordem inversa varre tudo.
+
+### 11.2 Latência — o que dá para medir hoje, e o que não
+
+**Dá:** latência de *aplicação*, por requisição, do campo `duration_ms`.
+
+```logql
+# p95 geral — `by ()` agrega. SEM ele vêm ~115 séries, uma por combinação de labels.
+quantile_over_time(0.95, {env="prod", service=~".*api.*"} | json | unwrap duration_ms [5m]) by ()
+
+# as 10 rotas mais lentas
+topk(10, quantile_over_time(0.95, {env="prod", service=~".*api.*"} | json | route != ""
+     | unwrap duration_ms [5m]) by (route))
+
+# quem está esperando: as requisições acima de 1s, com clinic_id e actor_id
+{env="prod", service=~".*api.*"} | json | duration_ms > 1000
+```
+
+**Não dá — e isto é uma lacuna real, não um detalhe.** "Latência do servidor" no sentido de
+**CPU, memória, I/O de disco, saturação de rede, pool do Postgres** não está aqui. Log registra o
+que a aplicação fez; não registra o estado da máquina. Um p95 subindo mostra o *sintoma*, e sem
+métricas de host não dá para dizer se a causa foi CPU saturada, disco lento ou o banco.
+
+Fechar isso é a **fase de métricas**: `node_exporter` (host) + PromEx (BEAM, Ecto, Oban) →
+Prometheus, na mesma máquina e no mesmo Grafana. É o doc irmão, e o dimensionamento da §3.2 já
+reservou memória para ele.
+
+### 11.3 Validar que o Loki está sendo ALIMENTADO
+
+**"De pé" e "recebendo" são perguntas diferentes**, e a diferença custou duas depurações num só
+dia: Loki `healthy`, `/ready` 200, Grafana no ar — e nada chegando. Liveness não detecta ausência
+de dado. Três contadores detectam, e a comparação entre eles diz **onde** quebrou:
+
+| Contador | Onde | Significa |
+|---|---|---|
+| `loki_source_docker_target_entries_total` | Alloy | o agente **leu** N linhas do daemon do Docker |
+| `loki_write_dropped_entries_total` | Alloy | o agente **não conseguiu entregar** N (com `reason`) |
+| `loki_distributor_lines_received_total` | Loki | o Loki **recebeu** N |
+
+Leitura sem descarte e sem recepção = a rede entre agente e Loki. Leitura zero = allowlist
+(`OBS_PROJETOS`) errada ou socket inacessível. Descarte alto = lote recusado — foi assim que
+**25.577 entradas sumiram** com `reject_old_samples_max_age` menor que a retenção.
+
+As portas de métrica não são publicadas (nem devem ser); a leitura passa por dentro do container:
+
+```bash
+D="docker compose -f deploy/observability/compose.obs.yml --env-file deploy/observability/.env.local"
+
+$D exec -T loki wget -qO- http://localhost:3100/metrics | grep loki_distributor_lines_received_total
+$D exec -T loki wget -qO- http://alloy:12345/metrics    | grep -E 'loki_(source_docker_target_entries|write_dropped_entries)_total'
+```
+
+**Contador é cumulativo — o que alarma é o delta.** Um descarte antigo já resolvido deixaria a
+checagem vermelha para sempre. O `verificar.sh` §9 mede a janela: reporta o total como *contexto*
+e o crescimento em 10 s como *alarme*.
+
+**E o sinal do dia a dia é FRESCOR, não contagem.** O contador pode crescer com o agente horas
+atrás relendo backlog — a consulta devolve o passado sem avisar. O verificador compara o timestamp
+da linha mais recente com o relógio; acima de 2 min, reprova.
+
+```bash
+deploy/observability/verificar.sh    # seção 9 cobre os quatro sinais
+```
+
+### 11.3.1 "Não vejo nada no Loki" — o diagnóstico
+
+A pergunta se divide em duas, e confundi-las manda investigar o lugar errado:
+
+**Está gravando?** Olhe os arquivos, não a interface:
+
+```bash
+D="docker compose -f deploy/observability/compose.obs.yml --env-file deploy/observability/.env.local"
+$D exec -T loki sh -c 'find /loki/chunks -type f | wc -l; du -sh /loki/chunks /loki/index /loki/wal'
+```
+
+Chunks existindo + `verificar.sh` §9 verde = o pipeline está bem, e o problema é de **consulta**.
+
+**A consulta está olhando para o lugar certo?** As duas causas mais comuns, e as duas foram
+defeito meu:
+
+- **`env` errado.** Os dashboards nasceram com `env = prod` fixo. Numa instalação onde só existe
+  `dev`, todo painel abre vazio e parece quebrado. Agora `env` é **variável de consulta**
+  (`label_values(env)`): o Grafana pergunta ao Loki quais ambientes existem e preenche sozinho —
+  o dashboard se adapta ao que há, em vez de ao que se esperava haver.
+- **`parser` errado.** Produção emite JSON, dev emite texto. Painel de API com `json` num ambiente
+  que loga `logfmt` volta vazio sem erro. O seletor está no topo do dashboard.
+
+Confira o que existe antes de suspeitar do pipeline:
+
+```bash
+curl -su admin:SENHA localhost:3300/api/datasources/proxy/uid/loki/loki/api/v1/label/env/values
+```
+
+### 11.4 Alertas — cinco, provisionados
+
+Em [`grafana-alertas.yml`](../deploy/observability/grafana-alertas.yml), por arquivo pela mesma
+razão dos dashboards. **Regra montada na UI não sobrevive a recriar o container** — e alerta é
+justamente o que precisa de revisão em PR, porque limiar errado treina a equipe a ignorar o aviso.
+
+| Alerta | Dispara com | `for` | Por que esse `for` |
+|---|---|---|---|
+| **Pipeline de log parado** | 0 linhas em 10 min | 10m | o alerta que este projeto aprendeu a precisar — ver §11.3 |
+| Erros 5xx | > 10 em 5 min | 5m | pico de 30 s é deploy ou blip, não incidente |
+| Latência p95 | > 1 s | 10m | o alvo é 400 ms; 1 s é quando a recepção sente |
+| Crashes no browser | > 5 em 15 min | 15m | crash isolado é navegador estranho; rajada é deploy ruim |
+| Job do Oban falhando | > 3 em 10 min | 10m | complementa o heartbeat: aqui o job **rodou** e falhou |
+
+O `for` é o que separa alerta de ruído: a condição precisa **persistir** para disparar.
+
+**Estes quatro não cobrem "morreu" nem "parou de rodar"** — os dois vivem no monitor externo (§9),
+porque alerta hospedado na máquina que caiu não é enviado. Duas camadas, nenhuma substitui a outra.
+
+**Antes de confiar:** configure o contato (`GF_SMTP_*` no compose, ou um webhook) e **prove que
+chega**. Alerta que dispara e fica só na tela é painel, não alerta.
+
+**`noDataState` é metade da regra, e eu errei nas cinco.** Com o padrão do Grafana, uma consulta
+sem resultado vira um `DatasourceNoData` **permanente** — medido: quatro alertas falsos ativos numa
+instalação sem tráfego de `prod`, dentro do arquivo que este plano usa para pregar contra alarme
+falso. A correção não é silenciar, é dizer o que a ausência significa em cada caso:
+
+- nas quatro regras de comportamento (5xx, latência, crashes, jobs), *sem dado* = **sem erro** →
+  `noDataState: OK`;
+- em "Pipeline de log parado", *sem dado* **é** o sintoma → `noDataState: Alerting`.
+
+E esse último não pode fixar `env="prod"`: a pergunta é "chegou log de **algum** lugar?". Fixado,
+ele acende sozinho em toda instalação que não seja produção.
+
+> Um arquivo de alerta inválido **impede o Grafana de subir** — medido: um `labels:` aninhado no
+> lugar errado derrubou o container inteiro. É a falha alta certa (melhor que subir sem alerta
+> nenhum), mas depois de editar, confira que o serviço voltou.
+
+## 12. O que este plano não faz
 
 - **Métricas e tracing.** Ficam para o doc irmão. A ordem é deliberada: com log estruturado
   carregando `request_id` e `clinic_id`, respondem-se quase todas as perguntas de diagnóstico sem

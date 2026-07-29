@@ -87,9 +87,20 @@ loki.process "higiene" {
 	// esquecido, uma mensagem de exceção nova ou um provider que muda o texto do erro não passam
 	// por revisão nenhuma — e, uma vez escrito, o dado já saiu da máquina.
 	//
-	// CPF: com ou sem pontuação.
+	// CPF: pontuado por inteiro, ou 11 dígitos EXATOS delimitados.
+	//
+	// A primeira versão era `\d{3}\.?\d{3}\.?\d{3}-?\d{2}` — com todo separador opcional e sem
+	// delimitador. Medido: ela comeu `verificar-1785259312-344832`, que virou `verificar-1[CPF]4832`.
+	// Um timestamp unix. Qualquer corrida de 11 dígitos casava, e ela ainda atravessava hífen.
+	//
+	// Isso é pior que não redigir: destrói dado operacional E deixa um `[CPF]` no lugar, fazendo
+	// parecer que havia PII trafegando onde havia um id. Quem lesse o log tiraria a conclusão
+	// errada sobre o próprio sistema.
+	//
+	// Os `\b` importam: sem eles, um timestamp de 13 dígitos teria 11 deles comidos pelo meio.
+	// Com eles, só uma corrida de exatamente 11 dígitos casa — que é a forma crua do CPF.
 	stage.replace {
-		expression = "(\\d{3}\\.?\\d{3}\\.?\\d{3}-?\\d{2})"
+		expression = "\\b(\\d{3}\\.\\d{3}\\.\\d{3}-\\d{2}|\\d{11})\\b"
 		replace    = "[CPF]"
 	}
 
@@ -100,9 +111,21 @@ loki.process "higiene" {
 		replace    = "[EMAIL]"
 	}
 
-	// Telefone brasileiro com DDD (10 ou 11 dígitos), com ou sem máscara.
+	// Telefone brasileiro — **só as formas com separador**: `(11) 98765-4321`, `11 98765-4321`,
+	// `+55 11 98765-4321`.
+	//
+	// Exigir o separador é deliberado. Sem ele, `\d{2}\d{4}\d{4}` casa com toda corrida de 10
+	// dígitos — o mesmo estrago do CPF acima, e por isso o mesmo remédio. A forma crua de 11
+	// dígitos (`11987654321`) não fica descoberta: ela cai na regra de CPF logo acima e sai
+	// redigida assim mesmo. O rótulo erra, a proteção não.
+	//
+	// ATENÇÃO ao editar: no `stage.replace` o que é substituído são os **grupos de captura**, não
+	// o match inteiro. A primeira versão tinha grupos internos — `(\+55…)?(\(\d{2}\)|\b\d{2})` —
+	// e o resultado medido foi `fone [TELEFONE] 98765-4321`: só o DDD saiu, e o número ficou.
+	// Uma redação que PARECE ter funcionado é pior que nenhuma, porque ninguém vai reler a linha.
+	// Por isso: um único grupo externo, e tudo por dentro em `(?:…)`.
 	stage.replace {
-		expression = "(\\(?\\d{2}\\)?[\\s-]?9?\\d{4}[\\s-]?\\d{4})"
+		expression = "((?:\\+55[\\s-]?)?(?:\\(\\d{2}\\)|\\b\\d{2})[\\s-]9?\\d{4}[\\s-]?\\d{4})\\b"
 		replace    = "[TELEFONE]"
 	}
 

@@ -1,16 +1,37 @@
-# Stack de logs (doc 62 §3 e §4).
+# Stack de observabilidade — Loki + Grafana + Alloy, **na mesma máquina do app** (doc 62 §3).
 #
-# Sobe em DOIS lugares diferentes, e a divisão é o ponto central do desenho:
+# ## Por que UMA máquina (revisão de 2026-07-28)
 #
-#   * `loki` + `grafana`  →  na VM **obs** (1 OCPU / 6 GB), separada da aplicação;
-#   * `alloy`             →  na VM **app**, porque é lá que estão os containers a ler.
+# A primeira versão punha Loki/Grafana numa segunda VM, com o argumento de que "observabilidade
+# junto com o app fica cega quando o app cai". Revisando, o argumento é mais fraco do que parecia:
 #
-# ## Por que não tudo junto com a aplicação
+#   * **Perda total da máquina** — quem avisa é o monitor EXTERNO (doc 62 §9), não o Loki; e os
+#     logs de antes do crash já estão no R2, não no disco local. A durabilidade vem do object
+#     storage, não da segunda VM.
+#   * **Falha de aplicação** (OOM de container, crash loop) — este é o caso real que a separação
+#     cobria. E ele se resolve com `mem_limit` por container, abaixo: o Loki não estrangula o
+#     Postgres, nem o build do release estrangula o Loki.
 #
-# Observabilidade que roda ao lado do app fica cega exatamente quando é necessária: OOM, disco
-# cheio, crash loop, daemon do Docker travado — os modos de falha mais prováveis de uma máquina
-# que já hospeda prod + HML + Postgres + Traefik. A segunda VM não protege contra a região inteira
-# cair, e não precisa: esse caso é da camada externa (doc 62 §9), que vive fora da OCI.
+# O que a segunda VM custava era concreto: outra máquina para provisionar, corrigir e firewallar,
+# a divisão do disco de 200 GB em porta de mão única, rede entre VMs — e, medido no mesmo dia,
+# duas rodadas de depuração por DNS entre projetos do compose.
+#
+# Fica **uma VM (4 OCPU / 24 GB)** com tudo, e três salvaguardas que fazem o trabalho que a
+# separação faria:
+#
+#   * `mem_limit` por container — um não estrangula o outro;
+#   * teto de DISCO para o Loki (`LOKI_DATA` + `criar-volume-limitado.sh`) — o log não derruba o
+#     banco por disco cheio, que é o risco real de dividir a máquina;
+#   * monitor EXTERNO — o único que não pode viver aqui dentro.
+#
+# Os chunks ficam em disco local (decidido 2026-07-28, doc 62 §3.3); o R2 continua sendo um
+# `LOKI_OBJECT_STORE=s3` de distância, se um dia a durabilidade passar a importar.
+#
+# ## O que NÃO volta para dentro
+#
+# O monitor externo (uptime + heartbeat). É o único componente que precisa viver fora, por um
+# motivo que nenhum limite de memória resolve: um vigia hospedado no que ele vigia não manda o
+# alerta que importa.
 #
 # ## Não é um container só
 #
@@ -18,20 +39,40 @@
 # a própria documentação dela diz que é para dev/demo, sem persistência nem retenção configuráveis,
 # que é justamente o requisito aqui.
 #
-# Uso:
-#   VM obs:  docker compose -f compose.obs.yml --profile obs up -d
-#   VM app:  docker compose -f compose.obs.yml --profile agente up -d
+# Uso:  docker compose -f compose.obs.yml up -d
+#       (ou um stack "Compose" no Dokploy apontando para este arquivo)
+#
+# ATENÇÃO: editou `alloy.alloy`, `loki.yml` ou um dashboard? Use
+# `up -d --force-recreate <serviço>`. `restart` não recria o bind mount do arquivo editado.
+
+# Nome de projeto EXPLÍCITO. Containers saem como `cinetra-obs-loki-1`, `cinetra-obs-grafana-1`,
+# `cinetra-obs-alloy-1`.
+#
+# **Precisa ser diferente do projeto da aplicação**, e não por estética: o agente coleta por
+# allowlist de projeto do compose (`OBS_PROJETOS`), e é este nome que o mantém fora da própria
+# coleta. Se ele casasse com a allowlist, o Loki registraria o Loki registrando o Loki — e o log
+# da ferramenta de log consumiria a retenção do produto.
+#
+# É também a razão de rodar aqui um projeto separado, e não de estarem em máquinas diferentes:
+# projeto do compose é agrupamento LÓGICO. Os dois rodam no mesmo servidor; o que a separação
+# compra é ciclo de vida próprio — um deploy da aplicação não reinicia a coleta de log.
+#
+# `OBS_PROJETOS` lista os projetos da APLICAÇÃO, nunca um curinga que engula este aqui.
+name: cinetra-obs
 
 services:
   loki:
-    profiles: ["obs"]
     image: grafana/loki:3.5.7
     # `expand-env` é o que permite um único loki.yml servir dev (filesystem) e produção (R2).
     command: ["-config.file=/etc/loki/loki.yml", "-config.expand-env=true"]
     restart: unless-stopped
+    # O limite que substitui a segunda VM. Consulta longa sobre 30 dias é o que mais consome aqui;
+    # sem teto ela competiria com o Postgres e com o build do release Elixir na mesma máquina.
+    mem_limit: ${LOKI_MEM_LIMIT:-1500m}
     environment:
-      # Sem estas, cai em `filesystem` e o dado mora no volume — bom para dev, ruim para uma VM
-      # descartável. Em produção aponte para o bucket de LOGS (nunca o dos pacientes).
+      # DECIDIDO: `filesystem` (disco local). O dado mora no volume e morre com a máquina — o que
+      # tem valor legal é a trilha de auditoria, que vive no BANCO e tem backup horário. Trocar
+      # para `s3` (R2) é possível, mas NÃO é retroativo: os chunks antigos ficam para trás.
       LOKI_OBJECT_STORE: ${LOKI_OBJECT_STORE:-filesystem}
       LOKI_S3_ENDPOINT: ${LOKI_S3_ENDPOINT:-}
       LOKI_S3_BUCKET: ${LOKI_S3_BUCKET:-}
@@ -39,9 +80,13 @@ services:
       LOKI_S3_SECRET_ACCESS_KEY: ${LOKI_S3_SECRET_ACCESS_KEY:-}
     volumes:
       - ./loki.yml:/etc/loki/loki.yml:ro
-      - loki_data:/loki
-    # NÃO publica porta para a internet. Log agregado é alvo de reconhecimento — rotas, ids,
-    # versões, mensagens de erro. Só a rede interna alcança.
+      # Volume nomeado por padrão. Se `LOKI_DATA` apontar para um CAMINHO, vira bind mount — é
+      # assim que se impõe um teto de tamanho ao log: o Loki não tem limite de armazenamento
+      # nativo (só retenção por tempo e limite de taxa), então quem impõe é o sistema de arquivos.
+      # Ver `criar-volume-limitado.sh` ao lado e doc 62 §3.4.
+      - ${LOKI_DATA:-loki_data}:/loki
+    # NÃO publica porta. Log agregado é alvo de reconhecimento — rotas, ids, versões, mensagens de
+    # erro. Só quem está nesta rede alcança.
     expose:
       - "3100"
     networks:
@@ -54,9 +99,9 @@ services:
       start_period: 30s
 
   grafana:
-    profiles: ["obs"]
     image: grafana/grafana:12.3.1
     restart: unless-stopped
+    mem_limit: ${GRAFANA_MEM_LIMIT:-512m}
     depends_on:
       loki:
         condition: service_healthy
@@ -68,22 +113,36 @@ services:
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
-      # O Grafana serve a UI; quem termina TLS é o Traefik/túnel à frente.
       GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://localhost:3000}
+      # SMTP do alerta (doc 62 §11). Sem isto o alerta dispara e fica só na tela — e alerta que
+      # ninguém vê é painel, não alerta.
+      GF_SMTP_ENABLED: ${GRAFANA_SMTP_ENABLED:-false}
+      GF_SMTP_HOST: ${GRAFANA_SMTP_HOST:-}
+      GF_SMTP_USER: ${GRAFANA_SMTP_USER:-}
+      GF_SMTP_PASSWORD: ${GRAFANA_SMTP_PASSWORD:-}
+      GF_SMTP_FROM_ADDRESS: ${GRAFANA_SMTP_FROM:-}
     volumes:
       - ./grafana-datasources.yml:/etc/grafana/provisioning/datasources/loki.yml:ro
+      - ./grafana-dashboards.yml:/etc/grafana/provisioning/dashboards/cinetra.yml:ro
+      - ./grafana-alertas.yml:/etc/grafana/provisioning/alerting/cinetra.yml:ro
+      # Diretório (não arquivo): acrescentar painel não exige mexer no compose, e editar um
+      # existente não quebra o mount como acontece com bind mount de arquivo único.
+      - ./dashboards:/etc/grafana/provisioning/dashboards/cinetra:ro
       - grafana_data:/var/lib/grafana
     ports:
-      # Em produção, prefira NÃO publicar e alcançar por VPN. Se publicar, ponha atrás do Traefik
-      # com TLS — nunca direto.
+      # Prefira NÃO publicar e alcançar por VPN. Se publicar, ponha atrás do Traefik com TLS —
+      # nunca direto.
       - "${GRAFANA_PORT:-3000}:3000"
     networks:
       - obs
 
   alloy:
-    profiles: ["agente"]
     image: grafana/alloy:v1.12.1
     restart: unless-stopped
+    mem_limit: ${ALLOY_MEM_LIMIT:-256m}
+    depends_on:
+      loki:
+        condition: service_healthy
     command:
       - run
       - --server.http.listen-addr=0.0.0.0:12345
@@ -91,15 +150,17 @@ services:
       - /etc/alloy/config.alloy
     environment:
       OBS_ENV: ${OBS_ENV:-dev}
-      LOKI_PUSH_URL: ${LOKI_PUSH_URL:?defina LOKI_PUSH_URL}
+      # Mesma rede do compose: o nome do serviço resolve direto. Foi ao separar os arquivos que
+      # isto quebrou — cada stack criou sua rede, o agente parou de resolver `loki`, e nada avisou.
+      LOKI_PUSH_URL: ${LOKI_PUSH_URL:-http://loki:3100/loki/api/v1/push}
       # Allowlist de projetos do compose a coletar (regex, ancorado). Obrigatória: o agente lê o
-      # daemon do Docker, então SEM ela ele recolhe todo container da máquina — inclusive de
-      # outro projeto e o próprio stack de observabilidade. Ver o comentário no alloy.alloy.
+      # daemon do Docker, então SEM ela ele recolhe todo container da máquina — inclusive de outro
+      # projeto e o próprio stack de observabilidade. Ver o comentário no alloy.alloy.
       OBS_PROJETOS: "${OBS_PROJETOS:?defina OBS_PROJETOS - ex. moving, ou movimento-prod|movimento-hml}"
     volumes:
       - ./alloy.alloy:/etc/alloy/config.alloy:ro
-      # Somente leitura no socket do Docker. O agente precisa LER os logs; não precisa criar,
-      # parar nem inspecionar segredo de container nenhum. Socket do Docker montado com escrita é
+      # Somente leitura no socket do Docker. O agente precisa LER os logs; não precisa criar, parar
+      # nem inspecionar segredo de container nenhum. Socket do Docker montado com escrita é
       # equivalente a root na máquina.
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - alloy_data:/var/lib/alloy/data
@@ -113,6 +174,4 @@ volumes:
 
 networks:
   obs:
-    # Em produção as duas VMs se falam pela rede privada da VCN, e esta rede é só a ponte local
-    # entre loki e grafana.
     driver: bridge

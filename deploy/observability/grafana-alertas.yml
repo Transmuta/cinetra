@@ -1,0 +1,208 @@
+# Alertas do Grafana, provisionados por arquivo (doc 62 §11).
+#
+# ## O que estes alertas SÃO e o que não são
+#
+# Eles cobrem "o sistema está se comportando mal" — erro subindo, latência degradando, job
+# falhando. **Não** cobrem "o sistema morreu" nem "o cron parou": esses dois vivem no monitor
+# EXTERNO (§9), porque um alerta hospedado na máquina que caiu não é enviado. As duas camadas são
+# complementares e nenhuma substitui a outra.
+#
+# ## Por que arquivo e não a UI
+#
+# Mesma razão dos dashboards: a máquina é descartável e regra montada na tela some com o
+# container. Em arquivo, a regra é revisável em PR — e alerta é justamente o tipo de coisa que
+# precisa de revisão, porque limiar errado treina a equipe a ignorar o aviso.
+#
+# ## Antes de confiar neles
+#
+# Configure o contato (`GF_SMTP_*` no compose, ou um webhook) e **prove que chega**. Alerta que
+# dispara e fica só na tela é painel, não alerta.
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: cinetra-criticos
+    folder: Cinetra
+    # De minuto em minuto: o suficiente para reagir, longe de sobrecarregar o Loki com consultas.
+    interval: 1m
+    rules:
+      - uid: cinetra-erro-5xx
+        title: Erros 5xx acima do normal
+        # 5 min de `for` porque um pico de 30 segundos não é incidente — é deploy, reinício ou
+        # blip de rede. O que interessa é erro que PERSISTE.
+        for: 5m
+        condition: alerta
+        # `noDataState: OK` e não o padrão. Aqui "sem dado" significa **sem erro** — não há o que
+        # alarmar. Com o padrão (`NoData`), toda instalação sem tráfego de `prod` acende um
+        # `DatasourceNoData` permanente; medido: quatro alertas falsos ativos em dev, que é
+        # exatamente o alarme-que-ninguém-mais-lê que este plano combate.
+        noDataState: OK
+        annotations:
+          summary: "{{ $labels.env }}: erros 5xx sustentados há 5 minutos"
+          description: >
+            5xx é falha nossa, sempre. Abra o dashboard "Cinetra · Requisições", painel
+            "Rotas que mais falham" — uma rota isolada é bug localizado; várias juntas é infra.
+        labels:
+          severity: critico
+        data:
+          - refId: consulta
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: loki
+            model:
+              refId: consulta
+              expr: sum(count_over_time({env="prod", level="error"} [5m]))
+              queryType: instant
+          - refId: alerta
+            datasourceUid: __expr__
+            model:
+              refId: alerta
+              type: threshold
+              expression: consulta
+              conditions:
+                - evaluator: { type: gt, params: [10] }
+
+      - uid: cinetra-pipeline-parado
+        title: Pipeline de log parado
+        # O alerta que este projeto aprendeu a precisar. Duas vezes num dia o pipeline parou com
+        # TUDO verde: Loki healthy, `/ready` 200, Grafana no ar — e nada chegando. Liveness não
+        # detecta ausência de dado; só a ausência detecta.
+        #
+        # É um dead man's switch INTERNO: complementa o heartbeat externo (§9), que vigia os crons.
+        # Este vigia o próprio caminho do log. Um deles vigia o outro pela metade — se o Grafana
+        # cair junto, quem fala é o monitor externo.
+        for: 10m
+        condition: alerta
+        # `NoData` = pergunta sem resposta, que aqui é exatamente o sintoma: sem log, sem série.
+        noDataState: Alerting
+        annotations:
+          summary: "{{ $labels.env }}: nenhum log chegou nos últimos 10 minutos"
+          description: >
+            Ou o tráfego parou (o app caiu — confira o monitor externo), ou o caminho do log
+            quebrou. Para distinguir, compare os três contadores:
+            `loki_source_docker_target_entries_total` (o agente leu),
+            `loki_write_dropped_entries_total` (o agente não conseguiu entregar) e
+            `loki_distributor_lines_received_total` (o Loki recebeu).
+            Ou rode `deploy/observability/verificar.sh`, seção 9.
+        labels:
+          severity: critico
+        data:
+          - refId: consulta
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: loki
+            model:
+              refId: consulta
+              # `env=~".+"` e NÃO `env="prod"`: a pergunta é "chegou log de ALGUM lugar?".
+              # Fixado em prod, este alerta dispara falso em toda instalação que não seja
+              # produção — medido: com `noDataState: Alerting`, ele acendeu sozinho em dev e
+              # virou exatamente o alarme falso que o resto deste plano combate.
+              expr: sum(count_over_time({env=~".+"} [10m]))
+              queryType: instant
+          - refId: alerta
+            datasourceUid: __expr__
+            model:
+              refId: alerta
+              type: threshold
+              expression: consulta
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+
+      - uid: cinetra-latencia-p95
+        title: Latência p95 degradada
+        for: 10m
+        condition: alerta
+        # `noDataState: OK` e não o padrão. Aqui "sem dado" significa **sem erro** — não há o que
+        # alarmar. Com o padrão (`NoData`), toda instalação sem tráfego de `prod` acende um
+        # `DatasourceNoData` permanente; medido: quatro alertas falsos ativos em dev, que é
+        # exatamente o alarme-que-ninguém-mais-lê que este plano combate.
+        noDataState: OK
+        annotations:
+          summary: "{{ $labels.env }}: p95 acima de 1s há 10 minutos"
+          description: >
+            O alvo do doc 05 §4.1 para leitura de agenda é 400 ms no p95. 1s aqui é o ponto em
+            que a recepção sente. Ver "Cinetra · Requisições" → "Rotas mais lentas".
+        labels:
+          severity: aviso
+        data:
+          - refId: consulta
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: loki
+            model:
+              refId: consulta
+              expr: quantile_over_time(0.95, {env="prod", service=~".*api.*"} | json | unwrap duration_ms [10m]) by ()
+              queryType: instant
+          - refId: alerta
+            datasourceUid: __expr__
+            model:
+              refId: alerta
+              type: threshold
+              expression: consulta
+              conditions:
+                - evaluator: { type: gt, params: [1000] }
+
+      - uid: cinetra-crash-browser
+        title: Crashes no browser
+        # 15 min: crash de browser costuma vir em rajada depois de um deploy ruim, e a rajada é o
+        # sinal. Um crash isolado é um navegador estranho, não um incidente.
+        for: 15m
+        condition: alerta
+        # `noDataState: OK` e não o padrão. Aqui "sem dado" significa **sem erro** — não há o que
+        # alarmar. Com o padrão (`NoData`), toda instalação sem tráfego de `prod` acende um
+        # `DatasourceNoData` permanente; medido: quatro alertas falsos ativos em dev, que é
+        # exatamente o alarme-que-ninguém-mais-lê que este plano combate.
+        noDataState: OK
+        annotations:
+          summary: "{{ $labels.env }}: usuários com tela quebrando"
+          description: >
+            Erro na máquina do usuário — nenhum outro sinal enxerga isto. Costuma seguir um
+            deploy. Ver "Cinetra · Erros e jobs" → "Telas que mais quebram no browser".
+        labels:
+          severity: aviso
+        data:
+          - refId: consulta
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: loki
+            model:
+              refId: consulta
+              expr: sum(count_over_time({env="prod"} |= "erro no browser" [15m]))
+              queryType: instant
+          - refId: alerta
+            datasourceUid: __expr__
+            model:
+              refId: alerta
+              type: threshold
+              expression: consulta
+              conditions:
+                - evaluator: { type: gt, params: [5] }
+
+      - uid: cinetra-job-falhando
+        title: Job do Oban falhando
+        for: 10m
+        condition: alerta
+        # `noDataState: OK` e não o padrão. Aqui "sem dado" significa **sem erro** — não há o que
+        # alarmar. Com o padrão (`NoData`), toda instalação sem tráfego de `prod` acende um
+        # `DatasourceNoData` permanente; medido: quatro alertas falsos ativos em dev, que é
+        # exatamente o alarme-que-ninguém-mais-lê que este plano combate.
+        noDataState: OK
+        annotations:
+          summary: "{{ $labels.env }}: jobs estourando"
+          description: >
+            Job que RODOU e falhou. Job que DEIXOU de rodar não produz linha nenhuma e só o
+            heartbeat externo percebe (doc 62 §9) — são alertas diferentes de propósito.
+        labels:
+          severity: aviso
+        data:
+          - refId: consulta
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: loki
+            model:
+              refId: consulta
+              expr: sum(count_over_time({env="prod", service=~".*api.*"} |= "job:exception" [10m]))
+              queryType: instant
+          - refId: alerta
+            datasourceUid: __expr__
+            model:
+              refId: alerta
+              type: threshold
+              expression: consulta
+              conditions:
+                - evaluator: { type: gt, params: [3] }

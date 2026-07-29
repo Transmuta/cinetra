@@ -1,0 +1,20 @@
+# Dashboards provisionados por ARQUIVO, não montados na UI (doc 62 §10.3).
+#
+# Painel construído a mão morre com o container, e a VM obs é descartável de propósito. Em arquivo
+# ele é versionado, revisável em PR e reaparece igual depois de um `up -d --force-recreate`.
+#
+# `allowUiUpdates: false` é deliberado: quem editar na UI perde a mudança no próximo boot, e é
+# melhor descobrir isso pela edição bloqueada do que por um painel que voltou sozinho ao anterior.
+apiVersion: 1
+
+providers:
+  - name: cinetra
+    orgId: 1
+    folder: Cinetra
+    type: file
+    disableDeletion: false
+    allowUiUpdates: false
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/provisioning/dashboards/cinetra
+      foldersFromFilesStructure: false
