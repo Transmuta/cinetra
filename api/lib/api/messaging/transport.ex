@@ -4,8 +4,9 @@ defmodule Api.Messaging.Transport do
   verdade, e por isso o único que a fase 2 troca.
 
   Existe para que "o WhatsApp ainda não existe" não vire um `if` espalhado pelos gatilhos. O
-  `Dispatch` pergunta `disponivel?/1` e trata canal sem transporte igual a paciente sem telefone
-  — mesmo caminho, mesma explicação na tela. Ligar o WhatsApp na fase 2 foi implementar
+  `Dispatch` pergunta `disponivel?/1` e canal sem transporte segue o mesmo caminho de paciente
+  sem telefone — cai para a reserva. O que **não** é igual é a explicação na tela quando não há
+  reserva: ali o motivo é `:canal_indisponivel`, não `:sem_contato`. Ligar o WhatsApp foi implementar
   `entregar/2` e a configuração passar a existir: **nenhum chamador mudou**, que era a aposta
   registrada aqui na fase 1.
 
@@ -13,7 +14,7 @@ defmodule Api.Messaging.Transport do
 
   Porque o adapter `Local` (dev) e o `Test` (suíte) são transportes de verdade do ponto de vista
   de quem chama: aceitam a mensagem e devolvem sucesso. Perguntar "tem `RESEND_API_KEY`?" aqui
-  faria o dev virar `:sem_canal` na tela — e o dev é justamente onde se quer ver a timeline
+  faria o dev virar `:canal_indisponivel` na tela — e o dev é justamente onde se quer ver a timeline
   funcionando. Quem decide para onde o e-mail vai é o adapter configurado, não este módulo.
 
   ## O WhatsApp exige duas chaves ligadas, não uma

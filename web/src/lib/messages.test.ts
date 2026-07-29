@@ -5,6 +5,7 @@ import {
 	respostaTexto,
 	semEnvioTexto,
 	statusTexto,
+	textoDoEnvio,
 	tituloDaLinha,
 	type Message,
 	type MessageParticipant
@@ -75,8 +76,59 @@ describe('semEnvioTexto', () => {
 		expect(semEnvioTexto('opt_out')).toMatch(/pediu para não receber/);
 	});
 
+	it('canal desligado NÃO diz que falta contato na ficha', () => {
+		// O bug do balcão: paciente com celular cadastrado lia "sem e-mail nem telefone
+		// cadastrado". A recepção abria a ficha, via o telefone lá, e não tinha o que corrigir.
+		const texto = semEnvioTexto('canal_indisponivel') ?? '';
+
+		expect(texto).toMatch(/WhatsApp/);
+		expect(texto).not.toMatch(/cadastrado/);
+	});
+
+	it('motivo desconhecido não vira "undefined" na tela', () => {
+		// O motivo vem da API: um átomo novo lá não pode virar texto quebrado aqui.
+		expect(semEnvioTexto('motivo_do_futuro' as never)).toMatch(/[a-z]/);
+	});
+
 	it('sem motivo, não há linha', () => {
 		expect(semEnvioTexto(null)).toBeNull();
+	});
+});
+
+describe('textoDoEnvio', () => {
+	it('nada enviado devolve o MOTIVO, não um "feito"', () => {
+		// O pecado que esta função existe para não cometer: a API aceita o pedido (201) e o
+		// Dispatch pula. Dizer "Feito" ali faz a recepção supor que a mensagem saiu — é o mesmo
+		// silêncio que a timeline inteira foi desenhada para não produzir (§6).
+		expect(textoDoEnvio([{ patientId: 'p1', enviado: false, motivo: 'canal_indisponivel' }])).toMatch(
+			/WhatsApp/
+		);
+	});
+
+	it('todos enviados diz que enviou', () => {
+		expect(textoDoEnvio([{ patientId: 'p1', enviado: true }])).toBe('Mensagem enviada');
+		expect(
+			textoDoEnvio([
+				{ patientId: 'p1', enviado: true },
+				{ patientId: 'p2', enviado: true }
+			])
+		).toMatch(/2 pacientes/);
+	});
+
+	it('na turma, o parcial não vira sucesso limpo', () => {
+		// "Enviada" com um participante fora seria mentira para aquele participante — a mesma
+		// lição que a A2 já cobrou com a falta do bloco.
+		const texto = textoDoEnvio([
+			{ patientId: 'p1', enviado: true },
+			{ patientId: 'p2', enviado: false, motivo: 'sem_contato' }
+		]);
+
+		expect(texto).toMatch(/1 de 2/);
+		expect(texto).toMatch(/e-mail nem telefone/);
+	});
+
+	it('sem participante nenhum, não finge envio', () => {
+		expect(textoDoEnvio([])).toMatch(/Nada/);
 	});
 });
 

@@ -50,7 +50,7 @@ defmodule Api.Messaging do
   Devolve as mensagens em ordem cronológica, já recortadas pelo papel de quem pergunta (o
   `profissional` só vê a própria coluna, pela preparation `OwnAgendaOnly`).
 
-  **Não devolve o `:sem_canal`**: aquele estado (§6) é *ausência* de mensagem, derivado do contato
+  **Não devolve o "nada enviado"**: aquele estado (§6) é *ausência* de mensagem, derivado do contato
   da ficha na hora da leitura — quem o monta é a fronteira, que tem os participantes à mão. Aqui
   só existe o que de fato foi registrado.
   """

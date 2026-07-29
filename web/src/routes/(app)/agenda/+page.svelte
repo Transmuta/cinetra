@@ -400,7 +400,9 @@
 				remarcando = false;
 				dragConflito = null;
 			}
-			toast(SUCESSO[form.action as string] ?? 'Feito');
+			// `mensagem` ganha do rótulo fixo: o envio de confirmação sabe coisas que a tabela
+			// acima não pode saber — para quantos saiu, e por que o resto ficou de fora.
+			toast(String(form.mensagem ?? SUCESSO[form.action as string] ?? 'Feito'));
 		} else if (form.action !== 'criar' && form.action !== 'remarcar') {
 			// Erros de criar/remarcar aparecem DENTRO do modal (com a saída de encaixe). As demais
 			// mutações não têm modal aberto — o erro (ex.: 409 "recarregue") vira toast.

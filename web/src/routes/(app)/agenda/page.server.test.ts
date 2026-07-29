@@ -9,6 +9,9 @@ const m = vi.hoisted(() => ({
 }));
 vi.mock('$lib/server/appointments', () => m);
 
+const msg = vi.hoisted(() => ({ sendConfirmation: vi.fn() }));
+vi.mock('$lib/server/messages', () => msg);
+
 import { load, actions } from './+page.server';
 import { meFixture, dayCountFixture } from '$lib/testing/fixtures';
 import type { Me } from '$lib/session';
@@ -548,5 +551,86 @@ describe('action presenca', () => {
 		);
 
 		expect(r).toMatchObject({ status: 409 });
+	});
+});
+
+// Doc 52 §6: o disparo manual da confirmação. A API responde 201 **com o resultado por
+// participante**, e o pecado que estes testes prendem é tratar o status como resposta — a
+// recepção clicava em "Enviar agora", lia "Feito" e nada tinha saído.
+describe('action confirmar', () => {
+	beforeEach(() => {
+		msg.sendConfirmation.mockReset();
+	});
+
+	it('enviou para todos → sucesso, com a mensagem do envio', async () => {
+		msg.sendConfirmation.mockResolvedValueOnce({
+			ok: true,
+			status: 201,
+			resultados: [{ patientId: 'pat1', enviado: true, motivo: null }]
+		});
+
+		const r = await actions.confirmar(formEvent({ id: 'a1' }));
+
+		expect(r).toEqual({ ok: true, action: 'confirmar', mensagem: 'Mensagem enviada' });
+	});
+
+	it('201 sem NINGUÉM enviado NÃO é sucesso — e a mensagem diz o motivo certo', async () => {
+		// O cenário do balcão: paciente com celular na ficha e o canal desligado. Enquanto isto
+		// virava "Feito", a recepção supunha que a mensagem tinha saído.
+		msg.sendConfirmation.mockResolvedValueOnce({
+			ok: true,
+			status: 201,
+			resultados: [{ patientId: 'pat1', enviado: false, motivo: 'canal_indisponivel' }]
+		});
+
+		const r = (await actions.confirmar(formEvent({ id: 'a1' }))) as {
+			status: number;
+			data: { error: string };
+		};
+
+		expect(r.status).toBe(422);
+		expect(r.data.error).toMatch(/WhatsApp/);
+		// E não manda a recepção corrigir uma ficha que já está certa.
+		expect(r.data.error).not.toMatch(/cadastrado/);
+	});
+
+	it('na turma, o parcial conta quantos ficaram de fora', async () => {
+		msg.sendConfirmation.mockResolvedValueOnce({
+			ok: true,
+			status: 201,
+			resultados: [
+				{ patientId: 'pat1', enviado: true, motivo: null },
+				{ patientId: 'pat2', enviado: false, motivo: 'opt_out' }
+			]
+		});
+
+		const r = (await actions.confirmar(formEvent({ id: 'a1' }))) as {
+			ok: boolean;
+			mensagem: string;
+		};
+
+		expect(r.ok).toBe(true);
+		expect(r.mensagem).toMatch(/1 de 2/);
+	});
+
+	it('com patient_id, recorta o participante', async () => {
+		msg.sendConfirmation.mockResolvedValueOnce({ ok: true, status: 201, resultados: [] });
+
+		await actions.confirmar(formEvent({ id: 'a1', patient_id: 'pat9' }));
+
+		expect(msg.sendConfirmation.mock.calls[0][2]).toBe('pat9');
+	});
+
+	it('erro da API sobe como erro', async () => {
+		msg.sendConfirmation.mockResolvedValueOnce({
+			ok: false,
+			status: 403,
+			error: 'Você não tem permissão para esta ação.',
+			resultados: []
+		});
+
+		const r = (await actions.confirmar(formEvent({ id: 'a1' }))) as { status: number };
+
+		expect(r.status).toBe(403);
 	});
 });

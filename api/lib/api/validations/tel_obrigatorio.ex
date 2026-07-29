@@ -15,7 +15,7 @@ defmodule Api.Validations.TelObrigatorio do
   ## Por que virou obrigatório
 
   É metade do par que fecha a lacuna de cobertura do §8: com telefone obrigatório e WhatsApp
-  ligado, todo paciente tem pelo menos um canal, e o `:sem_canal` da timeline deixa de ser regra
+  ligado, todo paciente tem pelo menos um canal, e o "nada enviado" da timeline deixa de ser regra
   para virar exceção. Sozinho, o WhatsApp só alcançaria quem já tinha o número na ficha.
 
   No profissional o motivo é outro e menor — ninguém manda confirmação para ele —, mas a D6

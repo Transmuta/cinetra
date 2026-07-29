@@ -192,9 +192,10 @@ Marta Reis
 
 A terceira linha é **obrigatória**, não decoração. Como a fase 1 só envia a quem tem e-mail
 (C6), o caso "não foi enviado" é comum — e **silêncio é pior do que não ter a funcionalidade**:
-a recepção passa a supor que saiu. O estado `:sem_canal` existe no modelo por isso, e é o único
+a recepção passa a supor que saiu. O "nada enviado" existe no modelo por isso, e é o único estado
 que não gera linha em `Message` (não há mensagem; há a **ausência** dela, derivada do contato da
-ficha na hora da leitura).
+ficha na hora da leitura). Os motivos possíveis estão no §10.3 — são quatro, e cada um existe
+porque leva a uma ação diferente.
 
 E o botão do rodapé **não some**: vira **"Reenviar agora"**, com o estado ao lado. Sem ele a
 recepção fica sem saída em três casos comuns do balcão — agendamento criado 3h antes (a janela do
@@ -434,13 +435,25 @@ péssima ideia mesmo quando é permitido.
 o `:sem_canal` do §6. Ele resolve, em ordem: consentimento na ficha → destino existe? → opt-out?
 → canal. Espalhar essa checagem por gatilho é como se manda mensagem para quem pediu para parar.
 
-Na timeline, os três casos são **linhas distintas**, nunca silêncio:
+Na timeline, os casos são **linhas distintas**, nunca silêncio:
 
 ```
 — Não enviado · paciente pediu para não receber WhatsApp (14/07)   [Reativar]
 — Não enviado · sem consentimento de comunicação na ficha          [Abrir ficha]
 — Não enviado · sem e-mail nem telefone cadastrado                 [Abrir ficha]
+— Não enviado · o WhatsApp está indisponível e não há e-mail na ficha
 ```
+
+**O quarto motivo (`:canal_indisponivel`) nasceu de um bug, e a lição é a mesma do §6.** Ele já
+foi o mesmo átomo que o terceiro, e a fusão produzia uma mentira: paciente **com celular na
+ficha** e WhatsApp desligado lia "sem e-mail nem telefone cadastrado". A recepção abria a ficha,
+via o telefone lá, e não tinha o que corrigir — a tela mandava consertar o lugar errado e
+escondia a única causa real. A regra que os separa: motivo de silêncio só serve se **nomear
+quem tem a ação**. Ficha incompleta é da recepção; canal desligado não é dela.
+
+Pelo mesmo raciocínio, o disparo manual **não trata o 201 como sucesso**: a API aceita o pedido e
+devolve o resultado *por participante*, que pode ser "pulado". Um toast de "Feito" sobre um envio
+que não aconteceu é o mesmo silêncio de novo — agora com confirmação por escrito.
 
 ### 10.4 A reserva não pode virar contorno
 

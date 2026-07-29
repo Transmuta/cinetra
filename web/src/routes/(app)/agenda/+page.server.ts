@@ -29,6 +29,7 @@ import {
 } from '$lib/agenda-views';
 import { fetchPatient } from '$lib/server/patients';
 import { sendConfirmation } from '$lib/server/messages';
+import { textoDoEnvio } from '$lib/messages';
 import type { AgendaPatient } from '$lib/agenda';
 
 // Agenda (doc 25, Entregas 1 e 2). Quatro visões, duas formas de carregar:
@@ -356,13 +357,30 @@ export const actions: Actions = {
 	//
 	// `patient_id` é opcional e recorta um participante: numa turma, reenviar para quem falhou
 	// não pode disparar para os outros três.
+	//
+	// **O 201 não é a resposta**: a API aceita o pedido e devolve o resultado por participante,
+	// que pode ser "pulado" (sem contato, canal desligado, opt-out). Enquanto isto virava sucesso
+	// pelo status, a recepção clicava, lia "Feito" e nada saía — silêncio disfarçado de envio, o
+	// contrário do que a timeline inteira existe para fazer.
 	confirmar: async (event) => {
 		const s = await submission(event, 'confirmar');
 		if (!('id' in s)) return s;
 
 		const patientId = String(s.form.get('patient_id') ?? '') || undefined;
+		const enviado = await sendConfirmation(event, s.id, patientId);
+		if (!enviado.ok) return finish('confirmar', enviado);
 
-		return finish('confirmar', await sendConfirmation(event, s.id, patientId));
+		const mensagem = textoDoEnvio(enviado.resultados);
+
+		// Ninguém recebeu: é um resultado que a recepção precisa LER, não um sucesso silencioso.
+		// O 422 aqui é o do form, não o da API — o que ele carrega é a explicação.
+		if (!enviado.resultados.some((r) => r.enviado)) {
+			return fail(422, { action: 'confirmar', error: mensagem });
+		}
+
+		// Sucesso (inclusive o parcial da turma): a mensagem diz para quantos saiu e por que o
+		// resto ficou de fora.
+		return { ok: true, action: 'confirmar', mensagem };
 	}
 };
 

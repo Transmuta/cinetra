@@ -135,6 +135,38 @@ defmodule Api.Messaging.DispatchTest do
       assert {:ok, :email, "b@example.com"} = Dispatch.avaliar(paciente, clinic_id: ctx.clinic.id)
     end
 
+    test "só telefone, com o canal desligado, é :canal_indisponivel — NÃO :sem_contato" do
+      # O caso do balcão: a ficha **tem** celular, o que falta é transporte de pé. Enquanto os
+      # dois motivos eram o mesmo átomo, a timeline dizia "sem e-mail nem telefone cadastrado"
+      # para um paciente com telefone na ficha — mandava a recepção corrigir o que já está certo,
+      # e escondia a única causa real (o WhatsApp desligado nesta instalação).
+      ctx = clinica()
+      paciente = paciente_com(ctx, comunicacao: true, tel: "11987654321", email: nil)
+
+      assert {:skip, :canal_indisponivel} = Dispatch.avaliar(paciente, clinic_id: ctx.clinic.id)
+    end
+
+    test "ficha vazia continua :sem_contato mesmo com o WhatsApp ligado" do
+      # O par do teste acima: com transporte de pé, o silêncio volta a ser culpa da ficha — e é
+      # aí que "abra a ficha e preencha" é a instrução certa.
+      com_whatsapp(fn ->
+        ctx = clinica()
+        paciente = paciente_legado_sem_tel!(ctx, comunicacao: true, email: nil)
+
+        assert {:skip, :sem_contato} = Dispatch.avaliar(paciente, clinic_id: ctx.clinic.id)
+      end)
+    end
+
+    test "só telefone, com o canal ligado, sai por WhatsApp" do
+      com_whatsapp(fn ->
+        ctx = clinica()
+        paciente = paciente_com(ctx, comunicacao: true, tel: "11987654321", email: nil)
+
+        assert {:ok, :whatsapp, "+5511987654321"} =
+                 Dispatch.avaliar(paciente, clinic_id: ctx.clinic.id)
+      end)
+    end
+
     test "com WhatsApp ligado, ele é o padrão" do
       com_whatsapp(fn ->
         ctx = clinica()

@@ -10,8 +10,9 @@ defmodule Api.Messaging.Dispatch do
   Toda a razão de este módulo existir é ser chamado pelos **dois** lados:
 
     * o envio (manual, gatilho de criação, cron) — que precisa saber se manda;
-    * a **leitura** da timeline — que precisa explicar por que *não* mandou (§6). O `:sem_canal`
-      da tela não é uma linha em `Message`; é a ausência dela, e quem a explica é `avaliar/2`.
+    * a **leitura** da timeline — que precisa explicar por que *não* mandou (§6). O "nada
+      enviado" da tela não é uma linha em `Message`; é a ausência dela, e quem a explica é
+      `avaliar/2`.
 
   Duas implementações da mesma regra divergiriam no primeiro ajuste, e a divergência apareceria
   como "a tela diz que não tem e-mail, mas o e-mail saiu".
@@ -28,11 +29,13 @@ defmodule Api.Messaging.Dispatch do
   Por isso todo `OptOut` é explícito por construção: falha técnica (número inválido, bounce) nunca
   gera opt-out — gera falha na mensagem, que é outra coisa.
 
-  ## Fase 1: sem WhatsApp, e isso não é um `if` espalhado
+  ## Canal desligado não é "paciente sem contato"
 
-  `Api.Messaging.Transport.disponivel?/1` responde por canal. Na fase 1 o WhatsApp responde
-  `false` e a resolução cai para o e-mail pelo caminho normal — o mesmo caminho de "paciente sem
-  telefone". A fase 2 liga o transporte e nada aqui muda.
+  `Api.Messaging.Transport.disponivel?/1` responde por canal, e com WhatsApp desligado a
+  resolução cai para o e-mail pelo caminho normal. Mas **quando não há reserva** os dois casos
+  se separam: sem destino na ficha é `:sem_contato`, e destino sem transporte é
+  `:canal_indisponivel`. São ações diferentes de gente diferente — preencher a ficha é da
+  recepção, ligar o canal não é.
   """
   require Logger
 
@@ -41,13 +44,19 @@ defmodule Api.Messaging.Dispatch do
   alias Api.Messaging.Transport
 
   @typedoc """
-  Por que uma mensagem não sai. São os três textos do §6, e a fronteira os traduz para a tela:
+  Por que uma mensagem não sai. São os textos do §6, e a fronteira os traduz para a tela:
 
     * `:sem_consentimento` — a ficha não autoriza comunicação;
-    * `:sem_contato` — não há e-mail nem telefone utilizável;
+    * `:sem_contato` — não há e-mail nem telefone utilizável **na ficha**;
+    * `:canal_indisponivel` — a ficha tem destino, mas o transporte dele não está de pé;
     * `:opt_out` — o paciente pediu para parar.
+
+  Os dois do meio já foram um átomo só, e a fusão produzia uma mentira no balcão: paciente com
+  celular na ficha e WhatsApp desligado lia "sem e-mail nem telefone cadastrado". Cada motivo
+  existe porque leva a uma **ação diferente** — e "abra a ficha e preencha" é o conselho errado
+  para quem já preencheu. `:canal_indisponivel` não é da recepção: é de quem opera a instalação.
   """
-  @type motivo :: :sem_consentimento | :sem_contato | :opt_out
+  @type motivo :: :sem_consentimento | :sem_contato | :canal_indisponivel | :opt_out
 
   @doc """
   Este paciente receberia uma mensagem agora? Por qual canal, e em qual destino?
@@ -66,36 +75,48 @@ defmodule Api.Messaging.Dispatch do
 
   # A ordem de preferência (C8), com a regra do §10.4 embutida: o opt-out do canal preferido
   # **interrompe**, não cai para o próximo.
+  #
+  # São duas perguntas, e separá-las é o que dá a explicação certa para cada silêncio: primeiro
+  # "a ficha tem destino?", depois "esse destino tem transporte?". Uma pergunta só respondia
+  # "sem contato" para as duas — ver o `@typedoc` de `motivo`.
   defp escolher_canal(patient, clinic_id) do
-    case candidatos(patient) do
+    case destinos(patient) do
+      [] -> {:skip, :sem_contato}
+      destinos -> por_transporte_disponivel(destinos, clinic_id)
+    end
+  end
+
+  defp por_transporte_disponivel(destinos, clinic_id) do
+    case Enum.filter(destinos, fn {canal, _destino} -> Transport.disponivel?(canal) end) do
       [] ->
-        {:skip, :sem_contato}
+        {:skip, :canal_indisponivel}
 
       [{canal, destino} | resto] ->
+        _ = resto
+
         if Messaging.opted_out?(canal, destino, clinic_id) do
-          # Aqui está o §10.4. Não é `escolher_canal(resto)`: quem pediu para parar pediu para
-          # parar, e a reserva não pode virar contorno.
+          # Aqui está o §10.4. Não é "tenta o `resto`": quem pediu para parar pediu para parar,
+          # e a reserva não pode virar contorno.
           {:skip, :opt_out}
         else
-          _ = resto
           {:ok, canal, destino}
         end
     end
   end
 
-  # Os canais que este paciente **poderia** receber, em ordem de preferência. Um canal só entra
-  # se tem destino utilizável na ficha E transporte de pé — é o mesmo teste para "paciente sem
-  # telefone", para "o telefone é um fixo" e para "o WhatsApp está desligado", de propósito.
-  defp candidatos(patient) do
+  # Os destinos que existem **na ficha**, em ordem de preferência (C8) — sem opinar sobre
+  # transporte. "Telefone fixo" e "campo vazio" caem aqui, porque os dois são ausência de
+  # destino; "o WhatsApp está desligado" não, porque aquilo não é um dado da ficha.
+  defp destinos(patient) do
     [{:whatsapp, whatsapp_de(patient)}, {:email, normalizar(:email, patient.email)}]
-    |> Enum.filter(fn {canal, destino} -> destino != nil and Transport.disponivel?(canal) end)
+    |> Enum.filter(fn {_canal, destino} -> destino != nil end)
   end
 
   # **Fixo não é canal de WhatsApp.** O telefone virou obrigatório na ficha (§9), e obrigar sem
   # aceitar fixo empurraria a recepção a digitar um celular qualquer para conseguir salvar — o
   # dado ficaria pior para a regra ficar bonita. Então o fixo entra na ficha e simplesmente não
-  # é candidato aqui: cai para o e-mail pelo caminho normal, e sem e-mail a timeline mostra
-  # `:sem_canal`, que é a verdade.
+  # é destino aqui: cai para o e-mail pelo caminho normal, e sem e-mail a timeline mostra
+  # `:sem_contato` — que é a verdade, porque não há para onde mandar.
   defp whatsapp_de(patient) do
     numero = normalizar(:whatsapp, patient.tel)
 

@@ -1,8 +1,14 @@
 // Tipos e rótulos da comunicação com o paciente (doc 52 §6) — o vocabulário que a timeline do
 // drawer usa. Vive fora do componente porque o BFF, a página e os testes falam dele.
 
-/** Por que nada foi enviado. Os três do §6, na forma que a API devolve. */
-export type SemEnvio = 'sem_consentimento' | 'sem_contato' | 'opt_out';
+/**
+ * Por que nada foi enviado, na forma que a API devolve (`Api.Messaging.Dispatch`).
+ *
+ * `sem_contato` e `canal_indisponivel` já foram o mesmo motivo, e a fusão mentia no balcão:
+ * paciente com celular na ficha lia "sem e-mail nem telefone cadastrado" quando o problema era o
+ * WhatsApp desligado. Um manda a recepção preencher a ficha; o outro não é da recepção.
+ */
+export type SemEnvio = 'sem_consentimento' | 'sem_contato' | 'canal_indisponivel' | 'opt_out';
 
 export type MessageStatus = 'pendente' | 'enviado' | 'entregue' | 'lido' | 'falhou';
 
@@ -45,17 +51,62 @@ export interface MessagesData {
 	participantes: MessageParticipant[];
 }
 
-// O texto de cada silêncio. **Cada um leva uma ação diferente da recepção**, e é por isso que os
-// três não colapsam num "não enviado": autorizar é abrir a ficha, contato é preencher um campo,
-// e opt-out é uma conversa com o paciente — não algo que se conserte na tela.
-const SEM_ENVIO_TEXTO: Record<SemEnvio, string> = {
-	sem_consentimento: 'Nada enviado · sem consentimento de comunicação na ficha',
-	sem_contato: 'Nada enviado · sem e-mail nem telefone cadastrado',
-	opt_out: 'Nada enviado · o paciente pediu para não receber'
+// O texto de cada silêncio. **Cada um leva uma ação diferente**, e é por isso que eles não
+// colapsam num "não enviado": autorizar é abrir a ficha, contato é preencher um campo, opt-out é
+// uma conversa com o paciente — e canal indisponível não é da recepção, é de quem opera a
+// instalação. Dizer "sem telefone cadastrado" a quem tem telefone na ficha manda consertar o
+// lugar errado, e a recepção fica girando na ficha até desistir.
+const SEM_ENVIO_MOTIVO: Record<SemEnvio, string> = {
+	sem_consentimento: 'sem consentimento de comunicação na ficha',
+	sem_contato: 'sem e-mail nem telefone cadastrado',
+	canal_indisponivel: 'o WhatsApp está indisponível e não há e-mail na ficha',
+	opt_out: 'o paciente pediu para não receber'
 };
 
+// O motivo cru vem da API: um átomo novo lá não pode virar `undefined` na tela.
+function motivoTexto(motivo: string): string {
+	return SEM_ENVIO_MOTIVO[motivo as SemEnvio] ?? 'não foi possível enviar';
+}
+
 export function semEnvioTexto(motivo: SemEnvio | null): string | null {
-	return motivo ? SEM_ENVIO_TEXTO[motivo] : null;
+	return motivo ? `Nada enviado · ${motivoTexto(motivo)}` : null;
+}
+
+/** O que a API responde por participante no disparo manual (`POST .../messages`). */
+export interface SendOutcome {
+	patientId: string;
+	enviado: boolean;
+	motivo?: string | null;
+}
+
+/**
+ * O que dizer depois de clicar em "Enviar agora".
+ *
+ * Existe porque a API responde **201 com o resultado por participante**: o pedido foi aceito e o
+ * envio pode ter sido pulado (sem contato, canal desligado, opt-out). Tratar 201 como sucesso
+ * fazia a tela dizer "Feito" sem nada ter saído — o mesmo pecado que a timeline foi desenhada
+ * para não cometer (§6): silêncio faz a recepção supor que a mensagem saiu.
+ *
+ * Na turma o parcial também não vira sucesso limpo — "enviada" com um participante de fora é
+ * mentira para aquele participante (§3).
+ */
+export function textoDoEnvio(resultados: SendOutcome[]): string {
+	if (resultados.length === 0) return 'Nada a enviar neste agendamento.';
+
+	const enviados = resultados.filter((r) => r.enviado);
+	const pulado = resultados.find((r) => !r.enviado);
+
+	if (!pulado) {
+		return enviados.length === 1
+			? 'Mensagem enviada'
+			: `Mensagem enviada para ${enviados.length} pacientes`;
+	}
+
+	const porque = motivoTexto(pulado.motivo ?? '');
+
+	return enviados.length === 0
+		? `Nada enviado · ${porque}`
+		: `Enviada para ${enviados.length} de ${resultados.length} · ${porque}`;
 }
 
 // O rótulo de estado que a recepção lê. `lido` some no e-mail (não usamos pixel de rastreio,
