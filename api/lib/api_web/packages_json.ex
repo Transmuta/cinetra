@@ -4,8 +4,14 @@ defmodule ApiWeb.PackagesJSON do
   Os derivados (`usadas`/`restantes`/`acabando`) vêm calculados do domínio — a tela não os recomputa.
   """
 
-  @doc "Um pacote com a grade e os contadores derivados, para a ficha do paciente."
-  def package(pkg) do
+  @doc """
+  Um pacote com a grade, os contadores derivados e — quando pedida — a **trilha** (as sessões com o
+  estado de cada uma), que é o que o cartão da ficha desenha em bolinhas.
+
+  A trilha é opcional porque só a listagem a carrega: as respostas de transição (pausar, arquivar,
+  `+1`…) devolvem o pacote para a tela conferir o estado, e a ficha recarrega logo em seguida.
+  """
+  def package(pkg, sessoes \\ []) do
     %{
       id: pkg.id,
       nome: pkg.nome,
@@ -17,7 +23,26 @@ defmodule ApiWeb.PackagesJSON do
       falta_punitiva: pkg.falta_punitiva,
       cor: pkg.cor,
       data_inicio: Date.to_iso8601(pkg.data_inicio),
-      grade: grade(pkg)
+      # O tipo de atendimento **identifica** o pacote na ficha (nome, duração, cor) — sem ele o
+      # cartão só sabia repetir o nome digitado (doc 69 §7 item 8). Vai o id, não o objeto: a ficha
+      # já carrega o catálogo de tipos (ativos e arquivados) para o modal de criação, e duplicar
+      # nome/cor aqui criaria uma segunda verdade para o mesmo dado.
+      appointment_type_id: pkg.appointment_type_id,
+      grade: grade(pkg),
+      sessoes: Enum.map(sessoes, &session/1)
+    }
+  end
+
+  @doc """
+  Uma sessão da trilha (doc 69 §7 item 9): quando ela é e em que estado está. O `appointment_id`
+  viaja para a tela poder levar ao bloco na agenda.
+  """
+  def session(s) do
+    %{
+      attendance_id: s.attendance_id,
+      appointment_id: s.appointment_id,
+      starts_at: DateTime.to_iso8601(s.starts_at),
+      estado: s.estado
     }
   end
 

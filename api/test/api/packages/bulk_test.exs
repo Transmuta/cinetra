@@ -440,6 +440,90 @@ defmodule Api.Packages.BulkTest do
     end
   end
 
+  # D2 (doc 69 §10 / achado §6.2): a massa com escopo `todas` é "mudei o pacote inteiro" — a GRADE
+  # tem de acompanhar. Sem isto, a grade guardada continua a antiga, e é ela que o `Materializer`
+  # usa para reprojetar na retomada: pausar+retomar depois de uma massa devolvia as sessões no
+  # horário velho, com o profissional velho.
+  describe "a massa reescreve a grade do pacote (D2)" do
+    defp grade_de(ctx, pkg) do
+      Packages.get_package!(pkg.id, scope: ctx.scope, load: [:schedule]).schedule
+    end
+
+    test "escopo :todas com horário novo grava o horário na grade" do
+      ctx = setup_clinic()
+      dono = novo_paciente(ctx)
+      pkg = pacote(ctx, dono)
+      sessao(ctx, pkg, dono, @segunda, "08:00")
+
+      assert {:ok, _} =
+               Packages.bulk_adjust(ctx.scope, pkg.id, %{
+                 escopo: :todas,
+                 aplicar_horario: true,
+                 hhmm: "09:00"
+               })
+
+      assert %{horarios: %{"1" => "09:00"}} = grade_de(ctx, pkg)
+    end
+
+    test "escopo :todas com profissional novo grava o profissional na grade" do
+      ctx = setup_clinic()
+      dono = novo_paciente(ctx)
+      pkg = pacote(ctx, dono)
+      sessao(ctx, pkg, dono, @segunda, "08:00")
+
+      assert {:ok, _} =
+               Packages.bulk_adjust(ctx.scope, pkg.id, %{
+                 escopo: :todas,
+                 aplicar_profissional: true,
+                 professional_id: ctx.outra_prof.id
+               })
+
+      assert %{professional_id: prof_id} = grade_de(ctx, pkg)
+      assert prof_id == ctx.outra_prof.id
+    end
+
+    test "escopo :esta NÃO toca a grade — é remarcação de uma sessão, não do pacote" do
+      ctx = setup_clinic()
+      dono = novo_paciente(ctx)
+      pkg = pacote(ctx, dono)
+      appt = sessao(ctx, pkg, dono, @segunda, "08:00")
+
+      assert {:ok, _} =
+               Packages.bulk_adjust(ctx.scope, pkg.id, %{
+                 escopo: :esta,
+                 appointment_id: appt.id,
+                 aplicar_horario: true,
+                 hhmm: "09:00"
+               })
+
+      assert %{horarios: %{"1" => "08:00"}} = grade_de(ctx, pkg)
+    end
+
+    test "a retomada depois da massa reprojeta no horário NOVO (o bug que a D2 fecha)" do
+      ctx = setup_clinic()
+      dono = novo_paciente(ctx)
+      pkg = pacote(ctx, dono)
+      sessao(ctx, pkg, dono, @segunda, "08:00")
+
+      {:ok, _} =
+        Packages.bulk_adjust(ctx.scope, pkg.id, %{
+          escopo: :todas,
+          aplicar_horario: true,
+          hhmm: "09:00"
+        })
+
+      {:ok, _} = Packages.pause_package(ctx.scope, pkg.id)
+      {:ok, _} = Packages.resume_package(ctx.scope, pkg.id)
+      Oban.drain_queue(queue: :housekeeping)
+
+      reprojetada = sessao_do_pacote(ctx, pkg.id)
+      minutos = Scheduling.LocalTime.to_local_minutes(reprojetada.starts_at, "America/Sao_Paulo")
+
+      assert minutos == 9 * 60,
+             "a retomada usou a grade velha — a massa não atualizou a grade"
+    end
+  end
+
   describe "o passado não se toca" do
     test "sessão de data passada fica de fora, mesmo ainda agendada" do
       ctx = setup_clinic()

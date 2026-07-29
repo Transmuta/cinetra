@@ -85,6 +85,7 @@ defmodule Api.Packages.Bulk do
   """
   def adjust(%Api.Scope{} = scope, package_id, params) do
     with {:ok, plano} <- plan(params),
+         {:ok, escopo} <- escopo(params),
          {:ok, todos, tz} <- targets(scope, package_id, params) do
       # Sessão **segurada** por uma pausa fica de fora do ajuste (doc 43 §5c): não há horário a
       # remarcar no que está parado, e a retomada reprojeta tudo a partir de hoje de qualquer
@@ -94,6 +95,7 @@ defmodule Api.Packages.Bulk do
 
       case run(scope, alvos, &adjust_one(scope, &1, plano, tz, package_id, warm)) do
         {:ok, %{afetadas: afetadas} = resultado} ->
+          sincroniza_grade(scope, package_id, escopo, plano, afetadas)
           avisa(scope, package_id, alvos, plano, :pacote_remarcado, afetadas)
           {:ok, resultado}
 
@@ -101,6 +103,66 @@ defmodule Api.Packages.Bulk do
           erro
       end
     end
+  end
+
+  # D2 (doc 69 §10): escopo `todas` é "mudei o pacote inteiro" — a **grade** acompanha. Escopos
+  # `esta`/`proximas` são remarcação pontual e não mexem nela.
+  #
+  # Sem isto a grade guardada envelhecia calada, e é ela que o `Materializer` lê para reprojetar:
+  # pausar+retomar depois de uma massa devolvia as sessões no horário/profissional velhos (achado
+  # §6.2 do doc 69). O mesmo vale para qualquer materialização futura (`+1`, ajuste de grade).
+  #
+  # Roda **depois do commit** da massa, como o `avisa/6`: falhar aqui não pode desfazer sessões que
+  # já se moveram. Uma falha vira log — a inconsistência é o estado anterior a este conserto, não
+  # um regresso.
+  defp sincroniza_grade(_scope, _package_id, _escopo, _plano, 0), do: :ok
+  defp sincroniza_grade(_scope, _package_id, escopo, _plano, _n) when escopo != :todas, do: :ok
+
+  defp sincroniza_grade(scope, package_id, :todas, plano, _afetadas) do
+    # Lê a **grade** direto, não o pacote com `load: [:schedule]`: o teto de queries da massa
+    # (`bulk_queries_test`) prova que o invariante do pacote é lido no máximo 2× por massa, e
+    # reler `packages` aqui furava justamente essa asserção — a que importa, porque é a que pega
+    # leitura por sessão.
+    grade =
+      in_clinic(scope, fn ->
+        Api.Packages.list_package_schedules!(
+          scope: scope,
+          query: [filter: [package_id: package_id], limit: 1]
+        )
+      end)
+      |> List.first()
+
+    with %{} = grade <- grade,
+         attrs when attrs != %{} <- atributos_da_grade(grade, plano) do
+      # A escrita fica fora do `in_clinic`: a ação seta a própria GUC (`SetTenantGuc`).
+      case Api.Packages.update_package_schedule(grade, attrs, scope: scope) do
+        {:ok, _} ->
+          :ok
+
+        {:error, erro} ->
+          Logger.error("Grade do pacote #{package_id} não acompanhou a massa: #{inspect(erro)}")
+          :ok
+      end
+    else
+      _ -> :ok
+    end
+  end
+
+  # O `hhmm` da massa vale para **todos** os dias da grade: a massa aplica um horário só a todas as
+  # sessões do escopo, então guardar horário diferente por dia deixaria a grade descrevendo algo que
+  # a série já não é.
+  defp atributos_da_grade(grade, plano) do
+    %{}
+    |> then(fn attrs ->
+      if plano.professional_id,
+        do: Map.put(attrs, :professional_id, plano.professional_id),
+        else: attrs
+    end)
+    |> then(fn attrs ->
+      if plano.hhmm,
+        do: Map.put(attrs, :horarios, Map.new(grade.dows, &{to_string(&1), plano.hhmm})),
+        else: attrs
+    end)
   end
 
   # UMA notificação de caixa por massa, em vez de uma por sessão (doc 43 §5b). As por-sessão são

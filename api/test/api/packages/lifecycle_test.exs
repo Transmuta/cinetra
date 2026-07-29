@@ -387,4 +387,428 @@ defmodule Api.Packages.LifecycleTest do
       assert ativos == []
     end
   end
+
+  # D1 (doc 69 §10): "concluído" é **ação manual**. Nada no sistema fecha o pacote sozinho — nem o
+  # rollup da presença, nem o `restantes == 0`. É o `archive` que vira o status, e ele recusa
+  # quando ainda há sessão futura de pé (senão sobra sessão viva num pacote fechado).
+  describe "arquivar (D1)" do
+    test "arquiva um pacote com todas as sessões resolvidas" do
+      ctx = setup_clinic()
+      pkg = criar_e_materializar(ctx)
+
+      # conclui as 4 sessões: nada de futuro sobra
+      Enum.each(sessoes(ctx, pkg), fn appt ->
+        {:ok, _} =
+          Scheduling.transition_participant(
+            scope_at(ctx, DateTime.add(appt.starts_at, 3600)),
+            appt.id,
+            ctx.paciente.id,
+            :complete
+          )
+      end)
+
+      assert {:ok, arquivado} = Packages.archive_package(scope_before(ctx), pkg.id)
+      assert arquivado.status == :concluido
+    end
+
+    test "recusa quando ainda há sessão futura agendada" do
+      ctx = setup_clinic()
+      pkg = criar_e_materializar(ctx)
+
+      assert {:error, :sessoes_futuras} = Packages.archive_package(scope_before(ctx), pkg.id)
+      assert Packages.get_package!(pkg.id, scope: ctx.scope).status == :ativo
+    end
+
+    test "recusa quando as futuras estão apenas SEGURADAS por uma pausa" do
+      ctx = setup_clinic()
+      pkg = criar_e_materializar(ctx)
+      {:ok, _} = Packages.pause_package(scope_before(ctx), pkg.id)
+
+      assert {:error, :sessoes_futuras} = Packages.archive_package(scope_before(ctx), pkg.id)
+    end
+
+    test "recusa arquivar um pacote cancelado (estado terminal)" do
+      ctx = setup_clinic()
+      pkg = criar_e_materializar(ctx)
+      {:ok, _} = Packages.cancel_package(scope_before(ctx), pkg.id)
+
+      assert {:error, :status_invalido} = Packages.archive_package(scope_before(ctx), pkg.id)
+    end
+
+    test "pacote CANCELADO não volta pelo `+` (D4)" do
+      ctx = setup_clinic()
+      pkg = criar_e_materializar(ctx)
+      {:ok, _} = Packages.cancel_package(scope_before(ctx), pkg.id)
+
+      assert {:error, :status_invalido} = Packages.add_session(scope_before(ctx), pkg.id)
+    end
+
+    test "arquivar NÃO acontece sozinho ao zerar restantes (D1: é manual)" do
+      ctx = setup_clinic()
+      pkg = criar_e_materializar(ctx)
+
+      Enum.each(sessoes(ctx, pkg), fn appt ->
+        {:ok, _} =
+          Scheduling.transition_participant(
+            scope_at(ctx, DateTime.add(appt.starts_at, 3600)),
+            appt.id,
+            ctx.paciente.id,
+            :complete
+          )
+      end)
+
+      recarregado = Packages.get_package!(pkg.id, scope: ctx.scope, load: [:restantes])
+      assert recarregado.restantes == 0
+      assert recarregado.status == :ativo, "o pacote se fechou sozinho — D1 diz que é manual"
+    end
+  end
+
+  # O troco do ADR-011 (doc 69 §5c): não há renovação — o `total` é ajustável a qualquer momento,
+  # para mais e para menos, sobre o MESMO pacote. Era a metade que nunca foi construída.
+  describe "+1 sessão (ADR-011 / D4)" do
+    test "soma ao total e materializa a sessão nova na próxima data da grade" do
+      ctx = setup_clinic()
+      pkg = criar_e_materializar(ctx)
+      antes = sessoes(ctx, pkg)
+
+      assert {:ok, maior} = Packages.add_session(scope_before(ctx), pkg.id)
+      assert maior.total == 5
+      Oban.drain_queue(queue: :housekeeping)
+
+      depois = sessoes(ctx, pkg)
+      assert length(depois) == length(antes) + 1
+
+      # a nova cai DEPOIS da última, no dia/horário da grade (seg 08:00 ou qua 09:00)
+      ultima_antes = List.last(antes)
+      nova = List.last(depois)
+      assert DateTime.after?(nova.starts_at, ultima_antes.starts_at)
+    end
+
+    test "reabre um pacote arquivado (D4)" do
+      ctx = setup_clinic()
+      pkg = criar_e_materializar(ctx)
+
+      Enum.each(sessoes(ctx, pkg), fn appt ->
+        {:ok, _} =
+          Scheduling.transition_participant(
+            scope_at(ctx, DateTime.add(appt.starts_at, 3600)),
+            appt.id,
+            ctx.paciente.id,
+            :complete
+          )
+      end)
+
+      {:ok, _} = Packages.archive_package(scope_before(ctx), pkg.id)
+
+      assert {:ok, reaberto} = Packages.add_session(scope_before(ctx), pkg.id)
+      assert reaberto.status == :ativo
+      assert reaberto.total == 5
+    end
+
+    test "não passa do teto do recurso" do
+      ctx = setup_clinic()
+      {:ok, pkg} = Packages.create_series(scope_before(ctx), params(ctx, %{total: 120}))
+
+      assert {:error, _} = Packages.add_session(scope_before(ctx), pkg.id)
+    end
+  end
+
+  describe "−1 sessão (D3: só futura, nunca o passado)" do
+    test "cancela a ÚLTIMA sessão futura e diminui o total" do
+      ctx = setup_clinic()
+      pkg = criar_e_materializar(ctx)
+      antes = sessoes(ctx, pkg)
+      ultima = List.last(antes)
+
+      assert {:ok, menor} = Packages.remove_session(scope_before(ctx), pkg.id)
+      assert menor.total == 3
+
+      assert Scheduling.get_appointment!(ultima.id, scope: ctx.scope).status == :cancelado
+    end
+
+    test "RECUSA quando as sessões por resolver são todas passadas (o coração da D3)" do
+      ctx = setup_clinic()
+      pkg = criar_e_materializar(ctx)
+
+      # o relógio agora é DEPOIS da série inteira: nada de futuro sobrou, mas as sessões
+      # continuam `:agendado` (ninguém as resolveu) — o estado sujo de uma clínica real
+      {:ok, agora} = Scheduling.LocalTime.to_utc(~D[2026-09-01], "08:00", "America/Sao_Paulo")
+      depois = scope_at(ctx, agora)
+
+      assert {:error, :sem_sessao_futura} = Packages.remove_session(depois, pkg.id)
+
+      # e nada foi cancelado atrás
+      assert Enum.all?(sessoes_cruas(pkg), &(&1.status == "agendado"))
+      assert Packages.get_package!(pkg.id, scope: ctx.scope).total == 4
+    end
+
+    test "não desce abaixo do que já foi consumido" do
+      ctx = setup_clinic()
+      pkg = criar_e_materializar(ctx)
+
+      # consome 3 das 4 e deixa 1 futura; o total não pode cair para menos que 3
+      [a, b, c | _] = sessoes(ctx, pkg)
+
+      Enum.each([a, b, c], fn appt ->
+        {:ok, _} =
+          Scheduling.transition_participant(
+            scope_at(ctx, DateTime.add(appt.starts_at, 3600)),
+            appt.id,
+            ctx.paciente.id,
+            :complete
+          )
+      end)
+
+      assert {:ok, menor} = Packages.remove_session(scope_before(ctx), pkg.id)
+      assert menor.total == 3
+
+      assert {:error, :sem_sessao_futura} = Packages.remove_session(scope_before(ctx), pkg.id)
+    end
+  end
+
+  # A trilha é a SÉRIE, não o cemitério dela. Sessão cancelada (pelo `−1`, pela massa, pela
+  # reprojeção da retomada) sai da leitura — senão o cartão desenha 8 bolinhas num pacote de 6, e o
+  # contador ao lado passa a discordar do desenho. É o filtro que o protótipo faz em `pkgSessions`
+  # ([`:387`](../../../../interface/Movimento.dc.html#L387)).
+  describe "trilha das sessões" do
+    test "cancelada não entra na trilha" do
+      ctx = setup_clinic()
+      pkg = criar_e_materializar(ctx)
+
+      assert length(Packages.list_sessions(scope_before(ctx), pkg.id)) == 4
+
+      {:ok, _} = Packages.remove_session(scope_before(ctx), pkg.id)
+
+      trilha = Packages.list_sessions(scope_before(ctx), pkg.id)
+      assert length(trilha) == 3
+      refute Enum.any?(trilha, &(&1.estado == :cancelada))
+    end
+
+    test "a trilha em lote (o cartão da ficha) segue a mesma regra" do
+      ctx = setup_clinic()
+      pkg = criar_e_materializar(ctx)
+      {:ok, _} = Packages.remove_session(scope_before(ctx), pkg.id)
+
+      atual = Packages.get_package!(pkg.id, scope: ctx.scope)
+      por_pacote = Packages.sessions_by_package(scope_before(ctx), [atual])
+      assert length(por_pacote[pkg.id]) == 3
+    end
+
+    test "segurada continua na trilha — pausar não apaga a série" do
+      ctx = setup_clinic()
+      pkg = criar_e_materializar(ctx)
+      {:ok, _} = Packages.pause_package(scope_before(ctx), pkg.id)
+
+      trilha = Packages.list_sessions(scope_before(ctx), pkg.id)
+      assert length(trilha) == 4
+      assert Enum.all?(trilha, &(&1.estado == :segurada))
+    end
+  end
+
+  describe "ajustar a grade (contrato 09:441)" do
+    test "troca os dias da semana: as futuras saem das antigas e nascem nas novas" do
+      ctx = setup_clinic()
+      pkg = criar_e_materializar(ctx)
+
+      # de [seg, qua] para [ter]
+      assert {:ok, _} =
+               Packages.adjust_grade(scope_before(ctx), pkg.id, %{
+                 dows: [2],
+                 horarios: %{"2" => "10:00"},
+                 professional_id: ctx.prof.id
+               })
+
+      Oban.drain_queue(queue: :housekeeping)
+
+      vivas =
+        sessoes(ctx, pkg)
+        |> Enum.reject(&(&1.status == :cancelado))
+
+      assert vivas != []
+
+      assert Enum.all?(vivas, fn appt ->
+               Date.day_of_week(
+                 Scheduling.LocalTime.to_local_date(appt.starts_at, "America/Sao_Paulo")
+               ) == 2
+             end),
+             "sobrou sessão fora da grade nova"
+
+      # e a grade guardada é a nova (senão a próxima materialização volta ao passado)
+      grade = Packages.get_package!(pkg.id, scope: ctx.scope, load: [:schedule]).schedule
+      assert grade.dows == [2]
+      assert grade.horarios == %{"2" => "10:00"}
+    end
+
+    test "usadas não muda — o que já aconteceu não se reescreve" do
+      ctx = setup_clinic()
+      pkg = criar_e_materializar(ctx)
+      primeira = hd(sessoes(ctx, pkg))
+
+      {:ok, _} =
+        Scheduling.transition_participant(
+          scope_at(ctx, DateTime.add(primeira.starts_at, 3600)),
+          primeira.id,
+          ctx.paciente.id,
+          :complete
+        )
+
+      {:ok, _} =
+        Packages.adjust_grade(scope_before(ctx), pkg.id, %{
+          dows: [2],
+          horarios: %{"2" => "10:00"},
+          professional_id: ctx.prof.id
+        })
+
+      assert Packages.get_package!(pkg.id, scope: ctx.scope, load: [:usadas]).usadas == 1
+    end
+
+    test "recusa num pacote pausado — retome antes de ajustar" do
+      ctx = setup_clinic()
+      pkg = criar_e_materializar(ctx)
+      {:ok, _} = Packages.pause_package(scope_before(ctx), pkg.id)
+
+      assert {:error, :status_invalido} =
+               Packages.adjust_grade(scope_before(ctx), pkg.id, %{
+                 dows: [2],
+                 horarios: %{"2" => "10:00"},
+                 professional_id: ctx.prof.id
+               })
+    end
+
+    test "grade vazia é recusada" do
+      ctx = setup_clinic()
+      pkg = criar_e_materializar(ctx)
+
+      assert {:error, _} =
+               Packages.adjust_grade(scope_before(ctx), pkg.id, %{
+                 dows: [],
+                 horarios: %{},
+                 professional_id: ctx.prof.id
+               })
+    end
+
+    # As três abaixo cobrem o mesmo defeito medido no bate-volta: `adjust_grade` CANCELA as futuras
+    # antes de saber se a grade nova consegue materializar. Quando o profissional escolhido não
+    # serve, o job falha em silêncio (`Materializer.create_sessions` descarta o erro do
+    # `Enum.each`) e o pacote fica **sem sessão nenhuma** — vendido com 4, zero na agenda.
+    #
+    # A recusa tem de vir ANTES do cancelamento; por isso cada teste confere as duas coisas: o
+    # erro E as sessões ainda de pé.
+    test "recusa profissional de OUTRA clínica — e não cancela as futuras" do
+      ctx = setup_clinic()
+      outra = setup_clinic()
+      pkg = criar_e_materializar(ctx)
+
+      assert {:error, :profissional_invalido} =
+               Packages.adjust_grade(scope_before(ctx), pkg.id, %{
+                 dows: [2],
+                 horarios: %{"2" => "10:00"},
+                 professional_id: outra.prof.id
+               })
+
+      Oban.drain_queue(queue: :housekeeping)
+
+      vivas = Enum.reject(sessoes(ctx, pkg), &(&1.status == :cancelado))
+      assert length(vivas) == 4, "o pacote perdeu sessões numa recusa"
+
+      # e a grade não foi reescrita com a referência de outro tenant
+      grade = Packages.get_package!(pkg.id, scope: ctx.scope, load: [:schedule]).schedule
+      assert grade.professional_id == ctx.prof.id
+    end
+
+    test "recusa profissional INATIVO da própria clínica — e não cancela as futuras" do
+      ctx = setup_clinic()
+      pkg = criar_e_materializar(ctx)
+
+      outro =
+        Api.Directory.create_professional!(
+          "Fisio Arquivado",
+          %{tel: Api.Generators.telefone_unico()},
+          tenant: ctx.clinic.id,
+          authorize?: false
+        )
+
+      Api.Directory.update_professional!(outro, %{ativo: false},
+        tenant: ctx.clinic.id,
+        authorize?: false
+      )
+
+      assert {:error, :profissional_inativo} =
+               Packages.adjust_grade(scope_before(ctx), pkg.id, %{
+                 dows: [2],
+                 horarios: %{"2" => "10:00"},
+                 professional_id: outro.id
+               })
+
+      Oban.drain_queue(queue: :housekeeping)
+
+      vivas = Enum.reject(sessoes(ctx, pkg), &(&1.status == :cancelado))
+      assert length(vivas) == 4, "o pacote perdeu sessões numa recusa"
+    end
+
+    # Sem `professional_id` no corpo a grade mantém o que já tinha — mas "o que já tinha" pode ter
+    # sido arquivado desde então, e aí o buraco é o mesmo. Vale o profissional EFETIVO, não o que
+    # veio do corpo.
+    test "recusa quando o profissional que FICA na grade foi arquivado" do
+      ctx = setup_clinic()
+      pkg = criar_e_materializar(ctx)
+
+      Api.Directory.update_professional!(ctx.prof, %{ativo: false},
+        tenant: ctx.clinic.id,
+        authorize?: false
+      )
+
+      assert {:error, :profissional_inativo} =
+               Packages.adjust_grade(scope_before(ctx), pkg.id, %{
+                 dows: [2],
+                 horarios: %{"2" => "10:00"}
+               })
+
+      Oban.drain_queue(queue: :housekeeping)
+
+      vivas = Enum.reject(sessoes(ctx, pkg), &(&1.status == :cancelado))
+      assert length(vivas) == 4, "o pacote perdeu sessões numa recusa"
+    end
+
+    # O mesmo furo pela porta da criação: lá o sintoma era `MatchError` dentro do `Preview`
+    # (500 no controller), em vez de uma recusa limpa.
+    test "create_series recusa profissional de OUTRA clínica sem estourar" do
+      ctx = setup_clinic()
+      outra = setup_clinic()
+
+      assert {:error, :profissional_invalido} =
+               Packages.create_series(
+                 scope_before(ctx),
+                 params(ctx, %{
+                   grade: %{
+                     dows: [1],
+                     horarios: %{"1" => "08:00"},
+                     professional_id: outra.prof.id
+                   }
+                 })
+               )
+    end
+  end
+
+  # A-6 do doc 42, que ficou "para a etapa que reabrir o ciclo de vida do pacote" — é esta.
+  describe "corrida: pausar ANTES de o job materializar (A-6)" do
+    test "o job materializa já SEGURANDO quando o pacote está pausado" do
+      ctx = setup_clinic()
+      # cria (enfileira o job) e pausa dentro da janela, antes de o Oban rodar
+      {:ok, pkg} = Packages.create_series(scope_before(ctx), params(ctx))
+      {:ok, pausado} = Packages.pause_package(scope_before(ctx), pkg.id)
+      assert pausado.status == :pausado
+
+      Oban.drain_queue(queue: :housekeeping)
+
+      cruas = sessoes_cruas(pkg)
+      assert length(cruas) == 4
+
+      assert Enum.all?(cruas, & &1.pkg_hold),
+             "o job criou sessões VISÍVEIS num pacote pausado (A-6)"
+
+      # e a agenda não as mostra (RN-05)
+      assert [] == sessoes(ctx, pkg)
+    end
+  end
 end

@@ -119,6 +119,28 @@ defmodule Api.Packages.Package do
       require_atomic? false
       change set_attribute(:status, :cancelado)
     end
+
+    # Arquivar (D1, doc 69 §10): o **único** caminho até `:concluido`. Nada fecha o pacote sozinho
+    # — nem o rollup da presença, nem `restantes == 0`. Quem decide que a série acabou é a pessoa
+    # que arquiva; o guard de "não sobrou sessão futura" mora no wrapper do domínio, que é quem
+    # enxerga a agenda.
+    update :mark_completed do
+      require_atomic? false
+      change set_attribute(:status, :concluido)
+    end
+
+    # O `total` é editável a qualquer momento, para mais e para menos (ADR-011) — é o que
+    # substituiu a renovação do protótipo. O piso/teto do atributo (1…120) continuam valendo, e o
+    # wrapper do domínio é quem garante que não se desce abaixo do já consumido nem se materializa
+    # sem sessão para materializar.
+    update :set_total do
+      require_atomic? false
+      accept [:total]
+
+      # `+1` num pacote arquivado o **reabre** (D4): somar sessão é dizer que a série voltou a
+      # andar. Cancelado não volta por aqui — o wrapper recusa antes.
+      change Api.Packages.Package.Changes.ReopenIfCompleted
+    end
   end
 
   policies do

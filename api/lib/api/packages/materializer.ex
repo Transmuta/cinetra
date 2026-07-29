@@ -126,11 +126,41 @@ defmodule Api.Packages.Materializer do
   defp create_sessions({:error, _reason} = erro, _clinic_id, _forcar), do: erro
 
   defp create_sessions({:ok, pkg, tipo, starts}, clinic_id, forcar) do
-    Enum.each(starts, fn starts_at ->
-      Api.Packages.Sessions.create_and_stamp(pkg, tipo, starts_at, clinic_id, forcar)
-    end)
+    # O `Enum.each` daqui **descartava** o `{:error, _}` de `create_and_stamp/5` e devolvia `:ok`:
+    # o Oban registrava sucesso, nenhuma linha era escrita e nada em lugar nenhum dizia que a
+    # sessão não nasceu. Foi o que tornou invisível o defeito do `adjust_grade` medido no
+    # bate-volta — as futuras eram canceladas, a re-materialização não acontecia, e o pacote ficava
+    # com zero sessão sem um único sinal.
+    #
+    # Continua devolvendo `:ok` de propósito: uma sessão recusada por conflito é caso normal (o
+    # `forcar`/encaixe existe para isso) e transformar isso em erro de job poria a fila em retry
+    # eterno. O que muda é que a recusa passa a ter registro — quem investiga tem por onde começar.
+    starts
+    |> Enum.reduce(0, fn starts_at, falhas ->
+      case Api.Packages.Sessions.create_and_stamp(pkg, tipo, starts_at, clinic_id, forcar) do
+        {:ok, _appt} ->
+          falhas
 
-    :ok
+        {:error, motivo} ->
+          Logger.error(
+            "Materialização: sessão de #{DateTime.to_iso8601(starts_at)} do pacote #{pkg.id} " <>
+              "não foi criada — #{inspect(motivo)}"
+          )
+
+          falhas + 1
+      end
+    end)
+    |> case do
+      0 ->
+        :ok
+
+      falhas ->
+        Logger.error(
+          "Materialização do pacote #{pkg.id}: #{falhas} de #{length(starts)} sessões não nasceram"
+        )
+
+        :ok
+    end
   end
 
   # As presenças **ativas** carimbadas com este pacote → horários (ISO) já materializados. Ignora

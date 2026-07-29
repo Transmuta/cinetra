@@ -25,7 +25,8 @@
 	// Arquivar/reativar recarregam a ficha inteira — sem sinal, o clique parecia perdido.
 	const situacao = envio();
 	import PackageCreateModal from '$lib/components/patients/PackageCreateModal.svelte';
-	import PackageBulkModal from '$lib/components/patients/PackageBulkModal.svelte';
+	import PackageGradeModal from '$lib/components/patients/PackageGradeModal.svelte';
+	import PackageSessionsModal from '$lib/components/patients/PackageSessionsModal.svelte';
 	import PatientUpcoming from '$lib/components/patients/PatientUpcoming.svelte';
 	import PatientHistory from '$lib/components/patients/PatientHistory.svelte';
 	import PatientAttachments from '$lib/components/patients/PatientAttachments.svelte';
@@ -39,15 +40,20 @@
 	// criar, recarrega a ficha (`invalidateAll`) para o novo pacote aparecer com os contadores.
 	let criandoPacote = $state(false);
 
-	// A massa (doc 41 etapa 3) também é do pai, pelo mesmo motivo: ela submete uma action DESTA
-	// página, e é o resultado dela (`form`) que diz se deu conflito ou quantas sessões mudaram.
-	let ajustando = $state<Pkg | null>(null);
+	// A grade (contrato 09:441) e a trilha (doc 69 §7 item 9) são do pai porque a grade submete uma
+	// action DESTA página e a trilha depende do catálogo de tipos para dizer o nome do pacote.
+	let ajustandoGrade = $state<Pkg | null>(null);
+	let vendoSessoes = $state<Pkg | null>(null);
 
-	// Fecha o modal quando a massa deu certo; erro mantém aberto, com a mensagem e o "aplicar mesmo
-	// assim". `afetadas` vira o aviso — o número é do servidor, que sabe o recorte de futuras.
+	// A grade fecha no sucesso; o erro mantém o modal aberto, com a mensagem do servidor.
 	$effect(() => {
-		if (form?.ok && form?.afetadas != null) ajustando = null;
+		if (form?.ok) ajustandoGrade = null;
 	});
+
+	// O título do modal da trilha é o do TIPO — a mesma identidade que o cartão usa.
+	const tituloDoPacote = $derived((pkg: Pkg) =>
+		data.appointmentTypes.find((t) => t.id === pkg.appointment_type_id)?.nome ?? pkg.nome
+	);
 
 	const p = $derived(data.patient);
 	const canManage = $derived(canManagePatients(data.me.papel));
@@ -400,9 +406,14 @@
 		<!-- Pacotes (Fatia 3): lista + ciclo de vida + criação (modal com prévia ao vivo). -->
 		<PackageList
 			packages={data.packages}
+			professionals={data.professionals}
+			appointmentTypes={data.appointmentTypes}
+			upcoming={data.upcoming}
+			timezone={data.me.timezone ?? 'America/Sao_Paulo'}
 			{canManage}
 			onNew={() => (criandoPacote = true)}
-			onBulk={(pkg) => (ajustando = pkg)}
+			onGrade={(pkg) => (ajustandoGrade = pkg)}
+			onSessions={(pkg) => (vendoSessoes = pkg)}
 		/>
 
 		<!-- Histórico (C13, Frente 7). Abre com 8 linhas; o resto é o "ver histórico completo". -->
@@ -425,11 +436,6 @@
 	</div>
 	</div>
 
-	{#if form?.ok && form?.afetadas != null}
-		<p class="mt-2 text-[12.5px] font-semibold text-success">
-			{form.afetadas} sessão(ões) ajustada(s).
-		</p>
-	{/if}
 </div>
 
 {#if criandoPacote}
@@ -445,11 +451,22 @@
 	/>
 {/if}
 
-{#if ajustando}
-	<PackageBulkModal
-		pkg={ajustando}
+{#if ajustandoGrade}
+	<PackageGradeModal
+		pkg={ajustandoGrade}
 		professionals={data.professionals}
 		erro={form?.ok ? undefined : form?.error}
-		onClose={() => (ajustando = null)}
+		onClose={() => (ajustandoGrade = null)}
 	/>
 {/if}
+
+{#if vendoSessoes}
+	<PackageSessionsModal
+		pkg={vendoSessoes}
+		patientId={p.id}
+		titulo={tituloDoPacote(vendoSessoes)}
+		timezone={data.me.timezone ?? 'America/Sao_Paulo'}
+		onClose={() => (vendoSessoes = null)}
+	/>
+{/if}
+

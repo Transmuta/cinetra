@@ -19,7 +19,10 @@ const k = vi.hoisted(() => ({
 	pausePackage: vi.fn(),
 	resumePackage: vi.fn(),
 	cancelPackage: vi.fn(),
-	bulkAdjustPackage: vi.fn()
+	archivePackage: vi.fn(),
+	addPackageSession: vi.fn(),
+	removePackageSession: vi.fn(),
+	adjustPackageGrade: vi.fn()
 }));
 vi.mock('$lib/server/packages', () => k);
 
@@ -202,61 +205,122 @@ describe('actions do ciclo de vida do pacote', () => {
 	});
 });
 
-// Massa por pacote (doc 41 etapa 3). Do cartão da ficha o escopo é sempre `todas`: `esta`/
-// `proximas` pedem uma sessão de referência, que só existe olhando a agenda.
-describe('action da massa (bulkAdjustPackage)', () => {
-	const evCom = (campos: Record<string, string>) =>
+
+// O ciclo de vida reaberto (doc 69 §10 B4): arquivar, o `+`/`−` do ADR-011 e a grade.
+describe('actions novas do pacote', () => {
+	const evForm = (pares: [string, string][]) =>
 		({
 			params: { id: 'pac1' },
-			request: { formData: async () => new Map(Object.entries(campos)) }
+			request: { formData: async () => new Map(pares) }
 		}) as never;
 
-	it('manda escopo todas + só o que foi marcado, e devolve quantas', async () => {
-		k.bulkAdjustPackage.mockResolvedValueOnce({ ok: true, status: 200, afetadas: 3 });
-
-		const r = await actions.bulkAdjustPackage(
-			evCom({ package_id: 'k1', professional_id: 'pr9', forcar: 'false' })
-		);
-
-		expect(r).toEqual({ ok: true, afetadas: 3 });
-		expect(k.bulkAdjustPackage.mock.calls[0][2]).toEqual({
-			escopo: 'todas',
-			aplicar_profissional: true,
-			professional_id: 'pr9',
-			forcar: false
-		});
+	it('archivePackage ok → { ok: true }', async () => {
+		k.archivePackage.mockResolvedValueOnce({ ok: true });
+		expect(await actions.archivePackage(evForm([['package_id', 'k1']]))).toEqual({ ok: true });
+		expect(k.archivePackage.mock.calls[0][1]).toBe('k1');
 	});
 
-	it('horário sozinho não manda profissional (não reescreve o que ninguém pediu)', async () => {
-		k.bulkAdjustPackage.mockResolvedValueOnce({ ok: true, status: 200, afetadas: 1 });
-
-		await actions.bulkAdjustPackage(evCom({ package_id: 'k1', hhmm: '09:00' }));
-
-		expect(k.bulkAdjustPackage.mock.calls[0][2]).toEqual({
-			escopo: 'todas',
-			aplicar_horario: true,
-			hhmm: '09:00',
-			forcar: false
-		});
-	});
-
-	it('sem nada marcado → 400 sem tocar a API', async () => {
-		expect(await actions.bulkAdjustPackage(evCom({ package_id: 'k1' }))).toMatchObject({
-			status: 400
-		});
-		expect(k.bulkAdjustPackage).not.toHaveBeenCalled();
-	});
-
-	it('conflito (422) sobe com a mensagem para a tela oferecer o "mesmo assim"', async () => {
-		k.bulkAdjustPackage.mockResolvedValueOnce({
+	it('archivePackage recusado (422, sessão futura de pé) sobe a mensagem do servidor', async () => {
+		k.archivePackage.mockResolvedValueOnce({
 			ok: false,
 			status: 422,
-			error: 'Conflito de horário.',
-			code: 'schedule_conflict'
+			error: 'ainda há sessões futuras neste pacote'
+		});
+		expect(await actions.archivePackage(evForm([['package_id', 'k1']]))).toMatchObject({
+			status: 422
+		});
+	});
+
+	it('addPackageSession e removePackageSession passam só o id', async () => {
+		k.addPackageSession.mockResolvedValueOnce({ ok: true });
+		k.removePackageSession.mockResolvedValueOnce({ ok: true });
+
+		await actions.addPackageSession(evForm([['package_id', 'k1']]));
+		await actions.removePackageSession(evForm([['package_id', 'k1']]));
+
+		expect(k.addPackageSession.mock.calls[0][1]).toBe('k1');
+		expect(k.removePackageSession.mock.calls[0][1]).toBe('k1');
+	});
+
+	// O form manda a grade PLANA (`dows=1,3` e `horarios=1=08:00,3=09:00`) e é aqui que ela vira o
+	// objeto que a API recebe. É a única lógica de verdade destas actions.
+	it('adjustPackageGrade remonta a grade a partir do formato plano', async () => {
+		k.adjustPackageGrade.mockResolvedValueOnce({ ok: true });
+
+		const r = await actions.adjustPackageGrade(
+			evForm([
+				['package_id', 'k1'],
+				['dows', '1,3'],
+				['horarios', '1=08:00,3=09:00'],
+				['professional_id', 'pr1']
+			])
+		);
+
+		expect(r).toEqual({ ok: true });
+		expect(k.adjustPackageGrade.mock.calls[0][2]).toEqual({
+			dows: [1, 3],
+			horarios: { '1': '08:00', '3': '09:00' },
+			professional_id: 'pr1'
+		});
+	});
+
+	it('dia fora de 0..6 é descartado em vez de ir para a API', async () => {
+		k.adjustPackageGrade.mockResolvedValueOnce({ ok: true });
+
+		await actions.adjustPackageGrade(
+			evForm([
+				['package_id', 'k1'],
+				['dows', '1,9,x'],
+				['horarios', '1=08:00'],
+				['professional_id', 'pr1']
+			])
+		);
+
+		expect(k.adjustPackageGrade.mock.calls[0][2].dows).toEqual([1]);
+	});
+
+	it('dia sem horário → 400 sem tocar a API', async () => {
+		const r = await actions.adjustPackageGrade(
+			evForm([
+				['package_id', 'k1'],
+				['dows', '1,3'],
+				['horarios', '1=08:00'],
+				['professional_id', 'pr1']
+			])
+		);
+
+		expect(r).toMatchObject({ status: 400 });
+		expect(k.adjustPackageGrade).not.toHaveBeenCalled();
+	});
+
+	it('sem profissional → 400', async () => {
+		const r = await actions.adjustPackageGrade(
+			evForm([
+				['package_id', 'k1'],
+				['dows', '1'],
+				['horarios', '1=08:00']
+			])
+		);
+
+		expect(r).toMatchObject({ status: 400 });
+	});
+
+	it('conflito no servidor (422) sobe com a mensagem', async () => {
+		k.adjustPackageGrade.mockResolvedValueOnce({
+			ok: false,
+			status: 422,
+			error: 'Choca com outro agendamento.'
 		});
 
-		expect(
-			await actions.bulkAdjustPackage(evCom({ package_id: 'k1', hhmm: '09:00' }))
-		).toMatchObject({ status: 422 });
+		const r = await actions.adjustPackageGrade(
+			evForm([
+				['package_id', 'k1'],
+				['dows', '1'],
+				['horarios', '1=08:00'],
+				['professional_id', 'pr1']
+			])
+		);
+
+		expect(r).toMatchObject({ status: 422, data: { error: 'Choca com outro agendamento.' } });
 	});
 });

@@ -97,7 +97,13 @@ defmodule Api.Packages.BulkQueriesTest do
       # MASSA — reperguntar os alvos para achar a âncora, a clínica, o pacote, a presença, o
       # insert da mensagem e o do job. **Constante, não por sessão** — é o que o teto ao lado
       # (turma, 4 sessões) prova ao subir o mesmo tanto com menos sessões.
-      assert_teto(tally, 70, "6 sessões individuais")
+      #
+      # 70 → 78 com a **sincronização da grade** (D2, doc 69 §10 B1.2): a massa de escopo `todas`
+      # passou a gravar a grade nova no pacote, senão a retomada reprojetava no horário velho.
+      # Medido: 7 queries a mais por MASSA (ler a grade, a transação com a GUC, o UPDATE) — a
+      # leitura é do `package_schedules` de propósito, e não do pacote com `load: [:schedule]`,
+      # para não furar a asserção de `packages ≤ 2` logo abaixo, que é a que pega custo por sessão.
+      assert_teto(tally, 78, "6 sessões individuais")
 
       # O invariante do pacote — a clínica, o tipo, o paciente e o próprio pacote — é lido uma
       # vez por massa, não uma vez por sessão.

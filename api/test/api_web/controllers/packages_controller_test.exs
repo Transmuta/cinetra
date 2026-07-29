@@ -104,6 +104,41 @@ defmodule ApiWeb.PackagesControllerTest do
       assert_enqueued(worker: Api.Packages.Materializer, args: %{package_id: pkg["id"]})
     end
 
+    # A cadeia inteira numa asserção só: header HTTP → Plug.RequestId → Logger.metadata →
+    # Api.Correlacao → meta do job. É o teste que ATRAVESSA a fronteira; um teste de unidade do
+    # `Correlacao` prova o helper e não prova que alguém o chamou no caminho real.
+    test "o x-request-id do BFF atravessa até o meta do job (correlação, doc 62 §12)" do
+      ctx = fixture()
+      rid = "bff-0198cafe-4d2b-71a9-b3e0-5f1c8d7a6e04"
+
+      conn =
+        as(ctx.owner)
+        |> Plug.Conn.put_req_header("x-request-id", rid)
+        |> post("/api/packages", body(ctx))
+
+      assert json_response(conn, 201)
+      assert [job] = all_enqueued(worker: Api.Packages.Materializer)
+      assert job.meta["request_id"] == rid
+    end
+
+    # A regra que o BFF precisa respeitar, fixada do lado que a impõe. O `Plug.RequestId` só
+    # reaproveita o header quando `byte_size in 20..200`; abaixo disso ele descarta EM SILÊNCIO e
+    # gera o próprio id. Sem este teste, um dia alguém encurta o id do BFF, tudo continua verde e
+    # a correlação some sem sintoma.
+    test "id fora da faixa 20..200 NÃO é reaproveitado — o Plug gera o dele" do
+      ctx = fixture()
+
+      conn =
+        as(ctx.owner)
+        |> Plug.Conn.put_req_header("x-request-id", "curto")
+        |> post("/api/packages", body(ctx))
+
+      assert json_response(conn, 201)
+      assert [job] = all_enqueued(worker: Api.Packages.Materializer)
+      assert job.meta["request_id"] != "curto"
+      assert byte_size(job.meta["request_id"]) >= 20
+    end
+
     test "grade fora do expediente → 422 series_blocked com a prévia" do
       ctx = fixture()
 
@@ -150,6 +185,23 @@ defmodule ApiWeb.PackagesControllerTest do
       assert id == pkg["id"]
     end
 
+    # A trilha vem JUNTO da lista (doc 69 §7 item 9): é o que o cartão desenha em bolinhas, e
+    # buscá-la por pacote seria um N+1 na abertura da ficha.
+    test "GET /api/patients/:id/packages traz a trilha de cada pacote" do
+      ctx = fixture()
+      criar(ctx)
+      Oban.drain_queue(queue: :housekeeping)
+
+      [pacote] =
+        json_response(as(ctx.owner) |> get("/api/patients/#{ctx.paciente.id}/packages"), 200)[
+          "packages"
+        ]
+
+      assert length(pacote["sessoes"]) == 4
+      assert Enum.all?(pacote["sessoes"], &is_binary(&1["estado"]))
+      assert Enum.all?(pacote["sessoes"], &is_binary(&1["starts_at"]))
+    end
+
     test "POST /api/packages/:id/pause vira o status" do
       ctx = fixture()
       pkg = criar(ctx)
@@ -176,6 +228,155 @@ defmodule ApiWeb.PackagesControllerTest do
 
       conn = as(ctx.owner) |> post("/api/packages/#{pkg["id"]}/cancel", %{})
       assert json_response(conn, 200)["package"]["status"] == "cancelado"
+    end
+
+    # D1 (doc 69 §10): arquivar é a ÚNICA porta para `:concluido`. A série precisa estar INTEIRA no
+    # passado — o `@segunda` do `criar/1` é recente demais e ainda projeta uma sessão à frente.
+    test "POST /api/packages/:id/archive marca concluído" do
+      ctx = fixture()
+
+      corpo =
+        body(ctx, %{
+          "data_inicio" => "2026-06-01",
+          "total" => 2,
+          "grade" => %{
+            "dows" => [1],
+            "horarios" => %{"1" => "08:00"},
+            "professional_id" => ctx.prof.id
+          }
+        })
+
+      pkg = json_response(as(ctx.owner) |> post("/api/packages", corpo), 201)["package"]
+      Oban.drain_queue(queue: :housekeeping)
+
+      conn = as(ctx.owner) |> post("/api/packages/#{pkg["id"]}/archive", %{})
+      assert json_response(conn, 200)["package"]["status"] == "concluido"
+    end
+
+    test "POST /api/packages/:id/archive recusa com 422 quando há sessão futura" do
+      ctx = fixture()
+
+      corpo =
+        body(ctx, %{
+          "data_inicio" => "2027-03-01",
+          "total" => 2,
+          "grade" => %{
+            "dows" => [1],
+            "horarios" => %{"1" => "08:00"},
+            "professional_id" => ctx.prof.id
+          }
+        })
+
+      pkg = json_response(as(ctx.owner) |> post("/api/packages", corpo), 201)["package"]
+      Oban.drain_queue(queue: :housekeeping)
+
+      conn = as(ctx.owner) |> post("/api/packages/#{pkg["id"]}/archive", %{})
+      assert json_response(conn, 422)["details"] != []
+
+      # e o pacote não mudou de estado
+      lista =
+        json_response(as(ctx.owner) |> get("/api/patients/#{ctx.paciente.id}/packages"), 200)[
+          "packages"
+        ]
+
+      assert [%{"status" => "ativo"}] = lista
+    end
+  end
+
+  # O ciclo de vida reaberto (doc 69 §10 B4): o `+`/`−` do ADR-011, a grade e a trilha.
+  describe "sessões e grade" do
+    @futuro2 "2027-05-03"
+
+    defp criar_serie_futura(ctx, total \\ 3) do
+      corpo =
+        body(ctx, %{
+          "data_inicio" => @futuro2,
+          "total" => total,
+          "grade" => %{
+            "dows" => [1],
+            "horarios" => %{"1" => "08:00"},
+            "professional_id" => ctx.prof.id
+          }
+        })
+
+      pkg = json_response(as(ctx.owner) |> post("/api/packages", corpo), 201)["package"]
+      Oban.drain_queue(queue: :housekeeping)
+      pkg
+    end
+
+    test "POST /api/packages/:id/sessions soma uma sessão" do
+      ctx = fixture()
+      pkg = criar_serie_futura(ctx)
+
+      conn = as(ctx.owner) |> post("/api/packages/#{pkg["id"]}/sessions", %{})
+      assert json_response(conn, 200)["package"]["total"] == 4
+    end
+
+    test "DELETE /api/packages/:id/sessions tira a última futura" do
+      ctx = fixture()
+      pkg = criar_serie_futura(ctx)
+
+      conn = as(ctx.owner) |> delete("/api/packages/#{pkg["id"]}/sessions")
+      assert json_response(conn, 200)["package"]["total"] == 2
+    end
+
+    test "DELETE recusa com 422 quando não há sessão futura (D3)" do
+      ctx = fixture()
+      # a série de `@segunda` (2026-07-20) já passou inteira: nada de futuro para tirar
+      corpo =
+        body(ctx, %{
+          "data_inicio" => "2026-06-01",
+          "total" => 2,
+          "grade" => %{
+            "dows" => [1],
+            "horarios" => %{"1" => "08:00"},
+            "professional_id" => ctx.prof.id
+          }
+        })
+
+      pkg = json_response(as(ctx.owner) |> post("/api/packages", corpo), 201)["package"]
+      Oban.drain_queue(queue: :housekeeping)
+
+      conn = as(ctx.owner) |> delete("/api/packages/#{pkg["id"]}/sessions")
+      assert json_response(conn, 422)["details"] != []
+    end
+
+    test "PATCH /api/packages/:id/grade troca a grade e remarca as futuras" do
+      ctx = fixture()
+      pkg = criar_serie_futura(ctx)
+
+      conn =
+        as(ctx.owner)
+        |> patch("/api/packages/#{pkg["id"]}/grade", %{
+          "dows" => [3],
+          "horarios" => %{"3" => "10:00"},
+          "professional_id" => ctx.prof.id
+        })
+
+      assert json_response(conn, 200)["package"]["grade"]["dows"] == [3]
+    end
+
+    test "PATCH /grade com grade vazia é 422, não 500" do
+      ctx = fixture()
+      pkg = criar_serie_futura(ctx)
+
+      conn =
+        as(ctx.owner)
+        |> patch("/api/packages/#{pkg["id"]}/grade", %{"dows" => [], "horarios" => %{}})
+
+      assert json_response(conn, 422)["details"] != []
+    end
+
+    test "GET /api/packages/:id/sessions devolve a trilha com o estado de cada sessão" do
+      ctx = fixture()
+      pkg = criar_serie_futura(ctx)
+
+      conn = as(ctx.owner) |> get("/api/packages/#{pkg["id"]}/sessions")
+      sessoes = json_response(conn, 200)["sessions"]
+
+      assert length(sessoes) == 3
+      assert Enum.map(sessoes, & &1["estado"]) == ["proxima", "agendada", "agendada"]
+      assert Enum.all?(sessoes, &is_binary(&1["starts_at"]))
     end
   end
 

@@ -438,12 +438,24 @@ protótipo:
 | POST | `/packages/:id/pause` | `:pause` | `pkgPause` [`:553`](../interface/Movimento.dc.html#L553) | Marca `pausado`; sessões futuras saem da agenda (`pkgHold`), continuam no pacote |
 | POST | `/packages/:id/resume` | `:resume` | `pkgResume` [`:561`](../interface/Movimento.dc.html#L561) | Marca `ativo`; sessões voltam à agenda |
 | POST | `/packages/:id/cancel` | `:cancel` | `cancelarPkg` [`:568`](../interface/Movimento.dc.html#L568) | Marca `cancelado`; sessões futuras viram `cancelado` |
-| PATCH | `/packages/:id/grade` | `:adjust_grade` | `pkgSaveGrade` [`:578`](../interface/Movimento.dc.html#L578) | Remarca todas as sessões futuras para a nova grade (profissional/dows/horários) |
+| PATCH | `/packages/:id/grade` | `:adjust_grade` | `pkgSaveGrade` [`:578`](../interface/Movimento.dc.html#L578) | Remarca todas as sessões futuras para a nova grade (profissional/dows/horários) — **construído** (doc 69) |
 | POST | `/packages/:id/bulk_adjust` | `:bulk_adjust` | `applyMassaPacote` [`:1149`](../interface/Movimento.dc.html#L1149) | Muda profissional e/ou horário de um escopo de sessões (`esta`/`proximas`/`todas`) — **construído** |
 | POST | `/packages/:id/bulk_cancel` | `:bulk_cancel` | `cancelarMassaPacote` [`:1174`](../interface/Movimento.dc.html#L1174) | Cancela o escopo de sessões — **construído** |
-| POST | `/packages/:id/sessions` | `:add_session` | (grade+1) | Acrescenta uma sessão avulsa à série; reativa o pacote se estava `concluido` |
-| DELETE | `/packages/:id/sessions/:appointment_id` | `:remove_session` | — | Remove uma sessão da série |
-| POST | `/packages/:id/archive` | `:archive` | `archivePkg` [`:576`](../interface/Movimento.dc.html#L576) | Marca `concluido` e arquiva no histórico (habilitado quando `done`) |
+| GET | `/packages/:id/sessions` | (leitura) | `pkgSessions` [`:386`](../interface/Movimento.dc.html#L386) | A trilha: cada sessão da série com o estado (`concluida`/`falta`/`cancelada`/`segurada`/`proxima`/`agendada`) — **construído** (doc 69) |
+| POST | `/packages/:id/sessions` | `:set_total` (+1) | (grade+1) | Acrescenta uma sessão à série; **reabre** o pacote se estava `concluido` (D4). Cancelado recusa — **construído** (doc 69) |
+| DELETE | `/packages/:id/sessions` | `:set_total` (−1) | — | Cancela a última sessão **futura** não consumida e baixa o total — **construído** (doc 69) |
+| POST | `/packages/:id/archive` | `:mark_completed` | `archivePkg` [`:576`](../interface/Movimento.dc.html#L576) | Marca `concluido`; recusa (422) se ainda há sessão futura de pé — **construído** (doc 69) |
+
+Três desvios deliberados desta tabela, decididos no [doc 69 §10](69-pacotes-prototipo-vs-construido.md):
+
+- **`DELETE /sessions` não recebe `:appointment_id`** (D3). Quem escolhe a sessão é o servidor — a
+  última **futura** não consumida. Se o cliente pudesse apontar, poderia apagar uma sessão passada,
+  que é reescrita de histórico. Escolher *qual* remover é trabalho da agenda, com a sessão à vista.
+- **`archive` é a única porta para `:concluido`** (D1): nada fecha o pacote sozinho — nem o rollup
+  da presença, nem `restantes == 0`. A tela mostra "Completo" e oferece o botão; o estado só muda
+  quando alguém arquiva.
+- **`bulk_adjust` com escopo `todas` reescreve a grade** do pacote (D2). Sem isso a grade guardada
+  envelhecia calada e a retomada reprojetava no horário velho.
 
 Papéis: admin e membro em tudo; `profissional` restrito aos pacotes de seus pacientes.
 

@@ -12,6 +12,11 @@ import {
 	pausePackage,
 	resumePackage,
 	cancelPackage,
+	archivePackage,
+	addPackageSession,
+	removePackageSession,
+	adjustPackageGrade,
+	fetchPackageSessions,
 	type SeriesInput
 } from './packages';
 
@@ -141,5 +146,73 @@ describe('ciclo de vida (reusa mutate)', () => {
 	it('cancelar bate no /cancel', async () => {
 		await cancelPackage(event, 'k1');
 		expect(mut.mutate.mock.calls[0][1]).toBe('/api/packages/k1/cancel');
+	});
+});
+
+// O ciclo de vida reaberto (doc 69 §10 B4).
+describe('arquivar, +/− e grade', () => {
+	it('arquivar bate no /archive', async () => {
+		await archivePackage(event, 'k1');
+		expect(mut.mutate.mock.calls[0][1]).toBe('/api/packages/k1/archive');
+		expect(mut.mutate.mock.calls[0][2]).toBe('POST');
+	});
+
+	it('somar sessão é POST em /sessions', async () => {
+		await addPackageSession(event, 'k1');
+		expect(mut.mutate.mock.calls[0][1]).toBe('/api/packages/k1/sessions');
+		expect(mut.mutate.mock.calls[0][2]).toBe('POST');
+	});
+
+	// Sem id de sessão no caminho: quem escolhe é o servidor (a última FUTURA, D3). Se o cliente
+	// pudesse apontar, poderia apagar uma sessão passada — reescrita de histórico.
+	it('tirar sessão é DELETE na coleção, sem apontar qual', async () => {
+		await removePackageSession(event, 'k1');
+		expect(mut.mutate.mock.calls[0][1]).toBe('/api/packages/k1/sessions');
+		expect(mut.mutate.mock.calls[0][2]).toBe('DELETE');
+	});
+
+	it('a grade vai como PATCH com o corpo montado', async () => {
+		await adjustPackageGrade(event, 'k1', {
+			dows: [1, 3],
+			horarios: { '1': '08:00', '3': '09:00' },
+			professional_id: 'pr1'
+		});
+		expect(mut.mutate.mock.calls[0][1]).toBe('/api/packages/k1/grade');
+		expect(mut.mutate.mock.calls[0][2]).toBe('PATCH');
+		expect(mut.mutate.mock.calls[0][3]).toEqual({
+			dows: [1, 3],
+			horarios: { '1': '08:00', '3': '09:00' },
+			professional_id: 'pr1'
+		});
+	});
+
+	it('o id viaja escapado (id forjado não sai do caminho do recurso)', async () => {
+		await addPackageSession(event, '../secret');
+		expect(mut.mutate.mock.calls[0][1]).toBe('/api/packages/..%2Fsecret/sessions');
+	});
+});
+
+describe('fetchPackageSessions', () => {
+	it('200 → a trilha', async () => {
+		api.apiFetch.mockResolvedValueOnce(res(200, { sessions: [{ estado: 'proxima' }] }));
+		const r = await fetchPackageSessions(event, 'k1');
+		expect(api.apiFetch.mock.calls[0][1]).toBe('/api/packages/k1/sessions');
+		expect(r.sessions).toHaveLength(1);
+	});
+
+	it('erro degrada para lista vazia, com o status', async () => {
+		api.apiFetch.mockResolvedValueOnce(res(403));
+		const r = await fetchPackageSessions(event, 'k1');
+		expect(r).toEqual({ status: 403, sessions: [] });
+	});
+
+	it('corpo sem `sessions` não estoura', async () => {
+		api.apiFetch.mockResolvedValueOnce(res(200, {}));
+		expect((await fetchPackageSessions(event, 'k1')).sessions).toEqual([]);
+	});
+
+	it('falha de conexão → status 0 e lista vazia', async () => {
+		api.apiFetch.mockRejectedValueOnce(new Error('down'));
+		expect(await fetchPackageSessions(event, 'k1')).toEqual({ status: 0, sessions: [] });
 	});
 });

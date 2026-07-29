@@ -94,13 +94,39 @@ afterEach(() => {
 describe('PackageCreateModal', () => {
 	it('nasce incompleto: sem dia marcado, a prévia pede para preencher', () => {
 		open();
-		expect(screen.getByText(/preencha o tipo/i)).toBeInTheDocument();
+		expect(screen.getByText(/complete o tipo/i)).toBeInTheDocument();
 		expect(screen.getByRole('button', { name: 'Criar pacote' })).toBeDisabled();
 	});
 
-	it('sugere o nome a partir do tipo + total', () => {
+	// doc 69 §8: "Nome" e "Cor" saíram do formulário. O pacote É o tipo de atendimento — que já tem
+	// nome, sigla, duração e cor cadastrados. Eram os dois primeiros campos da tela, e as duas
+	// decisões sem consequência que o usuário entendesse.
+	it('não pede nome nem cor — o pacote é identificado pelo tipo', () => {
 		open();
-		expect(screen.getByDisplayValue('Pilates 10')).toBeInTheDocument();
+		expect(screen.queryByLabelText(/nome do pacote/i)).not.toBeInTheDocument();
+		expect(screen.queryByText(/^Cor$/)).not.toBeInTheDocument();
+	});
+
+	it('envia o nome e a cor DERIVADOS do tipo (o backend os exige)', async () => {
+		const user = userEvent.setup();
+		let corpo: { nome?: string; cor?: string } = {};
+		vi.stubGlobal(
+			'fetch',
+			mockFetch({
+				preview: () => ({ json: { preview: okPreview } }),
+				create: (body) => {
+					corpo = body as { nome?: string; cor?: string };
+					return { status: 201, json: { ok: true, package: { id: 'k1' } } };
+				}
+			})
+		);
+		open();
+		await marcaSegunda(user);
+		await waitFor(() => expect(screen.getByRole('button', { name: 'Criar pacote' })).toBeEnabled());
+		await user.click(screen.getByRole('button', { name: 'Criar pacote' }));
+
+		await waitFor(() => expect(corpo.nome).toBe('Pilates 10'));
+		expect(corpo.cor).toBe('#0FB5A6');
 	});
 
 	// O servidor tem teto próprio (120) e recusaria com a mensagem do Ash, em inglês. A tela recusa
@@ -111,7 +137,7 @@ describe('PackageCreateModal', () => {
 		await marcaSegunda(user);
 		await waitFor(() => expect(screen.getByRole('button', { name: 'Criar pacote' })).toBeEnabled());
 
-		const total = screen.getByDisplayValue('10');
+		const total = screen.getByLabelText('Sessões');
 		await user.clear(total);
 		await user.type(total, '500');
 
@@ -131,9 +157,10 @@ describe('PackageCreateModal', () => {
 		expect(url).toBe('/pacientes/pac1/pacotes/preview');
 
 		await waitFor(() => expect(screen.getByRole('button', { name: 'Criar pacote' })).toBeEnabled());
-		// desenha as ocorrências
-		expect(screen.getByText('08:00')).toBeInTheDocument();
-		expect(screen.getByText('09:00')).toBeInTheDocument();
+		// desenha as ocorrências como chips de data (o horário vai no title, não repetido 60 vezes)
+		const serie = screen.getByRole('list', { name: /série/i });
+		expect(within(serie).getByText('27/07')).toBeInTheDocument();
+		expect(within(serie).getByText('29/07')).toBeInTheDocument();
 	});
 
 	it('criar com sucesso chama onCreated', async () => {
@@ -188,7 +215,7 @@ describe('PackageCreateModal', () => {
 		const forcarBtn = await screen.findByRole('button', {
 			name: 'Agendar mesmo assim'
 		});
-		expect(screen.getByText(/esbarram no calendário/i)).toBeInTheDocument();
+		expect(screen.getByText(/horário com conflito/i)).toBeInTheDocument();
 		await waitFor(() => expect(forcarBtn).toBeEnabled());
 
 		await user.click(forcarBtn);
@@ -276,6 +303,112 @@ describe('PackageCreateModal', () => {
 		expect(onClose).toHaveBeenCalledOnce();
 	});
 
+	// ---- doc 69 §8: o formulário reorganizado ----
+
+	it('a data de início não aceita o passado (B1.5)', () => {
+		open();
+		expect(screen.getByLabelText(/começa em/i)).toHaveAttribute('min', '2026-07-24');
+	});
+
+	it('diz POR QUE o botão está desabilitado, em vez de só apagar (B1.6)', async () => {
+		const user = userEvent.setup();
+		open();
+
+		// sem dia marcado: falta a grade
+		expect(screen.getByText(/marque ao menos um dia/i)).toBeInTheDocument();
+
+		// com dia marcado e prévia pronta, o motivo some
+		await marcaSegunda(user);
+		await waitFor(() => expect(screen.getByRole('button', { name: 'Criar pacote' })).toBeEnabled());
+		expect(screen.queryByText(/marque ao menos um dia/i)).not.toBeInTheDocument();
+	});
+
+	it('total acima do teto explica o limite (B1.6)', async () => {
+		const user = userEvent.setup();
+		open();
+		await marcaSegunda(user);
+
+		const total = screen.getByLabelText('Sessões');
+		await user.clear(total);
+		await user.type(total, '500');
+
+		await waitFor(() => expect(screen.getByText(/no máximo 60 sessões/i)).toBeInTheDocument());
+	});
+
+	it('o stepper soma e subtrai sessões', async () => {
+		const user = userEvent.setup();
+		open();
+		await user.click(screen.getByRole('button', { name: /mais uma sessão/i }));
+		expect(screen.getByLabelText('Sessões')).toHaveValue(11);
+
+		await user.click(screen.getByRole('button', { name: /uma sessão a menos/i }));
+		expect(screen.getByLabelText('Sessões')).toHaveValue(10);
+	});
+
+	it('resume a série em uma frase: quantas e de quando a quando', async () => {
+		const user = userEvent.setup();
+		open();
+		await marcaSegunda(user);
+		// as 2 ocorrências da prévia limpa: 27/07 → 29/07
+		expect(await screen.findByText(/2 sessões · 27\/07 → 29\/07/)).toBeInTheDocument();
+	});
+
+	it('o resumo conta o feriado pulado e diz que a série se estendeu', async () => {
+		const feriado: PreviewResult = {
+			ocorrencias: [
+				{ data: '2026-07-27', hhmm: '08:00', feriado: true, issue: 'feriado', bloqueia: false },
+				{ data: '2026-07-29', hhmm: '08:00', feriado: false, issue: 'ok', bloqueia: false }
+			],
+			bloqueios: 0,
+			pode_salvar: true
+		};
+		const user = userEvent.setup();
+		vi.stubGlobal('fetch', mockFetch({ preview: () => ({ json: { preview: feriado } }) }));
+		open();
+		await marcaSegunda(user);
+		expect(await screen.findByText(/1 feriado pulado/i)).toBeInTheDocument();
+	});
+
+	it('os problemas ganham uma lista própria, com o motivo de cada dia', async () => {
+		const conflito: PreviewResult = {
+			ocorrencias: [
+				{ data: '2026-07-27', hhmm: '08:00', feriado: false, issue: 'ok', bloqueia: false },
+				{ data: '2026-07-29', hhmm: '08:00', feriado: false, issue: 'conflito', bloqueia: true }
+			],
+			bloqueios: 1,
+			pode_salvar: false
+		};
+		const user = userEvent.setup();
+		vi.stubGlobal('fetch', mockFetch({ preview: () => ({ json: { preview: conflito } }) }));
+		open();
+		await marcaSegunda(user);
+
+		const problemas = await screen.findByRole('list', { name: /conflito/i });
+		// só o dia problemático entra na lista — não os 2
+		expect(within(problemas).getAllByRole('listitem')).toHaveLength(1);
+		expect(within(problemas).getByText(/29\/07/)).toBeInTheDocument();
+		expect(within(problemas).getByText(/Conflito de horário/)).toBeInTheDocument();
+	});
+
+	it('"igualar horários" só aparece com 2+ dias e propaga o primeiro horário', async () => {
+		const user = userEvent.setup();
+		open();
+		expect(screen.queryByRole('button', { name: /igualar/i })).not.toBeInTheDocument();
+
+		await marcaSegunda(user);
+		await user.click(screen.getByRole('button', { name: 'Qua', pressed: false }));
+		await user.clear(screen.getByLabelText(/horário de Seg/i));
+		await user.type(screen.getByLabelText(/horário de Seg/i), '10:30');
+
+		await user.click(screen.getByRole('button', { name: /igualar/i }));
+		expect(screen.getByLabelText(/horário de Qua/i)).toHaveValue('10:30');
+	});
+
+	it('a falta punitiva avisa que a escolha não muda depois', () => {
+		open();
+		expect(screen.getByText(/não muda depois/i)).toBeInTheDocument();
+	});
+
 	it('feriado aparece como informativo, não como bloqueio', async () => {
 		const feriado: PreviewResult = {
 			ocorrencias: [
@@ -301,8 +434,8 @@ describe('PackageCreateModal', () => {
 		vi.stubGlobal('fetch', mockFetch({ preview: () => ({ json: { preview: feriado } }) }));
 		open();
 		await marcaSegunda(user);
-		const lista = await screen.findByRole('list');
-		expect(within(lista).getByText(/feriado/i)).toBeInTheDocument();
+		const lista = await screen.findByRole('list', { name: /série/i });
+		expect(within(lista).getByTitle(/feriado/i)).toBeInTheDocument();
 		await waitFor(() => expect(screen.getByRole('button', { name: 'Criar pacote' })).toBeEnabled());
 	});
 });

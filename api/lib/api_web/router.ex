@@ -104,6 +104,9 @@ defmodule ApiWeb.Router do
     # fronteira aceita é o que a ação aceita, não o que o formulário desenha.
     patch "/clinic/messaging", ClinicController, :update_messaging
 
+    # A matriz "o que cada papel pode" (AN-06) — resumo das policies, com tripwire de teste.
+    get "/access-matrix", AccessMatrixController, :show
+
     # Gestão de membros (Fatia 10 / Equipe & acessos). RBAC owner/admin no controller +
     # policies do Membership; clinic_id sempre do escopo.
     get "/members", MembersController, :index
@@ -177,6 +180,15 @@ defmodule ApiWeb.Router do
     post "/packages/:id/pause", PackagesController, :pause
     post "/packages/:id/resume", PackagesController, :resume
     post "/packages/:id/cancel", PackagesController, :cancel
+    # Arquivar (D1, doc 69): a única porta para `:concluido` — nada fecha o pacote sozinho.
+    post "/packages/:id/archive", PackagesController, :archive
+
+    # O `+1`/`−1` do ADR-011 (não há renovação: o total é editável) e a grade (contrato 09:441).
+    # O `−1` não recebe id de sessão: quem escolhe é o servidor (a última FUTURA, D3).
+    get "/packages/:id/sessions", PackagesController, :sessions
+    post "/packages/:id/sessions", PackagesController, :add_session
+    delete "/packages/:id/sessions", PackagesController, :remove_session
+    patch "/packages/:id/grade", PackagesController, :adjust_grade
     # Massa por pacote (doc 41 etapa 3): opera sobre as PRESENÇAS do pacote, não sobre o bloco.
     post "/packages/:id/bulk_adjust", PackagesController, :bulk_adjust
     post "/packages/:id/bulk_cancel", PackagesController, :bulk_cancel

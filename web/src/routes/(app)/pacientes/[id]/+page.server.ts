@@ -13,7 +13,10 @@ import {
 	pausePackage,
 	resumePackage,
 	cancelPackage,
-	bulkAdjustPackage
+	archivePackage,
+	addPackageSession,
+	removePackageSession,
+	adjustPackageGrade
 } from '$lib/server/packages';
 import { fetchPatientAttachments } from '$lib/server/attachments';
 
@@ -83,32 +86,43 @@ export const actions: Actions = {
 	pausePackage: (event) => lifecycle(event, pausePackage),
 	resumePackage: (event) => lifecycle(event, resumePackage),
 	cancelPackage: (event) => lifecycle(event, cancelPackage),
+	// Arquivar (D1): fecha o pacote em `concluido`. A tela só oferece com 0 restantes, mas quem
+	// decide é o servidor — ele recusa (422) se sobrou sessão futura, e o erro dele vai para a tela.
+	archivePackage: (event) => lifecycle(event, archivePackage),
 
-	// Massa por pacote (doc 41 etapa 3): muda profissional e/ou horário das sessões futuras. Do
-	// cartão da ficha o escopo é sempre `todas` — `esta`/`proximas` precisam de uma sessão de
-	// referência, que só existe olhando a agenda. `forcar` é o "aplicar mesmo assim" depois de um
-	// conflito, o mesmo idioma da criação da série.
-	bulkAdjustPackage: async (event) => {
+	// O `+`/`−` do ADR-011 (não há renovação: o total é editável sobre o mesmo pacote). O `−` não
+	// escolhe a sessão — o servidor tira a última FUTURA (D3), para o cliente não alcançar o passado.
+	addPackageSession: (event) => lifecycle(event, addPackageSession),
+	removePackageSession: (event) => lifecycle(event, removePackageSession),
+
+	// Ajustar a grade (contrato 09:441): remarca as sessões futuras para os dias/horários novos.
+	adjustPackageGrade: async (event) => {
 		const data = await event.request.formData();
 		const id = String(data.get('package_id') ?? '');
 		if (!id) return fail(400, { error: 'Pacote não informado.' });
 
-		const professional_id = String(data.get('professional_id') ?? '');
-		const hhmm = String(data.get('hhmm') ?? '');
+		const dows = String(data.get('dows') ?? '')
+			.split(',')
+			.filter(Boolean)
+			.map(Number)
+			.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6);
 
-		if (!professional_id && !hhmm) {
-			return fail(400, { error: 'Escolha o que aplicar: profissional e/ou horário.' });
+		// "1=08:00,3=09:00" — o form manda plano; o objeto viaja no JSON para a API.
+		const horarios: Record<string, string> = {};
+		for (const par of String(data.get('horarios') ?? '').split(',')) {
+			const [dow, hhmm] = par.split('=');
+			if (dow && hhmm) horarios[dow] = hhmm;
 		}
 
-		const res = await bulkAdjustPackage(event, id, {
-			escopo: 'todas',
-			...(professional_id ? { aplicar_profissional: true, professional_id } : {}),
-			...(hhmm ? { aplicar_horario: true, hhmm } : {}),
-			forcar: data.get('forcar') === 'true'
-		});
+		const professional_id = String(data.get('professional_id') ?? '');
 
-		if (!res.ok) return fail(res.status || 400, { error: res.error, code: res.code });
-		return { ok: true, afetadas: res.afetadas ?? 0 };
+		if (!dows.length || dows.some((d) => !horarios[String(d)]) || !professional_id) {
+			return fail(400, { error: 'Escolha o profissional, os dias e o horário de cada dia.' });
+		}
+
+		const res = await adjustPackageGrade(event, id, { dows, horarios, professional_id });
+		if (!res.ok) return fail(res.status || 400, { error: res.error });
+		return { ok: true };
 	}
 };
 

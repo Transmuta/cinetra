@@ -142,63 +142,74 @@ export function cancelPackage(event: RequestEvent, id: string): Promise<Mutation
 	return mutate(event, `${path(id)}/cancel`, 'POST');
 }
 
-// ---------------------------------------------------------------------------
-// Massa por pacote (doc 41 etapa 3/4). Opera sobre as PRESENÇAS do pacote: numa turma, mexe só
-// na do dono do pacote — os colegas ficam. `afetadas` volta no corpo e é o feedback da tela
-// ("3 sessões ajustadas"): recontar no cliente daria outro número, porque quem sabe o recorte de
-// "futuras ainda não resolvidas" é o servidor.
-// ---------------------------------------------------------------------------
-
-export interface BulkInput {
-	escopo?: 'esta' | 'proximas' | 'todas';
-	appointment_id?: string;
-	aplicar_profissional?: boolean;
-	professional_id?: string;
-	aplicar_horario?: boolean;
-	hhmm?: string;
-	forcar?: boolean;
+// Arquivar (D1, doc 69): a única porta para `concluido` — nada fecha o pacote sozinho. O servidor
+// recusa com 422 se ainda houver sessão futura de pé, e a mensagem dele é a que a ficha mostra.
+export function archivePackage(event: RequestEvent, id: string): Promise<MutationResult> {
+	return mutate(event, `${path(id)}/archive`, 'POST');
 }
 
-export interface BulkResult extends MutationResult {
-	afetadas?: number;
+// ---------------------------------------------------------------------------
+// O ciclo de vida reaberto (doc 69 §10 B4). O `+`/`−` é o troco do ADR-011: não há renovação, o
+// total é editável a qualquer momento sobre o MESMO pacote.
+// ---------------------------------------------------------------------------
+
+export function addPackageSession(event: RequestEvent, id: string): Promise<MutationResult> {
+	return mutate(event, `${path(id)}/sessions`, 'POST');
 }
 
-export function bulkAdjustPackage(
+// Sem id de sessão no caminho: quem escolhe é o servidor (a última FUTURA não consumida, D3) —
+// justamente para o cliente não conseguir apontar uma sessão passada e reescrever histórico.
+export function removePackageSession(event: RequestEvent, id: string): Promise<MutationResult> {
+	return mutate(event, `${path(id)}/sessions`, 'DELETE');
+}
+
+export interface GradeInput {
+	dows: number[];
+	horarios: Record<string, string>;
+	professional_id: string;
+}
+
+export function adjustPackageGrade(
 	event: RequestEvent,
 	id: string,
-	input: BulkInput
-): Promise<BulkResult> {
-	return bulk(event, `${path(id)}/bulk_adjust`, input);
+	grade: GradeInput
+): Promise<MutationResult> {
+	return mutate(event, `${path(id)}/grade`, 'PATCH', grade);
 }
 
-// Não há `bulkCancelPackage` aqui, e é decisão (doc 43 §5g). O BFF expunha
-// `POST /packages/:id/bulk_cancel` sem nenhuma tela que o chamasse nem teste no web — ponta parada
-// no meio. Da ficha, cancelar em massa com escopo `todas` é o que **`cancelPackage` já faz** (e
-// ainda marca o pacote como cancelado); o que a massa acrescenta são os escopos `esta`/`proximas`,
-// que exigem uma sessão de REFERÊNCIA — algo que só a agenda sabe apontar. Quando esse botão for
-// pedido, ele nasce no drawer da agenda, com a referência em mãos. O endpoint do backend continua
-// existindo e testado.
+// A trilha do pacote (estado de cada sessão). Sob demanda: a ficha não a carrega para todo pacote
+// — é uma leitura por pacote, e a ficha já faz seis em paralelo.
+export interface PackageSession {
+	attendance_id: string;
+	appointment_id: string;
+	starts_at: string;
+	estado: 'concluida' | 'falta' | 'segurada' | 'proxima' | 'agendada';
+}
 
-async function bulk(event: RequestEvent, url: string, input: BulkInput): Promise<BulkResult> {
+export async function fetchPackageSessions(
+	event: RequestEvent,
+	id: string
+): Promise<{ status: number; sessions: PackageSession[] }> {
 	try {
-		const res = await apiFetch(event, url, {
-			method: 'POST',
-			headers: { 'content-type': 'application/json', accept: 'application/json' },
-			body: JSON.stringify(input)
-		});
-
-		if (res.ok) {
-			const body = (await res.json()) as { afetadas?: number };
-			return { ok: true, status: res.status, afetadas: body?.afetadas ?? 0 };
-		}
-
-		return { ok: false, status: res.status, ...(await errorInfo(res)) };
+		const res = await apiFetch(event, `${path(id)}/sessions`, { method: 'GET' });
+		if (!res.ok) return { status: res.status, sessions: [] };
+		const body = (await res.json()) as { sessions?: PackageSession[] };
+		return { status: res.status, sessions: body.sessions ?? [] };
 	} catch {
-		return { ok: false, status: 0, error: 'Falha de conexão com o servidor.' };
+		return { status: 0, sessions: [] };
 	}
 }
 
-// Id escapado: um id forjado não sai do caminho do recurso (mesma defesa de `server/waitlist.ts`).
+// A **massa por pacote** (`bulk_adjust`/`bulk_cancel`) não tem função aqui, e é decisão (doc 69,
+// leva de 2026-07-29). Da ficha, mudar profissional/horário das próximas sessões é o **ajuste de
+// grade** (`PATCH /packages/:id/grade`), que faz o mesmo e ainda alcança os DIAS da semana — e
+// grava a grade nova, coisa que a massa não fazia. Duas portas para a mesma intenção, uma delas
+// incompleta, era o que deixava a recepção sem saber qual usar.
+//
+// O que a massa acrescenta são os escopos `esta`/`proximas`, que exigem uma sessão de REFERÊNCIA —
+// algo que só a agenda sabe apontar. Quando esse botão for pedido, ele nasce no drawer, com a
+// referência em mãos. Os endpoints do backend continuam existindo e testados.
+
 function path(id: string): string {
 	return `/api/packages/${encodeURIComponent(id)}`;
 }

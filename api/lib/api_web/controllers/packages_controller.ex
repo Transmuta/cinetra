@@ -25,7 +25,14 @@ defmodule ApiWeb.PackagesController do
   def index(conn, %{"patient_id" => patient_id}) do
     with_member_scope(conn, fn scope ->
       packages = Packages.list_patient_packages(scope, patient_id)
-      json(conn, %{packages: Enum.map(packages, &PackagesJSON.package/1)})
+
+      # A trilha de todos os pacotes numa leitura só (o cartão desenha as bolinhas). Buscar por
+      # pacote seria um N+1 que cresce com o tempo de casa do paciente.
+      trilhas = Packages.sessions_by_package(scope, packages)
+
+      json(conn, %{
+        packages: Enum.map(packages, &PackagesJSON.package(&1, Map.get(trilhas, &1.id, [])))
+      })
     end)
   end
 
@@ -87,6 +94,56 @@ defmodule ApiWeb.PackagesController do
     end)
   end
 
+  # POST /api/packages/:id/sessions — o `+1` do ADR-011 (o `total` é editável; não há renovação).
+  def add_session(conn, %{"id" => id}) do
+    with_member_scope(conn, fn scope ->
+      transition(conn, scope, Packages.add_session(scope, id))
+    end)
+  end
+
+  # DELETE /api/packages/:id/sessions — o `−1`.
+  #
+  # **Sem `:appointment_id` no path**, diferente do contrato `09:445`: por D3 quem escolhe a sessão
+  # é o servidor (a última **futura** não consumida), justamente para que o cliente não consiga
+  # apontar uma sessão passada e reescrever histórico. Escolher qual sessão remover é trabalho da
+  # agenda, com a sessão à vista — não do stepper da ficha.
+  def remove_session(conn, %{"id" => id}) do
+    with_member_scope(conn, fn scope ->
+      transition(conn, scope, Packages.remove_session(scope, id))
+    end)
+  end
+
+  # PATCH /api/packages/:id/grade — remarca as futuras para a grade nova (contrato 09:441).
+  def adjust_grade(conn, %{"id" => id} = params) do
+    with_member_scope(conn, fn scope ->
+      grade = %{
+        dows: params["dows"],
+        horarios: params["horarios"],
+        professional_id: params["professional_id"]
+      }
+
+      transition(conn, scope, Packages.adjust_grade(scope, id, grade))
+    end)
+  end
+
+  # GET /api/packages/:id/sessions — a trilha (estado de cada sessão da série).
+  def sessions(conn, %{"id" => id}) do
+    with_member_scope(conn, fn scope ->
+      # A leitura confirma o pacote pela porta de sempre (404 se não é desta clínica) antes de
+      # listar — a trilha não pode ser um caminho lateral para descobrir id de outro tenant.
+      _pkg = Packages.get_patient_package!(scope, id, load: [])
+
+      json(conn, %{sessions: Enum.map(Packages.list_sessions(scope, id), &PackagesJSON.session/1)})
+    end)
+  end
+
+  # POST /api/packages/:id/archive
+  def archive(conn, %{"id" => id}) do
+    with_member_scope(conn, fn scope ->
+      transition(conn, scope, Packages.archive_package(scope, id))
+    end)
+  end
+
   # POST /api/packages/:id/bulk_adjust
   def bulk_adjust(conn, %{"id" => id} = params) do
     with_member_scope(conn, fn scope ->
@@ -132,10 +189,43 @@ defmodule ApiWeb.PackagesController do
         pkg = Packages.get_patient_package!(scope, pkg.id, load: derivados())
         json(conn, %{package: PackagesJSON.package(pkg)})
 
+      {:error, :not_found} ->
+        not_found(conn)
+
+      # Recusa de regra do ciclo de vida (arquivar com sessão de pé, estado terminal): é 422 com a
+      # razão em português, como a massa. Antes do `archive` não havia caso, e um átomo caía no
+      # `error_response`, que espera erro do Ash.
+      {:error, motivo} when is_atom(motivo) ->
+        invalid(conn, motivo_do_ciclo(motivo))
+
       {:error, error} ->
         error_response(conn, error)
     end
   end
+
+  defp motivo_do_ciclo(:sessoes_futuras),
+    do: "ainda há sessões futuras neste pacote — cancele ou conclua antes de arquivar"
+
+  defp motivo_do_ciclo(:status_invalido), do: "este pacote não aceita esta mudança agora"
+
+  defp motivo_do_ciclo(:sem_sessao_futura),
+    do: "não há sessão futura para remover — as que sobraram já aconteceram"
+
+  defp motivo_do_ciclo(:abaixo_do_consumido),
+    do: "o total não pode ficar abaixo das sessões já consumidas"
+
+  defp motivo_do_ciclo(:profissional_invalido),
+    do: "escolha um profissional desta clínica"
+
+  defp motivo_do_ciclo(:profissional_inativo),
+    do: "este profissional está arquivado — escolha outro para a grade"
+
+  defp motivo_do_ciclo(:grade_vazia), do: "marque ao menos um dia da semana"
+  defp motivo_do_ciclo(:horario_faltando), do: "cada dia marcado precisa de um horário"
+  defp motivo_do_ciclo(:dia_invalido), do: "dia da semana inválido"
+  defp motivo_do_ciclo(:grade_invalida), do: "grade inválida"
+  defp motivo_do_ciclo(:sem_grade), do: "este pacote não tem grade"
+  defp motivo_do_ciclo(outro), do: to_string(outro)
 
   # Extrai e valida os campos que criam a série. `data_inicio` chega como "AAAA-MM-DD"; a grade é
   # um mapa aninhado. Erro de forma vira `:invalid` (→ 400), sem estourar no domínio.
