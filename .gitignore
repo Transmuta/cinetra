@@ -6,3 +6,11 @@
 .env
 .env.*
 !.env.example
+
+# Artefato de build que o SvelteKit gera na RAIZ quando alguém roda `svelte-kit sync` (ou um
+# `npm run check`) de fora de `web/`. O `web/.gitignore` cobre `web/.svelte-kit`, mas não alcança
+# a raiz — e 14 arquivos gerados chegaram a ficar staged por causa disso.
+/.svelte-kit/
+
+# Cache do Vite/Vitest. Mesmo caso: `node_modules/` só é ignorado dentro de `web/`.
+/node_modules/

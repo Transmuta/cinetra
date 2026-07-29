@@ -284,13 +284,23 @@ defmodule Api.RlsSmokeTest do
 
   describe "pacote sob RLS (Fatia 3)" do
     # A grade mínima: uma segunda às 08:00 (dentro do expediente semeado pelo onboard), 3 sessões.
+    # A massa e o ciclo de vida só alcançam sessão **futura** (o recorte é o mesmo em toda parte).
+    # Ancorar a série numa data fixa (`@segunda`, 2026-07-20) fazia este arquivo apodrecer com o
+    # relógio: a partir de 28/07 as duas sessões já eram passado e a massa achava zero — falha que
+    # não tem nada a ver com RLS, que é o que este gate existe para provar. A âncora agora é a
+    # próxima segunda-feira **depois de hoje**.
+    defp proxima_segunda do
+      hoje = Date.utc_today()
+      Date.add(hoje, rem(8 - Date.day_of_week(hoje), 7) + 7)
+    end
+
     defp package_params(ctx, opts \\ []) do
       %{
         nome: "Pacote RLS #{System.unique_integer([:positive])}",
         total: Keyword.get(opts, :total, 3),
         falta_punitiva: true,
         cor: "#0FB5A6",
-        data_inicio: @segunda,
+        data_inicio: Keyword.get(opts, :data_inicio, proxima_segunda()),
         patient_id: ctx.paciente.id,
         appointment_type_id: ctx.tipo.id,
         grade: %{dows: [1], horarios: %{"1" => "08:00"}, professional_id: ctx.prof.id}
@@ -337,6 +347,42 @@ defmodule Api.RlsSmokeTest do
         end)
 
       assert length(carimbadas) == 3, "materialização não gravou as 3 sessões sob RLS"
+    end
+
+    # `checar_profissional/2` (bate-volta doc 77) lê `professionals` para responder "existe nesta
+    # clínica e está ativo?" — leitura por-tenant nova num caminho de escrita.
+    #
+    # **O que este teste NÃO prova, e foi medido:** que aquela leitura precisa do `in_clinic`.
+    # Tirando o `in_clinic` de `checar_profissional/2`, este teste continua **verde** sob
+    # `movimento_app`. A razão é o sandbox: a suíte roda tudo numa transação só, então a GUC que o
+    # `in_clinic` anterior (o `get_package!` do próprio `adjust_grade`) pendurou com `SET LOCAL`
+    # ainda vale quando a checagem roda — nem o `sem_guc()` acima adianta, porque `adjust_grade`
+    # reseta a GUC antes de chegar lá. É o limite conhecido deste gate: ele prova a porta de
+    # entrada, não cada leitura interna.
+    #
+    # A necessidade do `in_clinic` está provada **fora** da suíte, por psql direto:
+    #
+    #     movimento_app, sem a GUC : 0 profissionais
+    #     movimento_app, com a GUC : 1 profissional
+    #
+    # Sem ele, em produção (transação por ação, sem GUC herdada) TODO ajuste de grade recusaria
+    # com `:profissional_invalido`. O que este teste guarda é o caminho ponta a ponta sob o role
+    # restrito — escrita, policies e releitura — que é valor próprio.
+    test "ajustar a grade roda ponta a ponta sob RLS (role restrito)" do
+      ctx = fixture()
+
+      {:ok, pkg} = Packages.create_series(ctx.scope, package_params(ctx, total: 3), forcar: false)
+      assert %{failure: 0} = Oban.drain_queue(queue: :housekeeping)
+
+      # Requisição nova: sem GUC ambiente, como o controller atende.
+      :ok = sem_guc()
+
+      assert {:ok, _} =
+               Packages.adjust_grade(ctx.scope, pkg.id, %{
+                 dows: [2],
+                 horarios: %{"2" => "10:00"},
+                 professional_id: ctx.prof.id
+               })
     end
   end
 
@@ -429,8 +475,16 @@ defmodule Api.RlsSmokeTest do
       assert afetadas > 0, "a massa não achou as sessões do pacote (GUC faltando?)"
 
       :ok = sem_guc()
-      %{sessions: sessoes} = Scheduling.list_patient_sessions(ctx.scope, ctx.paciente.id)
-      refute Enum.empty?(sessoes), "histórico vazio: a GUC não chegou"
+
+      # As duas listas juntas: a ficha separa passado (`sessions`) de futuro (`upcoming`), e a
+      # série deste teste é futura de propósito (a massa só alcança futuro). O que se prova aqui é
+      # o espelho, que vale para as duas — olhar só o histórico fazia o teste depender de a âncora
+      # estar no passado, que é justamente o que o fazia apodrecer.
+      %{sessions: passadas, upcoming: futuras} =
+        Scheduling.list_patient_sessions(ctx.scope, ctx.paciente.id)
+
+      sessoes = passadas ++ futuras
+      refute Enum.empty?(sessoes), "ficha vazia: a GUC não chegou"
 
       for sessao <- sessoes do
         assert sessao.session_starts_at == sessao.appointment.starts_at,
@@ -974,6 +1028,13 @@ defmodule Api.RlsSmokeTest do
 
     # Uma mensagem pronta para enviar, na clínica do `ctx`.
     defp mensagem(ctx) do
+      # A confirmação automática da criação do bloco ficaria na fila e a trava contra duplicata
+      # recusaria o disparo à mão abaixo. O que este arquivo mede é a RLS do caminho de envio, e
+      # para isso ele precisa da mensagem na mão.
+      Api.Accounts.update_clinic_messaging!(ctx.clinic, %{msg_confirmacao_auto: false},
+        authorize?: false
+      )
+
       paciente =
         Records.update_patient!(ctx.paciente, %{comunicacao: true, email: "rls@example.com"},
           tenant: ctx.clinic.id,

@@ -291,3 +291,117 @@ pessoal parado, que a minimização da LGPD desaconselha manter para sempre.
 **O que o paga.** Uma conversa com advogado sobre retenção, e então **um** `Api.Housekeeping.PruneMessages`
 no molde dos três existentes (~1 h), mais o realinhamento dos outros números à régua única que sair
 de lá.
+
+---
+
+## D-12 · Remarcar não descarta a confirmação parada na fila
+
+**O que é.** `Api.Messaging.Notifier` retira da fila (`:descartada`) tudo que ainda não saiu quando
+o bloco é **cancelado** ou **excluído** — porque nos dois casos a sessão de que a mensagem fala
+deixou de existir. **Remarcar não entra nessa lista**, e o caso é real: dentro da janela de
+silêncio (§7), remarcar às 22h45 deixa a confirmação das 22h parada com o horário **antigo** nas
+`vars` congeladas. Às 8h o paciente recebe "sua sessão está marcada para 28/07 às 12:00" e, logo
+depois, "sua sessão mudou para 30/07 às 13:15".
+
+**Por que ficou de fora, em vez de virar mais uma linha no notifier.** Descartar aqui produz o
+defeito oposto: o paciente receberia só o "sua sessão **mudou**" sem nunca ter recebido o "sua
+sessão está marcada" — um aviso sem antecedente, para alguém que talvez nem soubesse do
+agendamento. As duas saídas erram, e a escolha entre elas é de copy, não de código: ou a
+remarcação passa a se bastar (texto que anuncia o horário novo sem pressupor o anterior, e aí o
+descarte fica correto), ou a confirmação parada é **reemitida** com o horário novo em vez de
+descartada.
+
+**O que custa hoje.** Duas mensagens em sequência, a primeira desatualizada, e só na janela entre
+o agendamento e o fim do silêncio — que é onde a remarcação é menos provável (ninguém remarca de
+madrugada com frequência). Fora da janela de silêncio o problema não existe: a confirmação já
+saiu antes de a remarcação acontecer.
+
+**O que o paga.** A decisão de copy acima (~30 min de produto) e então uma cláusula no notifier —
+o mecanismo de descarte já está construído e testado.
+
+---
+
+## D-13 · Os documentos legais estão no ar com placeholder e sem revisão jurídica
+
+**O que é.** `/privacidade` e `/termos` ([doc 76](76-paginas-legais-e-aceite.md)) foram escritos
+descrevendo o que o sistema realmente faz, mas **quatro campos do controlador são marcadores**
+(`[RAZÃO SOCIAL]`, `[CNPJ]`, `[ENDEREÇO COMPLETO]`, `[COMARCA/UF]`, mais `[NOME DO ENCARREGADO]`), e
+**nenhum advogado leu o texto**.
+
+**Por que virou débito.** Decisão explícita de 2026-07-29: preencher a identificação com dado
+inventado seria pior que deixá-la pendente, e o dado real ainda não existe. O marcador é visível de
+propósito, e `legal.test.ts` **falha** se alguém trocar o placeholder por um CNPJ plausível — a
+pendência está declarada, não esquecida.
+
+**O que custa hoje.** Duas coisas, de gravidade diferente:
+
+- **Bloqueia a publicação.** O art. 9º da LGPD exige a identificação do controlador; uma política
+  que diz `[CNPJ]` não cumpre o dever de informação, e o texto está indexado (entrou no sitemap).
+- **Uma seção promete o que não existe.** *Teste grátis, planos e pagamento*, nos Termos, descreve
+  cobrança, renovação e reajuste, e **não há cobrança implementada** — é a mesma promessa comercial
+  que a landing já fazia ([doc 57](57-seo-e-performance-da-landing.md), respostas `cancelar` e
+  `migracao` do FAQ). Enquanto o produto não cobra, ela é intenção, não descrição.
+
+**O que o paga.** Os dados cadastrais da empresa e do encarregado (minutos, quando existirem) e uma
+leitura por advogado com a lista de afirmações técnicas do doc 76 §3 na mão — ela é o que permite
+revisar o texto sem reengenharia do produto. A seção de planos se resolve sozinha quando a cobrança
+existir; até lá, é candidata a sair.
+
+---
+
+## D-14 · O aceite dos documentos não fica registrado em lugar nenhum
+
+**O que é.** No `/criar-conta`, o aceite dos Termos e da Política é uma **nota** ("ao criar sua
+conta … você concorda com …"), não uma caixa de seleção, e **nada é gravado**: nem data, nem versão
+do documento, nem qual caminho de cadastro foi usado.
+
+**Por que virou débito.** Decisão de produto de 2026-07-29, e a razão é sólida: o cadastro tem dois
+caminhos, e o do Google é um `<a>` de navegação completa que caixa nenhuma trava sem JavaScript
+(doc 76 §1). Uma caixa que vale só no magic link daria **aparência** de controle. Persistir o aceite
+é a outra metade, e essa custa mais: campo no `User`, migração, o aceite viajando no token do magic
+link, e o caminho do Google carimbando no callback.
+
+**O que custa hoje.** Aceite por nota é aceite **presumido**: em disputa, a Cinetra consegue mostrar
+que o texto estava na tela naquela versão do código, mas não que *aquela pessoa* passou por ele em
+*determinada data*. Some-se a isso `VERSAO`/`ATUALIZACAO` serem constantes do código: quando o texto
+mudar, ninguém saberá qual versão cada conta aceitou, nem a quem reavisar. Enquanto a base é pequena
+e nova, o risco é baixo; ele cresce com a base e com a primeira alteração de termos.
+
+**O que o paga.** `termos_aceitos_em` + `termos_versao` no `User`, carimbados na ação de sign-in
+(serve para os dois caminhos, porque os dois passam por lá), e a versão saindo de `legal.ts` para o
+banco no momento do aceite. Meio dia, e casa naturalmente com D-13: mudar de versão só faz sentido
+depois que o texto for o definitivo.
+
+---
+
+## D-15 · O gate `:rls` não alcança leitura interna: a GUC fica pendurada no sandbox
+
+**O que é.** `mix test --only rls` roda como `movimento_app` (NOBYPASSRLS) e é o que prova que uma
+leitura por-tenant tem `in_clinic`/`with_clinic`. Ele prova isso **da porta de entrada**. Uma
+leitura *interna*, mais adiante no mesmo caminho, ele **não** alcança: o sandbox roda o teste
+inteiro numa transação só, então a GUC que o primeiro `in_clinic` pendurou com `SET LOCAL` continua
+valendo para tudo o que vier depois — inclusive para a leitura que esqueceu de setá-la.
+
+**Como foi medido** (bate-volta de 2026-07-29, [doc 77](77-bate-volta-observabilidade-e-pacotes.md)):
+removi o `in_clinic` de `Api.Packages.checar_profissional/2` — uma leitura por-tenant nova dentro do
+caminho de escrita de `adjust_grade/3` — e rodei o gate como `movimento_app`. Resultado: **0
+falhas**. O mesmo teste com a regra mutada continuou verde. A necessidade só apareceu no `psql`:
+
+```
+movimento_app, SEM a GUC : 0 profissionais
+movimento_app, COM a GUC : 1 profissional
+```
+
+**O que custa hoje.** Uma falsa sensação de cobertura, que é o pior tipo. O
+[`.claude/rules/migrations.md`](../.claude/rules/migrations.md) e o moduledoc de
+`Api.RlsSmokeTest` apresentam o gate como a resposta para "esqueci o `in_clinic`", e ele é a
+resposta **parcial**. Um conserto que introduza leitura interna sem GUC passa nos três gates do CI
+e quebra em produção — recusando toda operação, porque a RLS devolve zero linhas e o código lê isso
+como "não existe".
+
+**O que o paga.** Duas saídas, e a segunda é a barata:
+
+- rodar cada teste `:rls` em transação própria (mexe em `DataCase`, sandbox e `async` — caro);
+- **anotar a regra**: leitura por-tenant nova em caminho de escrita se prova por `psql` sob
+  `movimento_app`, não pelo gate. Vale acrescentar isso à `migrations.md`, ao lado da lição que já
+  está lá, para que o texto pare de prometer mais do que entrega.
