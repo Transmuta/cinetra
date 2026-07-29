@@ -6,6 +6,7 @@
 	import Stethoscope from '@lucide/svelte/icons/stethoscope';
 	import Phone from '@lucide/svelte/icons/phone';
 	import { initials } from '$lib/format';
+	import { formatarTelefone } from '$lib/telefone';
 	import {
 		canManageProfessionals,
 		profColor,
@@ -103,7 +104,7 @@
 					</span>
 				</span>
 				<span class="truncate text-[12.5px] text-muted">{especialidadeLabel(p)}</span>
-				<span class="truncate font-mono text-[11px] text-muted">{p.tel ?? '—'}</span>
+				<span class="truncate font-mono text-[11px] text-muted">{formatarTelefone(p.tel) ?? '—'}</span>
 				<span>
 					{#if p.vinculo}<span class={pill}>{CONTRACT_LABELS[p.vinculo]}</span>{:else}<span
 							class="text-[11px] text-faint">—</span
@@ -143,7 +144,7 @@
 				</div>
 				<div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-muted">
 					<span class="inline-flex items-center gap-1.5"><Stethoscope size={12} /> {especialidadeLabel(p)}</span>
-					{#if p.tel}<span class="inline-flex items-center gap-1.5 font-mono"><Phone size={12} /> {p.tel}</span>{/if}
+					{#if p.tel}<span class="inline-flex items-center gap-1.5 font-mono"><Phone size={12} /> {formatarTelefone(p.tel)}</span>{/if}
 				</div>
 				<div class="flex items-center gap-1.5 text-[12px] text-muted">
 					<CalendarClock size={12} /> {at.days}

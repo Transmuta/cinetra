@@ -131,4 +131,16 @@ describe('ProfessionalForm — edição', () => {
 		expect(getByDisplayValue('Dr. Rafael')).toBeInTheDocument();
 		expect(getByRole('button', { name: 'Salvar' })).toBeInTheDocument();
 	});
+
+	// Mesma correção da ficha do paciente: número em E.164 volta mascarado. Aqui o `+55` chega das
+	// fichas gravadas por outro caminho (importação, ou o dia em que o profissional virar destino
+	// de mensagem como o paciente já é) — e o `maskTel` transformaria o DDI em DDD na primeira tecla.
+	it('reabre o telefone mascarado, sem o DDI', () => {
+		const { getAllByPlaceholderText } = render(ProfessionalForm, {
+			props: { professional: prof({ tel: '+5511987654321', emergencia_tel: '+551133334444' }), clinicHours }
+		});
+		const tels = getAllByPlaceholderText('(11) 90000-0000') as HTMLInputElement[];
+		expect(tels[0].value).toBe('(11) 98765-4321');
+		expect(tels[1].value).toBe('(11) 3333-4444');
+	});
 });

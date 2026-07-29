@@ -176,6 +176,19 @@ describe('PatientForm — edição', () => {
 		expect(getByRole('button', { name: 'Salvar' })).toBeInTheDocument();
 	});
 
+	// O banco guarda E.164 (`NormalizeTel`, doc 52 §9). Sem formatar ao semear, a edição reabria
+	// com `+5511987654321` no campo — e um toque em qualquer tecla passava aquilo pelo `maskTel`,
+	// que conta 13 dígitos, corta os 2 últimos e devolve `(55) 11987-6543`: o DDI virava DDD.
+	it('reabre o telefone mascarado, sem o DDI', () => {
+		const { getAllByPlaceholderText } = render(PatientForm, {
+			props: { patient: patient({ tel: '+5511987654321', emergencia_tel: '+551133334444' }), professionals }
+		});
+		// Os dois campos de telefone da ficha, na ordem: contato principal e emergência.
+		const tels = getAllByPlaceholderText('(11) 90000-0000') as HTMLInputElement[];
+		expect(tels[0].value).toBe('(11) 98765-4321');
+		expect(tels[1].value).toBe('(11) 3333-4444');
+	});
+
 	it('paciente com convênio já abre a seção expandida', () => {
 		const { getByText } = render(PatientForm, {
 			props: { patient: patient({ convenio: 'Unimed' }), professionals }

@@ -5,6 +5,7 @@
 	import X from '@lucide/svelte/icons/x';
 	import Search from '@lucide/svelte/icons/search';
 	import { initials } from '$lib/format';
+	import { formatarTelefone } from '$lib/telefone';
 	import { avatarColor } from '$lib/avatar';
 	import { CONTROL_CLASS } from '$lib/components/Field.svelte';
 	import type { AgendaPatient, SearchResult } from '$lib/agenda';
@@ -139,7 +140,7 @@
 							{initials(p.nome)}
 						</span>
 						<span class="min-w-0 flex-1 truncate">{p.nome}</span>
-						{#if p.tel}<span class="font-mono text-[11px] text-faint">{p.tel}</span>{/if}
+						{#if p.tel}<span class="font-mono text-[11px] text-faint">{formatarTelefone(p.tel)}</span>{/if}
 					</button>
 				</li>
 			{/each}
