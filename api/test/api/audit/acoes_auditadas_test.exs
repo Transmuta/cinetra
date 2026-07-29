@@ -70,7 +70,15 @@ defmodule Api.Audit.AcoesAuditadasTest do
     Api.Scheduling.ClinicHours => [:set_day],
     Api.Scheduling.ProfessionalHours => [:set_day],
     Api.Scheduling.ScheduleException => [:create, :destroy],
-    Api.Packages.Package => [:create, :mark_paused, :mark_active, :mark_cancelled],
+    Api.Packages.Package => [
+      :create,
+      :mark_paused,
+      :mark_active,
+      :mark_cancelled,
+      # doc 69 §10: arquivar (D1) e o `+`/`−` do ADR-011 — as duas portas novas do ciclo de vida
+      :mark_completed,
+      :set_total
+    ],
     Api.Waitlist.WaitlistEntry => [:enqueue, :update, :dequeue]
   }
 

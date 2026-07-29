@@ -43,4 +43,33 @@ defmodule Api.Audit.FeedQueriesTest do
     assert pequena["patients"] == grande["patients"]
     assert pequena["professionals"] == grande["professionals"]
   end
+
+  # O contexto da agenda (de quem era a sessão, com qual profissional) custa mais DUAS leituras,
+  # e elas seguem a mesma regra: uma por página, não uma por entrada. Numa página de 50 linhas de
+  # agenda a diferença entre lote e N+1 é 2 contra 100 queries — na tabela que mais cresce.
+  test "o contexto da agenda também é em lote" do
+    ctx = clinica(prof: "Dra. Bea", paciente: "Caio")
+
+    for hora <- ["08:00", "09:00", "10:00", "11:00"] do
+      {:ok, dt} = Api.Scheduling.LocalTime.to_utc(~D[2026-07-20], hora, "America/Sao_Paulo")
+
+      {:ok, _} =
+        Api.Scheduling.schedule_appointment(
+          %{
+            starts_at: dt,
+            professional_id: ctx.prof.id,
+            appointment_type_id: ctx.tipo.id,
+            patient_ids: [ctx.paciente.id]
+          },
+          scope: ctx.scope
+        )
+    end
+
+    {_, tally} = QueryCounter.tally(fn -> Audit.list_events(ctx.scope, limit: 200) end)
+
+    # Quatro blocos numa página só: em lote são duas leituras, uma de cada tabela. Fosse uma por
+    # entrada, seriam oito — e cresceriam com a página.
+    assert tally["appointments"] == 1
+    assert tally["attendances"] == 1
+  end
 end

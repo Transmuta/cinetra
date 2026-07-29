@@ -68,6 +68,15 @@ export interface AuditEntry {
 	// Resolvidos por nome pela API a partir de `meta`, em lote.
 	professional: AuditRef | null;
 	patient: AuditRef | null;
+	/**
+	 * Quem estava no bloco — só nas linhas de AGENDAMENTO (a API o resolve a partir das
+	 * presenças, que é onde o paciente mora; o `Appointment` não tem um).
+	 *
+	 * É o que faltava para a linha de agenda se identificar: "Atualizou a situação · Dra. Bea"
+	 * não diz de quem era a sessão, e num dia de trabalho todas as linhas de um profissional
+	 * ficam idênticas. Na linha de presença vem vazio — lá o paciente já é o sujeito da frase.
+	 */
+	participants: AuditRef[];
 	/** Contexto livre por recurso: `starts_at`, `session_starts_at`, `appointment_id`, `papel`… */
 	meta: Record<string, unknown>;
 	diff: DiffRow[];
@@ -211,7 +220,10 @@ const ACTION_LABELS: Record<string, Record<string, string>> = {
 		cancel: 'Cancelou',
 		reopen: 'Reabriu',
 		exclude: 'Excluiu',
-		apply_participant_rollup: 'Atualizou pela turma',
+		// A ação é o rollup do desfecho a partir das presenças, e roda em TODO bloco — de um
+		// paciente ou de turma. Falar em "turma" aqui afirmava coisa falsa no caso comum: quem
+		// marcava a falta de um atendimento individual lia "Atualizou pela turma".
+		apply_participant_rollup: 'Atualizou a situação',
 		set_pkg_hold: 'Reserva de pacote',
 		// Ações APOSENTADAS (o eixo de bloco saiu na A2/bate-volta da Onda 3). Ficam porque a
 		// trilha guarda o que aconteceu: linhas antigas carregam estes nomes, e sem o rótulo a
@@ -280,7 +292,11 @@ const ACTION_LABELS: Record<string, Record<string, string>> = {
 		create: 'Criou o pacote',
 		mark_paused: 'Pausou o pacote',
 		mark_active: 'Retomou o pacote',
-		mark_cancelled: 'Cancelou o pacote'
+		mark_cancelled: 'Cancelou o pacote',
+		// doc 69 §10: arquivar é a ÚNICA porta para `concluido` (D1); `set_total` é o `+`/`−` do
+		// ADR-011 (não há renovação — o total é editável sobre o mesmo pacote).
+		mark_completed: 'Arquivou o pacote',
+		set_total: 'Mudou o total de sessões'
 	},
 	waitlist_entry: {
 		enqueue: 'Colocou na fila',
@@ -305,7 +321,10 @@ const HEADLINES: Record<string, Record<string, string>> = {
 		cancel: 'Cancelou o agendamento',
 		reopen: 'Reabriu o agendamento',
 		exclude: 'Excluiu o agendamento',
-		apply_participant_rollup: 'Atualizou a situação pela turma',
+		// "pelos participantes" e não "pela turma": o rollup é o mesmo mecanismo no bloco de um
+		// paciente e no de vários, e a frase precisa ser verdadeira nos dois. Quem fez a
+		// mudança de fato (marcar presença/falta) tem linha própria, na presença.
+		apply_participant_rollup: 'Atualizou a situação pelos participantes',
 		set_pkg_hold: 'Atualizou a reserva do pacote',
 		mark_completed: 'Concluiu o agendamento',
 		mark_missed: 'Marcou falta no agendamento',
@@ -364,7 +383,9 @@ const HEADLINES: Record<string, Record<string, string>> = {
 		create: 'Criou o pacote {n}',
 		mark_paused: 'Pausou o pacote {n}',
 		mark_active: 'Retomou o pacote {n}',
-		mark_cancelled: 'Cancelou o pacote {n}'
+		mark_cancelled: 'Cancelou o pacote {n}',
+		mark_completed: 'Arquivou o pacote {n}',
+		set_total: 'Mudou o total de sessões de {n}'
 	},
 	waitlist_entry: {
 		// `enqueue` é UPSERT (adicionar de novo o mesmo paciente edita a espera existente), então
@@ -492,16 +513,44 @@ export function entrySessionAt(entry: Pick<AuditEntry, 'meta'>): string | null {
 	return typeof valor === 'string' ? valor : null;
 }
 
-/** O contexto do registro: "Dra. Bea · ter 20/07, 09:00". Vazio quando nada foi resolvido. */
+/**
+ * Quem estava no bloco, em uma linha. Um nome; dois nomes; daí em diante os dois primeiros e a
+ * conta ("Ana, Caio e mais 3") — a lista inteira de uma turma cheia estouraria a linha e faria
+ * o feed perder o alinhamento que se varre com o olho.
+ */
+export function participantsLabel(participants: AuditRef[] | undefined | null): string | null {
+	const nomes = (participants ?? []).map((p) => p.nome).filter(Boolean);
+	if (nomes.length === 0) return null;
+	if (nomes.length === 1) return nomes[0];
+	if (nomes.length === 2) return `${nomes[0]} e ${nomes[1]}`;
+	return `${nomes[0]}, ${nomes[1]} e mais ${nomes.length - 2}`;
+}
+
+/**
+ * O contexto do registro: "Caio Paciente · Dra. Bea · ter 20/07, 09:00". Vazio quando nada foi
+ * resolvido.
+ *
+ * O **quem** vem primeiro porque é o que discrimina uma linha da seguinte: num dia de trabalho a
+ * agenda inteira é do mesmo profissional, e o feed ficava com dezenas de linhas idênticas
+ * ("Atualizou a situação · Dra. Bea"), sem dizer de quem era a sessão.
+ *
+ * O paciente **não** se repete quando a própria frase já o nomeia (`{p}` no template) — em
+ * "Marcou a falta de Caio" o nome dele de novo logo abaixo é ruído, não contexto.
+ */
 export function entryContext(
-	entry: Pick<AuditEntry, 'professional' | 'meta'>,
+	entry: Pick<
+		AuditEntry,
+		'resource' | 'action' | 'professional' | 'patient' | 'participants' | 'meta'
+	>,
 	timezone: string
 ): string {
+	const naFrase = HEADLINES[entry.resource]?.[entry.action]?.includes('{p}') ?? false;
+	const quem = participantsLabel(entry.participants) ?? (naFrase ? null : entry.patient?.nome);
 	const sessao = entrySessionAt(entry);
-	const partes = [entry.professional?.nome, sessao ? formatSession(sessao, timezone) : null].filter(
-		Boolean
-	);
-	return partes.join(' · ');
+
+	return [quem, entry.professional?.nome, sessao ? formatSession(sessao, timezone) : null]
+		.filter(Boolean)
+		.join(' · ');
 }
 
 // ---- Tradução dos campos do diff ----
@@ -509,6 +558,10 @@ export function entryContext(
 const FIELD_LABELS: Record<string, string> = {
 	status: 'Situação',
 	starts_at: 'Início',
+	// A única FK que sobrevive à regra "`*_id` é ruído" (ver `Api.Audit.Capture`): remarcar
+	// TROCANDO de profissional só mexe nessa coluna, e a linha saía muda. A API já manda o nome
+	// no lugar do uuid, então aqui é só o rótulo.
+	professional_id: 'Profissional',
 	obs: 'Observação',
 	encaixe: 'Encaixe',
 	duration_minutos: 'Duração',

@@ -63,7 +63,33 @@ defmodule ApiWeb.AuditControllerTest do
 
     {:ok, _} = Scheduling.transition_appointment(scope, appt.id, :cancel, %{cancel_reason: "x"})
 
-    %{owner: owner, clinic: clinic, prof: prof, paciente: paciente, appt: appt}
+    # Um segundo bloco, com uma falta. É ele que rende linha de PRESENÇA: as escritas de presença
+    # em cascata (a criação do bloco, o cancelamento) contam pela linha do bloco — um fato, uma
+    # linha. Quem decide sobre a presença é a falta, e essa tem linha própria.
+    {:ok, outro} =
+      Scheduling.schedule_appointment(
+        %{
+          starts_at: ~U[2026-07-20 17:00:00Z],
+          professional_id: prof.id,
+          appointment_type_id: tipo.id,
+          patient_ids: [paciente.id]
+        },
+        scope: scope
+      )
+
+    {:ok, _} =
+      Scheduling.transition_participant(scope, outro.id, paciente.id, :no_show, %{
+        motivo: "não avisou"
+      })
+
+    %{
+      owner: owner,
+      clinic: clinic,
+      prof: prof,
+      paciente: paciente,
+      appt: appt,
+      com_falta: outro
+    }
   end
 
   defp scope_for(user, clinic) do
@@ -96,6 +122,10 @@ defmodule ApiWeb.AuditControllerTest do
       assert cancel["resource"] == "appointment"
       assert cancel["actor"]["nome"] == ctx.owner.nome
       assert cancel["professional"]["nome"] == "Dra. Bea"
+
+      # …e DE QUEM era a sessão: o bloco não tem paciente (quem tem são as presenças), então sem
+      # `participants` a linha de agenda saía sem o dado que a identifica.
+      assert Enum.map(cancel["participants"], & &1["nome"]) == ["Caio"]
       assert is_binary(cancel["at"])
       assert Enum.any?(cancel["diff"], &(&1["field"] == "status" and &1["to"] == "cancelado"))
     end
@@ -182,9 +212,14 @@ defmodule ApiWeb.AuditControllerTest do
       # agenda" e `session_starts_at` — o espelho denormalizado do horário do bloco (doc 43) —
       # para a linha dizer DE QUAL sessão se fala. O modelo anterior fazia duas leituras a mais
       # por página para descobrir os dois; agora eles são gravados junto com o evento.
-      assert entry["meta"]["appointment_id"] == ctx.appt.id
+      assert entry["meta"]["appointment_id"] == ctx.com_falta.id
       assert is_binary(entry["meta"]["session_starts_at"])
       assert entry["patient"]["nome"] == "Caio"
+
+      # O "com quem" do título deste teste só passou a ser verdade agora: o `professional_id`
+      # mora no BLOCO, não na presença, então a linha do participante vinha sem ele — e o
+      # enriquecimento o resolve pelo bloco, em lote.
+      assert entry["professional"]["nome"] == "Dra. Bea"
     end
 
     # A whitelist de `parse_action` decide o que é filtrável; nome fora dela vira filtro **nulo**
@@ -343,8 +378,25 @@ defmodule ApiWeb.AuditControllerTest do
 
       conn = conn |> authed(ctx.owner) |> get("/api/audit?record_id=#{ctx.appt.id}")
       body = json_response(conn, 200)
-      assert length(body["entries"]) == 3
-      assert Enum.all?(body["entries"], &(&1["record_id"] == ctx.appt.id))
+
+      por_recurso = Enum.frequencies_by(body["entries"], & &1["resource"])
+      assert por_recurso["appointment"] == 3
+
+      assert Enum.all?(body["entries"], fn e ->
+               e["record_id"] == ctx.appt.id or e["meta"]["appointment_id"] == ctx.appt.id
+             end)
+
+      # O recorte de um bloco traz o bloco **e os participantes dele** — quem faltou e por quê
+      # mora na presença, que tem `record_id` próprio. Casar só o `record_id` deixava o "Ver
+      # histórico" da tela sem a metade que conta a história.
+      #
+      # A asserção é no bloco COM FALTA, e de propósito: o outro não tem linha de presença
+      # nenhuma (criar e cancelar contam pela linha do bloco). E é `== 1`, não `> 0` — em Elixir
+      # `nil > 0` é **verdadeiro** (átomo ordena depois de número), então a versão anterior
+      # passava até com zero presenças.
+      conn3 = build_conn() |> authed(ctx.owner) |> get("/api/audit?record_id=#{ctx.com_falta.id}")
+      do_bloco = Enum.frequencies_by(json_response(conn3, 200)["entries"], & &1["resource"])
+      assert do_bloco["attendance"] == 1
 
       conn2 = build_conn() |> authed(ctx.owner) |> get("/api/audit?user_id=#{ctx.owner.id}")
       assert %{"entries" => [_ | _]} = json_response(conn2, 200)

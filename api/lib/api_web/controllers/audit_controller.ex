@@ -140,6 +140,9 @@ defmodule ApiWeb.AuditController do
       actor: e.actor,
       patient: e.patient,
       professional: e.professional,
+      # Quem estava no bloco, nas linhas de agendamento — o `Appointment` não tem paciente
+      # (quem tem são as presenças), e sem isto a linha não dizia de quem era a sessão.
+      participants: e.participants,
       diff: e.diff,
       meta: e.meta
     }

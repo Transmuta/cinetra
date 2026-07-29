@@ -97,7 +97,10 @@ const ACOES_DO_BACKEND: ReadonlyArray<readonly [AuditResource, string]> = (
 		['clinic_hours', ['set_day']],
 		['professional_hours', ['set_day']],
 		['schedule_exception', ['create', 'destroy']],
-		['package', ['create', 'mark_paused', 'mark_active', 'mark_cancelled']],
+		[
+			'package',
+			['create', 'mark_paused', 'mark_active', 'mark_cancelled', 'mark_completed', 'set_total']
+		],
 		['waitlist_entry', ['enqueue', 'update', 'dequeue']],
 		['attachment', ['enviou', 'visualizou', 'renomeou', 'removeu']],
 		['seguranca', ['acesso_negado']]
@@ -248,6 +251,16 @@ describe('actionLabel / actionOptions', () => {
 		expect(actionLabel({ resource: 'appointment', action: 'novo_verbo' })).toBe('novo_verbo');
 	});
 
+	// O rollup do desfecho roda em TODO bloco — de um paciente ou de turma. Falar em "turma"
+	// fazia o atendimento individual exibir "Atualizou a situação pela turma", que é falso.
+	it('o rollup não inventa turma onde há um paciente só', () => {
+		const e = { resource: 'appointment', action: 'apply_participant_rollup' } as const;
+		expect(actionLabel(e)).not.toMatch(/turma/i);
+		expect(entryHeadline({ ...e, action_type: 'update', patient: null, label: null })).not.toMatch(
+			/turma/i
+		);
+	});
+
 	// Medido no banco de dev: `exclude`, `apply_participant_rollup`, `set_pkg_hold`,
 	// `set_package`, `mark_present`, `mark_absent`, `reopen_attendance` e `justify_absence`
 	// EXISTEM e não tinham rótulo — a tela exibia o átomo cru para a administração.
@@ -381,6 +394,43 @@ describe('entryContext', () => {
 
 	it('sem contexto resolvido, volta vazio (a linha não mostra a segunda linha)', () => {
 		expect(entryContext(entry({ professional: null, meta: {} }), TZ)).toBe('');
+	});
+
+	// O buraco que fazia o feed da agenda ser ilegível: num dia de trabalho todas as linhas são
+	// do mesmo profissional, e sem o paciente uma não se distingue da seguinte.
+	it('o QUEM vem primeiro nas linhas de agendamento', () => {
+		const e = entry({ participants: [{ id: 'x', nome: 'Caio Paciente' }] });
+		expect(entryContext(e, TZ)).toBe('Caio Paciente · Dra. Bea · seg 20/07, 08:00');
+	});
+
+	it('turma: dois nomes e a conta do resto', () => {
+		const nomes = ['Ana', 'Caio', 'Duda', 'Edu'].map((nome, i) => ({ id: `p${i}`, nome }));
+		expect(entryContext(entry({ participants: nomes }), TZ)).toBe(
+			'Ana, Caio e mais 2 · Dra. Bea · seg 20/07, 08:00'
+		);
+	});
+
+	// Em "Marcou a falta de Caio" o nome dele de novo logo abaixo é ruído, não contexto.
+	it('o paciente não se repete quando a própria frase já o nomeia', () => {
+		const e = entry({
+			resource: 'attendance',
+			action: 'mark_absent',
+			patient: { id: 'x', nome: 'Caio Paciente' },
+			meta: { session_starts_at: '2026-07-20T11:00:00Z' }
+		});
+		expect(entryContext(e, TZ)).toBe('Dra. Bea · seg 20/07, 08:00');
+	});
+
+	it('mas aparece quando a frase fala do registro, não do paciente', () => {
+		const e = entry({
+			resource: 'package',
+			action: 'mark_paused',
+			label: 'Pacote 10',
+			patient: { id: 'x', nome: 'Caio Paciente' },
+			professional: null,
+			meta: {}
+		});
+		expect(entryContext(e, TZ)).toBe('Caio Paciente');
 	});
 });
 

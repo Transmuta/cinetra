@@ -84,6 +84,9 @@ export function auditEntryFixture(over: Partial<AuditEntry> = {}): AuditEntry {
 		actor: { id: 'u1', nome: 'Ana Gestora' },
 		professional: { id: 'p1', nome: 'Dra. Bea' },
 		patient: null,
+		// Quem estava no bloco — a API resolve a partir das presenças. Vazio por default: a
+		// maioria dos recursos da trilha não é da agenda.
+		participants: [],
 		// O contexto do registro viaja em `meta` desde o doc 63 — `starts_at`/`appointment_id`
 		// deixaram de ser campos de todo evento (a maioria dos doze recursos não tem horário).
 		meta: { starts_at: '2026-07-20T11:00:00Z', status: 'agendado' },

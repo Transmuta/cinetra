@@ -84,9 +84,20 @@ defmodule Api.Directory do
   `clinic_id` cru — e não um `Api.Scope` — porque roda dentro do `onboard`, quando o tenant
   acabou de nascer e ainda não há escopo com ele. A GUC de cada INSERT é setada pelo
   `Api.Tenancy.SetTenantGuc` da própria ação.
+
+  `audit_cascade` cala a trilha destes cinco INSERTs (ver `Api.Audit.Capture`): ninguém decidiu
+  criar "Avaliação, Sessão, RPG, Pilates, Reavaliação" — o fato é "Criou a clínica", e é ele que
+  deixa a linha. Editar ou arquivar um destes tipos depois, aí sim, é decisão e tem linha própria.
   """
   def seed_appointment_types(clinic_id, tipos) when is_binary(clinic_id) and is_list(tipos) do
-    Enum.map(tipos, &create_appointment_type!(&1, tenant: clinic_id, authorize?: false))
+    Enum.map(
+      tipos,
+      &create_appointment_type!(&1,
+        tenant: clinic_id,
+        authorize?: false,
+        context: %{audit_cascade: true}
+      )
+    )
   end
 
   @doc """

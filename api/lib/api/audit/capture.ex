@@ -18,7 +18,41 @@ defmodule Api.Audit.Capture do
     * `:tenant_from` — de qual campo do resultado sai o `clinic_id` da linha. Default
       `:clinic_id`, que serve todo recurso por-tenant. `Clinic` e `Membership` **não** têm bloco
       `multitenancy` (o `changeset.tenant` deles é nulo), e no `Clinic` o tenant é o próprio
-      `:id` — daí a opção existir em vez de ser adivinhada.
+      `:id` — daí a opção existir em vez de ser adivinhada;
+    * `:keep` — FKs que **ficam** no diff, apesar da regra `*_id` (abaixo). É para a FK que é uma
+      decisão de alguém, e não um vínculo estrutural: trocar o profissional de um bloco ao
+      remarcar é a única coisa que mudou naquela escrita, e sem isto a linha saía com o diff
+      vazio (medido: três remarcações no banco de dev, todas mudas). O uuid é resolvido por NOME
+      na leitura, junto com o de `meta`;
+    * `:skip_unchanged` — nomes de ação (átomos) cuja escrita **derivada** só vira linha quando
+      de fato mudou algo. É o caso de `add_participant`/`remove_participant` no agendamento: a
+      composição da turma muda na PRESENÇA (que tem linha própria, e é a única que diz de quem se
+      fala), e no bloco sobrava um "Adicionou um participante" com **diff vazio** — uma linha que
+      ocupa espaço sem informar nada. Vale só para `update`: num `create` o diff vazio ainda
+      significa "nasceu", e num `destroy` ele é a regra.
+
+  ## A cascata que a decisão já contou
+
+  Um fato só merece **uma** linha. Cancelar um bloco de quatro pessoas é uma decisão: escrevia
+  cinco linhas no mesmo segundo (o bloco e as quatro presenças que apenas o refletem). Pausar um
+  pacote de dez sessões escrevia onze. Marcar uma falta escrevia duas — a presença e o rollup do
+  desfecho do bloco, que é derivado dela.
+
+  O silêncio dessas escritas não é opção deste change: é um **marcador no contexto**, posto por
+  quem dispara a cascata. Duas rotas, porque são dois mecanismos:
+
+    * `context: %{audit_cascade: true}` — na própria escrita filha, quando é o nosso código que a
+      chama (`CascadeToAttendances`, `RollupBlockStatus`, o `set_pkg_hold` do pacote);
+    * `context: %{shared: %{audit_cascade_children: true}}` — no PAI, quando quem dispara a filha é
+      o Ash (`manage_relationship`, em `ManageParticipants`) e não há onde pôr contexto na filha.
+      `shared` é o único pedaço que o Ash repassa, e é lido junto com o `accessing_from` que ele
+      carimba só na filha — sem esse par o marcador calaria o próprio pai, que é justamente a linha
+      que se quer preservar (o `set_context` do Ash espelha o `shared` no topo do contexto de quem
+      o põe).
+
+  A regra que decide quem cala: **quem decidiu conta, o reflexo cala**. Cancelar/reabrir um bloco é
+  decisão do bloco → as presenças calam. Entrar, sair ou faltar é decisão sobre a presença → o
+  bloco cala (o rollup do desfecho e as linhas de diff vazio de `add`/`remove_participant`).
 
   ## Roda no `after_action` — dentro da transação
 
@@ -81,6 +115,43 @@ defmodule Api.Audit.Capture do
   defp registrar(changeset, result, opts, context) do
     resource = Keyword.fetch!(opts, :resource)
 
+    diff =
+      diff(
+        changeset,
+        result,
+        resource,
+        Keyword.get(opts, :ignore, []),
+        Keyword.get(opts, :keep, [])
+      )
+
+    if silenciar?(changeset, diff, Keyword.get(opts, :skip_unchanged, [])) do
+      :ok
+    else
+      gravar(changeset, result, resource, diff, opts, context)
+    end
+  end
+
+  # As duas formas de silêncio: a cascata que a decisão já contou (o marcador, sempre) e a escrita
+  # derivada que não mudou nada (`:skip_unchanged`).
+  defp silenciar?(changeset, diff, skip) do
+    cascata_ja_contada?(changeset) or derivada_muda?(changeset, diff, skip)
+  end
+
+  # Ver "A cascata que a decisão já contou" no moduledoc. A segunda cláusula exige o par
+  # `accessing_from` + marcador: só o FILHO que o Ash dispara por relação gerenciada leva o
+  # carimbo, e é ele que separa a filha do pai que pôs a marca.
+  defp cascata_ja_contada?(%{context: %{audit_cascade: true}}), do: true
+
+  defp cascata_ja_contada?(%{context: %{accessing_from: %{}, audit_cascade_children: true}}),
+    do: true
+
+  defp cascata_ja_contada?(_changeset), do: false
+
+  # Ver `:skip_unchanged` no moduledoc.
+  defp derivada_muda?(%{action: %{type: :update, name: name}}, [], skip), do: name in skip
+  defp derivada_muda?(_changeset, _diff, _skip), do: false
+
+  defp gravar(changeset, result, resource, diff, opts, context) do
     Api.Audit.record_event!(
       %{
         resource: resource,
@@ -91,7 +162,7 @@ defmodule Api.Audit.Capture do
         user_id: ator_id(context),
         user_label: Api.Audit.rotulo(ator_nome(context)),
         at: agora(changeset),
-        diff: diff(changeset, result, resource, Keyword.get(opts, :ignore, [])),
+        diff: diff,
         meta: meta(result, Keyword.get(opts, :meta, []))
       },
       tenant: tenant(changeset, result, Keyword.get(opts, :tenant_from, :clinic_id)),
@@ -101,16 +172,21 @@ defmodule Api.Audit.Capture do
 
   # ---- o diff ----
 
-  defp diff(changeset, result, resource, extras) do
+  defp diff(changeset, result, resource, extras, mantidos) do
     changeset.attributes
     |> Map.keys()
-    |> Enum.reject(&ignorar?(&1, extras))
+    |> Enum.reject(&ignorar?(&1, extras, mantidos))
     |> Enum.sort()
     |> Enum.flat_map(&linha(&1, changeset.data, result, resource))
   end
 
-  defp ignorar?(field, extras) do
-    field in @ignorados or field in extras or String.ends_with?(Atom.to_string(field), "_id")
+  defp ignorar?(field, extras, mantidos) do
+    cond do
+      field in extras -> true
+      field in mantidos -> false
+      field in @ignorados -> true
+      true -> String.ends_with?(Atom.to_string(field), "_id")
+    end
   end
 
   defp linha(field, antes, depois, resource) do

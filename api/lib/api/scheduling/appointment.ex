@@ -472,9 +472,26 @@ defmodule Api.Scheduling.Appointment do
              Api.Audit.Capture,
              # `ends_at` é derivado (`starts_at` + duração do tipo) e dobraria a linha de todo
              # remarcar; `pkg_hold` é gancho interno da série, não decisão de ninguém.
+             #
+             # `keep: [:professional_id]` fura a regra "todo `*_id` é ruído" por um motivo
+             # medido: remarcar TROCANDO de profissional só mexe nessa coluna, e a linha saía
+             # com diff vazio ("Remarcou o agendamento", e mais nada). A leitura resolve o uuid
+             # por nome, como já faz com os de `meta`.
+             #
+             # `skip_unchanged` cala as escritas em que o bloco só é carona: mexer na composição
+             # da turma (`add`/`remove_participant`) muda a PRESENÇA — que tem linha própria e é
+             # a única que diz de quem se fala —, e no bloco sobrava um "Adicionou um
+             # participante" com diff vazio. `set_pkg_hold` é gancho da série (o `pkg_hold` está
+             # em `ignore`, então o diff dele é sempre vazio): quem conta é "Pausou o pacote".
+             #
+             # O rollup do desfecho (`apply_participant_rollup`) saiu daqui e cala SEMPRE, pelo
+             # marcador de cascata que `RollupBlockStatus` põe — ele é derivado da presença, e a
+             # linha dela já conta o fato mesmo quando o desfecho do bloco de fato mudou.
              resource: :appointment,
              meta: [:professional_id, :appointment_type_id, :starts_at, :status],
-             ignore: [:ends_at, :pkg_hold]
+             ignore: [:ends_at, :pkg_hold],
+             keep: [:professional_id],
+             skip_unchanged: [:add_participant, :remove_participant, :set_pkg_hold]
            },
            on: [:create, :update, :destroy]
   end

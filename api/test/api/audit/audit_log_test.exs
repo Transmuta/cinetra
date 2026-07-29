@@ -66,6 +66,9 @@ defmodule Api.Audit.AuditLogTest do
     test "reúne recursos diferentes numa ordem cronológica só" do
       ctx = setup_clinic()
       appt_with_history(ctx)
+      # A falta é o que rende linha de PRESENÇA: as escritas em cascata (a criação, o
+      # cancelamento) contam pela linha do bloco — ver "um fato, uma linha", abaixo.
+      faltou(ctx, schedule(ctx, %{starts_at: at("15:00")}))
       {:ok, _} = Api.Records.update_patient(ctx.paciente, %{tel: "11999998888"}, scope: ctx.scope)
 
       %{entries: entries} = Audit.list_events(ctx.scope)
@@ -307,12 +310,33 @@ defmodule Api.Audit.AuditLogTest do
     test "por registro: só o histórico daquele agendamento" do
       ctx = setup_clinic()
       alvo = appt_with_history(ctx)
-      _outro = schedule(ctx, %{starts_at: at("14:00")})
+      outro = schedule(ctx, %{starts_at: at("14:00")})
 
       %{entries: entries} = Audit.list_events(ctx.scope, record_id: alvo.id)
 
-      assert Enum.all?(entries, &(&1.record_id == alvo.id))
-      assert acoes(entries) == ["cancel", "reschedule", "schedule"]
+      assert acoes(so(entries, :appointment)) == ["cancel", "reschedule", "schedule"]
+      refute Enum.any?(entries, &(&1.record_id == outro.id))
+    end
+
+    # O recorte de um BLOCO inclui o que aconteceu com os participantes dele. Casar só o
+    # `record_id` deixava o "Ver histórico" da tela sem a metade que conta a história: quem
+    # entrou, quem faltou e por quê moram na presença, que tem `record_id` próprio — sobravam as
+    # linhas do bloco, boa parte delas o mero reflexo daquelas.
+    test "por registro: o histórico do bloco traz os participantes dele" do
+      ctx = setup_clinic()
+      alvo = schedule(ctx)
+      faltou(ctx, alvo)
+      outro = schedule(ctx, %{starts_at: at("14:00")})
+
+      %{entries: entries} = Audit.list_events(ctx.scope, record_id: alvo.id)
+
+      participantes = so(entries, :attendance)
+      assert participantes != []
+      assert Enum.all?(participantes, &(&1.meta["appointment_id"] == alvo.id))
+      assert Enum.all?(participantes, &(&1.patient.nome == "Caio Paciente"))
+
+      # E o recorte continua sendo um recorte: nada do outro bloco entra.
+      refute Enum.any?(entries, &(&1.meta["appointment_id"] == outro.id))
     end
 
     test "por ação — nome desconhecido devolve VAZIO, não o feed inteiro" do
@@ -330,13 +354,16 @@ defmodule Api.Audit.AuditLogTest do
 
     test "o `more` respeita o filtro (não é a clínica inteira)" do
       ctx = setup_clinic()
-      alvo = appt_with_history(ctx)
-      _outro = schedule(ctx, %{starts_at: at("14:00")})
 
-      %{page: sem_filtro} = Audit.list_events(ctx.scope, limit: 3)
+      # O alvo tem quatro eventos (três do bloco, um da presença que o cancelamento cascateou);
+      # a clínica, muitos mais.
+      alvo = appt_with_history(ctx)
+      for hora <- ["10:00", "11:00", "14:00"], do: schedule(ctx, %{starts_at: at(hora)})
+
+      %{page: sem_filtro} = Audit.list_events(ctx.scope, limit: 6)
       assert sem_filtro.more == true
 
-      %{page: com_filtro} = Audit.list_events(ctx.scope, record_id: alvo.id, limit: 3)
+      %{page: com_filtro} = Audit.list_events(ctx.scope, record_id: alvo.id, limit: 6)
       assert com_filtro.more == false
     end
 
@@ -369,9 +396,25 @@ defmodule Api.Audit.AuditLogTest do
   end
 
   describe "enriquecimento" do
+    # O participante entra pelo `add_participant`, e não pela criação: a presença que nasce COM o
+    # bloco não é evento próprio (ver a cascata, acima). O que se afirma aqui é o enriquecimento
+    # da linha de presença, que continua existindo — só que pela porta em que ela informa algo.
+    defp turma_com_participante(ctx) do
+      turma = tipo!(ctx, grupo: true, capacidade: 4)
+      primeiro = paciente!(ctx, "Primeiro Paciente")
+      appt = schedule(ctx, %{appointment_type_id: turma.id, patient_ids: [primeiro.id]})
+
+      {:ok, _} =
+        Scheduling.add_appointment_participants(appt, %{patient_ids: [ctx.paciente.id]},
+          scope: ctx.scope
+        )
+
+      appt
+    end
+
     test "autor e profissional saem por nome; o paciente do participante também" do
       ctx = setup_clinic()
-      schedule(ctx)
+      turma_com_participante(ctx)
 
       %{entries: entries} = Audit.list_events(ctx.scope)
 
@@ -381,6 +424,263 @@ defmodule Api.Audit.AuditLogTest do
 
       participante = Enum.find(entries, &(&1.resource == :attendance))
       assert participante.patient == %{id: ctx.paciente.id, nome: "Caio Paciente"}
+    end
+
+    # As duas metades da identificação que faltavam na tela. O `Appointment` não tem paciente
+    # (quem tem são as presenças) e a `Attendance` não tem profissional (quem tem é o bloco),
+    # então cada linha exibia só a metade que o próprio registro carregava — "Atualizou a
+    # situação · Dra. Bea" sem dizer de quem era a sessão.
+    test "a linha do bloco diz QUEM estava nele" do
+      ctx = setup_clinic()
+      schedule(ctx)
+
+      %{entries: entries} = Audit.list_events(ctx.scope, resource: :appointment)
+      bloco = Enum.find(entries, &(&1.action == "schedule"))
+
+      assert bloco.participants == [%{id: ctx.paciente.id, nome: "Caio Paciente"}]
+    end
+
+    test "a linha do participante diz COM QUEM era a sessão" do
+      ctx = setup_clinic()
+      turma_com_participante(ctx)
+
+      %{entries: entries} = Audit.list_events(ctx.scope, resource: :attendance)
+      participante = Enum.find(entries, &(&1.action == "create"))
+
+      assert participante.professional == %{id: ctx.prof.id, nome: "Dra. Bea"}
+      # A turma inteira só aparece na linha do bloco: aqui o paciente já é o sujeito da frase.
+      assert participante.participants == []
+    end
+
+    test "remarcar trocando de profissional mostra os NOMES, não dois uuids" do
+      ctx = setup_clinic()
+      appt = schedule(ctx)
+
+      outra = profissional!(ctx, "Dr. Ciro")
+
+      {:ok, _} =
+        Scheduling.transition_appointment(ctx.scope, appt.id, :reschedule, %{
+          starts_at: at("08:00"),
+          professional_id: outra.id
+        })
+
+      %{entries: entries} = Audit.list_events(ctx.scope, resource: :appointment)
+      remarcou = Enum.find(entries, &(&1.action == "reschedule"))
+
+      # Sem isto a única coluna que mudou era um `*_id`, e a regra "FK é ruído" a engolia: a
+      # linha saía com o diff VAZIO. Medido: três remarcações mudas no banco de dev.
+      assert campo(remarcou, "professional_id") == %{
+               "field" => "professional_id",
+               "from" => "Dra. Bea",
+               "to" => "Dr. Ciro"
+             }
+    end
+  end
+
+  # **Um fato, uma linha.** Bloco e presença são duas tabelas para a mesma sessão, e toda escrita
+  # numa delas cascateia para a outra dentro da mesma transação — então cada clique rendia duas
+  # linhas (ou cinco, numa turma de quatro), no mesmo segundo, dizendo a mesma coisa.
+  #
+  # A regra que decide quem sobra: **quem decidiu conta, o reflexo cala**.
+  describe "um fato, uma linha (cascata)" do
+    defp turma_de_dois(ctx) do
+      turma = tipo!(ctx, grupo: true, capacidade: 4)
+      dois = paciente!(ctx, "Dois Paciente")
+
+      appt =
+        schedule(ctx, %{
+          appointment_type_id: turma.id,
+          patient_ids: [ctx.paciente.id, dois.id]
+        })
+
+      {appt, dois}
+    end
+
+    defp do_bloco(ctx, appt) do
+      %{entries: entries} = Audit.list_events(ctx.scope, record_id: appt.id)
+      entries
+    end
+
+    test "criar o agendamento rende uma linha só, a do bloco" do
+      ctx = setup_clinic()
+      appt = schedule(ctx)
+
+      entries = do_bloco(ctx, appt)
+
+      assert acoes(so(entries, :appointment)) == ["schedule"]
+      assert so(entries, :attendance) == []
+    end
+
+    test "cancelar a turma rende UMA linha, não uma por participante" do
+      ctx = setup_clinic()
+      {appt, _dois} = turma_de_dois(ctx)
+
+      {:ok, _} =
+        Scheduling.transition_appointment(ctx.scope, appt.id, :cancel, %{cancel_reason: "x"})
+
+      entries = do_bloco(ctx, appt)
+
+      # Quem decidiu foi o bloco; as duas presenças só refletem o cancelamento. Antes eram três
+      # linhas no mesmo segundo — e numa turma cheia, cinco.
+      assert acoes(so(entries, :appointment)) == ["cancel", "schedule"]
+      assert so(entries, :attendance) == []
+    end
+
+    test "reabrir a turma idem" do
+      ctx = setup_clinic()
+      {appt, _dois} = turma_de_dois(ctx)
+
+      {:ok, _} = Scheduling.transition_appointment(ctx.scope, appt.id, :cancel, %{})
+      {:ok, _} = Scheduling.transition_appointment(ctx.scope, appt.id, :reopen, %{})
+
+      entries = do_bloco(ctx, appt)
+
+      assert acoes(so(entries, :appointment)) == ["reopen", "cancel", "schedule"]
+      assert so(entries, :attendance) == []
+    end
+
+    # O caminho inverso: aqui quem decide é a PRESENÇA, e o desfecho do bloco é derivado dela.
+    # O rollup nunca registra escolha de ninguém — e a linha dele, num bloco de um paciente, era
+    # a mesma frase dita de outro jeito, no mesmo segundo.
+    test "marcar a falta conta pela presença, mesmo quando o desfecho do bloco muda" do
+      ctx = setup_clinic()
+      appt = schedule(ctx)
+
+      {:ok, _} =
+        Scheduling.transition_participant(ctx.scope, appt.id, ctx.paciente.id, :no_show, %{
+          motivo: "Doente"
+        })
+
+      entries = do_bloco(ctx, appt)
+
+      assert acoes(so(entries, :attendance)) == ["mark_absent"]
+      assert acoes(so(entries, :appointment)) == ["schedule"]
+    end
+
+    # Entrar numa turma que JÁ EXISTE é um fato novo — e é a linha da presença que diz QUEM entrou.
+    # A do bloco ("Adicionou um participante") saía com o diff vazio, sem nomear ninguém.
+    test "entrar numa turma rende a linha da presença, e só ela" do
+      ctx = setup_clinic()
+      turma = tipo!(ctx, grupo: true, capacidade: 4)
+      appt = schedule(ctx, %{appointment_type_id: turma.id})
+      duda = paciente!(ctx, "Duda Paciente")
+
+      {:ok, _} =
+        Scheduling.add_appointment_participants(appt, %{patient_ids: [duda.id]}, scope: ctx.scope)
+
+      entries = do_bloco(ctx, appt)
+
+      assert [presenca] = so(entries, :attendance)
+      assert presenca.action == "create"
+      assert presenca.patient.nome == "Duda Paciente"
+      assert acoes(so(entries, :appointment)) == ["schedule"]
+    end
+
+    test "sair da turma idem — a linha é a da presença" do
+      ctx = setup_clinic()
+      {appt, dois} = turma_de_dois(ctx)
+
+      {:ok, _} =
+        Scheduling.remove_appointment_participants(appt, %{patient_ids: [dois.id]},
+          scope: ctx.scope
+        )
+
+      entries = do_bloco(ctx, appt)
+
+      assert [saida] = so(entries, :attendance)
+      assert saida.action == "remove"
+      assert saida.patient.nome == "Dois Paciente"
+      assert acoes(so(entries, :appointment)) == ["schedule"]
+    end
+
+    # O nascimento da clínica é UM fato, e vinha com quinze linhas: o catálogo de cinco tipos e a
+    # semana de expediente que o `onboard` semeia (doc 20 T3 / doc 22 §2), mais o convite e o
+    # aceite do próprio dono. Nenhuma delas é decisão de alguém — a decisão é "Criou a clínica",
+    # e o dono ser owner é invariante do onboard (ADR-016), não concessão de acesso a terceiro.
+    test "criar a clínica rende uma linha só — o seed não vira trilha" do
+      dono = usuario!("Nova Dona")
+      clinic = Api.Accounts.onboard_clinic!("Clínica #{unico()}", %{}, actor: dono)
+
+      %{entries: entries} = Audit.list_events(escopo(dono, clinic))
+
+      assert acoes(entries) == ["onboard"]
+    end
+
+    # `pkg_hold` é gancho da série (a pausa do pacote segura a sessão), não decisão de ninguém:
+    # quem conta é "Pausou o pacote", uma linha só em vez de uma por sessão segurada.
+    test "segurar a sessão por pausa de pacote não escreve linha — nem no bloco, nem na presença" do
+      ctx = setup_clinic()
+      appt = schedule(ctx)
+
+      [att] =
+        Scheduling.list_attendances!(
+          scope: ctx.scope,
+          query: [filter: [appointment_id: appt.id]]
+        )
+
+      {:ok, _} =
+        Scheduling.set_attendance_pkg_hold(att, %{pkg_hold: true},
+          tenant: ctx.clinic.id,
+          authorize?: false
+        )
+
+      {:ok, _} =
+        Scheduling.set_appointment_pkg_hold(appt, %{pkg_hold: true},
+          tenant: ctx.clinic.id,
+          authorize?: false
+        )
+
+      assert acoes(do_bloco(ctx, appt)) == ["schedule"]
+    end
+  end
+
+  # O bloco não decide o próprio desfecho: ele o DERIVA das presenças, pela ação interna
+  # `apply_participant_rollup`, que roda a cada transição de participante e sempre bumpa a
+  # `version` de propósito (é o lock otimista do bloco). Só que "sempre escreve" virava "sempre
+  # aparece na trilha" — e o que a linha do rollup conta é sempre o eco da linha da presença,
+  # gravada no mesmo segundo.
+  describe "a escrita derivada do bloco (rollup)" do
+    defp faltou(ctx, appt) do
+      {:ok, _} =
+        Scheduling.transition_participant(ctx.scope, appt.id, ctx.paciente.id, :no_show, %{
+          motivo: "Doente"
+        })
+    end
+
+    defp rollups(ctx) do
+      %{entries: entries} = Audit.list_events(ctx.scope, action: "apply_participant_rollup")
+      entries
+    end
+
+    test "o rollup não escreve linha — nem quando o desfecho do bloco muda" do
+      ctx = setup_clinic()
+      appt = schedule(ctx)
+      faltou(ctx, appt)
+
+      assert rollups(ctx) == []
+
+      # E o fato continua registrado, com o motivo, na linha de quem decidiu: a presença.
+      %{entries: presencas} = Audit.list_events(ctx.scope, resource: :attendance)
+      falta = Enum.find(presencas, &(&1.action == "mark_absent"))
+      assert campo(falta, "motivo")["to"] == "Doente"
+    end
+
+    test "justificar a falta continua contando pela presença" do
+      ctx = setup_clinic()
+      appt = schedule(ctx)
+      faltou(ctx, appt)
+
+      {:ok, _} =
+        Scheduling.transition_participant(ctx.scope, appt.id, ctx.paciente.id, :justify, %{
+          justificada: true
+        })
+
+      # A justificativa é da PRESENÇA e nem sequer muda o desfecho do bloco — o rollup reescreve
+      # `faltou` por cima de `faltou`.
+      assert rollups(ctx) == []
+
+      %{entries: presencas} = Audit.list_events(ctx.scope, resource: :attendance)
+      assert Enum.find(presencas, &(&1.action == "justify_absence"))
     end
   end
 

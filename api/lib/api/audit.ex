@@ -148,10 +148,19 @@ defmodule Api.Audit do
   defp enrich(_scope, []), do: []
 
   defp enrich(scope, events) do
-    pacientes = nomes(scope, :patient, ids(events, "patient_id"))
-    profissionais = nomes(scope, :professional, ids(events, "professional_id"))
+    # De quais blocos a página fala: o próprio registro, quando a linha é de agendamento, e o
+    # bloco da presença, quando é de participante. É o que fecha os dois buracos de
+    # identificação da tela: uma linha de agendamento não dizia DE QUEM era a sessão (o
+    # `Appointment` não tem `patient_id` — quem tem são as presenças), e uma linha de presença
+    # não dizia com QUAL profissional (o `professional_id` mora no bloco).
+    blocos = blocos(scope, events)
+
+    pacientes = nomes(scope, :patient, ids(events, "patient_id") ++ ids_participantes(blocos))
+    profissionais = nomes(scope, :professional, ids_profissionais(events, blocos))
 
     Enum.map(events, fn e ->
+      bloco = Map.get(blocos, bloco_id(e))
+
       %{
         id: e.id,
         resource: e.resource,
@@ -162,12 +171,99 @@ defmodule Api.Audit do
         at: e.at,
         actor: ator(e),
         patient: Map.get(pacientes, e.meta["patient_id"]),
-        professional: Map.get(profissionais, e.meta["professional_id"]),
-        diff: e.diff,
+        professional: profissional(e, bloco, profissionais),
+        # Quem estava no bloco. Só nas linhas de AGENDAMENTO: na de presença o paciente já é o
+        # sujeito da frase, e repetir a turma inteira ali seria ruído. Vem vazio quando o bloco
+        # não é mais legível (excluído, p.ex.) — a linha degrada, não quebra.
+        participants: participantes(e, bloco, pacientes),
+        diff: resolver_diff(e.diff, profissionais),
         meta: e.meta
       }
     end)
   end
+
+  # O uuid do bloco de que a linha fala, ou `nil` quando ela não é da agenda.
+  defp bloco_id(%{resource: :appointment, record_id: id}), do: id
+  defp bloco_id(%{resource: :attendance, meta: meta}), do: meta["appointment_id"]
+  defp bloco_id(_event), do: nil
+
+  # O profissional da linha: o de `meta` quando existe (agendamento), senão o do bloco
+  # (presença). Nunca uma leitura por entrada — os dois saem dos mapas já montados.
+  defp profissional(e, bloco, profissionais) do
+    id = e.meta["professional_id"] || (bloco && bloco.professional_id)
+    Map.get(profissionais, id)
+  end
+
+  defp participantes(%{resource: :appointment}, %{patient_ids: ids}, pacientes),
+    do: Enum.flat_map(ids, fn id -> List.wrap(Map.get(pacientes, id)) end)
+
+  defp participantes(_event, _bloco, _pacientes), do: []
+
+  # Os blocos da página, em DUAS leituras em lote (uma de `appointments`, uma de `attendances`)
+  # — nunca uma por entrada, que é o N+1 que o doc 25 §11.4 proíbe na tabela que mais cresce.
+  #
+  # `authorize?: false` pelo mesmo motivo do resto do enriquecimento: é detalhe interno da
+  # montagem da página, já sob o tenant da GUC e atrás do RBAC owner·admin do controller.
+  defp blocos(scope, events) do
+    ids = events |> Enum.map(&bloco_id/1) |> Enum.filter(&is_binary/1) |> Enum.uniq()
+
+    if ids == [] do
+      %{}
+    else
+      participantes =
+        Api.Scheduling.Attendance
+        |> Ash.Query.filter(appointment_id in ^ids)
+        |> Ash.Query.select([:appointment_id, :patient_id])
+        |> Ash.read!(scope: scope, authorize?: false)
+        |> Enum.group_by(& &1.appointment_id, & &1.patient_id)
+
+      Api.Scheduling.Appointment
+      |> Ash.Query.filter(id in ^ids)
+      |> Ash.Query.select([:id, :professional_id])
+      |> Ash.read!(scope: scope, authorize?: false)
+      |> Map.new(fn appt ->
+        {appt.id,
+         %{
+           professional_id: appt.professional_id,
+           patient_ids: Map.get(participantes, appt.id, [])
+         }}
+      end)
+    end
+  end
+
+  defp ids_participantes(blocos), do: Enum.flat_map(blocos, fn {_id, b} -> b.patient_ids end)
+
+  # Os uuids de profissional a resolver: os de `meta`, os dos blocos e os que aparecem **no
+  # diff** — a remarcação que troca de profissional grava `professional_id: <uuid> → <uuid>`, e
+  # sem os nomes a linha exibiria dois uuids, que é o mesmo que não exibir nada.
+  defp ids_profissionais(events, blocos) do
+    ids(events, "professional_id") ++
+      Enum.map(blocos, fn {_id, b} -> b.professional_id end) ++
+      Enum.flat_map(events, &ids_no_diff(&1.diff, "professional_id"))
+  end
+
+  defp ids_no_diff(diff, field) do
+    diff
+    |> Enum.filter(&(&1["field"] == field))
+    |> Enum.flat_map(&[&1["from"], &1["to"]])
+  end
+
+  # Troca o uuid pelo nome nas linhas de diff que são FK (hoje só `professional_id`). O que não
+  # resolver fica como está — uma linha de trilha nunca some por causa de um nome que sumiu.
+  defp resolver_diff(diff, profissionais) do
+    Enum.map(diff, fn
+      %{"field" => "professional_id"} = linha ->
+        linha
+        |> Map.put("from", nome_de(profissionais, linha["from"]))
+        |> Map.put("to", nome_de(profissionais, linha["to"]))
+
+      linha ->
+        linha
+    end)
+  end
+
+  defp nome_de(_mapa, nil), do: nil
+  defp nome_de(mapa, id), do: (Map.get(mapa, id) || %{})[:nome] || id
 
   defp ator(%{user_id: nil, user_label: nil}), do: nil
   defp ator(e), do: %{id: e.user_id, nome: e.user_label}
@@ -179,9 +275,16 @@ defmodule Api.Audit do
     |> Enum.uniq()
   end
 
-  defp nomes(_scope, _tipo, []), do: %{}
+  # As listas chegam concatenadas de várias origens (meta, blocos, diff), então a limpeza é
+  # aqui: sem uuid nulo e sem repetição, senão o `filter(id in ^ids)` levaria lixo.
+  defp nomes(scope, tipo, ids) do
+    case ids |> Enum.filter(&is_binary/1) |> Enum.uniq() do
+      [] -> %{}
+      limpos -> buscar_nomes(scope, tipo, limpos)
+    end
+  end
 
-  defp nomes(scope, :patient, ids) do
+  defp buscar_nomes(scope, :patient, ids) do
     Api.Records.list_patients!(
       scope: scope,
       authorize?: false,
@@ -190,7 +293,7 @@ defmodule Api.Audit do
     |> Map.new(&{&1.id, %{id: &1.id, nome: &1.nome}})
   end
 
-  defp nomes(scope, :professional, ids) do
+  defp buscar_nomes(scope, :professional, ids) do
     Api.Directory.list_professionals!(
       scope: scope,
       authorize?: false,
@@ -220,7 +323,21 @@ defmodule Api.Audit do
   defp filter_resource(query, kind), do: Ash.Query.filter(query, resource == ^kind)
 
   defp filter_record(query, nil), do: query
-  defp filter_record(query, id), do: Ash.Query.filter(query, record_id == ^id)
+
+  # "Ver histórico" de um registro — e, quando o registro é um **bloco**, também o que aconteceu
+  # com os participantes dele.
+  #
+  # Casar só `record_id` deixava esse recorte inútil justamente onde ele é mais usado: as
+  # presenças têm `record_id` próprio, então o histórico de um agendamento vinha sem "marcou a
+  # falta de Mariana", sem o motivo e sem quem entrou ou saiu — sobravam as linhas do bloco, que
+  # são em boa parte o **reflexo** daquelas (o rollup do desfecho). Medido no banco de dev: das
+  # onze linhas de um bloco com uma vida normal, seis eram do bloco e cinco, as que contavam a
+  # história, ficavam de fora.
+  #
+  # O `meta["appointment_id"]` só existe nos eventos de presença, então o OR não alarga o
+  # recorte de nenhum outro recurso.
+  defp filter_record(query, id),
+    do: Ash.Query.filter(query, record_id == ^id or meta["appointment_id"] == ^id)
 
   defp filter_user(query, nil), do: query
   defp filter_user(query, id), do: Ash.Query.filter(query, user_id == ^id)
