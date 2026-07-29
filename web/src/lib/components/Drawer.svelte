@@ -35,6 +35,16 @@
 		if (document.querySelector('[data-modal]')) return;
 		onClose();
 	}
+
+	// AN-08 (WCAG 2.4.3): abrir move o foco para o painel; fechar devolve a quem abriu — o
+	// mesmo desenho do Modal, e pelo mesmo motivo (Tab passeava pela tela de trás).
+	let painel = $state<HTMLElement>();
+
+	$effect(() => {
+		const antes = document.activeElement as HTMLElement | null;
+		painel?.focus();
+		return () => antes?.focus?.();
+	});
 </script>
 
 <svelte:window onkeydown={aoTeclar} />
@@ -47,7 +57,9 @@
 	<!-- `div` e não `aside`: com `role="dialog"` o elemento já é o painel modal, e um landmark
 	     complementar com papel interativo é justamente o que o a11y do Svelte recusa. -->
 	<div
-		class="absolute inset-y-0 right-0 flex {width} max-w-full flex-col border-l border-edge bg-surface shadow-modal"
+		bind:this={painel}
+		tabindex="-1"
+		class="absolute inset-y-0 right-0 flex {width} max-w-full flex-col border-l border-edge bg-surface shadow-modal focus:outline-none"
 		role="dialog"
 		aria-modal="true"
 		aria-label={label}

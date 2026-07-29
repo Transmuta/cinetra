@@ -46,4 +46,23 @@ describe('Modal (shell)', () => {
 		await fireEvent.click(getByRole('dialog'));
 		expect(onClose).toHaveBeenCalledTimes(3);
 	});
+
+	// AN-08 (WCAG 2.4.3): abrir move o foco para o diálogo; fechar devolve a quem abriu. Sem
+	// isto o Tab passeava pela tela de trás do overlay.
+	it('abrir foca o diálogo e fechar devolve o foco ao gatilho', async () => {
+		const gatilho = document.createElement('button');
+		document.body.appendChild(gatilho);
+		gatilho.focus();
+
+		const { getByRole, unmount } = render(Modal, {
+			props: { title: 'T', onClose: () => {}, children: body }
+		});
+		await Promise.resolve();
+
+		expect(document.activeElement).toBe(getByRole('dialog'));
+
+		unmount();
+		expect(document.activeElement).toBe(gatilho);
+		gatilho.remove();
+	});
 });

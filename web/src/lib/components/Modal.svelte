@@ -20,6 +20,18 @@
 		children: Snippet;
 		footer?: Snippet;
 	} = $props();
+
+	// AN-08 (WCAG 2.4.3): abrir move o foco para o diálogo; fechar DEVOLVE ao gatilho. Sem isto,
+	// o teclado continuava na tela de trás — Tab passeava por baixo do overlay e o leitor de tela
+	// nem sabia que um diálogo abriu. O `tabindex="-1"` torna o painel focável sem entrar na
+	// ordem do Tab.
+	let painel = $state<HTMLElement>();
+
+	$effect(() => {
+		const antes = document.activeElement as HTMLElement | null;
+		painel?.focus();
+		return () => antes?.focus?.();
+	});
 </script>
 
 <svelte:window onkeydown={(e) => e.key === 'Escape' && onClose()} />
@@ -31,7 +43,9 @@
 	onclick={(e) => e.target === e.currentTarget && onClose()}
 >
 	<div
-		class="flex max-h-[90dvh] w-full {maxWidth} animate-scale flex-col overflow-hidden rounded-[12px] bg-surface shadow-modal"
+		bind:this={painel}
+		tabindex="-1"
+		class="flex max-h-[90dvh] w-full {maxWidth} animate-scale flex-col overflow-hidden rounded-[12px] bg-surface shadow-modal focus:outline-none"
 		role="dialog"
 		aria-modal="true"
 		aria-label={title}

@@ -75,4 +75,22 @@ describe('Drawer (shell)', () => {
 		await fireEvent.keyDown(window, { key: 'Escape' });
 		expect(onClose).toHaveBeenCalledTimes(1);
 	});
+
+	// AN-08 (WCAG 2.4.3): o par do teste do Modal — abrir foca o painel, fechar devolve.
+	it('abrir foca o painel e fechar devolve o foco ao gatilho', async () => {
+		const gatilho = document.createElement('button');
+		document.body.appendChild(gatilho);
+		gatilho.focus();
+
+		const { getByRole, unmount } = render(Drawer, {
+			props: { label: 'D', onClose: () => {}, children: body }
+		});
+		await Promise.resolve();
+
+		expect(document.activeElement).toBe(getByRole('dialog'));
+
+		unmount();
+		expect(document.activeElement).toBe(gatilho);
+		gatilho.remove();
+	});
 });
