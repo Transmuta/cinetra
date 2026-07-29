@@ -18,6 +18,8 @@ defmodule ApiWeb.PackagesController do
 
   import ApiWeb.TenantScope
 
+  require Logger
+
   alias Api.Packages
   alias ApiWeb.PackagesJSON
 
@@ -181,7 +183,7 @@ defmodule ApiWeb.PackagesController do
   defp motivo_da_massa(:nada_a_aplicar), do: "escolha o que aplicar: profissional e/ou horário"
   defp motivo_da_massa(:horario_invalido), do: "horário inválido"
   defp motivo_da_massa(:escopo_invalido), do: "escopo inválido"
-  defp motivo_da_massa(outro), do: to_string(outro)
+  defp motivo_da_massa(outro), do: frase_desconhecida(outro)
 
   defp transition(conn, scope, result) do
     case result do
@@ -225,7 +227,27 @@ defmodule ApiWeb.PackagesController do
   defp motivo_do_ciclo(:dia_invalido), do: "dia da semana inválido"
   defp motivo_do_ciclo(:grade_invalida), do: "grade inválida"
   defp motivo_do_ciclo(:sem_grade), do: "este pacote não tem grade"
-  defp motivo_do_ciclo(outro), do: to_string(outro)
+  defp motivo_do_ciclo(:teto_do_pacote), do: "este pacote já está no número máximo de sessões"
+
+  defp motivo_do_ciclo(:sem_data_na_grade),
+    do: "a grade não tem data disponível daqui para a frente"
+
+  defp motivo_do_ciclo(outro), do: frase_desconhecida(outro)
+
+  # **O átomo desconhecido NÃO vai para a tela** — e este é o único lugar que decide isso.
+  #
+  # Havia TRÊS portas fazendo o contrário, cada uma do seu jeito: `motivo_do_ciclo/1` e
+  # `motivo_da_massa/1` com `to_string/1`, e `series_error/2` com `inspect/1`. Bastava alguém
+  # acrescentar um `{:error, :timeout}` ao domínio para a recepção ler "timeout" na tela como
+  # explicação de não conseguir arquivar um pacote — e consertar só uma das três recriaria a
+  # divergência que a tradução existe para evitar.
+  #
+  # O motivo não some: ele vai para o LOG, que é onde serve a quem pode agir sobre ele. Muda de
+  # público, não de existência.
+  defp frase_desconhecida(motivo) do
+    Logger.warning("PackagesController: motivo sem frase — #{inspect(motivo)}")
+    "não foi possível concluir esta operação"
+  end
 
   # Extrai e valida os campos que criam a série. `data_inicio` chega como "AAAA-MM-DD"; a grade é
   # um mapa aninhado. Erro de forma vira `:invalid` (→ 400), sem estourar no domínio.
@@ -255,11 +277,21 @@ defmodule ApiWeb.PackagesController do
   defp parse_date(_), do: :error
 
   # Os erros do motor de série (grade vazia, horário faltando) viram 422 com a razão.
-  defp series_error(conn, motivo) do
+  # `reason` era `inspect(motivo)` — o átomo interno cru, e para um erro do Ash o **struct inteiro**
+  # despejado numa string. Passa pela mesma tradução do ciclo de vida: uma tabela só para as duas
+  # portas, senão elas divergem no dia em que alguém acrescenta um motivo em uma e esquece a outra.
+  defp series_error(conn, motivo) when is_atom(motivo) do
     conn
     |> put_status(:unprocessable_entity)
-    |> json(%{error: "invalid_series", reason: inspect(motivo)})
+    |> json(%{
+      error: "invalid_series",
+      reason: to_string(motivo),
+      message: motivo_do_ciclo(motivo)
+    })
   end
+
+  # Erro do Ash (validação do recurso, conflito): tem máquina própria, com campo e mensagem.
+  defp series_error(conn, motivo), do: error_response(conn, motivo)
 
   defp derivados, do: [:usadas, :restantes, :acabando, :schedule]
 end
