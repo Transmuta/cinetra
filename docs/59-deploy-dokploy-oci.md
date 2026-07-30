@@ -209,6 +209,23 @@ o pipeline. **HML tem os seus próprios** — nunca compartilhe segredo/banco/bu
 | `SECRET_KEY_BASE` / `TOKEN_SIGNING_SECRET` | env | `raise` no boot se faltar |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | env | client do ambiente |
 | `R2_ACCOUNT_ID` / `R2_BUCKET` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | env | bucket do ambiente |
+| `RESEND_API_KEY` | env | **sem ela nenhum e-mail sai, nem o magic link** — o mailer cai no adapter `Local` e ninguém entra no sistema |
+| `RESEND_WEBHOOK_SECRET` | env | o *Signing Secret* (`whsec_…`) do endpoint cadastrado no Resend; sem ela o webhook responde **401 em todo evento** (fail closed) |
+| `MAIL_FROM` / `MAIL_FROM_NAME` | env | remetente de **domínio verificado**, um por ambiente — HML nunca do domínio de prod, senão um teste queima a reputação de envio da produção |
+| `WHATSAPP_HABILITADO` / `ZERNIO_*` | env | fase 2 (doc 65). Default vazio = canal desligado; ligar é preencher aqui, sem deploy |
+
+> **As três primeiras usam `${VAR:?mensagem}` no compose, de propósito: o `up` aborta se faltarem.**
+> Nem `${VAR:-}` nem `${VAR}` seco serviriam — os dois substituem por string vazia e seguem (o
+> segundo só acrescenta um warning no log do deploy), e o resultado é um sistema que sobe perfeito,
+> com a suíte verde, e no qual o e-mail simplesmente não sai. Esse foi o modo de falha que a
+> ausência delas no `compose.dokploy.yml` criou até 2026-07-30. É o mesmo fail-fast que
+> `SECRET_KEY_BASE` tem de graça pelo `raise` do `runtime.exs`. Cobertas por `Api.DeployEnvTest`,
+> que cobra do compose toda env de comunicação que o `runtime.exs` lê.
+>
+> **Preencher a env não basta:** o endpoint precisa existir no painel do Resend, apontando para
+> `https://<WEB_HOST>/webhooks/resend` (o Traefik já roteia `/webhooks` para a API — §3.1), e é de
+> lá que sai o `whsec_…`. Sem cadastrá-lo, nenhum evento de entrega chega e a timeline de
+> comunicação fica parada em "enviado" sem erro em lugar nenhum.
 
 `API_URL`, `API_PUBLIC_ORIGIN`, `ORIGIN`, `PHX_HOST`, `WEB_APP_URL`, `GOOGLE_REDIRECT_URI` e o
 `ADDRESS_HEADER=CF-Connecting-IP` (atrás do Cloudflare, §5.1) já saem prontos do
