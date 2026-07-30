@@ -7,6 +7,7 @@
 	import { untrack, onDestroy } from 'svelte';
 	import { enhance } from '$app/forms';
 	import SubmitButton from '$lib/components/SubmitButton.svelte';
+	import { ERRO_DE_REDE } from '$lib/forms.svelte';
 	import type { SubmitFunction } from '@sveltejs/kit';
 	import ChevronLeft from '@lucide/svelte/icons/chevron-left';
 	import User from '@lucide/svelte/icons/user';
@@ -254,6 +255,18 @@
 	const identOk = $derived(cpfOk && emailOk && nascOk);
 
 	/**
+	 * Rede fora não passa pelo `update` (doc 88, A-10).
+	 *
+	 * `update()` chama o `applyAction`, e para `result.type === 'error'` isso troca a página pela
+	 * tela de erro — levando junto os 31 campos que a pessoa acabou de digitar. Aqui a falha vira
+	 * uma frase no rodapé, que já é `role="alert"`, e o formulário **continua montado**.
+	 *
+	 * Declarado ANTES de `problema` porque é ele quem o lê — em Svelte 5 um `$derived` que
+	 * referencia um `$state` declarado abaixo não compila.
+	 */
+	let erroRede = $state<string | null>(null);
+
+	/**
 	 * O que está errado AGORA, em uma frase — ou `null` se nada está.
 	 *
 	 * Sai do markup para cá (ACC-04) porque o rodapé passou a tratar problema e dica como coisas
@@ -261,7 +274,9 @@
 	 * a mesma de antes — o erro do servidor primeiro, porque ele é o que a pessoa acabou de causar.
 	 */
 	const problema = $derived(
-		error
+		erroRede
+			? erroRede
+			: error
 			? error
 			: !telOk && f.tel.trim() !== ''
 				? 'Telefone incompleto — use DDD + número.'
@@ -292,8 +307,13 @@
 
 	const submit: SubmitFunction = () => {
 		submitting = true;
-		return async ({ update }) => {
+		erroRede = null;
+		return async ({ result, update }) => {
 			submitting = false;
+			if (result.type === 'error') {
+				erroRede = ERRO_DE_REDE;
+				return;
+			}
 			await update();
 		};
 	};
