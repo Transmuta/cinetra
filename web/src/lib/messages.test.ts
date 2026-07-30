@@ -7,6 +7,7 @@ import {
 	podeReenviar,
 	previsaoDeEnvio,
 	respostaTexto,
+	SEM_COMUNICACAO,
 	semEnvioTexto,
 	statusTexto,
 	textoDoEnvio,
@@ -99,6 +100,14 @@ describe('semEnvioTexto', () => {
 
 	it('sem motivo, não há linha', () => {
 		expect(semEnvioTexto(null)).toBeNull();
+	});
+
+	it('sem motivo E sem mensagem, o silêncio ainda tem texto', () => {
+		// `semEnvioTexto(null)` devolver `null` não pode virar ausência de linha na tela: o §6 diz
+		// que silêncio na tela faz a recepção supor que a mensagem saiu. Quem cobre esse caso é a
+		// constante — e ela precisa dizer que NADA saiu, não por que não saiu (não há motivo).
+		expect(SEM_COMUNICACAO).toMatch(/[a-z]/);
+		expect(SEM_COMUNICACAO).not.toMatch(/Nada enviado ·/);
 	});
 });
 
@@ -259,8 +268,11 @@ describe('descarteTexto', () => {
 });
 
 describe('podeReenviar', () => {
-	it('oferece envio a quem ainda não recebeu nada e nada bloqueia', () => {
-		expect(podeReenviar(participante({ semEnvio: null }))).toBe(true);
+	it('NÃO oferece nada a quem nunca recebeu — quem envia a primeira é o rodapé', () => {
+		// O "Enviar agora" por participante saiu da timeline: ela é histórico, não ação, e o
+		// "Enviar confirmação" do rodapé já dispara para todo mundo. Dois botões para o mesmo
+		// disparo davam à recepção duas respostas para a mesma pergunta.
+		expect(podeReenviar(participante({ semEnvio: null }))).toBe(false);
 	});
 
 	it('NÃO oferece quando o envio é impossível agora', () => {

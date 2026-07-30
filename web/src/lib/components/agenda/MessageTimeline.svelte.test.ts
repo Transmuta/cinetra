@@ -4,7 +4,7 @@ import { render, screen, cleanup } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 
 import MessageTimeline from './MessageTimeline.svelte';
-import type { Message, MessageParticipant } from '$lib/messages';
+import { SEM_COMUNICACAO, type Message, type MessageParticipant } from '$lib/messages';
 
 // A timeline (doc 52 §6). O que precisa estar provado aqui é o **silêncio explicado**: quem não
 // recebeu nada aparece com o motivo. Silêncio na tela faz a recepção supor que a mensagem saiu, e
@@ -233,7 +233,12 @@ describe('MessageTimeline', () => {
 			}
 		});
 
-		it('diz "Enviar agora" quando nunca saiu nada e nada bloqueia', () => {
+		it('quem nunca recebeu nada não ganha botão — ganha a linha do silêncio', () => {
+			// O "Enviar agora" saiu: a timeline é histórico, e a primeira mensagem sai pelo
+			// "Enviar confirmação" do rodapé, que dispara para o bloco inteiro. O que NÃO pode
+			// sumir junto é a linha — participante sem nenhuma linha faria a recepção supor que
+			// alguma coisa saiu (§6), que é exatamente o erro que este componente existe para não
+			// cometer.
 			render(
 				MessageTimeline,
 				props({
@@ -243,7 +248,20 @@ describe('MessageTimeline', () => {
 				})
 			);
 
-			expect(screen.getByRole('button', { name: 'Enviar agora' })).toBeInTheDocument();
+			expect(screen.queryByRole('button')).not.toBeInTheDocument();
+			expect(screen.getByText(SEM_COMUNICACAO)).toBeInTheDocument();
+		});
+
+		it('havendo motivo, é o motivo que aparece — não o texto genérico', () => {
+			// A linha genérica não pode engolir a informação que diz o que fazer (abrir a ficha,
+			// falar com o paciente). Ela é o caso "não há nada a explicar", só isso.
+			render(
+				MessageTimeline,
+				props({ participantes: [p({ mensagens: [], semEnvio: 'sem_contato' })] })
+			);
+
+			expect(screen.getByText(/e-mail nem telefone/)).toBeInTheDocument();
+			expect(screen.queryByText(SEM_COMUNICACAO)).not.toBeInTheDocument();
 		});
 	});
 });

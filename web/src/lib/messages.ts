@@ -121,6 +121,20 @@ export function semEnvioTexto(motivo: SemEnvio | null): string | null {
 	return motivo ? `Nada enviado · ${motivoTexto(motivo)}` : null;
 }
 
+/**
+ * A linha de quem não recebeu nada e **não tem motivo nenhum** barrando o envio — só ainda não
+ * saiu comunicação para este agendamento.
+ *
+ * Existe porque o §6 é uma regra sobre a tela, não sobre o dado: *o silêncio é uma linha, nunca
+ * ausência de linha*. Sem ela, esse participante apareceria com o nome e mais nada abaixo, e a
+ * ausência lê-se como "já resolvido" — a recepção supõe que a mensagem saiu.
+ *
+ * Não diz "Nada enviado · <motivo>" como a irmã acima porque aqui não há motivo a explicar: nada
+ * está errado, nada precisa ser consertado na ficha. Quem manda a primeira mensagem é o "Enviar
+ * confirmação" do rodapé, que dispara para o bloco inteiro.
+ */
+export const SEM_COMUNICACAO = 'Nenhuma comunicação enviada até agora';
+
 /** O que a API responde por participante no disparo manual (`POST .../messages`). */
 export interface SendOutcome {
 	patientId: string;
@@ -131,7 +145,7 @@ export interface SendOutcome {
 }
 
 /**
- * O que dizer depois de clicar em "Enviar agora".
+ * O que dizer depois de disparar ("Enviar confirmação" no rodapé, "Reenviar" na timeline).
  *
  * Existe porque a API responde **201 com o resultado por participante**: o pedido foi aceito e o
  * envio pode ter sido pulado (sem contato, canal desligado, opt-out). Tratar 201 como sucesso
@@ -259,21 +273,22 @@ export function respostaTexto(m: Message): string | null {
 /**
  * O reenvio faz sentido para este participante?
  *
- * Sim quando não há mensagem nenhuma **e nada bloqueia o envio**, ou quando a última tentativa
- * falhou. Uma mensagem em trânsito ou já entregue não precisa de reenvio — e oferecê-lo convida a
- * recepção a duplicar comunicação com o paciente.
+ * Sim **só** quando a última tentativa falhou. Uma mensagem em trânsito ou já entregue não precisa
+ * de reenvio — e oferecê-lo convida a recepção a duplicar comunicação com o paciente.
+ *
+ * Quem nunca recebeu nada também não ganha botão aqui, e isso é uma decisão sobre o papel da
+ * timeline: ela é **histórico**, e a primeira mensagem sai pelo "Enviar confirmação" do rodapé,
+ * que dispara para o bloco inteiro. Dois botões para o mesmo disparo davam duas respostas à mesma
+ * pergunta — e o do rodapé é o que a recepção já procura. O que fica no lugar do antigo "Enviar
+ * agora" é a linha do `SEM_COMUNICACAO`: o silêncio continua explicado, sem virar oferta de ação.
  *
  * `semEnvio` preenchido é exatamente o `{:skip, motivo}` do `Dispatch.avaliar/2` (o BFF só o
- * devolve quando não há mensagem): clicar ali dispara, a API responde 201 e o disparo é pulado
- * **pelo mesmo motivo** que a linha acima já explicou. Um botão que promete ação e devolve a
- * mesma frase manda a recepção insistir num lugar onde não há o que fazer — e, no
- * `canal_indisponivel`, o que falta nem é dela (é de quem opera a instalação). Ele reaparece
- * sozinho quando o motivo deixa de valer: a timeline é reavaliada a cada abertura do drawer.
+ * devolve quando não há mensagem), e agora cai na mesma regra: sem mensagem, sem botão.
  *
  * O `opt_out` era o único caso barrado aqui (§10.4) — continua barrado, agora pela regra geral.
  */
 export function podeReenviar(p: MessageParticipant): boolean {
-	if (p.mensagens.length === 0) return !p.semEnvio;
+	if (p.mensagens.length === 0) return false;
 	// As duas travas de repetição valem mesmo depois de uma falha: não se insiste com quem já
 	// respondeu que vem, nem se estoura o teto porque a última tentativa foi a que falhou.
 	if (travaDeRepeticao(p)) return false;

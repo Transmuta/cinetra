@@ -197,6 +197,20 @@ que não gera linha em `Message` (não há mensagem; há a **ausência** dela, d
 ficha na hora da leitura). Os motivos possíveis estão no §10.3 — são quatro, e cada um existe
 porque leva a uma ação diferente.
 
+> **Atualização (2026-07-30).** A implementação tinha ganhado um botão a mais que este mock nunca
+> pediu: um **"Enviar agora"** por participante, exibido quando nada havia saído para aquela
+> pessoa. Ele foi **removido**. A timeline é histórico, e o único botão que ela oferece agora é o
+> `[Reenviar]` de uma tentativa que **falhou** (C5) — a primeira mensagem sai pelo "Enviar
+> confirmação" do rodapé, que dispara para o bloco inteiro. Dois botões para o mesmo disparo davam
+> duas respostas à mesma pergunta.
+>
+> No lugar dele entrou uma **linha**, porque a regra desta seção é sobre a tela e não sobre o dado:
+> quem não recebeu nada e **não tem motivo** barrando passa a ler *"Nenhuma comunicação enviada até
+> agora"* (`SEM_COMUNICACAO` em `web/src/lib/messages.ts`). Sem ela, esse participante ficaria com o
+> nome e o vazio abaixo — e vazio lê-se como "já resolvido", que é exatamente a suposição que o
+> parágrafo acima proíbe. Quando **há** motivo, continua valendo o "Nada enviado · <motivo>" do
+> §10.3: o texto genérico não pode engolir a informação que diz o que fazer.
+
 E o botão do rodapé **não some**: vira **"Reenviar agora"**, com o estado ao lado. Sem ele a
 recepção fica sem saída em três casos comuns do balcão — agendamento criado 3h antes (a janela do
 lembrete já passou), contato corrigido depois da falha, e "não recebi nada".

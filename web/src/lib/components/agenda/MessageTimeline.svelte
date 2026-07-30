@@ -7,8 +7,12 @@
 	//  1. **agrupa por participante**, não por bloco. Numa turma de 4, "confirmação enviada" no
 	//     bloco é falso para os outros 3 — é a mesma lição que a A2 já cobrou com a falta (§3);
 	//  2. **o silêncio é uma linha, nunca ausência de linha**. Quem não recebeu nada aparece com o
-	//     motivo e um atalho. Silêncio na tela faz a recepção supor que a mensagem saiu, e isso é
-	//     pior do que não ter a funcionalidade (§6).
+	//     motivo — ou, quando não há motivo, com o `SEM_COMUNICACAO`. Silêncio na tela faz a
+	//     recepção supor que a mensagem saiu, e isso é pior do que não ter a funcionalidade (§6).
+	//
+	// A timeline é **histórico, não ação**: o único botão que ela oferece é o "Reenviar" de uma
+	// tentativa que falhou. A primeira mensagem sai pelo "Enviar confirmação" do rodapé do drawer,
+	// que dispara para o bloco inteiro.
 	import Check from '@lucide/svelte/icons/check';
 	import CircleAlert from '@lucide/svelte/icons/circle-alert';
 	import Clock from '@lucide/svelte/icons/clock';
@@ -20,6 +24,7 @@
 		podeReenviar,
 		previsaoDeEnvio,
 		respostaTexto,
+		SEM_COMUNICACAO,
 		semEnvioTexto,
 		statusTexto,
 		tituloDaLinha,
@@ -140,6 +145,14 @@
 								<span class="mt-0.5 shrink-0"><Minus size={14} /></span>
 								<span>{semEnvioTexto(p.semEnvio)}</span>
 							</li>
+						{:else if p.mensagens.length === 0}
+							<!-- Nada saiu e nada barra: a linha é o §6 em vigor — sem ela este
+							     participante ficaria com o nome e o vazio abaixo, e vazio na tela lê-se
+							     como "já resolvido". A primeira mensagem sai pelo rodapé, não daqui. -->
+							<li class="flex items-start gap-2 text-[12.5px] text-faint">
+								<span class="mt-0.5 shrink-0"><Minus size={14} /></span>
+								<span>{SEM_COMUNICACAO}</span>
+							</li>
 						{/if}
 					</ul>
 
@@ -149,7 +162,7 @@
 							onclick={() => onReenviar?.(p.patientId)}
 							class="mt-1.5 text-[12px] font-semibold text-teal hover:underline"
 						>
-							{p.mensagens.length ? 'Reenviar' : 'Enviar agora'}
+							Reenviar
 						</button>
 					{/if}
 				</li>
