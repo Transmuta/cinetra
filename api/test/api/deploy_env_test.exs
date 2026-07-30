@@ -49,10 +49,10 @@ defmodule Api.DeployEnvTest do
   @familias ~w(RESEND_ MAIL_ ZERNIO_ WHATSAPP_)
 
   test "o serviço `api` do compose de produção recebe toda env de comunicação do runtime.exs" do
-    compose = File.read!(caminho_do_compose())
+    servico = servico_api(File.read!(caminho_do_compose()))
 
     for env <- envs_de_comunicacao() do
-      assert compose =~ env,
+      assert Enum.any?(servico, &Regex.match?(~r/^\s+#{Regex.escape(env)}:/, &1)),
              """
              `#{env}` é lida por config/runtime.exs mas não é passada ao container da API em \
              compose.dokploy.yml.
@@ -61,6 +61,34 @@ defmodule Api.DeployEnvTest do
              não sai (ou o webhook responde 401 em todo evento). Ver o moduledoc.
              """
     end
+  end
+
+  # As linhas do serviço `api`, do cabeçalho dele até o próximo serviço no mesmo recuo.
+  #
+  # A asserção precisa ser sobre uma **chave YAML dentro deste serviço**, não sobre o texto do
+  # arquivo. Medido: com `assert compose =~ env` bastava o nome aparecer em qualquer lugar, e o
+  # compose CITA as duas envs nos comentários que explicam por que elas são obrigatórias — então
+  # apagar as linhas de `environment:` (exatamente a regressão que este teste existe para pegar)
+  # deixava o teste VERDE. Um comentário nunca casa `^\s+NOME:`, e o recorte por serviço impede
+  # que a env passar a viver no `web` conte como se estivesse aqui.
+  defp servico_api(compose) do
+    linhas = String.split(compose, "\n")
+
+    inicio =
+      Enum.find_index(linhas, &(&1 == "  api:")) ||
+        flunk("o serviço `api` não foi encontrado em compose.dokploy.yml")
+
+    bloco =
+      linhas
+      |> Enum.drop(inicio + 1)
+      |> Enum.take_while(&(not Regex.match?(~r/^  \S/, &1)))
+
+    # Guarda contra o recorte virar vacuidade do mesmo jeito que a asserção antiga: um bloco vazio
+    # (o formato do compose mudou) faria todo `Enum.any?` acima falhar por acidente, ou passar por
+    # acidente se a asserção um dia inverter.
+    assert length(bloco) > 20, "o recorte do serviço `api` devolveu #{length(bloco)} linhas"
+
+    bloco
   end
 
   # Falha em vez de pular quando o compose não é alcançável: um teste de configuração que some
