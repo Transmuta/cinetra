@@ -80,7 +80,11 @@ defmodule Api.Records.PatientTest do
       p = Records.create_patient!("Mariana Alves", @full, tenant: clinic.id, actor: owner)
 
       assert p.nome == "Mariana Alves"
-      assert p.cpf == "123.456.789-09"
+
+      # Canônico (só dígitos): é o que faz o índice único de CPF valer — com a máscara guardada,
+      # bastaria digitar sem os pontos para criar a segunda ficha da mesma pessoa. O `rg` logo
+      # abaixo continua como digitado: ele não é chave de nada.
+      assert p.cpf == "12345678909"
       assert p.rg == "12.345.678-9"
       assert p.medico == "Dr. Silva"
       assert p.crm == "CRM/SP 123456"
@@ -171,8 +175,10 @@ defmodule Api.Records.PatientTest do
     Enum.any?(errors, &(Map.get(&1, :field) == campo))
   end
 
-  # AN-11 / HOM-012 (D10: **barra no salvar**, diverge do "duplicado só avisa" por decisão
-  # explícita). Só o que veio preenchido é validado — obrigatório continua sendo nome + telefone.
+  # AN-11 / HOM-012 (D10): identificação preenchida e inválida **barra no salvar**. Só o que veio
+  # preenchido é validado — obrigatório continua sendo nome + telefone. Desde 2026-07-29 a
+  # repetição também barra, pelas identities do recurso (`Api.IdentificacaoUnicaTest`); aqui o
+  # assunto é a régua de cada campo, não a unicidade.
   describe "validação de identificação (AN-11)" do
     test "CPF com dígito verificador errado barra, no campo certo" do
       {owner, clinic} = owner_and_clinic()
@@ -181,8 +187,15 @@ defmodule Api.Records.PatientTest do
 
     test "CPF válido passa, com ou sem máscara" do
       {owner, clinic} = owner_and_clinic()
-      assert {:ok, _} = criar(clinic, owner, %{cpf: "390.533.447-05"})
-      assert {:ok, _} = criar(clinic, owner, %{cpf: "39053344705"})
+
+      # Dois CPFs diferentes, e não o mesmo nas duas grafias: desde 2026-07-29 a segunda ficha
+      # seria recusada por duplicidade — e o teste passaria a falhar por um motivo que não é o
+      # dele. Que máscara e dígitos são o MESMO CPF é o que `Api.IdentificacaoUnicaTest` prova.
+      assert {:ok, com_mascara} = criar(clinic, owner, %{cpf: "390.533.447-05"})
+      assert {:ok, sem_mascara} = criar(clinic, owner, %{cpf: "11144477735"})
+
+      assert com_mascara.cpf == "39053344705"
+      assert sem_mascara.cpf == "11144477735"
     end
 
     test "e-mail sem forma de e-mail barra" do
@@ -340,7 +353,7 @@ defmodule Api.Records.PatientTest do
       arquivado = Records.deactivate_patient!(p, %{}, tenant: clinic.id, actor: owner)
 
       refute arquivado.ativo
-      assert arquivado.cpf == "123.456.789-09"
+      assert arquivado.cpf == "12345678909"
     end
 
     test "reactivate volta ativo: true" do

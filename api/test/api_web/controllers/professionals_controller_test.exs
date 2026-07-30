@@ -94,6 +94,60 @@ defmodule ApiWeb.ProfessionalsControllerTest do
 
       assert prof.clinic_id == clinic.id
     end
+
+    # A régua da ficha do paciente vale aqui (2026-07-29). Pela fronteira porque o erro de
+    # identity chega em `:fields` (plural) e sem o fallback do `error_field/1` o formulário
+    # receberia `"field" => null`.
+    test "CPF repetido devolve 422 apontando o campo", %{conn: conn} do
+      assert conn
+             |> post(~p"/api/professionals", %{
+               "nome" => "Dr. Primeiro",
+               "tel" => "11987650100",
+               "cpf" => "123.456.789-09"
+             })
+             |> json_response(201)
+
+      body =
+        conn
+        |> post(~p"/api/professionals", %{
+          "nome" => "Dr. Segundo",
+          "tel" => "11987650101",
+          "cpf" => "12345678909"
+        })
+        |> json_response(422)
+
+      assert Enum.any?(body["details"], &(&1["field"] == "cpf"))
+    end
+
+    test "telefone repetido devolve 422 mesmo com máscara diferente", %{conn: conn} do
+      assert conn
+             |> post(~p"/api/professionals", %{"nome" => "Dr. Um", "tel" => "(11) 98765-0200"})
+             |> json_response(201)
+
+      body =
+        conn
+        |> post(~p"/api/professionals", %{"nome" => "Dr. Dois", "tel" => "11987650200"})
+        |> json_response(422)
+
+      assert Enum.any?(body["details"], &(&1["field"] == "tel"))
+    end
+
+    test "dois cadastros sem CPF nem e-mail convivem (string vazia vira NULL)", %{conn: conn} do
+      for {nome, tel} <- [{"Dr. Sem A", "11987650300"}, {"Dr. Sem B", "11987650301"}] do
+        body =
+          conn
+          |> post(~p"/api/professionals", %{
+            "nome" => nome,
+            "tel" => tel,
+            "cpf" => "",
+            "email" => ""
+          })
+          |> json_response(201)
+
+        assert is_nil(body["professional"]["cpf"])
+        assert is_nil(body["professional"]["email"])
+      end
+    end
   end
 
   describe "GET/PATCH /api/professionals/:id" do

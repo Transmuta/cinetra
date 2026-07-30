@@ -24,8 +24,13 @@ defmodule Api.Records.Patient do
       policy no projeto). Profissional é somente-leitura porque não é owner/admin.
     * **Consentimento = dois booleanos** (`lgpd`, `comunicacao`), não o recurso `Consent`
       versionado (v2). É o que o protótipo guarda ([`:109`](../../../interface/Movimento.dc.html#L109)).
-    * **Só avisar duplicados.** Sem `identity` única em CPF/telefone — o front avisa "possível
-      duplicado" ([`:2014`](../../../interface/Movimento.dc.html#L2014)), mas não barra.
+    * **Identificação duplicada BARRA** (revisão de 2026-07-29, reverte a decisão original da
+      fatia). CPF, telefone e e-mail preenchidos são únicos por clínica (`identities` no fim do
+      arquivo). Antes existia só o aviso "possível duplicado" do formulário
+      ([`:2014`](../../../interface/Movimento.dc.html#L2014)) — conveniência que não impedia nada,
+      e o resultado era a mesma pessoa em duas fichas, com histórico, pacotes, faltas e trilha
+      divididos entre elas. O aviso continua (ele diz *quem* já tem o valor); o que mudou é que
+      salvar em cima agora é recusado.
     * **Arquivar, não apagar** (como `Professional`/`AppointmentType`): `deactivate`/`reactivate`
       sobre `ativo`, sem `destroy`. `Package`/`Attendance`/`WaitlistEntry` apontarão para cá.
 
@@ -121,15 +126,21 @@ defmodule Api.Records.Patient do
       primary? true
       accept @campos
 
-      # Telefone obrigatório e canônico (doc 52 §9). A validação vem antes da normalização de
-      # propósito: é ela que produz a mensagem de erro com o valor que a pessoa digitou.
+      # Telefone obrigatório e canônico (doc 52 §9). As validações vêm antes da canonicalização
+      # de propósito: são elas que produzem a mensagem de erro com o valor que a pessoa digitou.
       validate Api.Validations.TelObrigatorio
-      change Api.Records.Patient.Changes.NormalizeTel
 
       # AN-11 (D10): identificação preenchida tem de ser válida — barra, não avisa.
       validate {Api.Records.Patient.Validations.CampoValido, campo: :cpf}
       validate {Api.Records.Patient.Validations.CampoValido, campo: :email}
       validate {Api.Records.Patient.Validations.CampoValido, campo: :nascimento}
+
+      # Forma canônica ANTES de as identities conferirem a unicidade (elas rodam num
+      # `before_action`, depois de todos os changes): sem isto, `123.456.789-09` e `12345678909`
+      # passariam pelo índice único como se fossem duas pessoas.
+      change {Api.Changes.Canonicalizar, campo: :cpf}
+      change {Api.Changes.Canonicalizar, campo: :tel}
+      change {Api.Changes.Canonicalizar, campo: :email}
     end
 
     # `require_atomic? false` nas escritas: o `SetTenantGuc` seta a GUC de tenant num
@@ -143,12 +154,17 @@ defmodule Api.Records.Patient do
       # Também no update, e é o D6 opção (b): é assim que a ficha antiga sem telefone se corrige
       # no fluxo natural, sem backfill e sem `NOT NULL` numa tabela que tem linhas nulas.
       validate Api.Validations.TelObrigatorio
-      change Api.Records.Patient.Changes.NormalizeTel
 
       # AN-11 (D10) — mesma régua da criação; a ficha antiga com CPF torto é cobrada aqui.
       validate {Api.Records.Patient.Validations.CampoValido, campo: :cpf}
       validate {Api.Records.Patient.Validations.CampoValido, campo: :email}
       validate {Api.Records.Patient.Validations.CampoValido, campo: :nascimento}
+
+      # Mesma razão da criação — e é aqui que a ficha antiga, salva com máscara antes desta
+      # mudança, passa a guardar o valor canônico no fluxo natural (sem backfill).
+      change {Api.Changes.Canonicalizar, campo: :cpf}
+      change {Api.Changes.Canonicalizar, campo: :tel}
+      change {Api.Changes.Canonicalizar, campo: :email}
     end
 
     # Arquivar (não apagar): só a transição de estado, como `Professional.deactivate`.
@@ -335,6 +351,44 @@ defmodule Api.Records.Patient do
     # justificada: justificar é o que faz a falta parar de contar (`set_falta_justificada`).
     count :faltas, :attendances do
       filter expr(status == :faltou and falta_justificada == false)
+    end
+  end
+
+  # Identificação preenchida é única **na clínica** (reverte o "só avisar duplicados" da fatia).
+  # Com tenancy por atributo o Ash inclui o `clinic_id` na unicidade automaticamente, então a
+  # mesma pessoa pode ser paciente de duas clínicas (ver a migration).
+  #
+  # `nils_distinct?` fica no default (`true`): ficha sem CPF é a regra, não a exceção — dois
+  # `nil` não colidem, e é a `Api.Changes.Canonicalizar` que garante que campo em branco chegue
+  # como `nil` e não como `""` (duas strings vazias *colidiriam*).
+  #
+  # `pre_check?` não é luxo: sob RLS o Postgres **omite o DETAIL** do `unique_violation` (poderia
+  # vazar linha invisível), e o AshPostgres lê `error.postgres.detail` para transformar a violação
+  # em erro de campo — sem DETAIL, estoura `KeyError` e o 422 vira 500. Checando antes do INSERT,
+  # o caminho normal nunca encosta na constraint; o índice único continua no banco como rede de
+  # segurança da corrida entre dois POSTs simultâneos.
+  #
+  # A mensagem é estática (o Ash não a interpola), então ela diz o *remédio* em vez de nomear a
+  # ficha: quem é o dono do CPF vem do aviso de possível duplicado da tela, que consulta
+  # `/api/patients/lookup` e sabe dizer o nome e se a ficha está arquivada.
+  identities do
+    identity :cpf_unico, [:cpf] do
+      pre_check? true
+      message "este CPF já está em outra ficha da clínica — se ela estiver arquivada, reative-a"
+    end
+
+    identity :tel_unico, [:tel] do
+      pre_check? true
+
+      message "este telefone já está em outra ficha da clínica — se ela estiver arquivada, " <>
+                "reative-a"
+    end
+
+    identity :email_unico, [:email] do
+      pre_check? true
+
+      message "este e-mail já está em outra ficha da clínica — se ela estiver arquivada, " <>
+                "reative-a"
     end
   end
 end

@@ -23,8 +23,12 @@ defmodule Api.Directory.Professional do
     * **Diretório separado do acesso.** Cadastrar aqui **não** cria login: o vínculo com um
       `User` é feito na tela Equipe & acessos (`Membership.professional_id`). Um profissional
       pode existir sem acesso (Thiago/Carla no seed do protótipo).
-    * **Só avisar duplicados.** Sem `identity` única em CPF nem CREFITO — o front avisa
-      "possível duplicado", mas não barra.
+    * **Identificação duplicada BARRA** (revisão de 2026-07-29, reverte a decisão original da
+      fatia): CPF, telefone e e-mail preenchidos são únicos por clínica (`identities` no fim do
+      arquivo), a mesma régua da ficha do paciente. **CREFITO fica de fora** — ninguém pediu, e
+      o registro profissional tem forma livre demais (UF, pontuação) para virar chave sem
+      canonicalização própria. O aviso "possível duplicado" do formulário continua, dizendo
+      *quem* já tem o valor.
     * **Arquivar, não apagar** (como `AppointmentType`/T2): `deactivate`/`reactivate` sobre
       `ativo`, sem `destroy` — `Appointment`/`ProfessionalHours`/exceções apontam para cá.
 
@@ -100,6 +104,14 @@ defmodule Api.Directory.Professional do
       primary? true
       accept @campos
       validate Api.Validations.TelObrigatorio
+
+      # A validação vem antes da canonicalização de propósito: é ela que produz a mensagem de erro
+      # com o valor que a pessoa digitou. Canonicalizar é o que faz as identities abaixo valerem —
+      # `(11) 98765-4321` e `11987654321` são o mesmo número e strings diferentes. O telefone do
+      # profissional não passava por aqui antes (só a ficha do paciente normalizava).
+      change {Api.Changes.Canonicalizar, campo: :cpf}
+      change {Api.Changes.Canonicalizar, campo: :tel}
+      change {Api.Changes.Canonicalizar, campo: :email}
     end
 
     # `require_atomic? false` nas escritas: o `SetTenantGuc` seta a GUC de tenant num
@@ -110,6 +122,12 @@ defmodule Api.Directory.Professional do
       accept @campos
       require_atomic? false
       validate Api.Validations.TelObrigatorio
+
+      # Mesma régua da criação — e é aqui que o cadastro antigo, salvo com máscara antes desta
+      # mudança, passa a guardar o valor canônico no fluxo natural (sem backfill).
+      change {Api.Changes.Canonicalizar, campo: :cpf}
+      change {Api.Changes.Canonicalizar, campo: :tel}
+      change {Api.Changes.Canonicalizar, campo: :email}
     end
 
     # Arquivar (não apagar): só a transição de estado, como `AppointmentType.archive`.
@@ -247,5 +265,36 @@ defmodule Api.Directory.Professional do
 
     # Folgas/horários pontuais por data (exceções com professional_id preenchido).
     has_many :exceptions, Api.Scheduling.ScheduleException
+  end
+
+  # Identificação preenchida é única **na clínica** (reverte o "só avisar duplicados" da fatia) —
+  # a mesma régua da ficha do paciente, e pela mesma razão: o cadastro em dobro divide agenda,
+  # grade e histórico entre duas linhas que são a mesma pessoa. Como lá, o `clinic_id` entra na
+  # unicidade automaticamente (tenancy por atributo), então o profissional multi-clínica
+  # (ADR-014) continua podendo ser cadastro de duas clínicas.
+  #
+  # `pre_check?` pela razão documentada em `appointment_type.ex`: sob RLS o `unique_violation` vem
+  # sem DETAIL e o AshPostgres estoura `KeyError` → 500 no lugar do 422.
+  identities do
+    identity :cpf_unico, [:cpf] do
+      pre_check? true
+
+      message "este CPF já está em outro profissional da clínica — se ele estiver arquivado, " <>
+                "reative-o"
+    end
+
+    identity :tel_unico, [:tel] do
+      pre_check? true
+
+      message "este telefone já está em outro profissional da clínica — se ele estiver " <>
+                "arquivado, reative-o"
+    end
+
+    identity :email_unico, [:email] do
+      pre_check? true
+
+      message "este e-mail já está em outro profissional da clínica — se ele estiver " <>
+                "arquivado, reative-o"
+    end
   end
 end

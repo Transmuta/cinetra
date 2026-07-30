@@ -11,6 +11,8 @@
 	import { initials } from '$lib/format';
 	import { avatarStyle } from '$lib/avatar';
 	import { formatarTelefone } from '$lib/telefone';
+	// O CPF é canônico no banco (só dígitos) desde 2026-07-29; a máscara é da leitura.
+	import { maskCpf } from '$lib/masks';
 	import {
 		canManagePatients,
 		patientColor,
@@ -143,7 +145,7 @@
 						<span class="block truncate text-[13px] font-semibold">
 							{p.nome}{#if !p.ativo}<span class="ml-1 text-[10px] font-medium text-faint">(inativo)</span>{/if}
 						</span>
-						<span class="block font-mono text-[10px] text-faint">{p.cpf ?? '—'}</span>
+						<span class="block font-mono text-[10px] text-faint">{maskCpf(p.cpf ?? '') || '—'}</span>
 					</span>
 				</span>
 				<span class="truncate font-mono text-[11px] text-muted">{formatarTelefone(p.tel) ?? '—'}</span>
@@ -176,7 +178,7 @@
 						<div class="truncate text-[14px] font-semibold">
 							{p.nome}{#if !p.ativo}<span class="ml-1 text-[10px] font-medium text-faint">(inativo)</span>{/if}
 						</div>
-						<div class="font-mono text-[10.5px] text-faint">{p.cpf ?? '—'}</div>
+						<div class="font-mono text-[10.5px] text-faint">{maskCpf(p.cpf ?? '') || '—'}</div>
 					</div>
 				</div>
 				<div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-muted">

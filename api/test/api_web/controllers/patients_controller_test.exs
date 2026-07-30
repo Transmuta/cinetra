@@ -166,6 +166,122 @@ defmodule ApiWeb.PatientsControllerTest do
     end
   end
 
+  describe "identificação duplicada barra (2026-07-29)" do
+    # A regra atravessa a fronteira, então o teste também. Aqui não é só a mensagem: o erro de
+    # identity é `InvalidChanges`, que reporta o campo em `:fields` (plural) e não em `:field` —
+    # sem o fallback do `error_field/1`, o 422 sairia com `"field" => null` e o formulário não
+    # saberia qual input marcar. Teste de domínio não pega isso.
+    test "CPF repetido é 422 apontando o campo", %{conn: conn, clinic: clinic} do
+      create_patient(clinic, "Primeira", %{cpf: "123.456.789-09"})
+
+      body =
+        conn
+        |> post(~p"/api/patients", %{
+          "nome" => "Segunda",
+          "tel" => Api.Generators.telefone_unico(),
+          "cpf" => "123.456.789-09"
+        })
+        |> json_response(422)
+
+      assert Enum.any?(body["details"], &(&1["field"] == "cpf"))
+      assert Enum.any?(body["details"], &(&1["message"] =~ "CPF já está"))
+    end
+
+    test "máscara diferente não escapa do bloqueio, e o CPF volta canônico no corpo", %{
+      conn: conn
+    } do
+      criado =
+        conn
+        |> post(~p"/api/patients", %{
+          "nome" => "Com Máscara",
+          "tel" => Api.Generators.telefone_unico(),
+          "cpf" => "111.444.777-35"
+        })
+        |> json_response(201)
+
+      assert criado["patient"]["cpf"] == "11144477735"
+
+      body =
+        conn
+        |> post(~p"/api/patients", %{
+          "nome" => "Sem Máscara",
+          "tel" => Api.Generators.telefone_unico(),
+          "cpf" => "11144477735"
+        })
+        |> json_response(422)
+
+      assert Enum.any?(body["details"], &(&1["field"] == "cpf"))
+    end
+
+    test "telefone repetido é 422", %{conn: conn, clinic: clinic} do
+      tel = Api.Generators.telefone_unico()
+      create_patient(clinic, "Primeira", %{tel: tel})
+
+      body =
+        conn
+        |> post(~p"/api/patients", %{"nome" => "Segunda", "tel" => tel})
+        |> json_response(422)
+
+      assert Enum.any?(body["details"], &(&1["field"] == "tel"))
+    end
+
+    test "e-mail repetido é 422 mesmo com caixa diferente", %{conn: conn, clinic: clinic} do
+      create_patient(clinic, "Primeira", %{email: "ana@example.com"})
+
+      body =
+        conn
+        |> post(~p"/api/patients", %{
+          "nome" => "Segunda",
+          "tel" => Api.Generators.telefone_unico(),
+          "email" => "ANA@Example.com"
+        })
+        |> json_response(422)
+
+      assert Enum.any?(body["details"], &(&1["field"] == "email"))
+    end
+
+    # O caso que mais pesa na fronteira: da tela chega `""` para campo vazio se alguém montar o
+    # POST na mão (o formulário manda `null`). Com `""` guardado, a SEGUNDA ficha sem CPF bateria
+    # no índice único — a tela recusaria um cadastro por um campo que ninguém preencheu.
+    test "dois cadastros com campos vazios em branco convivem (string vazia vira NULL)", %{
+      conn: conn
+    } do
+      for nome <- ["Primeira", "Segunda"] do
+        body =
+          conn
+          |> post(~p"/api/patients", %{
+            "nome" => nome,
+            "tel" => Api.Generators.telefone_unico(),
+            "cpf" => "",
+            "email" => ""
+          })
+          |> json_response(201)
+
+        assert is_nil(body["patient"]["cpf"])
+        assert is_nil(body["patient"]["email"])
+      end
+    end
+
+    test "editar a própria ficha sem trocar a identificação continua passando", %{
+      conn: conn,
+      clinic: clinic
+    } do
+      p = create_patient(clinic, "Eu", %{cpf: "123.456.789-09", email: "eu@example.com"})
+
+      body =
+        conn
+        |> patch(~p"/api/patients/#{p.id}", %{
+          "nome" => "Eu Corrigida",
+          "cpf" => "123.456.789-09",
+          "email" => "eu@example.com",
+          "tel" => p.tel
+        })
+        |> json_response(200)
+
+      assert body["patient"]["nome"] == "Eu Corrigida"
+    end
+  end
+
   describe "telefone obrigatório (doc 52 §9 / D6b)" do
     test "criar sem telefone é 422, com o campo apontado", %{conn: conn} do
       # A regra atravessa a fronteira, então o teste também: do domínio chega átomo, daqui chega
@@ -241,7 +357,10 @@ defmodule ApiWeb.PatientsControllerTest do
       body = conn |> post(~p"/api/patients", params) |> json_response(201)
 
       assert body["patient"]["nome"] == "Novo Paciente"
-      assert body["patient"]["cpf"] == "123.456.789-09"
+
+      # Canônico, não como digitado: a máscara é da tela (`masks.ts`), e é o valor canônico que
+      # faz o índice único de CPF valer (2026-07-29). Idem o telefone, em E.164.
+      assert body["patient"]["cpf"] == "12345678909"
       refute Map.has_key?(body["patient"], "clinic_id")
 
       # foi mesmo para a clínica do escopo (não para o clinic_id do corpo)

@@ -70,7 +70,9 @@
 			nome: professional?.nome ?? '',
 			nome_exibicao: professional?.nome_exibicao ?? '',
 			nascimento: professional?.nascimento ?? '',
-			cpf: professional?.cpf ?? '',
+			// Canônico no banco (só dígitos), mascarado na tela — como o telefone abaixo. `maskCpf` é
+			// idempotente, então o cadastro antigo que ainda tem máscara guardada também entra certo.
+			cpf: maskCpf(professional?.cpf ?? ''),
 			rg: professional?.rg ?? '',
 			estado_civil: professional?.estado_civil ?? '',
 			// Mascarado ao semear, como na ficha do paciente: se o valor gravado vier em E.164, o

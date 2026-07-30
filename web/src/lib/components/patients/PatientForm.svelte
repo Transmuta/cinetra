@@ -51,7 +51,10 @@
 		untrack(() => ({
 			nome: patient?.nome ?? '',
 			nome_social: patient?.nome_social ?? '',
-			cpf: patient?.cpf ?? '',
+			// Canônico no banco (só dígitos), mascarado na tela — a mesma divisão do telefone logo
+			// abaixo e do CNPJ da clínica. `maskCpf` é idempotente, então a ficha antiga que ainda
+			// tem máscara guardada também entra certa.
+			cpf: maskCpf(patient?.cpf ?? ''),
 			rg: patient?.rg ?? '',
 			genero: patient?.genero ?? '',
 			estado_civil: patient?.estado_civil ?? '',
@@ -112,63 +115,67 @@
 		(idadeVal !== null && idadeVal < 18) || f.responsavel.trim() !== '' || showResp
 	);
 
-	// Aviso de possível duplicado (só avisa, não barra — decisão da fatia; `dup` :2014).
-	// Consulta pontual ao servidor quando o CPF (11 dígitos) ou o telefone (10+) ficam
-	// completos — antes isto varria o cadastro inteiro baixado no load.
-	let dup = $state<{ nome: string; campo: string } | null>(null);
+	// Aviso de duplicado. Deixou de ser "possível" (`dup` :2014, decisão original da fatia): desde
+	// 2026-07-29 o servidor **recusa** CPF, telefone ou e-mail repetido na clínica. O aviso existe
+	// para a recepção descobrir isso ao digitar o campo, e não depois de preencher a ficha inteira.
+	//
+	// Quem decide o que é duplicado é `/api/patients/lookup`, que confere os três campos e compara
+	// a forma canônica dos dois lados. Antes o cliente escolhia UM termo, com o CPF na frente — e
+	// com o CPF preenchido, telefone repetido não era consultado.
+	let dup = $state<{ nome: string; campo: string; ativo: boolean } | null>(null);
 	let dupReq = '';
 	let dupTimer: ReturnType<typeof setTimeout> | undefined;
 
 	interface DupMatch {
 		id: string;
 		nome: string;
-		cpf: string | null;
-		tel: string | null;
+		campo: string;
+		ativo: boolean;
 	}
 
-	async function lookupDup(cpf: string, tel: string, nome: string, nascimento: string) {
-		const cpfDigits = cpf.replace(/\D/g, '');
-		const telDigits = tel.replace(/\D/g, '');
-		// CPF completo tem prioridade; senão, telefone com DDD; por fim (AN-10, o cadastro SEM
-		// documento) nome + data de nascimento — a heurística que o CPF/telefone não pega.
-		const term = cpfDigits.length === 11 ? cpfDigits : telDigits.length >= 10 ? telDigits : '';
-		const nomeTrim = nome.trim();
-		const porNome = !term && nomeTrim.length >= 3 && /^\d{4}-\d{2}-\d{2}$/.test(nascimento);
+	async function lookupDup(cpf: string, tel: string, email: string, nome: string, nascimento: string) {
+		// Só o que está COMPLETO viaja: CPF pela metade não identifica ninguém, e uma consulta por
+		// tecla digitada seria desperdício. O servidor repete estas guardas (é ele quem decide o que
+		// é duplicado, e o endpoint é alcançável sem passar por aqui); a cópia é o mesmo espelho
+		// deliberado de `telefoneValido` — a tela adianta, o servidor decide.
+		const params = new URLSearchParams();
+		if (cpf.replace(/\D/g, '').length === 11) params.set('cpf', cpf.trim());
+		if (telefoneValido(tel)) params.set('tel', tel.trim());
+		if (emailValido(email.trim())) params.set('email', email.trim());
 
-		if (!term && !porNome) {
+		// Nome + nascimento (AN-10) é a heurística de quem não tem documento: só vale quando os dois
+		// estão preenchidos, e o servidor só a usa quando não há identificação completa.
+		if (nome.trim().length >= 3 && /^\d{4}-\d{2}-\d{2}$/.test(nascimento)) {
+			params.set('nome', nome.trim());
+			params.set('nascimento', nascimento);
+		}
+
+		if ([...params.keys()].length === 0) {
 			dup = null;
 			return;
 		}
 
-		const url = term
-			? `/api/patients/lookup?q=${term}`
-			: `/api/patients/lookup?${new URLSearchParams({ nome: nomeTrim, nascimento })}`;
+		// Na edição, a própria ficha não é duplicado de si mesma.
+		if (patient?.id) params.set('exclude', patient.id);
 
+		const url = `/api/patients/lookup?${params}`;
 		dupReq = url;
 
 		try {
 			const res = await fetch(url);
 			if (!res.ok || dupReq !== url) return; // resposta obsoleta: o campo mudou no meio
 
-			const { matches } = (await res.json()) as { matches: DupMatch[] };
-			const hit = matches.find((m) => m.id !== patient?.id);
-
-			const campo = term
-				? term === cpfDigits
-					? 'CPF'
-					: 'celular'
-				: 'nome e data de nascimento';
-
-			dup = hit ? { nome: hit.nome, campo } : null;
+			const { match } = (await res.json()) as { match: DupMatch | null };
+			dup = match ? { nome: match.nome, campo: match.campo, ativo: match.ativo } : null;
 		} catch {
-			// Rede fora: o aviso é conveniência, nunca barreira — segue sem avisar.
+			// Rede fora: o aviso é conveniência, nunca barreira — quem recusa é o servidor.
 		}
 	}
 
 	// Debounce: o documento é digitado aos poucos, não vale uma consulta por tecla.
 	function scheduleDupCheck() {
 		clearTimeout(dupTimer);
-		dupTimer = setTimeout(() => lookupDup(f.cpf, f.tel, f.nome, f.nascimento), 400);
+		dupTimer = setTimeout(() => lookupDup(f.cpf, f.tel, f.email, f.nome, f.nascimento), 400);
 	}
 
 	// Timer órfão depois de sair do formulário só gastaria uma consulta à toa.
@@ -450,9 +457,20 @@
 						</label>
 					</div>
 					{#if dup}
+						<!-- O servidor recusa este save (identity única por clínica), então o aviso diz o
+						     que fazer: se a ficha existe e está ativa, é ela que se edita; se está
+						     arquivada, reativar é o caminho — recadastrar seria recusado igual. -->
 						<div class="mt-3 flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2.5 text-[12.5px] text-ink">
 							<UserSearch size={16} class="mt-0.5 shrink-0 text-warning" />
-							<span><b>Possível duplicado:</b> {dup.nome} já tem este {dup.campo}.</span>
+							<span>
+								<b>{dup.campo} já cadastrado</b>
+								{#if dup.ativo}
+									na ficha de {dup.nome} — edite aquela ficha em vez de criar outra.
+								{:else}
+									na ficha <b>arquivada</b> de {dup.nome} — reative aquela ficha em vez de
+									recadastrar.
+								{/if}
+							</span>
 						</div>
 					{/if}
 					<div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -504,7 +522,9 @@
 					{@render cardHead(MapPin, SECTIONS[1].t, SECTIONS[1].sub, counts.contato, SECTIONS[1].total)}
 					<label class="mb-3 block">
 						{@render label('E-mail')}
-						<input bind:value={f.email} placeholder="email@exemplo.com" class={inputCls} />
+						<!-- O e-mail também é único por clínica, então também consulta o duplicado — o aviso
+						     mora na seção de identificação, que é onde a recepção está olhando. -->
+						<input bind:value={f.email} oninput={scheduleDupCheck} placeholder="email@exemplo.com" class={inputCls} />
 					</label>
 					<div class="grid grid-cols-1 gap-3 md:grid-cols-[0.9fr_2.3fr]">
 						<label class="block">

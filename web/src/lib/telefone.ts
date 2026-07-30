@@ -44,10 +44,30 @@ export function formatarTelefone(valor: string | null | undefined): string | nul
  * Como nas outras deste arquivo, o veredito continua sendo do servidor: aqui só se evita a ida.
  */
 export function telefoneValido(valor: string | null | undefined): boolean {
+	return canonizarTelefone(valor) !== null;
+}
+
+/**
+ * A forma **canônica** (E.164) do que a pessoa digitou, ou `null` se não é telefone — espelho de
+ * `Api.Messaging.Dispatch.normalizar(:whatsapp, _)`, que é o que o banco guarda.
+ *
+ * `telefoneValido` é esta função com outro nome ("normalizou? então serve"), e por isso está
+ * escrita em cima dela: eram duas contagens de dígitos separadas, e a segunda divergiria.
+ *
+ * Existe por conta própria porque **comparar** telefone exige canonizar os dois lados: o banco
+ * devolve `+5511987654321` e o formulário tem `(11) 98765-4321`. Sem isto, o aviso de possível
+ * duplicado compararia string com string e nunca casaria — ou pior, casaria por SUBSTRING (um
+ * fixo de 10 dígitos é sufixo de vários celulares) e acusaria duplicado onde não há.
+ */
+export function canonizarTelefone(valor: string | null | undefined): string | null {
 	const digitos = (valor ?? '').replace(/\D/g, '');
 
-	if (digitos.length >= 12 && digitos.length <= 13) return digitos.startsWith('55');
-	return digitos.length >= 10 && digitos.length <= 11;
+	if (digitos.length >= 12 && digitos.length <= 13)
+		return digitos.startsWith('55') ? '+' + digitos : null;
+
+	if (digitos.length >= 10 && digitos.length <= 11) return '+55' + digitos;
+
+	return null;
 }
 
 /**

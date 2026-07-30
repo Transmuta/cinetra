@@ -17,6 +17,19 @@ function ficha(container: HTMLElement) {
 	return JSON.parse(el.value);
 }
 
+// Stub do `fetch` do aviso de duplicado. `vi.fn(async () => …)` inferiria um mock SEM
+// argumentos, e aí `calls[0][0]` não existe para o svelte-check — declarar a URL é o que deixa a
+// asserção sobre ela tipar.
+function stubLookup(body: unknown) {
+	return vi.fn(
+		async (_url: string) =>
+			new Response(JSON.stringify(body), {
+				status: 200,
+				headers: { 'content-type': 'application/json' }
+			})
+	);
+}
+
 function patient(overrides: Partial<Patient> = {}): Patient {
 	return {
 		id: 'pac1', nome: 'Mariana Alves', nome_social: null, cpf: null, rg: null, genero: null,
@@ -80,41 +93,95 @@ describe('PatientForm — novo', () => {
 		expect(cpf.value).toBe('123.456.789-01');
 	});
 
-	it('avisa possível duplicado consultando o servidor quando o CPF fica completo', async () => {
-		const fetchMock = vi.fn(
-			async () =>
-				new Response(
-					JSON.stringify({
-						matches: [{ id: 'outro', nome: 'João Souza', cpf: '111.111.111-11', tel: null }]
-					}),
-					{ status: 200, headers: { 'content-type': 'application/json' } }
-				)
-		);
+	// Deixou de ser "possível duplicado" e passou a ser "já cadastrado": desde 2026-07-29 o
+	// servidor RECUSA identificação repetida, então o aviso existe para evitar digitar a ficha
+	// inteira e levar um 422 no fim.
+	it('avisa duplicado consultando o servidor quando o CPF fica completo', async () => {
+		const fetchMock = stubLookup({
+			match: { id: 'outro', nome: 'João Souza', campo: 'CPF', ativo: true }
+		});
 		vi.stubGlobal('fetch', fetchMock);
 		try {
 			const { getByPlaceholderText, getByText } = render(PatientForm, { props: { professionals } });
 			await fireEvent.input(getByPlaceholderText('000.000.000-00'), { target: { value: '11111111111' } });
 
-			await vi.waitFor(() => expect(getByText(/Possível duplicado/)).toBeInTheDocument());
+			await vi.waitFor(() => expect(getByText(/já cadastrado/)).toBeInTheDocument());
 			expect(getByText(/João Souza/)).toBeInTheDocument();
-			expect(fetchMock).toHaveBeenCalledWith('/api/patients/lookup?q=11111111111');
+
+			// Os TRÊS campos que barram viajam juntos: era aqui que o telefone repetido escapava,
+			// porque o cliente escolhia um termo só e o CPF tinha prioridade.
+			const url = new URL(fetchMock.mock.calls[0][0], 'http://localhost');
+			expect(url.pathname).toBe('/api/patients/lookup');
+			expect(url.searchParams.get('cpf')).toBe('111.111.111-11');
 		} finally {
 			vi.unstubAllGlobals();
 		}
 	});
 
-	// AN-10 (HOM-013, resto): o cadastro feito SEM documento — mesmo nome e mesma data de
-	// nascimento avisam, pelo mesmo aviso do CPF/telefone. Continua só avisando, nunca barrando.
-	it('avisa duplicado por nome + data de nascimento', async () => {
-		const fetchMock = vi.fn(
-			async () =>
-				new Response(
-					JSON.stringify({
-						matches: [{ id: 'outro', nome: 'Mariana Alves', cpf: null, tel: null }]
-					}),
-					{ status: 200, headers: { 'content-type': 'application/json' } }
-				)
+	it('manda telefone e e-mail no lookup mesmo com o CPF completo', async () => {
+		const fetchMock = stubLookup({ match: null });
+		vi.stubGlobal('fetch', fetchMock);
+		try {
+			const { getByPlaceholderText, getByLabelText } = render(PatientForm, {
+				props: { professionals }
+			});
+			await fireEvent.input(getByLabelText(/Telefone \/ WhatsApp/), {
+				target: { value: '11987654321' }
+			});
+			await fireEvent.input(getByPlaceholderText('email@exemplo.com'), {
+				target: { value: 'ana@example.com' }
+			});
+			await fireEvent.input(getByPlaceholderText('000.000.000-00'), {
+				target: { value: '11111111111' }
+			});
+
+			await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+			const url = new URL(fetchMock.mock.calls.at(-1)![0], 'http://localhost');
+			expect(url.searchParams.get('cpf')).toBe('111.111.111-11');
+			expect(url.searchParams.get('tel')).toBe('(11) 98765-4321');
+			expect(url.searchParams.get('email')).toBe('ana@example.com');
+		} finally {
+			vi.unstubAllGlobals();
+		}
+	});
+
+	// Arquivada é o caso em que o remédio é outro: reativar, não recadastrar (a ficha arquivada
+	// conta no índice único, então o save seria recusado).
+	it('quando a ficha encontrada está arquivada, o aviso manda reativar', async () => {
+		const fetchMock = stubLookup({
+			match: { id: 'outro', nome: 'João Souza', campo: 'CPF', ativo: false }
+		});
+		vi.stubGlobal('fetch', fetchMock);
+		try {
+			const { getByPlaceholderText, getByText } = render(PatientForm, { props: { professionals } });
+			await fireEvent.input(getByPlaceholderText('000.000.000-00'), { target: { value: '11111111111' } });
+
+			await vi.waitFor(() => expect(getByText(/arquivada/)).toBeInTheDocument());
+			expect(getByText(/reative/i)).toBeInTheDocument();
+		} finally {
+			vi.unstubAllGlobals();
+		}
+	});
+
+	// A coluna passou a guardar o CPF canônico (só dígitos); a máscara é da tela.
+	it('CPF canônico da API aparece mascarado no formulário de edição', () => {
+		const { getByPlaceholderText } = render(PatientForm, {
+			props: { professionals, patient: patient({ cpf: '11144477735' }) }
+		});
+
+		expect((getByPlaceholderText('000.000.000-00') as HTMLInputElement).value).toBe(
+			'111.444.777-35'
 		);
+	});
+
+	// AN-10 (HOM-013, resto): o cadastro feito SEM documento — mesmo nome e mesma data de
+	// nascimento usam o mesmo aviso. Esta heurística **só avisa** (nome+nascimento não é chave de
+	// nada); quem barra são CPF, telefone e e-mail.
+	it('avisa duplicado por nome + data de nascimento', async () => {
+		const fetchMock = stubLookup({
+			match: { id: 'outro', nome: 'Mariana Alves', campo: 'nome e data de nascimento', ativo: true }
+		});
 		vi.stubGlobal('fetch', fetchMock);
 		try {
 			const { getByPlaceholderText, getByLabelText, getByText } = render(PatientForm, {
@@ -127,18 +194,20 @@ describe('PatientForm — novo', () => {
 				target: { value: '1990-05-20' }
 			});
 
-			await vi.waitFor(() => expect(getByText(/Possível duplicado/)).toBeInTheDocument());
+			await vi.waitFor(() => expect(getByText(/já cadastrado/)).toBeInTheDocument());
 			expect(getByText(/nome e data de nascimento/)).toBeInTheDocument();
-			expect(fetchMock).toHaveBeenCalledWith(
-				'/api/patients/lookup?nome=Mariana+Alves&nascimento=1990-05-20'
-			);
+
+			const url = new URL(fetchMock.mock.calls[0][0], 'http://localhost');
+			expect(url.searchParams.get('nome')).toBe('Mariana Alves');
+			expect(url.searchParams.get('nascimento')).toBe('1990-05-20');
 		} finally {
 			vi.unstubAllGlobals();
 		}
 	});
 
-	// AN-11 (D10: **barra no salvar** — diverge do "duplicado só avisa" por decisão explícita).
-	// A régua é a do servidor (`CampoValido`); aqui ela chega antes da viagem.
+	// AN-11 (D10): identificação preenchida e inválida **barra no salvar**. A régua é a do servidor
+	// (`CampoValido`); aqui ela chega antes da viagem. É outra coisa que a unicidade dos testes
+	// acima: uma cobra a FORMA do valor, a outra cobra que ele não se repita na clínica.
 	describe('identificação inválida barra o salvar (AN-11)', () => {
 		// Tipo estrutural: o `RenderResult` genérico do testing-library não sobrevive ao
 		// svelte-check quando viaja por parâmetro — só as queries usadas interessam aqui.

@@ -1,9 +1,9 @@
 defmodule Api.Records.Patient.Validations.CampoValido do
   @moduledoc """
   AN-11 / HOM-012 (doc 64, D10): CPF, e-mail e nascimento **barram no salvar** quando vêm
-  preenchidos e inválidos. Diverge do padrão "duplicado só avisa" por decisão explícita — dado
-  limpo vale o atrito no balcão, e e-mail errado passou a custar confirmação não entregue
-  (doc 52).
+  preenchidos e inválidos — dado limpo vale o atrito no balcão, e e-mail errado passou a custar
+  confirmação não entregue (doc 52). Era a única régua que barrava na ficha (o duplicado só
+  avisava); desde 2026-07-29 a **repetição** também barra, pelas `identities` do recurso.
 
   Só valida o que veio: os três campos continuam **opcionais** (obrigatório é nome + telefone,
   `TelObrigatorio`). A régua de cada um:

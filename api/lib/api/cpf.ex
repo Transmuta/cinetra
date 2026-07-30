@@ -4,9 +4,12 @@ defmodule Api.Cpf do
   mesmo motivo (AN-11 / HOM-012, D10): a ficha tinha **máscara e zero validação** — o banco
   guardava qualquer coisa com onze dígitos.
 
-  A coluna continua guardando o valor **como digitado** (com máscara) — a busca da lista já
-  compara só os dígitos dos dois lados (`FilterPatients`), então mudar o formato de
-  armazenamento seria churn sem ganho. `normalize/1` aqui é só o passo do cálculo.
+  A coluna guarda o valor **canônico** (só dígitos), desde que CPF duplicado passou a barrar
+  (2026-07-29): unicidade é igualdade de string, e com a máscara guardada bastaria digitar sem os
+  pontos para criar a segunda ficha da mesma pessoa. Quem canonicaliza na escrita é a
+  `Api.Changes.Canonicalizar`; quem mascara na tela é `web/src/lib/masks.ts`. A busca da lista
+  (`FilterPatients`) já comparava só os dígitos dos dois lados, então ela segue valendo para a
+  ficha antiga que ainda tem máscara no banco.
   """
 
   @doc """

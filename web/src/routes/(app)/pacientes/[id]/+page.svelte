@@ -34,6 +34,8 @@
 	import PatientAttachments from '$lib/components/patients/PatientAttachments.svelte';
 	import type { Package as Pkg } from '$lib/packages';
 	import { formatarTelefone } from '$lib/telefone';
+	// O CPF é canônico no banco (só dígitos) desde 2026-07-29; a máscara é da leitura.
+	import { maskCpf } from '$lib/masks';
 	import type { PageData, ActionData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -277,7 +279,7 @@
 				<div class="text-[20px] font-bold leading-tight md:text-[24px]">{p.nome}</div>
 				{#if p.nome_social}<div class="mt-0.5 text-[13px] text-muted">“{p.nome_social}”</div>{/if}
 				<div class="mt-1.5 flex flex-wrap items-center gap-2.5 text-[12.5px] text-muted">
-					<span class="font-mono">{p.cpf || 'CPF não informado'}</span>
+					<span class="font-mono">{maskCpf(p.cpf ?? '') || 'CPF não informado'}</span>
 					<span class="inline-flex items-center gap-1.5 rounded-full bg-teal-subtle px-2.5 py-0.5 text-[11.5px] font-semibold text-teal-text">
 						<CreditCard size={12} /> {convLabel(p)}
 					</span>

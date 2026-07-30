@@ -99,8 +99,19 @@ defmodule Api.Records.PatientListTest do
   describe "busca (q)" do
     setup do
       {_owner, clinic, scope} = owner_and_clinic()
-      create(clinic, "Mariana Alves", %{cpf: "123.456.789-09", tel: "(11) 98888-7777"})
-      create(clinic, "João Souza", %{cpf: "111.444.777-35", tel: "(11) 91111-2222"})
+
+      create(clinic, "Mariana Alves", %{
+        cpf: "123.456.789-09",
+        tel: "(11) 98888-7777",
+        email: "mariana@example.com"
+      })
+
+      create(clinic, "João Souza", %{
+        cpf: "111.444.777-35",
+        tel: "(11) 91111-2222",
+        email: "joao.souza@outro.com"
+      })
+
       %{scope: scope}
     end
 
@@ -116,6 +127,17 @@ defmodule Api.Records.PatientListTest do
 
     test "por dígitos do telefone", %{scope: scope} do
       assert nomes(Records.list_clinic_patients(scope, q: "91111")) == ["João Souza"]
+    end
+
+    # O e-mail entrou na busca quando e-mail duplicado passou a barrar (2026-07-29): o aviso de
+    # possível duplicado da tela consulta esta mesma busca, e sem o e-mail aqui ele avisaria sobre
+    # CPF e telefone e ficaria calado justo no campo que também recusa o save.
+    test "por parte do e-mail, sem diferenciar maiúsculas", %{scope: scope} do
+      assert nomes(Records.list_clinic_patients(scope, q: "outro.com")) == ["João Souza"]
+
+      assert nomes(Records.list_clinic_patients(scope, q: "MARIANA@EXAMPLE.COM")) == [
+               "Mariana Alves"
+             ]
     end
 
     test "termo que não casa devolve página vazia com total 0", %{scope: scope} do

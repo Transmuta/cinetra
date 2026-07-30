@@ -6,10 +6,15 @@ defmodule Api.Records.Preparations.FilterPatients do
   Move para o banco o que era o `filterPatients`/`searchPatients` do web:
 
     * **segmento** (`:status`): `ativos` / `inativos` / `resp` (com responsável legal) / `todos`;
-    * **busca** (`:q`): nome por `ilike` e, quando o termo tem dígitos, também CPF e telefone
-      comparando **só os dígitos** — a coluna guarda a máscara (`"123.456.789-00"`), então o
-      `regexp_replace` tira a pontuação dos dois lados antes de comparar
-      (espelha o `byDoc` do protótipo, [`:999`](../../../../interface/Movimento.dc.html#L999)).
+    * **busca** (`:q`): nome e e-mail por `ilike` e, quando o termo tem dígitos, também CPF e
+      telefone comparando **só os dígitos** — a ficha antiga guarda a máscara
+      (`"123.456.789-00"`), então o `regexp_replace` tira a pontuação dos dois lados antes de
+      comparar (espelha o `byDoc` do protótipo,
+      [`:999`](../../../../interface/Movimento.dc.html#L999)).
+
+      O e-mail entrou em 2026-07-29, quando e-mail duplicado passou a barrar: o aviso de possível
+      duplicado da tela consulta **esta** busca, e sem o e-mail aqui ele avisaria sobre CPF e
+      telefone e ficaria calado justo no terceiro campo que também recusa o save.
 
   O `LIKE '%termo%'` é varredura por natureza (não usa índice); o que o índice composto
   `(clinic_id, inserted_at)` resolve é o recorte por tenant + a ordenação da página. Busca por
@@ -55,14 +60,14 @@ defmodule Api.Records.Preparations.FilterPatients do
   # O `\` é o escape default do LIKE no Postgres.
   defp escape_like(term), do: String.replace(term, ~r/[\\%_]/, &("\\" <> &1))
 
-  # Termo sem dígito nenhum: só nome.
+  # Termo sem dígito nenhum: nome ou e-mail.
   defp apply_term(query, term, "") do
     like = "%#{escape_like(term)}%"
-    Ash.Query.filter(query, ilike(nome, ^like))
+    Ash.Query.filter(query, ilike(nome, ^like) or ilike(email, ^like))
   end
 
-  # Com dígitos: nome OU CPF OU telefone (comparando dígitos contra dígitos). O `dlike` já é
-  # só `[0-9]`, então não carrega metacaractere — o escape é do termo de nome.
+  # Com dígitos: nome OU e-mail OU CPF OU telefone (comparando dígitos contra dígitos). O `dlike`
+  # já é só `[0-9]`, então não carrega metacaractere — o escape é do termo de nome/e-mail.
   defp apply_term(query, term, digits) do
     like = "%#{escape_like(term)}%"
     dlike = "%#{digits}%"
@@ -70,6 +75,7 @@ defmodule Api.Records.Preparations.FilterPatients do
     Ash.Query.filter(
       query,
       ilike(nome, ^like) or
+        ilike(email, ^like) or
         fragment("regexp_replace(coalesce(?, ''), '\\D', '', 'g') LIKE ?", cpf, ^dlike) or
         fragment("regexp_replace(coalesce(?, ''), '\\D', '', 'g') LIKE ?", tel, ^dlike)
     )
