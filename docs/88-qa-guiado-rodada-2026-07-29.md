@@ -13,27 +13,28 @@ está desarmada — `/dev/mailbox` responde e os magic links aparecem). Clínica
 
 ## 1. O que foi coberto — e o que não foi
 
-O roteiro tem ~180 caixas. Esta rodada exercitou **cerca de 60%** delas, com profundidade desigual
-de propósito: as regras que o produto **afirma** (RBAC, validações, conflito, expediente,
-concorrência) foram varridas por inteiro, porque são baratas e definitivas pela API; os fluxos que
-só a mão percorre (arraste, CEP, oferta da fila, pacotes ponta a ponta) ficaram de fora.
+O roteiro tem ~180 caixas. Em **três rodadas** (2026-07-29 e 30) foram exercitadas **cerca de 85%**
+delas. As regras que o produto **afirma** (RBAC, validações, conflito, expediente, concorrência,
+débito de pacote, gate de impacto) foram varridas por inteiro, porque são baratas e definitivas
+pela API; o que restou é o que só a mão percorre — **arraste**, CEP, chips da fila, ficha aberta —
+mais o §9, que precisa de provedor.
 
 | Seção | Cobertura | Observação |
 | --- | --- | --- |
-| §1 conta e sessão | parcial | criação/onboarding ✅; rate limit **não testável em dev**; /perfil, sign-out e sessão expirada não rodados |
-| §2 equipe e papéis | parcial | convites ✅; trocar papel, revogar, ≥1 owner não rodados |
-| §3 configurações | boa | CNPJ, tipos, auditoria, hachura ✅; gate de impacto não rodado |
-| §4 pacientes | boa | **todas** as validações + duplicados ✅; CEP, busca, anexos-UI não rodados |
-| §5 profissionais | parcial | telefone obrigatório e vínculo ✅; horário ⊆ clínica não rodado |
-| §6 agenda | boa | expediente, conflito, encaixe, presença, 409, drawer ✅; arraste e visões não rodados |
-| §7 fila | parcial | adicionar e upsert ✅; oferta→conversão não rodada |
-| §8 pacotes | **boa** (2ª rodada) | ciclo completo + **regra de débito** ✅; prévia no modal e turma multi-pacote não rodadas |
+| §1 conta e sessão | boa | criação/onboarding, reuso do link ✅; **2 achados** (A-11, A-12); rate limit **não testável em dev**; /perfil e sessão expirada não rodados |
+| §2 equipe e papéis | **completa** | convites, reenvio, troca de papel sem re-login, ≥1 owner ✅ |
+| §3 configurações | **completa** | CNPJ, tipos (arquivar/restaurar), auditoria, hachura e **gate de impacto** ✅ |
+| §4 pacientes | boa | validações + duplicados sob a regra nova ✅; CEP, busca, ficha e anexos-UI não rodados |
+| §5 profissionais | **completa** | telefone, vínculo, **A7 fail-closed**, horário ⊆ clínica ✅ |
+| §6 agenda | boa | expediente, conflito, encaixe, presença, 409, drawer, ciclo de vida ✅; **arraste**, visões e AN-12 não rodados |
+| §7 fila | boa | adicionar, upsert e **oferta→conversão** ✅; chips de vaga não rodados |
+| §8 pacotes | boa | ciclo completo + **regra de débito** ✅; prévia no modal e turma multi-pacote não rodadas |
 | §9 comunicação | mínima | sem provedor em dev |
-| §10 notificações | boa | ✅ |
-| §11 relatórios | boa | ✅ + **1 achado** |
+| §10 notificações | boa | ✅ incluindo caixa por usuário |
+| §11 relatórios | boa | fórmula, escopo do profissional, excluído×cancelado ✅ + **1 achado** (A-1) |
 | §12 RBAC | **completa** | matriz célula a célula ✅ |
-| §13 robustez | não rodada | offline/duplo clique/lentidão exigem outra instrumentação |
-| §14 mobile/a11y | via suíte | 28 violações sérias no escuro (já conhecidas, doc 80) |
+| §13 robustez | boa | duplo clique e F5 ✅; **offline reprova** (A-10); Slow 3G não rodado |
+| §14 mobile/a11y | boa | 390px, toque (ACC-10) e zoom 200% ✅; 28 violações de contraste no escuro seguem conhecidas (doc 80) |
 | §15 landing/404 | boa | ✅ |
 
 ---
@@ -132,6 +133,32 @@ que ainda vão acontecer."* O caminho por toque existe.
 **§15** — rota inexistente devolve a página de erro do app (404 dentro do cromo), sem stack trace.
 
 ---
+
+### Rodada 3 (2026-07-30) — a fila do §7, com a API de volta
+
+| Item do roteiro | Resultado |
+| --- | --- |
+| **§4 duplicado sob a regra nova** (doc 89) | CPF, telefone e e-mail repetidos → **422** com *"já está em outra ficha da clínica — se ela estiver arquivada, reative-a"*. **Canonicalização provada**: `390.533.447-05` colide com `39053344705`, e `+55 11 99111-0000` com `11991110000`. CPF/telefone livres → 201 |
+| §4 ficha **arquivada** também bloqueia | ✅ é a decisão 3 do doc 89, e a mensagem já ensina o remédio |
+| §1 magic link **reusado** | ✅ 1º uso 302, 2º uso do mesmo link **401** |
+| §1 **link velho** depois de pedir outro | ⚠️ **os dois continuam valendo** — ver A-12 |
+| §2 **reenviar convite** | ✅ 2 e-mails para o convidado pendente (o convite cria o `User`, então o reenvio acha alguém) |
+| §2 **≥1 owner** | ✅ rebaixar e remover a única dona → **422** *"não é possível remover ou rebaixar o único owner da clínica"* |
+| §2 **trocar papel reflete sem re-login** | ✅ Bia→admin alcança `/api/audit` (200) no request seguinte; voltando a recepção, **403** de novo |
+| §5 **A7 fail-closed** | ✅ profissional **sem vínculo**: **0 agendamentos, 0 colunas**. Rafael (vinculado): 1 coluna, 3 blocos. Dona/Ana/Bia: 5 colunas, 4 blocos |
+| §5 horário do profissional ⊄ clínica | ✅ `06:00–22:00` → **422** *"dia 3: período 06:00–22:00 fora do horário da clínica nesse dia"* |
+| §5 estreitar horário sobre sessão marcada | ✅ **409** (o gate A3/D12) |
+| §3 **gate de impacto** ao fechar o dia | ✅ **409 `future_conflicts`** com `meta.total: 17` e a lista (data, hora, profissional, paciente). **E não gravou**: o expediente seguiu `08–12/13–18` e o agendamento continuou `agendado` |
+| §3 arquivar / restaurar tipo | ✅ `ativo` vai a `false` e volta a `true` |
+| §6 cancelar (motivo), reabrir, remarcar (motivo) | ✅ os três; o `cancel_reason` e o `reschedule_reason` ficam gravados (D-H3) |
+| §11 excluído × cancelado | ✅ cancelados **1 → 2** ao cancelar, **2 → 1** ao excluir: cancelado conta, excluído sai da conta |
+| §7 oferecer → converter | ✅ os slots vêm com data/profissional; converter → **201** e a fila cai de **2 para 1** |
+| §10/§12 caixa por usuário | ✅ não-lidas distintas por pessoa (dona 7, ana 6, bia 2, rafael 12) |
+| §13 **duplo clique** | ✅ dois cliques no mesmo tick → **uma** ficha no servidor |
+| §13 **F5 com o drawer aberto** | ✅ o `?agendamento=` sobrevive e a gaveta reabre |
+| §14 celular (390px) | ✅ sem rolagem horizontal; a gaveta abre com o horário visível |
+| §14 **fórmula no toque** (ACC-10) | ✅ abre no clique/toque em 390px |
+| §14 **zoom 200%** (640×360) | ✅ `/entrar` e `/agenda` sem rolagem horizontal |
 
 ## 4. Achados
 
@@ -326,6 +353,94 @@ ao mesmo tempo se atrapalham. Metade das medições do §4 desta rodada envelhec
 a regra mudou embaixo. Vale congelar a árvore (ou rodar contra HML) antes de uma passada que se
 pretende citável.
 
+### A-10 · Rede fora ao salvar a ficha: tela de 500 e **o digitado se perde** — **médio**
+
+O cenário exato do §13, e reprova. Com a ficha preenchida e a rede derrubada, clicar em
+*Cadastrar paciente* troca **o formulário inteiro** por:
+
+```
+500
+Algo deu errado
+Failed to fetch
+Voltar ao início
+```
+
+Medido: depois do submit, `getByRole('textbox', {name: /Nome completo/})` tem **contagem 0** — o
+formulário não existe mais, e com ele foi tudo o que a recepção digitou (a ficha tem 31 campos).
+
+São três defeitos no mesmo sintoma:
+
+1. **falha de rede virou "500"** — o servidor não respondeu coisa nenhuma; o código está errado;
+2. **`Failed to fetch` é mensagem interna do browser**, em inglês, na cara do usuário — o oposto do
+   "erro civilizado" que o roteiro pede;
+3. **o trabalho é perdido**, que é o dano real: numa clínica com wi-fi ruim, isso é a ficha inteira
+   digitada de novo.
+
+Está registrado como `test.fail()` em
+[`roteiro82-robustez.spec.ts`](../web/e2e/roteiro82-robustez.spec.ts): a expectativa correta está
+escrita, o teste roda, e no dia em que alguém consertar ele acusa "unexpected pass" e cobra a
+remoção da marca. Comparar com o **duplo clique**, que passa — ali o `4e0e020` fez o trabalho.
+
+### A-11 · Quem se cadastrou e não clicou no link **não consegue pedir outro** — **médio**
+
+`POST /api/auth/magic-link` responde `200` (neutro) mas **não envia nada** para quem se cadastrou
+em `/criar-conta` e nunca consumiu o primeiro link. Medido: três pedidos seguidos, **um** e-mail na
+caixa; e nenhuma linha em `users` para o endereço.
+
+A causa está em [`request_magic_link.ex`](../api/lib/api/accounts/user/request_magic_link.ex): o
+`User` só nasce quando o link é **consumido**, e a cláusula
+
+```elixir
+defp send_link(_strategy, _identity, _nome, nil, false, _context, _opts), do: :ok
+```
+
+silencia o envio para "e-mail sem conta" quando `register? == false` — que é exatamente o caso de
+quem já pediu cadastro e ainda não confirmou. O login (`/entrar`) manda `register: false`.
+
+O efeito para a pessoa: ela se cadastra, perde o e-mail, vai em *"Já tem conta? Entrar"*, digita o
+endereço, lê "verifique seu e-mail" — e nada chega, para sempre. A saída existe (voltar em
+`/criar-conta`), mas nada na tela a indica.
+
+> **Não confundir com o convite**, que foi verificado e **funciona**: `invite_member_by_email` cria
+> o `User` na hora, então "Reenviar convite" acha alguém e manda o segundo e-mail (2 na caixa). O
+> buraco é só o do auto-cadastro pendente.
+
+### A-12 · Pedir um link novo **não invalida o anterior** — **decisão**
+
+O §1 do roteiro diz: *"Link velho (peça dois; use o primeiro) → **o mais recente vale; o consumido
+não**"*. Medido com uma conta confirmada: dois pedidos geram **dois tokens distintos**, dois
+e-mails, e **os dois autenticam** (302 nos dois). Só o link **consumido** é invalidado (2º uso →
+401, A-10 acima).
+
+Não é bug de implementação — é o modelo de allowlist por `jti`, em que cada token vale por si até
+ser usado ou expirar. Mas contraria o esperado escrito no roteiro, e tem um ângulo de segurança
+pequeno: cada reenvio deixa mais uma chave viva na caixa de e-mail da pessoa. Decidir qual das duas
+muda: o texto do §1, ou a emissão (revogar os anteriores ao emitir).
+
+### A-13 · A regra nova quebrou o helper de e2e — **corrigido nesta rodada**
+
+`criarPaciente` e `criarProfissional` em [`helpers.ts`](../web/e2e/helpers.ts) fixavam
+`tel: '11987654321'` para **toda** pessoa criada. Com o `identity :tel_unico` do doc 89, a
+**segunda** ficha da mesma clínica passou a morrer em 422 — e o teste acusava a regra errada,
+porque o cenário nem chegava a existir.
+
+Corrigido com um `telUnico()` (o par do `emailUnico` que já existia). É o tipo de dependência que
+uma mudança de schema arrasta e que só aparece quando alguém escreve o segundo paciente.
+
+### A-14 · A suíte e2e estava verde contra um **build velho** — **ambiente, sério**
+
+`agendar.spec.ts` procura o paciente com `getByRole('button', { name: /Marina Prado/ })`. O
+`PatientPicker` já foi refatorado (commitado) para o padrão ARIA 1.2 de combobox: cada resultado é
+um `<li role="option">`, não um botão. O teste **deveria** estar vermelho — e passou nas duas
+primeiras execuções desta rodada.
+
+O motivo: `playwright.config.ts` usa `reuseExistingServer` e o `preview` servia um `build/`
+anterior ao refactor. Enquanto ninguém reconstrói, a suíte mede um app que não existe mais. Só
+quando rodei `npm run build` explicitamente é que o teste caiu.
+
+Corrigi o seletor (`option`), e fica o alerta de método: **e2e contra `preview` sem build fresco é
+falso verde**. Vale o `build` fazer parte do comando, ou o `webServer` deixar de reusar servidor.
+
 ## 5. O que não é verificável neste ambiente
 
 - **§1 rate limit (429).** Por decisão de projeto o limitador **só bloqueia em produção**
@@ -343,8 +458,20 @@ pretende citável.
 
 ## 6. Artefato deixado no repositório
 
-[`web/e2e/roteiro82.spec.ts`](../web/e2e/roteiro82.spec.ts) — **5 cenários, todos verdes** (4s), com
-os itens do roteiro que só a tela prova:
+Dois arquivos novos, e três consertos em arquivos que já existiam.
+
+**Estado final da suíte: 45 passaram, 1 falhou** (39,6s). A única vermelha é o **A-2**
+(`recepcao.spec.ts`), deixada de propósito: ela codifica uma decisão de política e merece o olho da
+equipe, não um conserto meu de passagem.
+
+| Arquivo | O quê |
+| --- | --- |
+| [`roteiro82.spec.ts`](../web/e2e/roteiro82.spec.ts) | 5 cenários (tabela abaixo) |
+| [`roteiro82-robustez.spec.ts`](../web/e2e/roteiro82-robustez.spec.ts) | §13 e §14: offline (A-10, `test.fail`), duplo clique, F5 com drawer, celular a 390px, toque na fórmula, zoom 200% |
+| [`helpers.ts`](../web/e2e/helpers.ts) | `telUnico()` — conserto do **A-13** |
+| [`agendar.spec.ts`](../web/e2e/agendar.spec.ts) | `option` no lugar de `button` — conserto do **A-14** |
+
+[`roteiro82.spec.ts`](../web/e2e/roteiro82.spec.ts) — os itens do roteiro que só a tela prova:
 
 | Cenário | Item do roteiro |
 | --- | --- |
@@ -373,28 +500,27 @@ Três lições ficaram embutidas nele — todas custaram uma rodada vermelha:
 
 ## 7. O que ficou por rodar (fila da próxima passada)
 
-A 2ª rodada foi interrompida pelo A-9. Estava montado e pronto para rodar assim que o codegen for
-resolvido — as sondas estão escritas, só precisam de uma API de pé:
+Depois de três rodadas, o que sobra é curto — e é quase todo **interação de mão** ou dependente de
+ambiente:
 
 | Seção | Itens |
 | --- | --- |
-| §1 | magic link **reusado** e **link velho vs. novo**; `/perfil` (editar nome, e-mail read-only, sair de todos os dispositivos); sign-out + botão voltar; **sessão expirada** nos dois cenários que a Andreza pediu |
-| §2 | reenviar convite; **trocar papel** de membro ativo (reflete sem re-login?); revogar acesso; **regra do ≥1 owner** |
-| §3 | **gate de impacto** ao fechar dia / criar exceção com agendamento futuro; arquivar e restaurar tipo em uso; desligar canal e ver o botão travar; conteúdo da auditoria (diff, redação de sensíveis, filtros) |
+| §1 | `/perfil` (editar nome, e-mail read-only, sair de todos os dispositivos); sign-out + botão voltar; **sessão expirada** nos dois cenários que a Andreza pediu |
+| §3 | exceção de data com agendamento futuro (o gate do **horário** foi provado; o da **exceção**, não); desligar canal e ver o botão travar; conteúdo da auditoria (diff, redação de sensíveis, filtros) |
 | §4 | duplicado por **nome+nascimento**; CEP; ficha aberta (idade, **regressão DDI→DDD** do `a500e7e`, consentimentos); histórico/próximos/"Agendar"; anexos ponta a ponta; arquivar/reativar; busca e paginação |
-| §5 | **A7 fail-closed** (profissional sem vínculo não vê agenda nenhuma) — sonda escrita; horário do profissional ⊆ clínica; arquivar profissional com agenda futura |
-| §6 | **arraste**; remarcar perguntando motivo; cancelar/reabrir; selo de pacote no bloco; **"quem cabe aqui" (AN-12)**; enviar confirmação; consistência Dia/Semana/Mês/Lista; ocupação conferida na mão |
-| §7 | chips de vaga; **oferecer → converter → sai da fila**; sair da fila; "esperou N dias" |
+| §5 | arquivar profissional com agenda futura |
+| §6 | **arraste** (a maior lacuna que resta); selo de pacote no bloco; **"quem cabe aqui" (AN-12)**; enviar confirmação de verdade; consistência Dia/Semana/Mês/Lista; ocupação conferida na mão |
+| §7 | chips de vaga (incl. ABRIU); sair da fila; "esperou N dias" no drawer |
 | §8 | prévia ao vivo no modal; turma com participantes de **pacotes diferentes** |
-| §10 | fan-out por papel e **não se auto-notificar**; vaga-com-fila; caixa por usuário (Bia ≠ Ana) |
-| §11 | excluído não conta / cancelado conta; fórmula no viewport mobile (ACC-10) |
+| §10 | fan-out por papel e **não se auto-notificar**; vaga-com-fila |
 | §12 | isolamento A/B em **notificações e busca** |
-| §13 | **a seção inteira**: offline no form, offline na agenda, duplo clique, Slow 3G, F5 |
-| §14 | zoom 200%; celular além do que a suíte já cobre |
+| §13 | **Slow 3G** (respostas fora de ordem); offline **na agenda** (o bloco volta ao lugar?) |
+| §9 | tudo — depende de provedor |
 
-> Nota de método: a tentativa de rodar §1/§2/§5 aconteceu **já com a API em 500**, então aqueles
-> números não valem nada e não foram aproveitados. Em particular, "os dois magic links vieram
-> iguais" foi artefato da caixa de e-mail respondendo 500 — não é achado.
+> Nota de método: a tentativa de rodar §1/§2/§5 na 2ª rodada aconteceu **já com a API em 500**, e
+> aqueles números foram **descartados** — foram refeitos do zero na 3ª. Em particular, "os dois
+> magic links vieram iguais" era artefato da caixa respondendo 500; medido direito (A-12), os
+> tokens são distintos e ambos valem.
 
 ## 8. Para a conversa com a Andreza
 
@@ -405,7 +531,11 @@ resolvido — as sondas estão escritas, só precisam de uma API de pé:
    ("os números batem"). Levar já com a pergunta: *contar presença ou bloco?*
 3. **A-3** muda o roteiro, não o código — mas é decisão dela/de produto se recepção deve ver
    e-mail de colega.
-4. O que **passou** merece ser dito: a matriz de acesso inteira bate, as oito validações do cadastro
-   barram, o D14 é absoluto mesmo com encaixe, o D13 não mente no card, o 409 tem mensagem
-   civilizada, a fórmula do KPI abre no toque (ACC-10) e o **débito do pacote acerta os três casos**
-   (presença, falta punitiva e falta justificada).
+4. **A-10** (rede fora perde a ficha inteira) é o segundo achado de produto, e é o que mais dói no
+   balcão: wi-fi ruim + 31 campos digitados = trabalho perdido, com "Failed to fetch" em inglês na
+   tela. **A-11** (quem se cadastrou e não clicou não consegue pedir outro link) é o irmão silencioso.
+5. O que **passou** merece ser dito, e é muito: a matriz de acesso inteira bate, as oito validações
+   do cadastro barram, o D14 é absoluto mesmo com encaixe, o D13 não mente no card, o 409 tem
+   mensagem civilizada, o **débito do pacote acerta os três casos**, o **gate de impacto recusa com
+   a lista dos 17 conflitos e não grava**, o **A7 é fail-closed de verdade** (sem vínculo: zero
+   colunas), trocar papel vale no request seguinte, e o duplo clique cria uma ficha só.
