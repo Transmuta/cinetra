@@ -41,8 +41,17 @@ export default defineConfig({
 		? {
 				command: `npm run build && npm run preview -- --port ${PORT}`,
 				port: PORT,
-				reuseExistingServer: !process.env.CI,
-				timeout: 120_000,
+				// **Nunca reusar** um preview que já esteja de pé (doc 88, A-14).
+				//
+				// Com `reuseExistingServer`, um `preview` esquecido de uma sessão anterior serve o
+				// `build/` daquela hora — e a suíte passa a medir um app que não existe mais. Foi o
+				// que aconteceu: o `PatientPicker` já tinha virado listbox ARIA (`role="option"`) e o
+				// `agendar.spec.ts`, que procura `button`, continuava VERDE. Reusar economiza um
+				// minuto e custa a confiança em tudo o que a suíte afirma.
+				reuseExistingServer: false,
+				// 120s não cobria `build && preview` em máquina fria, e a suíte inteira morria antes
+				// de começar com "Timed out waiting from config.webServer" (A-5).
+				timeout: 300_000,
 				// A origem que o BROWSER usa para o WebSocket, alinhada à que o processo do Playwright
 				// usa para falar com a API — as duas rodam na mesma máquina, então é a mesma (ver
 				// `e2e/env.ts`). Vale para o `build` e para o `preview` da linha acima, e é preciso nos

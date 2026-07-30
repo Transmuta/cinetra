@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test';
 import { test, expect } from './fixtures';
-import { apiComSessao, convidar, emailUnico, entrarPeloConvite } from './helpers';
+import { apiComSessao, convidar, emailUnico, entrarPeloConvite, telUnico } from './helpers';
 
 /** O rail é o mesmo componente nas duas instâncias (desktop e gaveta) — aqui basta a de tela larga. */
 function rail(page: Page) {
@@ -72,9 +72,24 @@ test.describe('Papel de recepção', () => {
 
 		// E a autoridade final, sem browser no meio: a API recusa a escrita e a trilha.
 		const apiDaRita = await apiComSessao(contextoDaRita);
+
+		// A ficha de paciente MUDOU DE LADO na revisão de 2026-07-29: o balcão cria e edita. Este
+		// teste cobrava o 403 antigo e ficou vermelho contra o produto certo (doc 88, A-2).
+		//
+		// A distinção que ele passa a proteger é a que confunde: `422` aqui é **validação**
+		// (telefone obrigatório, D6), não autorização. Sem as duas asserções lado a lado, um 403
+		// que voltasse por engano passaria despercebido — os dois são "não deu certo".
 		expect(
-			(await apiDaRita.post('/api/patients', { data: { nome: 'Cadastro Indevido' } })).status()
-		).toBe(403);
+			(
+				await apiDaRita.post('/api/patients', {
+					data: { nome: 'Ficha da Recepção', tel: telUnico() }
+				})
+			).status()
+		).toBe(201);
+		expect(
+			(await apiDaRita.post('/api/patients', { data: { nome: 'Sem Telefone' } })).status()
+		).toBe(422);
+
 		expect(
 			(
 				await apiDaRita.post('/api/members', {

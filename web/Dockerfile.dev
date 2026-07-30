@@ -8,6 +8,17 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 
+# O browser dos e2e, com as bibliotecas de sistema (doc 88, A-4).
+#
+# `npm ci` baixa o BINÁRIO do Chromium, mas não as libs que ele linka. Sem `--with-deps`, toda a
+# suíte morre com `libnspr4.so: cannot open shared object file` — 35 falhas, cada uma com uma
+# stack de browser, e nenhuma delas dizendo "rode o install". O `e2e/README.md` pedia esse passo
+# "na 1ª vez" e nada verificava; um passo manual que ninguém lembra é um passo que não existe.
+#
+# Custa tamanho de imagem, e é de propósito: o modo de falha que ele evita é caro de diagnosticar
+# e fácil de confundir com regressão de produto.
+RUN npx playwright install --with-deps chromium
+
 EXPOSE 5173
 
 CMD ["npm", "run", "dev"]

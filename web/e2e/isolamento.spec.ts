@@ -40,11 +40,15 @@ test.describe('Isolamento entre clínicas', () => {
 		// 1) A ficha, pela URL. 404 e não 403 de propósito: a existência do registro também é
 		//    informação — "esse id existe, mas não é seu" já diz demais.
 		await paginaVizinho.goto(`/pacientes/${clinica.paciente.id}`);
-		await expect(paginaVizinho.getByText('404')).toBeVisible();
+		// `exact`: o nome gerado da clínica de teste carrega um timestamp, e um "404" no meio dele
+		// casava com este texto — o teste caía por sorte do relógio, não por regressão.
+		await expect(paginaVizinho.getByText('404', { exact: true })).toBeVisible();
 
 		// 2) A ficha do profissional, idem.
 		await paginaVizinho.goto(`/profissionais/${clinica.profissional.id}`);
-		await expect(paginaVizinho.getByText('404')).toBeVisible();
+		// `exact`: o nome gerado da clínica de teste carrega um timestamp, e um "404" no meio dele
+		// casava com este texto — o teste caía por sorte do relógio, não por regressão.
+		await expect(paginaVizinho.getByText('404', { exact: true })).toBeVisible();
 
 		// 3) A agenda do MESMO dia: a coluna é a da vizinha, e o bloco da outra clínica não está lá.
 		await abrirAgenda(paginaVizinho, vizinha);

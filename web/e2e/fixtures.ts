@@ -77,6 +77,34 @@ export async function montarClinica(
 	return { email, nome, id, api, profissional, paciente, tipo, dia: diaUtilProximo() };
 }
 
+/**
+ * Por que a API não respondeu — em uma frase acionável.
+ *
+ * "Não respondeu" tem duas causas muito diferentes e o mesmo sintoma: o processo não está de pé,
+ * ou está de pé e recusando tudo. O segundo caso é o do **codegen pendente**, e o corpo do 500 diz
+ * qual é (`PendingCodegen`) — basta alguém olhar. Sem isto, o erro manda "suba o compose" para
+ * quem já está com o compose de pé.
+ */
+async function diagnostico(request: APIRequestContext): Promise<string> {
+	try {
+		const res = await request.get(`${API_ORIGIN}/api/health`, { timeout: 10_000 });
+		const corpo = await res.text();
+
+		if (corpo.includes('PendingCodegen')) {
+			return (
+				'A API ESTÁ de pé, mas recusa toda requisição: há CODEGEN PENDENTE.\n' +
+				'  Rode `mix ash.codegen <nome_da_mudanca>` (ou `--dev` para iterar) e aplique.'
+			);
+		}
+		if (corpo.includes('CompileError') || corpo.includes('SyntaxError')) {
+			return 'A API está de pé, mas com ERRO DE COMPILAÇÃO — veja `docker compose logs api`.';
+		}
+		return `A API respondeu ${res.status()} em /api/health.`;
+	} catch {
+		return 'Nada atendeu na porta — o processo parece fora do ar.';
+	}
+}
+
 export const test = base.extend<{ clinica: Clinica }>({
 	clinica: async ({ page, context, request }, use) => {
 		const clinica = await montarClinica(page, context, request);
@@ -104,11 +132,14 @@ test.beforeEach(async ({ request, baseURL }) => {
 		if (process.env.E2E_BASE_URL) {
 			test.skip(true, 'alvo remoto sem caixa de e-mail de dev — não há como ler o magic link');
 		}
+		// Distinguir "fora do ar" de "de pé, mas recusando tudo" economiza a meia hora que este
+		// QA gastou lendo log (doc 88, A-9): com codegen pendente o `AshPhoenix.Plug.
+		// CheckCodegenStatus` derruba TODA requisição em 500 — inclusive `/api/health` —, e de
+		// fora o sintoma é indistinguível de API ausente.
 		throw new Error(
 			`a API não respondeu em ${API_ORIGIN} (alvo: ${baseURL}).\n` +
-				'Os cenários autenticados precisam dela de pé: `docker compose up`.\n' +
-				'Se ela está no ar, veja se não está em erro de compilação ou com codegen pendente ' +
-				'(`mix ash.codegen`) — o /dev/mailbox responde 500 nos dois casos.'
+				`${await diagnostico(request)}\n` +
+				'Os cenários autenticados precisam dela de pé: `docker compose up`.'
 		);
 	}
 
