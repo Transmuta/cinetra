@@ -193,6 +193,69 @@ Decidido rodar atrás do Cloudflare com proxy. Feito **certo** — senão a prot
    os nomes de router do Traefik únicos entre os dois stacks).
 5. Habilite o auto-deploy por webhook em cada branch.
 
+### 6.1 O terceiro stack: observabilidade (`obs.cinetra.com.br`)
+
+Um **terceiro** serviço Compose no mesmo servidor, apontando para
+[`deploy/observability/compose.obs.yml`](../deploy/observability/compose.obs.yml) (branch `main`).
+É um projeto Dokploy separado — `cinetra-obs` — de propósito: o Alloy coleta por allowlist de
+projeto (`OBS_PROJETOS`), e é o nome distinto que o mantém fora da própria coleta. **Sobe por
+último**: ele entra nas redes externas dos stacks do app, que precisam existir antes.
+
+**Pré-requisitos (nesta ordem):**
+
+1. **prod no ar.** O obs entra em `cinetra-prod_data` (Grafana → Postgres), `cinetra-prod_app`
+   (Alloy ← spans) e `dokploy-network` (Prometheus → api, Traefik → Grafana). Nome errado de rede
+   **impede o stack de subir** (o compose valida rede externa antes de criar container) — confira:
+   ```bash
+   docker network ls | grep -E 'cinetra-prod_(data|app)|dokploy-network'
+   docker network inspect dokploy-network --format '{{range .Containers}}{{.Name}} {{end}}'
+   ```
+2. **O role de leitura do banco.** No **Environment do app (prod)**, setar `DATABASE_METRICS_PASSWORD`
+   e **redeployar o app** — `Api.Release.setup_metrics_role/0` cria o `cinetra_metrics` (só `SELECT`
+   nas views `metrics_*`) no boot. Sem isso os painéis de banco do Grafana dão *permission denied*.
+   O `METRICS_DB_PASSWORD` do obs (abaixo) tem de ser **o mesmo valor**.
+3. **DNS + Access.** Registro **A `obs` proxied** (laranja), como `cinetra`/`hml`/`dok` (§5). Ponha
+   `obs.cinetra.com.br` atrás do **Cloudflare Access** (§5.1), igual ao `dok` — inclusive **desligar
+   "authenticate via WARP"** no app do Access. O Grafana tem login próprio; o Access é a primeira
+   porta, no edge.
+
+**Environment do `cinetra-obs`** (aba do Dokploy — modelo em
+[`deploy/observability/.env.exemplo`](../deploy/observability/.env.exemplo)):
+
+| Var | Valor em prod | Observação |
+|---|---|---|
+| `OBS_ENV` | `prod` | rótulo em toda linha de log/métrica |
+| `OBS_PROJETOS` | `cinetra-prod\|cinetra-hml` | allowlist ANCORADA; **nunca** inclua `cinetra-obs` |
+| `GRAFANA_HOST` | `obs.cinetra.com.br` | host do router Traefik |
+| `GRAFANA_ROOT_URL` | `https://obs.cinetra.com.br` | senão os links do Grafana quebram |
+| `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD` | próprios | `:?` — recusa subir sem |
+| `GRAFANA_SECRET_KEY` | `openssl rand -hex 32` | `:?` — senão usa o default publicado (A3) |
+| `METRICS_DB_HOST` | `cinetra-prod-db-1` | nome do **container** (há dois `db`) |
+| `METRICS_DB_NAME` | `cinetra_prod` | |
+| `METRICS_DB_PASSWORD` | = `DATABASE_METRICS_PASSWORD` do app | `:?` — o role que conecta |
+| `APP_NETWORK` | `cinetra-prod_data` | rede do Postgres (Grafana) |
+| `APP_NETWORK_OTLP` | `cinetra-prod_app` | rede dos spans (Alloy) |
+| `METRICS_NETWORK` | `dokploy-network` | rede da api (Prometheus) **e** do Traefik (edge) |
+| `PROMETHEUS_TARGETS` | `./targets/api-prod.yml` | mira `api-prod`/`api-hml` (alias único, §6) |
+
+O Grafana **não publica porta em 0.0.0.0** — o compose prende em `127.0.0.1` e o acesso vem pelo
+Traefik (labels no serviço, `tls=true` com o Origin Certificate, §5.1). Não use "Add Domain" da UI.
+
+**Deploy e verificação:**
+
+```bash
+# na VM, dentro de deploy/observability/
+GRAFANA=https://obs.cinetra.com.br GRAFANA_AUTH=admin:<senha> ./verificar.sh
+```
+
+O `verificar.sh` prova as três fontes (log/métrica/trace), os dashboards provisionados, e que
+nenhuma porta interna vazou — inclusive a §13, que confirma o Grafana **fora** de 0.0.0.0.
+
+> **RAM (KVM2, 8GB).** O obs declara ~4GB de teto; com prod + hml + Dokploy cabe **parado**, mas a
+> folga some num pico (consulta de 30 dias no Loki durante um build de deploy). Rodando assim por
+> decisão — o próprio obs (painéis do node-exporter + alerta de OOM) é o que avisa a hora de subir
+> para **KVM4 (16GB)**. Ver [`docs/87`](87-servidor-hostinger-riscos-e-cuidados.md).
+
 ## 7. Segredos e env (por ambiente)
 
 **Gerar novos para produção** (não reaproveitar dev): `SECRET_KEY_BASE` e `TOKEN_SIGNING_SECRET`

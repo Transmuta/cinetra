@@ -5,16 +5,22 @@
 #     PROMETHEUS_TARGETS=./targets/api-prod.yml
 #     METRICS_NETWORK=dokploy-network
 #
-# ## Por que NOME DE CONTAINER, e não nome de serviço
+# ## Por que ALIAS de stack, e não nome de serviço nem nome de container
 #
 # Na VM de produção há DOIS stacks do compose, cada um com um serviço chamado `api`. O nome do
-# serviço é ambíguo entre eles; o nome do container não é. O padrão do compose é
-# `<projeto>-<serviço>-<n>` — confira com `docker ps --format '{{.Names}}'` antes do primeiro
-# deploy, porque nome errado aqui não derruba nada: o alvo fica `DOWN`, os painéis da aplicação
-# ficam vazios, e vazio lê-se como "tudo calmo".
+# serviço é ambíguo entre eles. A primeira versão deste arquivo desambiguava pelo NOME DO CONTAINER
+# (`cinetra-prod-api-1`), mas ele é frágil: muda com o nome do projeto no Dokploy e com o índice de
+# réplica (`-1`, `-2`). Desde `compose.dokploy.yml`, cada api publica um alias ÚNICO na
+# `dokploy-network` — `api-${STACK}`, ou seja `api-prod` e `api-hml` — criado justamente para
+# desambiguar os dois stacks (o web usa o mesmo alias em `API_URL`). É o nome estável para mirar
+# aqui: não depende do nome do projeto nem do índice do container.
 #
-# O alerta `cinetra-coleta-de-metrica-parada` existe exatamente para esse caso, e o painel "Alvos
-# raspando" mostra o número contra o total esperado.
+# Nome errado aqui não derruba nada: o alvo fica `DOWN`, os painéis da aplicação ficam vazios, e
+# vazio lê-se como "tudo calmo". O alerta `cinetra-coleta-de-metrica-parada` existe para esse caso,
+# e o painel "Alvos raspando" mostra o número contra o total esperado. Confira antes do 1º deploy,
+# de dentro do container do Prometheus (é ele quem resolve o alias, não o host):
+#
+#     docker exec cinetra-obs-prometheus-1 getent hosts api-prod api-hml
 #
 # ## Por que DOIS grupos, e não um com dois alvos
 #
@@ -29,11 +35,11 @@
 # alcança os dois — sem ela, seria preciso entrar na rede `data` de cada stack, uma por uma.
 
 - targets:
-    - cinetra-prod-api-1:4021
+    - api-prod:4021
   labels:
     env: prod
 
 - targets:
-    - cinetra-hml-api-1:4021
+    - api-hml:4021
   labels:
     env: hml
