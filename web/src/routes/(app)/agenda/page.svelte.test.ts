@@ -237,3 +237,63 @@ describe('drawer na URL', () => {
 		expect(nav.goto.mock.calls[0][0]).toContain('date=2026-07-21');
 	});
 });
+
+// A timeline de comunicação é buscada sob demanda, por `fetch`, quando o drawer abre. Quem decide
+// se ela é buscada é o mesmo `?agendamento=` do bloco acima — e é aí que mora a regressão que o
+// browser pegou na HML: excluir um bloco deixava o parâmetro ÓRFÃO na URL (o drawer fecha porque o
+// bloco saiu da janela, mas ninguém navega), e o efeito continuava pedindo a timeline de um
+// agendamento que a API não vê mais. Rajada de 404 em `/agenda/mensagens/<id>` a cada action.
+describe('timeline de comunicação: quando a busca sai', () => {
+	const buscas = () =>
+		vi
+			.mocked(globalThis.fetch)
+			.mock.calls.filter((c) => String(c[0]).includes('/agenda/mensagens/'));
+
+	// O caminho normal, e a garantia de que os testes abaixo medem algo.
+	it('o drawer aberto busca a timeline do bloco', async () => {
+		resetFakePage('http://localhost/agenda?date=2026-07-20&agendamento=a1');
+		render(Page, { props: { data: data(), form: null } });
+
+		await vi.waitFor(() => expect(buscas()).toHaveLength(1));
+		expect(String(buscas()[0][0])).toContain('/agenda/mensagens/a1');
+	});
+
+	// O achado: id órfão (bloco excluído, link morto, bloco de outra clínica) não pede nada. Sem
+	// isto o pedido sai e volta 404 — inofensivo na tela (o drawer está fechado), mas é lixo na
+	// rede e no log da API que só limpa ao trocar de dia ou num F5.
+	it('id que não está na janela NÃO busca a timeline', async () => {
+		resetFakePage('http://localhost/agenda?date=2026-07-20&agendamento=sumiu');
+		render(Page, { props: { data: data(), form: null } });
+
+		await vi.waitFor(() => expect(vi.mocked(globalThis.fetch)).toHaveBeenCalled());
+		expect(buscas()).toHaveLength(0);
+	});
+
+	// A segunda metade do estrago: o efeito lia `form?.action`, logo dependia do `form` INTEIRO.
+	// Como o `enhance` repõe o `form` a cada mutação, criar/excluir/concluir qualquer coisa refazia
+	// a busca da timeline do bloco aberto — e, com o id órfão, multiplicava os 404.
+	it('resultado de uma action alheia não refaz a busca', async () => {
+		resetFakePage('http://localhost/agenda?date=2026-07-20&agendamento=a1');
+		const { rerender } = render(Page, { props: { data: data(), form: null } });
+
+		await vi.waitFor(() => expect(buscas()).toHaveLength(1));
+
+		await rerender({ data: data(), form: { ok: true, action: 'criar' } });
+		await rerender({ data: data(), form: { ok: true, action: 'excluir', error: null } });
+
+		expect(buscas()).toHaveLength(1);
+	});
+
+	// O outro lado da moeda, para o conserto acima não matar o que a chave existia para fazer:
+	// depois de ENVIAR a confirmação, a linha nova tem de aparecer sem F5.
+	it('mas o envio de confirmação refaz a busca', async () => {
+		resetFakePage('http://localhost/agenda?date=2026-07-20&agendamento=a1');
+		const { rerender } = render(Page, { props: { data: data(), form: null } });
+
+		await vi.waitFor(() => expect(buscas()).toHaveLength(1));
+
+		await rerender({ data: data(), form: { ok: true, action: 'confirmar', mensagem: 'Enviado' } });
+
+		await vi.waitFor(() => expect(buscas()).toHaveLength(2));
+	});
+});
