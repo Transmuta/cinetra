@@ -573,6 +573,33 @@ else
 fi
 
 # ---------------------------------------------------------------------------------------------
+titulo "13. Segurança do painel: o Grafana não publica em 0.0.0.0 (A2, doc 86 §3)"
+
+# O Grafana é o único serviço do stack com `ports:`, e o compose o prende em 127.0.0.1 — em
+# produção o acesso vem pelo Traefik + Cloudflare Access. Publicá-lo em 0.0.0.0 exporia o login,
+# que com o datasource do banco enxerga o agregado de TODAS as clínicas. (O par A3 — `secret_key`
+# default — é fail-closed pelo `:?` no compose: o container nem sobe sem `GRAFANA_SECRET_KEY`.)
+#
+# Esta checagem precisa do docker LOCAL (o bind não se vê por curl: 127.0.0.1 e 0.0.0.0 respondem
+# igual de dentro da máquina). De um laptop contra Grafana remoto ela se declara PULADA, em vez de
+# mentir — mesma postura do `i` da §11 quando um datasource não existe.
+DOCKERBIN=""
+command -v docker    >/dev/null 2>&1 && DOCKERBIN=docker
+command -v docker.exe >/dev/null 2>&1 && DOCKERBIN=docker.exe
+if [ -z "$DOCKERBIN" ]; then
+  printf '  \033[36mi\033[0m sem docker local — bind do Grafana só é checável na VM\n'
+else
+  binds=$("$DOCKERBIN" ps --filter name=grafana --format '{{.Ports}}' 2>/dev/null)
+  if [ -z "$binds" ]; then
+    printf '  \033[36mi\033[0m nenhum container grafana visível ao docker local\n'
+  elif printf '%s' "$binds" | grep -qE '(0\.0\.0\.0|\[::\]):[0-9]+->'; then
+    vermelho "Grafana publicado em 0.0.0.0 — login exposto fora da VM ($binds)"
+  else
+    verde "Grafana não publica em 0.0.0.0 (acesso por Traefik + Access): ${binds:-só expose}"
+  fi
+fi
+
+# ---------------------------------------------------------------------------------------------
 titulo "14. Traces: o terceiro sinal (doc 76)"
 
 # O Tempo NÃO tem healthcheck no compose — a imagem é distroless e todo `test:` falha por falta de

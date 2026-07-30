@@ -42,23 +42,22 @@ async function preencherMinimo(page: Page, nome: string, tel = '11987775544') {
 
 test.describe('Roteiro 82 · §13 robustez', () => {
 	/**
-	 * REPROVA HOJE — bug conhecido, registrado no doc 88 (achado A-10).
+	 * Reprovava quando o QA guiado o escreveu (doc 88, A-10) e passou a valer com o conserto.
 	 *
-	 * Medido: salvar a ficha com a rede fora troca o formulário inteiro pela página de erro
-	 * `500 — Algo deu errado / **Failed to fetch**`, e **tudo o que foi digitado se perde** (o
-	 * campo de nome deixa de existir). O §13 pede o contrário: erro civilizado (toast/rodapé) e o
-	 * digitado de pé. São três problemas no mesmo sintoma: falha de REDE virando "500", a
-	 * mensagem interna do browser vazando para o usuário, e a perda do trabalho.
+	 * O que estava errado: salvar a ficha com a rede fora trocava o formulário inteiro pela página
+	 * `500 — Algo deu errado / Failed to fetch`, e tudo o que fora digitado ia junto. Três defeitos
+	 * no mesmo sintoma — falha de REDE virando "500", mensagem interna do browser na cara do
+	 * usuário, e a perda do trabalho.
 	 *
-	 * Fica como `test.fail()` — o teste roda, a expectativa correta está escrita, e no dia em que
-	 * alguém consertar ele vira "unexpected pass" e cobra a remoção desta marca.
+	 * A causa era o `update()` do `use:enhance`: ele chama o `applyAction`, que para
+	 * `result.type === 'error'` **substitui a página**. O conserto mora em `$lib/forms.svelte`
+	 * (`ERRO_DE_REDE`) e vale para todos os formulários; aqui o teste guarda o comportamento pela
+	 * ponta que interessa — o campo continua preenchido.
 	 */
 	test('offline ao salvar paciente: erro civilizado e o que foi digitado NÃO se perde', async ({
 		page,
 		clinica
 	}) => {
-		// Dentro do corpo, não no describe: no describe ele marcaria TODOS os testes seguintes.
-		test.fail();
 		expect(clinica.id).toBeTruthy();
 		await page.goto('/pacientes/novo');
 		const cpf = page.getByRole('textbox', { name: 'CPF' });
@@ -70,12 +69,11 @@ test.describe('Roteiro 82 · §13 robustez', () => {
 		await offline(page, true);
 		await page.getByRole('button', { name: /Cadastrar paciente/ }).click();
 
-		await page.waitForTimeout(2_000);
-
-		// 1) não pode virar tela branca nem stack trace…
-		await expect(page.locator('body')).not.toContainText('Internal Error');
-		await expect(page.locator('body')).not.toContainText('node_modules');
-		// 2) …e o digitado tem de continuar lá.
+		// 1) a recusa é civilizada: nem tela de 500, nem a mensagem interna do browser…
+		await expect(page.getByText(/Sem conexão com o servidor/)).toBeVisible();
+		await expect(page.locator('body')).not.toContainText('Failed to fetch');
+		await expect(page.locator('body')).not.toContainText('Algo deu errado');
+		// 2) …e o digitado continua lá, que é o dano que importava.
 		await expect(page.getByRole('textbox', { name: /Nome completo/ })).toHaveValue(nome);
 
 		await offline(page, false);

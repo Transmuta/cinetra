@@ -105,7 +105,9 @@ describe('Relatórios — render', () => {
 		it('o diálogo fecha, e só um abre por vez', async () => {
 			const { getByRole, queryByRole } = render(Page, { props: { data: data() as never } });
 			await fireEvent.click(getByRole('button', { name: /como atendimentos é calculad/i }));
-			expect(getByRole('dialog')).toHaveTextContent(/exceto os cancelados/i);
+			// A unidade do KPI virou PESSOA, não bloco (doc 88, A-1): numa turma cada participante
+			// conta um. A fórmula diz isso porque é ela que torna o número contestável na mão.
+			expect(getByRole('dialog')).toHaveTextContent(/cada participante conta um/i);
 
 			await fireEvent.click(getByRole('button', { name: 'Fechar' }));
 			expect(queryByRole('dialog')).not.toBeInTheDocument();

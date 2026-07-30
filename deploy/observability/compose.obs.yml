@@ -110,6 +110,12 @@ services:
       # dos vazamentos de observabilidade começa.
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:?defina GRAFANA_ADMIN_USER}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?defina GRAFANA_ADMIN_PASSWORD}
+      # `:?` e não `:-`, de propósito (achado A3 do doc 86 §3). Sem esta variável o Grafana usa o
+      # `secret_key` do `defaults.ini` — `SW2YcwTIb9zpOOhoPsMm`, publicado na imagem — para assinar
+      # o cookie de sessão e cifrar segredo de datasource. Com `:?` o container RECUSA subir sem um
+      # valor próprio, o que é backstop mais forte que um teste: o default não tem como vazar porque
+      # não sobe. Gere com `openssl rand -hex 32`.
+      GF_SECURITY_SECRET_KEY: ${GRAFANA_SECRET_KEY:?defina GRAFANA_SECRET_KEY - openssl rand -hex 32}
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
@@ -152,14 +158,35 @@ services:
       - ./dashboards:/etc/grafana/provisioning/dashboards/cinetra:ro
       - grafana_data:/var/lib/grafana
     ports:
-      # Prefira NÃO publicar e alcançar por VPN. Se publicar, ponha atrás do Traefik com TLS —
-      # nunca direto.
-      - "${GRAFANA_PORT:-3000}:3000"
+      # Bind SÓ em 127.0.0.1, nunca em 0.0.0.0 (achado A2 do doc 86 §3: o Grafana era o único
+      # serviço com `ports:` e publicava na interface pública). Em produção o painel é alcançado
+      # pelo Traefik (`labels` abaixo) + Cloudflare Access; esta porta sobra para um túnel SSH de
+      # emergência e para o dev abrir em `localhost:3300`. Publicá-la em 0.0.0.0 exporia o login do
+      # Grafana — que, com o datasource do banco, enxerga o agregado de TODAS as clínicas.
+      - "127.0.0.1:${GRAFANA_PORT:-3300}:3000"
+    # Roteamento do painel em PRODUÇÃO: `obs.<dominio>` atrás do Cloudflare Access (doc 86 §4).
+    # Espelham os do `compose.dokploy.yml`: `tls=true` com o Origin Certificate da Cloudflare, sem
+    # certresolver (o desafio HTTP-01 não fecha com a 80 trancada nas faixas da CF). INERTES em dev
+    # — não há Traefik lendo este stack ali, então os labels não fazem nada.
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=dokploy-network
+      - traefik.http.routers.cinetra-obs.rule=Host(`${GRAFANA_HOST:-obs.localhost}`)
+      - traefik.http.routers.cinetra-obs.entrypoints=websecure
+      - traefik.http.routers.cinetra-obs.tls=true
+      - traefik.http.services.cinetra-obs.loadbalancer.server.port=3000
     networks:
       - obs
       # A rede da APLICAÇÃO, para alcançar o Postgres. Só o Grafana entra nela — o Loki e o Alloy
       # não têm o que fazer lá.
       - app
+      # A rede do Traefik (`dokploy-network` em produção), por onde o painel é ROTEADO. É a MESMA
+      # rede externa que o Prometheus usa para raspar, então herda `METRICS_NETWORK` e não pede
+      # variável nova. Em produção é distinta de `app` (cinetra-prod_data vs dokploy-network); em
+      # dev as duas colapsam em `cinetra_default` — duas chaves para a mesma rede, o que o Compose
+      # aceita (o container conecta uma vez). Sem esta linha o Traefik não tem caminho até o Grafana
+      # e `obs.<dominio>` dá 502.
+      - edge
 
   # ---- MÉTRICAS (doc 74) ------------------------------------------------------------------------
   #
@@ -521,5 +548,13 @@ networks:
   # válidas: cada CONTAINER se conecta uma vez só — o Grafana pela chave `app`, o Prometheus pela
   # `app_metrics`. O que seria erro é o mesmo container listar as duas.
   app_metrics:
+    external: true
+    name: ${METRICS_NETWORK:-${APP_NETWORK:-cinetra_default}}
+
+  # A rede do Traefik (edge), por onde o painel do Grafana é roteado para `obs.<dominio>`. É a MESMA
+  # rede externa por onde o Prometheus raspa a API (`dokploy-network`) — o Traefik e as duas apis
+  # vivem nela —, então herda `METRICS_NETWORK` e não exige variável nova. Em dev cai em
+  # `cinetra_default` e os labels do Traefik ficam inertes.
+  edge:
     external: true
     name: ${METRICS_NETWORK:-${APP_NETWORK:-cinetra_default}}

@@ -193,6 +193,69 @@ Decidido rodar atrás do Cloudflare com proxy. Feito **certo** — senão a prot
    os nomes de router do Traefik únicos entre os dois stacks).
 5. Habilite o auto-deploy por webhook em cada branch.
 
+### 6.1 O terceiro stack: observabilidade (`obs.cinetra.com.br`)
+
+Um **terceiro** serviço Compose no mesmo servidor, apontando para
+[`deploy/observability/compose.obs.yml`](../deploy/observability/compose.obs.yml) (branch `main`).
+É um projeto Dokploy separado — `cinetra-obs` — de propósito: o Alloy coleta por allowlist de
+projeto (`OBS_PROJETOS`), e é o nome distinto que o mantém fora da própria coleta. **Sobe por
+último**: ele entra nas redes externas dos stacks do app, que precisam existir antes.
+
+**Pré-requisitos (nesta ordem):**
+
+1. **prod no ar.** O obs entra em `cinetra-prod_data` (Grafana → Postgres), `cinetra-prod_app`
+   (Alloy ← spans) e `dokploy-network` (Prometheus → api, Traefik → Grafana). Nome errado de rede
+   **impede o stack de subir** (o compose valida rede externa antes de criar container) — confira:
+   ```bash
+   docker network ls | grep -E 'cinetra-prod_(data|app)|dokploy-network'
+   docker network inspect dokploy-network --format '{{range .Containers}}{{.Name}} {{end}}'
+   ```
+2. **O role de leitura do banco.** No **Environment do app (prod)**, setar `DATABASE_METRICS_PASSWORD`
+   e **redeployar o app** — `Api.Release.setup_metrics_role/0` cria o `cinetra_metrics` (só `SELECT`
+   nas views `metrics_*`) no boot. Sem isso os painéis de banco do Grafana dão *permission denied*.
+   O `METRICS_DB_PASSWORD` do obs (abaixo) tem de ser **o mesmo valor**.
+3. **DNS + Access.** Registro **A `obs` proxied** (laranja), como `cinetra`/`hml`/`dok` (§5). Ponha
+   `obs.cinetra.com.br` atrás do **Cloudflare Access** (§5.1), igual ao `dok` — inclusive **desligar
+   "authenticate via WARP"** no app do Access. O Grafana tem login próprio; o Access é a primeira
+   porta, no edge.
+
+**Environment do `cinetra-obs`** (aba do Dokploy — modelo em
+[`deploy/observability/.env.exemplo`](../deploy/observability/.env.exemplo)):
+
+| Var | Valor em prod | Observação |
+|---|---|---|
+| `OBS_ENV` | `prod` | rótulo em toda linha de log/métrica |
+| `OBS_PROJETOS` | `cinetra-prod\|cinetra-hml` | allowlist ANCORADA; **nunca** inclua `cinetra-obs` |
+| `GRAFANA_HOST` | `obs.cinetra.com.br` | host do router Traefik |
+| `GRAFANA_ROOT_URL` | `https://obs.cinetra.com.br` | senão os links do Grafana quebram |
+| `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD` | próprios | `:?` — recusa subir sem |
+| `GRAFANA_SECRET_KEY` | `openssl rand -hex 32` | `:?` — senão usa o default publicado (A3) |
+| `METRICS_DB_HOST` | `cinetra-prod-db-1` | nome do **container** (há dois `db`) |
+| `METRICS_DB_NAME` | `cinetra_prod` | |
+| `METRICS_DB_PASSWORD` | = `DATABASE_METRICS_PASSWORD` do app | `:?` — o role que conecta |
+| `APP_NETWORK` | `cinetra-prod_data` | rede do Postgres (Grafana) |
+| `APP_NETWORK_OTLP` | `cinetra-prod_app` | rede dos spans (Alloy) |
+| `METRICS_NETWORK` | `dokploy-network` | rede da api (Prometheus) **e** do Traefik (edge) |
+| `PROMETHEUS_TARGETS` | `./targets/api-prod.yml` | mira `api-prod`/`api-hml` (alias único, §6) |
+
+O Grafana **não publica porta em 0.0.0.0** — o compose prende em `127.0.0.1` e o acesso vem pelo
+Traefik (labels no serviço, `tls=true` com o Origin Certificate, §5.1). Não use "Add Domain" da UI.
+
+**Deploy e verificação:**
+
+```bash
+# na VM, dentro de deploy/observability/
+GRAFANA=https://obs.cinetra.com.br GRAFANA_AUTH=admin:<senha> ./verificar.sh
+```
+
+O `verificar.sh` prova as três fontes (log/métrica/trace), os dashboards provisionados, e que
+nenhuma porta interna vazou — inclusive a §13, que confirma o Grafana **fora** de 0.0.0.0.
+
+> **RAM (KVM2, 8GB).** O obs declara ~4GB de teto; com prod + hml + Dokploy cabe **parado**, mas a
+> folga some num pico (consulta de 30 dias no Loki durante um build de deploy). Rodando assim por
+> decisão — o próprio obs (painéis do node-exporter + alerta de OOM) é o que avisa a hora de subir
+> para **KVM4 (16GB)**. Ver [`docs/87`](87-servidor-hostinger-riscos-e-cuidados.md).
+
 ## 7. Segredos e env (por ambiente)
 
 **Gerar novos para produção** (não reaproveitar dev): `SECRET_KEY_BASE` e `TOKEN_SIGNING_SECRET`
@@ -209,6 +272,23 @@ o pipeline. **HML tem os seus próprios** — nunca compartilhe segredo/banco/bu
 | `SECRET_KEY_BASE` / `TOKEN_SIGNING_SECRET` | env | `raise` no boot se faltar |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | env | client do ambiente |
 | `R2_ACCOUNT_ID` / `R2_BUCKET` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | env | bucket do ambiente |
+| `RESEND_API_KEY` | env | **sem ela nenhum e-mail sai, nem o magic link** — o mailer cai no adapter `Local` e ninguém entra no sistema |
+| `RESEND_WEBHOOK_SECRET` | env | o *Signing Secret* (`whsec_…`) do endpoint cadastrado no Resend; sem ela o webhook responde **401 em todo evento** (fail closed) |
+| `MAIL_FROM` / `MAIL_FROM_NAME` | env | remetente de **domínio verificado**, um por ambiente — HML nunca do domínio de prod, senão um teste queima a reputação de envio da produção |
+| `WHATSAPP_HABILITADO` / `ZERNIO_*` | env | fase 2 (doc 65). Default vazio = canal desligado; ligar é preencher aqui, sem deploy |
+
+> **As três primeiras usam `${VAR:?mensagem}` no compose, de propósito: o `up` aborta se faltarem.**
+> Nem `${VAR:-}` nem `${VAR}` seco serviriam — os dois substituem por string vazia e seguem (o
+> segundo só acrescenta um warning no log do deploy), e o resultado é um sistema que sobe perfeito,
+> com a suíte verde, e no qual o e-mail simplesmente não sai. Esse foi o modo de falha que a
+> ausência delas no `compose.dokploy.yml` criou até 2026-07-30. É o mesmo fail-fast que
+> `SECRET_KEY_BASE` tem de graça pelo `raise` do `runtime.exs`. Cobertas por `Api.DeployEnvTest`,
+> que cobra do compose toda env de comunicação que o `runtime.exs` lê.
+>
+> **Preencher a env não basta:** o endpoint precisa existir no painel do Resend, apontando para
+> `https://<WEB_HOST>/webhooks/resend` (o Traefik já roteia `/webhooks` para a API — §3.1), e é de
+> lá que sai o `whsec_…`. Sem cadastrá-lo, nenhum evento de entrega chega e a timeline de
+> comunicação fica parada em "enviado" sem erro em lugar nenhum.
 
 `API_URL`, `API_PUBLIC_ORIGIN`, `ORIGIN`, `PHX_HOST`, `WEB_APP_URL`, `GOOGLE_REDIRECT_URI` e o
 `ADDRESS_HEADER=CF-Connecting-IP` (atrás do Cloudflare, §5.1) já saem prontos do

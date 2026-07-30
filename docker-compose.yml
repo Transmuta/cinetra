@@ -88,6 +88,13 @@ services:
       - ./api:/app
       - api_deps:/app/deps
       - api_build:/app/_build
+      # Raiz do repositório, SÓ LEITURA, só para `Api.DeployEnvTest`: ele cobra que o compose de
+      # produção passe as envs que o `runtime.exs` lê, e o compose mora fora de `api/`. No CI a
+      # suíte roda em `api/` com o checkout inteiro ao lado (`../compose.dokploy.yml`); aqui não
+      # havia como enxergá-lo, e o teste ficaria pulando em silêncio no único lugar onde se
+      # desenvolve. É um DIRETÓRIO de propósito: bind mount de arquivo único no WSL congela um
+      # snapshot, e o teste passaria a ler uma versão velha do compose sem avisar.
+      - ./:/repo:ro
     stdin_open: true
     tty: true
 

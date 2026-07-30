@@ -155,6 +155,37 @@ services:
       R2_BUCKET: ${R2_BUCKET}
       R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID}
       R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY}
+      # Comunicação com o paciente (doc 52 / doc 65). Faltavam AQUI enquanto o cabeçalho deste
+      # arquivo já roteava `/webhooks` para a API — e as duas ausências são silenciosas:
+      #
+      #   * sem RESEND_API_KEY o mailer cai no adapter `Local` (runtime.exs) e NENHUM e-mail sai,
+      #     inclusive o magic link: ninguém entra no sistema, e o log não diz por quê;
+      #   * sem RESEND_WEBHOOK_SECRET o webhook é fail-closed e responde 401 em TODO evento. O
+      #     Resend reentrega por horas e a timeline congela em `enviado` para sempre.
+      #
+      # `:?` e não `${VAR}` seco: omitir o default NÃO protege nada — o compose substitui por
+      # string vazia e segue, com um warning no log do deploy que ninguém lê. O `:?` **aborta o
+      # `up`** com a mensagem abaixo, que é a única forma de "esqueci de preencher no Dokploy"
+      # virar um erro em vez dos dois sintomas silenciosos acima. É o que `SECRET_KEY_BASE`
+      # consegue de graça pelo `raise` do runtime.exs, e que estas não têm.
+      RESEND_API_KEY: ${RESEND_API_KEY:?sem ela nenhum e-mail sai, nem o magic link}
+      RESEND_WEBHOOK_SECRET: ${RESEND_WEBHOOK_SECRET:?o webhook responde 401 em todo evento sem ela}
+      # O remetente precisa ser de domínio verificado no Resend, e é POR AMBIENTE: prod manda do
+      # domínio real, HML de um subdomínio próprio — nunca do mesmo, senão um teste em homologação
+      # queima a reputação de envio da produção.
+      MAIL_FROM: ${MAIL_FROM:?remetente de dominio verificado no Resend, um por ambiente}
+      MAIL_FROM_NAME: ${MAIL_FROM_NAME:-Cinetra}
+      # Fase 2, WhatsApp via Zernio (doc 65). Vazio = canal desligado, que é o estado em que o
+      # stack nasce — e é por isso que estas TÊM default, ao contrário das de cima.
+      #
+      # Passar a env vazia não liga nada (quem liga é a flag, e as credenciais são independentes
+      # dela por decisão do `Api.Messaging.Transport`). O que isto compra é que o dia de ligar o
+      # WhatsApp seja preencher campo no Dokploy, e não reencenar o bug do Resend em outro canal.
+      WHATSAPP_HABILITADO: ${WHATSAPP_HABILITADO:-false}
+      ZERNIO_API_KEY: ${ZERNIO_API_KEY:-}
+      ZERNIO_ACCOUNT_ID: ${ZERNIO_ACCOUNT_ID:-}
+      ZERNIO_BASE_URL: ${ZERNIO_BASE_URL:-}
+      ZERNIO_WEBHOOK_SECRET: ${ZERNIO_WEBHOOK_SECRET:-}
       # Heartbeat dos crons do Oban (docs/62 §9). Roda AQUI, no container da API — não no do
       # backup, que tem o seu próprio. Mesma raiz, um slug por job (ver runtime.exs). Vazio =
       # desligado; faltar a env aqui faria os seis checks alarmarem "não rodou" para sempre.

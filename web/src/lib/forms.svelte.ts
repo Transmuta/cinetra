@@ -28,13 +28,48 @@ export interface OpcoesEnvio {
 	aoResponder?: (result: ActionResult) => void | Promise<void>;
 }
 
+/**
+ * O que se diz quando o POST não chegou ao servidor.
+ *
+ * Exportada porque é contrato de tela, não texto solto: os testes a citam, e a frase promete uma
+ * coisa que o código precisa cumprir — que **o formulário continua ali**.
+ */
+export const ERRO_DE_REDE =
+	'Sem conexão com o servidor. O que você preencheu continua aqui — tente de novo.';
+
+/**
+ * Falha de REDE não pode passar pelo `update`.
+ *
+ * `update()` chama o `applyAction` do SvelteKit, e para `result.type === 'error'` isso **troca a
+ * página inteira** pela tela de erro. Medido no doc 88 (A-10): salvar a ficha com a rede fora
+ * levava a `500 — Algo deu errado / Failed to fetch`, e os 31 campos digitados iam junto.
+ *
+ * Três coisas erradas no mesmo caminho, e todas somem ao não chamar o `update`: o "500" (o
+ * servidor não respondeu nada — não houve erro do servidor), a mensagem interna do browser em
+ * inglês na cara do usuário, e a perda do trabalho.
+ *
+ * `aoResponder` também não roda: ele existe para reagir a uma resposta, e aqui não houve nenhuma.
+ */
+// `result` é opcional de propósito: o `use:enhance` sempre o entrega, mas os testes de componente
+// costumam chamar o callback só com o `update` (é o `update` que eles observam). Sem o `?.`, o
+// helper passava a explodir dentro de teste que não tinha nada a ver com rede.
+function falhouARede(result?: ActionResult): boolean {
+	return result?.type === 'error';
+}
+
 export function envio(opts: OpcoesEnvio = {}) {
 	let emVoo = $state(false);
+	let erroRede = $state<string | null>(null);
 
 	const submit: SubmitFunction = () => {
 		emVoo = true;
+		erroRede = null;
 		return async ({ result, update }) => {
 			try {
+				if (falhouARede(result)) {
+					erroRede = ERRO_DE_REDE;
+					return;
+				}
 				await update({ reset: opts.reset ?? true });
 				await opts.aoResponder?.(result);
 			} finally {
@@ -46,6 +81,13 @@ export function envio(opts: OpcoesEnvio = {}) {
 	return {
 		get emVoo() {
 			return emVoo;
+		},
+		/** A frase a mostrar quando o POST não chegou ao servidor, ou `null`. */
+		get erroRede() {
+			return erroRede;
+		},
+		limparErroRede() {
+			erroRede = null;
 		},
 		submit
 	};
@@ -60,9 +102,17 @@ export function envio(opts: OpcoesEnvio = {}) {
  */
 export function envioPorItem<K>(opts: OpcoesEnvio = {}) {
 	let alvo = $state<K | null>(null);
+	let erroRede = $state<string | null>(null);
 
 	return {
 		emVoo: (chave: K) => alvo === chave,
+		/** A frase a mostrar quando o POST não chegou ao servidor, ou `null`. */
+		get erroRede() {
+			return erroRede;
+		},
+		limparErroRede() {
+			erroRede = null;
+		},
 		/** Alguma linha está em voo? Use para travar as vizinhas quando a ação for exclusiva. */
 		get algumEmVoo() {
 			return alvo !== null;
@@ -100,6 +150,7 @@ export function envioPorItem<K>(opts: OpcoesEnvio = {}) {
 	};
 
 	function concluir() {
+		erroRede = null;
 		return async ({
 			result,
 			update
@@ -108,6 +159,12 @@ export function envioPorItem<K>(opts: OpcoesEnvio = {}) {
 			update: (o?: { reset?: boolean }) => Promise<void>;
 		}) => {
 			try {
+				// Mesma razão de `envio`: sem resposta do servidor, não se chama `update` — ele
+				// trocaria a lista inteira pela tela de erro.
+				if (falhouARede(result)) {
+					erroRede = ERRO_DE_REDE;
+					return;
+				}
 				await update({ reset: opts.reset ?? true });
 				await opts.aoResponder?.(result);
 			} finally {

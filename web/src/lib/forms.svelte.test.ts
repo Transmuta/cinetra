@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { ActionResult, SubmitFunction } from '@sveltejs/kit';
-import { envio, envioPorItem } from './forms.svelte';
+import { envio, envioPorItem, ERRO_DE_REDE } from './forms.svelte';
 
 // O `use:enhance` chama a `SubmitFunction` com o contexto do submit e, quando a resposta volta,
 // o callback que ela devolveu. Estes dois helpers rodam esse ciclo à mão — é o que permite
@@ -128,6 +128,75 @@ describe('envioPorItem — N forms numa lista', () => {
 		expect(linha.emVoo('paciente-2:no_show')).toBe(true);
 
 		await cb({ result: OK, update: async () => {} });
+		expect(linha.algumEmVoo).toBe(false);
+	});
+});
+
+// ---------------------------------------------------------------------------------------------
+// Rede fora (doc 88 · A-10)
+// ---------------------------------------------------------------------------------------------
+//
+// O bug que estes testes trancam: `update()` chama o `applyAction`, e para `result.type ===
+// 'error'` isso troca a página inteira pela tela de erro — levando junto tudo o que a pessoa
+// digitou. Medido na ficha do paciente: `500 — Algo deu errado / Failed to fetch`, com os 31
+// campos perdidos. A asserção que importa aqui é a NEGATIVA: `update` não pode ser chamado.
+
+const ERRO: ActionResult = { type: 'error', error: new Error('Failed to fetch') };
+
+describe('envio — a rede caiu no meio do POST', () => {
+	it('NÃO chama update (é ele que troca a página) e expõe a frase', async () => {
+		const e = envio();
+		let chamouUpdate = false;
+
+		const cb = disparar(e.submit);
+		await cb({
+			result: ERRO,
+			update: async () => {
+				chamouUpdate = true;
+			}
+		});
+
+		expect(chamouUpdate).toBe(false);
+		expect(e.erroRede).toBe(ERRO_DE_REDE);
+		// E o botão volta a funcionar: sem isto a pessoa fica com a tela travada.
+		expect(e.emVoo).toBe(false);
+	});
+
+	it('não roda `aoResponder` — não houve resposta para reagir', async () => {
+		const aoResponder = vi.fn();
+		const e = envio({ aoResponder });
+
+		await disparar(e.submit)({ result: ERRO, update: async () => {} });
+
+		expect(aoResponder).not.toHaveBeenCalled();
+	});
+
+	it('a frase some no envio seguinte', async () => {
+		const e = envio();
+
+		await disparar(e.submit)({ result: ERRO, update: async () => {} });
+		expect(e.erroRede).toBe(ERRO_DE_REDE);
+
+		disparar(e.submit);
+		expect(e.erroRede).toBeNull();
+	});
+});
+
+describe('envioPorItem — a rede caiu no meio do POST', () => {
+	it('NÃO chama update, expõe a frase e solta a linha', async () => {
+		const linha = envioPorItem<string>();
+		let chamouUpdate = false;
+
+		const cb = disparar(linha.submit('pkg-1'));
+		await cb({
+			result: ERRO,
+			update: async () => {
+				chamouUpdate = true;
+			}
+		});
+
+		expect(chamouUpdate).toBe(false);
+		expect(linha.erroRede).toBe(ERRO_DE_REDE);
 		expect(linha.algumEmVoo).toBe(false);
 	});
 });

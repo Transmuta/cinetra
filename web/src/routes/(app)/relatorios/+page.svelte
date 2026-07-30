@@ -143,7 +143,7 @@
 			`${t.futuros} ainda agendados`,
 			'var(--color-ink)',
 			CalendarDays,
-			'Todos os agendamentos do período, exceto os cancelados. Inclui os que ainda vão acontecer.'
+			'Pessoas atendidas no período, exceto as de sessões canceladas — numa turma cada participante conta um. Inclui as que ainda vão acontecer.'
 		)}
 		{@render kpi(
 			'Concluídos',
@@ -151,7 +151,7 @@
 			t.atendimentos ? `${sharePct(t.concluidos, t.atendimentos)}% do volume` : '—',
 			'var(--color-success)',
 			CircleCheck,
-			'Atendimentos que terminaram com pelo menos um paciente presente.'
+			'Participantes marcados como presentes. Numa turma de 2 em que um veio e o outro faltou, conta 1 aqui e 1 na taxa de falta.'
 		)}
 		{@render kpi(
 			'Taxa de falta',
@@ -159,7 +159,7 @@
 			`${t.faltas} faltas`,
 			t.taxa_falta > 20 ? 'var(--color-danger)' : 'var(--color-warning)',
 			TrendingDown,
-			'Faltas ÷ (concluídos + faltas) — só entram as sessões que já fecharam. O que ainda vai acontecer não conta, nem no numerador nem no denominador.'
+			'Faltas ÷ (concluídos + faltas), contadas por participante — só entram as presenças que já fecharam. O que ainda vai acontecer não conta, nem no numerador nem no denominador.'
 		)}
 		{@render kpi(
 			'Cancelamentos',
@@ -167,7 +167,7 @@
 			'no período',
 			'var(--color-faint)',
 			CircleX,
-			'Agendamentos cancelados no período. Não entram na conta de atendimentos nem na de ocupação.'
+			'Sessões canceladas no período — aqui a conta é de BLOCOS, não de pessoas: cancelar é ato de agendamento, não desfecho de presença. Não entram na conta de atendimentos nem na de ocupação.'
 		)}
 		{@render kpi(
 			'Ocupação',

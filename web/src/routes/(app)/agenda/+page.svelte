@@ -361,12 +361,30 @@
 	// A CHAVE do efeito é `selectedId` + a última action de confirmação: reexecutar depois de um
 	// envio é o que faz a linha nova aparecer sem F5. Sem a segunda parte, a recepção clicaria em
 	// "Enviar" e a timeline continuaria mostrando o estado de antes.
+	//
+	// A marca é um `$derived`, e não `form?.action === 'confirmar'` lido DENTRO do efeito, pela
+	// mesma razão do `topicsKey` acima: ler o `form` no efeito o torna dependente do `form`
+	// INTEIRO, e o `enhance` repõe esse objeto a cada mutação. Excluir/criar/concluir qualquer
+	// coisa refazia a busca da timeline. O derivado só notifica quando o VALOR muda, então action
+	// alheia não mexe nele.
+	const marcaConfirmar = $derived(form?.action === 'confirmar' ? form : null);
+
+	// BOOLEANO, e não o objeto `selecionado`: o tempo real troca a identidade do bloco a cada push,
+	// e depender do objeto refaria a busca a cada evento sem nada ter mudado (é a mesma nota do
+	// efeito de candidatos abaixo). Um derivado booleano só notifica quando VIRA.
+	const abertoNaJanela = $derived(selecionado !== null);
+
 	$effect(() => {
 		const id = selectedId;
-		const marca = form?.action === 'confirmar' ? form : null;
+		const marca = marcaConfirmar;
 		void marca;
 
-		if (!id) {
+		// O bloco tem de estar na janela, não basta o id: o `?agendamento=` fica ÓRFÃO na URL quando
+		// ele sai dela (excluído aqui ou por outra pessoa) — o drawer fecha sozinho, mas ninguém
+		// navega (ver o efeito de `remarcando` acima, e o porquê de não navegar). Sem esta guarda o
+		// efeito seguia pedindo a timeline de um bloco que a API não vê, e cada pedido voltava 404 —
+		// em rajada, uma por action, até trocar de dia ou dar F5. Pego ao vivo na HML.
+		if (!id || !abertoNaJanela) {
 			mensagens = null;
 			return;
 		}
@@ -396,8 +414,11 @@
 	// As chaves do efeito são PRIMITIVAS do bloco (status/slot), não o objeto `selecionado`: o
 	// tempo real troca o objeto a cada push, e a identidade nova refaria a consulta sem nada
 	// ter mudado. A marca da action reexecuta depois de um "Agendar" — o convertido saiu da
-	// fila e a lista precisa refletir isso sem F5.
+	// fila e a lista precisa refletir isso sem F5. E ela é um `$derived` pelo mesmo motivo da
+	// `marcaConfirmar` acima: lida dentro do efeito, ela arrastaria o `form` inteiro para a chave.
 	let candidatos = $state<Entry[] | null>(null);
+
+	const marcaAgendarFila = $derived(form?.action === 'agendar_fila' ? form : null);
 
 	$effect(() => {
 		const id = selectedId;
@@ -405,7 +426,7 @@
 		const prof = selecionado?.professional_id;
 		const starts = selecionado?.starts_at;
 		const ends = selecionado?.ends_at;
-		const marca = form?.action === 'agendar_fila' ? form : null;
+		const marca = marcaAgendarFila;
 		void marca;
 
 		const vagaAberta = status === 'cancelado' || status === 'faltou';

@@ -83,6 +83,60 @@ defmodule Api.Scheduling.SummaryTest do
       assert t.taxa_falta == 33
     end
 
+    # A-1 do doc 88, achado do QA guiado: numa TURMA o desfecho do bloco é o rollup das presenças
+    # ("alguma concluída ⇒ bloco concluído"), então contar `appointment.status` some com a falta de
+    # quem não veio. Uma turma de 2 com 1 presente e 1 falta aparecia como "1 concluído, 0 faltas";
+    # uma de 4 em que os 4 faltaram contava 1 falta, não 4.
+    #
+    # A régua do relatório passou a ser a PRESENÇA (quem foi atendido), não o bloco. Para
+    # atendimento individual os dois números coincidem — por isso o desvio nunca apareceu.
+    test "turma: conta PRESENÇA, não bloco (1 presente + 1 falta = 1 e 1)" do
+      ctx = setup_clinic()
+      turma = tipo!(ctx, nome: "Pilates #{unico()}", grupo: true, capacidade: 4)
+      outro = paciente!(ctx, "Segundo Paciente")
+
+      appt =
+        schedule(ctx, @segunda, "08:00", %{
+          appointment_type_id: turma.id,
+          patient_ids: [ctx.paciente.id, outro.id]
+        })
+
+      {:ok, _} = Scheduling.transition_participant(ctx.scope, appt.id, ctx.paciente.id, :complete)
+      {:ok, _} = Scheduling.transition_participant(ctx.scope, appt.id, outro.id, :no_show)
+
+      t = summary(ctx, @segunda, @segunda).totais
+
+      # O bloco é UM e seu status é `:concluido` — mas duas pessoas foram atendidas, e uma faltou.
+      assert t.atendimentos == 2
+      assert t.concluidos == 1
+      assert t.faltas == 1
+      assert t.taxa_falta == 50
+
+      # A ocupação continua sendo do BLOCO: a turma ocupa um slot, tenham vindo 1 ou 4.
+      assert t.ocupado_minutos == 50
+    end
+
+    test "turma em que TODOS faltaram conta cada falta, não uma" do
+      ctx = setup_clinic()
+      turma = tipo!(ctx, nome: "Pilates #{unico()}", grupo: true, capacidade: 4)
+      outro = paciente!(ctx, "Segundo Paciente")
+
+      appt =
+        schedule(ctx, @segunda, "08:00", %{
+          appointment_type_id: turma.id,
+          patient_ids: [ctx.paciente.id, outro.id]
+        })
+
+      {:ok, _} = Scheduling.transition_participant(ctx.scope, appt.id, ctx.paciente.id, :no_show)
+      {:ok, _} = Scheduling.transition_participant(ctx.scope, appt.id, outro.id, :no_show)
+
+      t = summary(ctx, @segunda, @segunda).totais
+
+      assert t.faltas == 2
+      assert t.concluidos == 0
+      assert t.taxa_falta == 100
+    end
+
     test "ocupação é minutos agendados ÷ expediente real (não os 9 slots), cancelado fora" do
       ctx = setup_clinic()
       transition(ctx, schedule(ctx, @segunda, "08:00"), :complete)

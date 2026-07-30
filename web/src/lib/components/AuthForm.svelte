@@ -83,6 +83,24 @@
 		>
 			<ArrowLeft size={16} /> Usar outro e-mail
 		</a>
+		{#if !collectName}
+			<!--
+				A saída do beco do A-11 (doc 88 §4).
+
+				Quem se cadastrou e NUNCA abriu o link fica sem conta no banco — o `User` só nasce no
+				consumo. Daí que, para essa pessoa, pedir o link por aqui não envia nada: a busca não
+				acha ninguém e a cláusula anti-enumeração do `request_magic_link` silencia o envio, de
+				propósito. Ela então repete o login e lê esta mesma tela tranquilizadora, para sempre.
+
+				A frase é FIXA e aparece para todo mundo que submete o login — é isso que a mantém
+				compatível com o ADR-015: ela não depende do endereço digitado e, portanto, não revela
+				se a conta existe. Só na tela de LOGIN (`collectName` falso); no cadastro seria circular.
+			-->
+			<p style="font-size:13px;color:#736E63;margin:18px 0 0;line-height:1.55">
+				Criou a conta agora e o link não chegou?
+				<a href="/criar-conta" style="color:#4E7468;font-weight:600">Peça outro em Criar conta</a>.
+			</p>
+		{/if}
 	</div>
 {:else}
 	<!-- Progressive enhancement: com JS, envia sem reload e mostra o estado inline; sem JS,

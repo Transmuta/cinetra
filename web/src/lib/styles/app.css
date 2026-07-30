@@ -63,9 +63,19 @@
 	--mv-blue: #3a5a78;
 }
 
-/* ---- Tema claro (theme() com d=false) ---- */
+/* ---- Tema claro (theme() com d=false) ----
+
+   O terceiro seletor é o `[data-theme='light']` SEM `:root`, e ele existe por uma razão só:
+   permitir que um pedaço da página fique claro enquanto o resto do documento está escuro. Quem
+   usa é o `AuthCard` (entrada, cadastro, onboarding) — telas que são o papel/navy da marca e não
+   seguem o tema do usuário. Como os tokens são custom properties, re-declará-los num nó basta:
+   a declaração local vence a herança e a subárvore inteira resolve pelo claro.
+
+   Ele é de escopo, não de tema: NÃO ponha `data-theme="light"` em tela do app para "consertar"
+   cor — ali o dark mode é para valer. Ver `tema-escopo.test.ts` e `e2e/tema-auth-claro.spec.ts`. */
 :root,
-:root[data-theme='light'] {
+:root[data-theme='light'],
+[data-theme='light'] {
 	--mv-canvas: #fbfcfd;
 	--mv-surface: #ffffff;
 	--mv-surface2: #f6f8f9;
