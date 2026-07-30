@@ -47,6 +47,17 @@ describe('AgendaLegend', () => {
 		expect(screen.getByText(/Quantos vieram/)).toBeInTheDocument();
 	});
 
+	// O card ganhou um sinal que vem de FORA do sistema (doc 52 §5) — o paciente clicando no link.
+	// Sinal no card sem linha na legenda é a pergunta "e essa estrelinha?", que é exatamente o que
+	// esta legenda existe para não deixar acontecer.
+	it('explica os dois sinais da resposta do paciente', () => {
+		render(AgendaLegend);
+
+		expect(screen.getByText('O paciente respondeu')).toBeInTheDocument();
+		expect(screen.getByText('Confirmou presença')).toBeInTheDocument();
+		expect(screen.getByText('Pediu para remarcar')).toBeInTheDocument();
+	});
+
 	// D3: aberta por padrão — quem chega novo aprende sem saber que precisava procurar. Foi
 	// assim que a tela de auditoria virou o HOM-016.
 	it('nasce aberta', () => {

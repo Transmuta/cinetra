@@ -3,7 +3,7 @@ import '@testing-library/jest-dom/vitest';
 import { render, screen } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import AppointmentBlock from './AppointmentBlock.svelte';
-import type { Appointment, AttendanceStatus, Participant } from '$lib/agenda';
+import type { Appointment, AttendanceStatus, Participant, PatientReply } from '$lib/agenda';
 
 function appt(over: Partial<Appointment> = {}): Appointment {
 	return {
@@ -150,7 +150,8 @@ describe('AppointmentBlock', () => {
 			status,
 			falta_justificada: false, motivo: null,
 			package_id: null,
-			package: null
+			package: null,
+			resposta: null
 		});
 
 		function turmaProps(statuses: AttendanceStatus[], height = 80) {
@@ -312,6 +313,87 @@ describe('AppointmentBlock', () => {
 		expect(screen.getByRole('button').getAttribute('aria-label')).toContain('Maria Silva');
 	});
 
+	// A resposta ao link (doc 52 §5) era gravada e só existia na timeline do drawer: para saber
+	// quem confirmou era preciso abrir um bloco por vez.
+	describe('a resposta do paciente', () => {
+		const presenca = (resposta: PatientReply | null, i = 1): Participant => ({
+			patient_id: `pat${i}`,
+			status: 'prevista',
+			falta_justificada: false,
+			motivo: null,
+			package_id: null,
+			package: null,
+			resposta
+		});
+
+		const respondeu = (resposta: PatientReply | null, over = {}) => ({
+			...base,
+			appt: appt({ participants: [presenca(resposta)] }),
+			...over
+		});
+
+		it('a confirmação vira a estrela, com o title por extenso', () => {
+			render(AppointmentBlock, { props: respondeu('confirmou') });
+
+			expect(screen.getByTestId('reply-confirmou')).toHaveAttribute(
+				'title',
+				'O paciente confirmou presença'
+			);
+		});
+
+		it('quem não respondeu não ganha sinal nenhum', () => {
+			render(AppointmentBlock, { props: respondeu(null) });
+
+			expect(screen.queryByTestId('reply-confirmou')).not.toBeInTheDocument();
+			expect(screen.queryByTestId('reply-quer_remarcar')).not.toBeInTheDocument();
+		});
+
+		it('o pedido de remarcação tem sinal próprio', () => {
+			render(AppointmentBlock, { props: respondeu('quer_remarcar') });
+
+			expect(screen.getByTestId('reply-quer_remarcar')).toHaveAttribute(
+				'title',
+				'O paciente pediu para remarcar'
+			);
+			expect(screen.queryByTestId('reply-confirmou')).not.toBeInTheDocument();
+		});
+
+		// Mora na linha 1, que é a única presente em TODA variante da escada de degradação — o
+		// selo de pacote (terceira linha) desaparece abaixo de 61px, e a estrela não pode.
+		it('sobrevive ao bloco mais baixo da escada', () => {
+			render(AppointmentBlock, { props: respondeu('confirmou', { height: 20 }) });
+
+			expect(screen.getByTestId('reply-confirmou')).toBeInTheDocument();
+		});
+
+		// Ícone tem `title`, e `title` não é anunciado de forma confiável por leitor de tela.
+		it('entra no rótulo acessível', () => {
+			render(AppointmentBlock, { props: respondeu('confirmou') });
+
+			expect(screen.getByRole('button').getAttribute('aria-label')).toContain(
+				'O paciente confirmou presença'
+			);
+		});
+
+		it('na turma o número acompanha o ícone', () => {
+			render(AppointmentBlock, {
+				props: {
+					...base,
+					height: 80,
+					tipo: { ...tipo, nome: 'Pilates', grupo: true, capacidade: 4 },
+					appt: appt({
+						patient_ids: ['pat1', 'pat2', 'pat3'],
+						participants: [presenca('confirmou', 1), presenca('confirmou', 2), presenca(null, 3)]
+					})
+				}
+			});
+
+			const selo = screen.getByTestId('reply-confirmou');
+			expect(selo).toHaveTextContent('2');
+			expect(selo).toHaveAttribute('title', '2 confirmaram presença');
+		});
+	});
+
 	// O bloco de pacote era idêntico ao avulso: nem que é pacote, nem que sessão da série é.
 	describe('selo de pacote', () => {
 		const emPacote = (props = {}) => ({
@@ -330,7 +412,8 @@ describe('AppointmentBlock', () => {
 							sessao: 3,
 							total: 10,
 							falta_punitiva: true
-						}
+						},
+						resposta: null
 					}
 				]
 			}),

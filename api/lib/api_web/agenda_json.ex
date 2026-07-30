@@ -88,12 +88,25 @@ defmodule ApiWeb.AgendaJSON do
         # O motivo da falta viaja por participante (D-H3/D5) — na turma, cada um tem o seu.
         motivo: att.motivo,
         package_id: att.package_id,
-        package: package(att)
+        package: package(att),
+        resposta: resposta(att)
       }
     end)
   end
 
   defp participants(_appt), do: []
+
+  # "O paciente confirmou presença" (doc 52 §5) — o sinal que o card exibe como estrela, e o
+  # `quer_remarcar` que exige ação. Nulo = não respondeu.
+  #
+  # Degrada para `nil` quando o agregado não foi carregado, pela mesma razão que `package/1`: só
+  # as portas do bloco pedem o `Api.Scheduling.bloco_load/0`, e uma serialização que estourasse em
+  # `%Ash.NotLoaded{}` transformaria "esqueci um load" em 500 numa porta lateral.
+  defp resposta(%{resposta_do_paciente: resposta})
+       when is_atom(resposta) and not is_nil(resposta),
+       do: resposta
+
+  defp resposta(_att), do: nil
 
   # "Isto é a sessão 3 de 10 do Pilates" — o que o cartão da agenda precisa dizer e o
   # `package_id` sozinho (um UUID) não diz. Nulo quando a sessão é avulsa.

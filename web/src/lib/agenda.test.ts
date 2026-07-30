@@ -29,6 +29,7 @@ import {
 	resolvedCount,
 	packageBadge,
 	packageDebit,
+	replyBadges,
 	shortDayLabel,
 	presetDoBotao,
 	type Appointment,
@@ -574,7 +575,8 @@ describe('ciclo de vida (Entrega 4)', () => {
 			status: 'prevista',
 			falta_justificada: false, motivo: null,
 			package_id: null,
-			package: null
+			package: null,
+			resposta: null
 		};
 
 		it('antes de a sessão começar, presente/faltou ficam desabilitados com o title', () => {
@@ -635,7 +637,8 @@ describe('ciclo de vida (Entrega 4)', () => {
 			falta_justificada: false,
 			motivo: null,
 			package_id: null,
-			package: null
+			package: null,
+			resposta: null
 		};
 
 		const doPacote: Participant = {
@@ -700,6 +703,70 @@ describe('ciclo de vida (Entrega 4)', () => {
 		});
 	});
 
+	// A resposta do paciente ao link (doc 52 §5) era gravada e só existia na timeline do drawer:
+	// para saber quem confirmou era preciso abrir um bloco por vez. O card é onde a recepção olha.
+	describe('replyBadges', () => {
+		const mudo: Participant = {
+			patient_id: 'pac1',
+			status: 'prevista',
+			falta_justificada: false,
+			motivo: null,
+			package_id: null,
+			package: null,
+			resposta: null
+		};
+
+		const confirmou: Participant = { ...mudo, resposta: 'confirmou' };
+
+		it('quem não respondeu não põe sinal nenhum no card', () => {
+			expect(replyBadges(appt({ participants: [mudo] }))).toEqual([]);
+			expect(replyBadges(appt())).toEqual([]);
+		});
+
+		it('a confirmação é a estrela, sem número na sessão individual', () => {
+			const [selo, ...resto] = replyBadges(appt({ participants: [confirmou] }));
+
+			expect(selo.kind).toBe('confirmou');
+			expect(selo.label).toBeNull();
+			expect(selo.title).toBe('O paciente confirmou presença');
+			expect(resto).toEqual([]);
+		});
+
+		// Mesma forma do `packageBadge`: numa turma o número é o rótulo, porque a estrela sozinha
+		// não diria quantos dos quatro confirmaram.
+		it('na turma o número conta cabeças', () => {
+			const [selo] = replyBadges(
+				appt({
+					participants: [confirmou, { ...confirmou, patient_id: 'pac2' }, mudo]
+				})
+			);
+
+			expect(selo.label).toBe('2');
+			expect(selo.title).toBe('2 confirmaram presença');
+		});
+
+		// O pedido de remarcação é o que EXIGE ação, então vem primeiro — a mesma precedência de
+		// conflito antes de encaixe na linha 1 do cartão.
+		it('quem pediu remarcação vem antes de quem confirmou', () => {
+			const selos = replyBadges(
+				appt({
+					participants: [confirmou, { ...mudo, patient_id: 'pac2', resposta: 'quer_remarcar' }]
+				})
+			);
+
+			expect(selos.map((s) => s.kind)).toEqual(['quer_remarcar', 'confirmou']);
+			expect(selos[0].title).toBe('O paciente pediu para remarcar');
+		});
+
+		// Mesma regra do `statusSignal` e do `packageBadge`: presença cancelada saiu do bloco, e a
+		// confirmação que ela deu não é mais sobre esta sessão.
+		it('presença cancelada não põe estrela no bloco', () => {
+			expect(replyBadges(appt({ participants: [{ ...confirmou, status: 'cancelada' }] }))).toEqual(
+				[]
+			);
+		});
+	});
+
 	// "Isso vai descontar do pacote dela?" — a pergunta que a recepção faz em voz alta quando
 	// alguém falta. A regra (RN-29/30/31) é do servidor; aqui só se escreve o que ela decidiu.
 	describe('packageDebit', () => {
@@ -709,7 +776,8 @@ describe('ciclo de vida (Entrega 4)', () => {
 			falta_justificada: false,
 			motivo: null,
 			package_id: 'k1',
-			package: { nome: 'Pilates 10', sessao: 3, total: 10, falta_punitiva: true }
+			package: { nome: 'Pilates 10', sessao: 3, total: 10, falta_punitiva: true },
+			resposta: null
 		};
 
 		const semPacote: Participant = { ...base, package_id: null, package: null };

@@ -53,7 +53,8 @@ function appt(over: Partial<Appointment> = {}): Appointment {
 				falta_justificada: false,
 				motivo: null,
 				package_id: null,
-				package: null
+				package: null,
+				resposta: null
 			}
 		],
 		...over
@@ -271,7 +272,8 @@ describe('AppointmentDrawer', () => {
 							falta_justificada: false,
 							motivo: 'não avisou',
 							package_id: null,
-							package: null
+							package: null,
+							resposta: null
 						}
 					]
 				}),
@@ -303,7 +305,8 @@ describe('AppointmentDrawer', () => {
 							falta_justificada: false,
 							motivo: null,
 							package_id: null,
-							package: null
+							package: null,
+							resposta: null
 						}
 					]
 				}),
@@ -340,7 +343,8 @@ describe('AppointmentDrawer', () => {
 							falta_justificada: false,
 							motivo: null,
 							package_id: null,
-							package: null
+							package: null,
+							resposta: null
 						}
 					]
 				}),
@@ -612,7 +616,8 @@ describe('AppointmentDrawer', () => {
 			falta_justificada: false,
 			motivo: null,
 			package_id: null,
-			package: null
+			package: null,
+			resposta: null
 		});
 
 		// Achado A — o mais grave. O cartão usa `statusSignal` desde o D13 e escreve a composição;
@@ -655,7 +660,8 @@ describe('AppointmentDrawer', () => {
 								falta_justificada: false,
 								motivo: null,
 								package_id: null,
-								package: null
+								package: null,
+								resposta: null
 							}
 						]
 					}),
@@ -781,6 +787,7 @@ describe('AppointmentDrawer', () => {
 						motivo: null,
 						package_id: 'k1',
 						package: pacote(over),
+						resposta: null,
 						...(appointment.participante as object)
 					}
 				],
@@ -821,7 +828,8 @@ describe('AppointmentDrawer', () => {
 						falta_justificada: false,
 						motivo: null,
 						package_id: 'k1',
-						package: pacote()
+						package: pacote(),
+						resposta: null
 					}
 				]
 			});
@@ -850,7 +858,8 @@ describe('AppointmentDrawer', () => {
 						falta_justificada: false,
 						motivo: null,
 						package_id: 'k1',
-						package: pacote()
+						package: pacote(),
+						resposta: null
 					},
 					{
 						patient_id: 'pac2',
@@ -858,7 +867,8 @@ describe('AppointmentDrawer', () => {
 						falta_justificada: false,
 						motivo: null,
 						package_id: 'k2',
-						package: pacote({ nome: 'RPG 8', sessao: 1, total: 8 })
+						package: pacote({ nome: 'RPG 8', sessao: 1, total: 8 }),
+						resposta: null
 					}
 				]
 			});

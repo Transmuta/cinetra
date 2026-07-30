@@ -305,6 +305,15 @@ defmodule Api.Scheduling.Attendance do
       source_attribute :package_id
       destination_attribute :package_id
     end
+
+    # O inverso do `belongs_to :attendance` de `Api.Messaging.Message`. Existe para **uma**
+    # pergunta — "o paciente respondeu sobre esta sessão?" —, respondida pelo agregado
+    # `:resposta_do_paciente`.
+    #
+    # É relação de verdade, e não agregado desrelacionado com `parent(id)`: a lição medida está
+    # três linhas abaixo, em `:package_sessao`. O agregado sem relação perde o tenant no caminho
+    # do AshSql e a subquery volta vazia — sintoma calado, com o dado ao lado carregado.
+    has_many :messages, Api.Messaging.Message
   end
 
   calculations do
@@ -348,6 +357,29 @@ defmodule Api.Scheduling.Attendance do
                   query: [filter: expr(session_starts_at <= parent(session_starts_at))]
                 )
               )
+  end
+
+  aggregates do
+    # A **última** resposta do paciente ao link desta sessão (doc 52 §5) — `nil` quando ele não
+    # respondeu nada. É a estrelinha do card da agenda.
+    #
+    # A **última**, e isso é o ponto: `StampReply` preserva o instante da primeira resposta mas
+    # sobrescreve a resposta em si, porque quem confirmou e depois clicou em "preciso remarcar"
+    # mudou de ideia. Mostrar a primeira deixaria uma estrela no bloco de quem pediu remarcação —
+    # justamente o caso que exige ação.
+    #
+    # **Sem filtro de `not is_nil`, e isso é o `include_nil?: false` do Ash trabalhando.** Uma
+    # sessão tem confirmação **e** lembrete, e o paciente costuma responder a um só: sem pular os
+    # nulos, o lembrete sem resposta seria a linha mais recente e apagaria da tela a confirmação
+    # que existe na anterior. O `first` do Ash já os pula por construção — `include_nil?` é `false`
+    # por padrão e o ash_sql escolhe um agregado que ignora NULL (`aggregate.ex`, o comentário do
+    # `array_agg`). Um filtro aqui seria a mesma regra escrita duas vezes, uma delas inerte.
+    #
+    # A dependência é real, então está presa por teste: ligar `include_nil?` deixa vermelho o
+    # "uma mensagem mais nova SEM resposta não apaga a resposta que existe".
+    first :resposta_do_paciente, :messages, :resposta do
+      sort respondido_em: :desc
+    end
   end
 
   identities do

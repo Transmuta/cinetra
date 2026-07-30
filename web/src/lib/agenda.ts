@@ -68,6 +68,14 @@ export interface Appointment {
 /** O status de UMA presença (`Api.Scheduling.AttendanceStatus`). */
 export type AttendanceStatus = 'prevista' | 'concluida' | 'faltou' | 'cancelada';
 
+/**
+ * O que o paciente respondeu ao link da mensagem (`Api.Messaging.MessageReply`, doc 52 §5).
+ *
+ * É a resposta **mais recente** dele sobre esta sessão: quem confirmou e depois clicou em
+ * "preciso remarcar" mudou de ideia, e é a segunda que vale.
+ */
+export type PatientReply = 'confirmou' | 'quer_remarcar';
+
 export interface Participant {
 	patient_id: string;
 	status: AttendanceStatus;
@@ -80,6 +88,13 @@ export interface Participant {
 	 * lado é um UUID: não diz que é pacote, não diz qual, e não diz que sessão da série é esta.
 	 */
 	package: PackageSession | null;
+	/**
+	 * A resposta do paciente, ou `null` quando ele não respondeu — ver `replyBadges`.
+	 *
+	 * Vem por PARTICIPANTE, como a falta e o pacote (D10/D11): numa turma de quatro, "confirmou"
+	 * no bloco seria falso para os outros três.
+	 */
+	resposta: PatientReply | null;
 }
 
 /** De que sessão do pacote esta presença é (`Attendance.package_sessao` e companhia). */
@@ -310,6 +325,63 @@ export function packageBadge(appt: Pick<Appointment, 'participants'>): PackageBa
 	return sessao
 		? { label: `${sessao}/${total}`, title: `Pacote ${nome} · sessão ${sessao} de ${total}` }
 		: { label: null, title: `Pacote ${nome}` };
+}
+
+// ---------------------------------------------------------------------------
+// A resposta do paciente no cartão (doc 52 §5)
+// ---------------------------------------------------------------------------
+
+/** O que a resposta do paciente escreve no cartão. `label` nulo = só o ícone (um respondente). */
+export interface ReplyBadge {
+	kind: PatientReply;
+	label: string | null;
+	title: string;
+}
+
+// O `title` completo de cada resposta, nas duas formas — uma pessoa e várias. Fica numa tabela
+// porque são quatro frases e a alternativa é um `if` aninhado que ninguém lê de primeira.
+const REPLY_TEXTO: Record<PatientReply, { um: string; varios: (n: number) => string }> = {
+	quer_remarcar: {
+		um: 'O paciente pediu para remarcar',
+		varios: (n) => `${n} pediram para remarcar`
+	},
+	confirmou: {
+		um: 'O paciente confirmou presença',
+		varios: (n) => `${n} confirmaram presença`
+	}
+};
+
+/**
+ * Os selos de resposta de um bloco — vazio quando ninguém respondeu.
+ *
+ * A resposta é do PARTICIPANTE (doc 52 §3), então o selo segue a forma do `packageBadge`: um
+ * respondente mostra só o ícone, mais de um mostra o número. A estrela sozinha numa turma de
+ * quatro não diria quantos confirmaram.
+ *
+ * Pode devolver **os dois** — numa turma, um confirma e outro pede para remarcar, e as duas coisas
+ * são verdade ao mesmo tempo. `quer_remarcar` vem primeiro porque é o que exige ação, a mesma
+ * precedência de conflito antes de encaixe na linha 1 do cartão.
+ *
+ * Presença cancelada não conta: ela saiu do bloco, pela mesma regra do `statusSignal`.
+ */
+export function replyBadges(appt: Pick<Appointment, 'participants'>): ReplyBadge[] {
+	const vivas = appt.participants.filter((p) => p.status !== 'cancelada');
+
+	return (['quer_remarcar', 'confirmou'] as const).flatMap((kind) => {
+		const quantos = vivas.filter((p) => p.resposta === kind).length;
+
+		if (quantos === 0) return [];
+
+		const texto = REPLY_TEXTO[kind];
+
+		return [
+			{
+				kind,
+				label: quantos > 1 ? String(quantos) : null,
+				title: quantos > 1 ? texto.varios(quantos) : texto.um
+			}
+		];
+	});
 }
 
 /** A frase do débito e o tom dela. `tone` nulo = ainda não aconteceu (é previsão, não fato). */

@@ -12,12 +12,20 @@
 	//  - **o que aconteceu** — os 6 status, mutuamente exclusivos (o ponto e o badge do card);
 	//  - **o que exige atenção** — conflito, encaixe e pendência, que se somam a qualquer status.
 	//
+	// (Depois vieram mais dois: a composição da turma e **o que o paciente respondeu**. O último é
+	// grupo próprio de propósito: a resposta não é status nosso nem pendência — é a única coisa no
+	// card que vem de FORA do sistema, de quem não tem login. Enfileirá-la com "Confirmado" seria
+	// o mesmo colapso de dimensões do HOM-002: a palavra é parecida e o fato é outro, porque quem
+	// escreve `:confirmado` é a clínica e quem escreve a estrela é o paciente.)
+	//
 	// Fica aberta por padrão (D3): quem chega novo aprende sem procurar, e quem já sabe fecha
 	// uma vez. O estado mora no `localStorage` porque é preferência de pessoa, não de clínica —
 	// não vale uma coluna no banco nem uma ida ao servidor.
 	import ChevronDown from '@lucide/svelte/icons/chevron-down';
 	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 	import Zap from '@lucide/svelte/icons/zap';
+	import Star from '@lucide/svelte/icons/star';
+	import CalendarClock from '@lucide/svelte/icons/calendar-clock';
 	import { STATUS_META, type AppointmentStatus } from '$lib/agenda';
 
 	const CHAVE = 'agenda:legenda';
@@ -101,6 +109,23 @@
 						Registrar status
 					</span>
 					Terminou sem desfecho
+				</span>
+			</div>
+
+			<!-- O que vem de FORA: o paciente clicou no link da mensagem (doc 52 §5). Não é status
+			     nosso — é a única informação do card escrita por quem não tem login, e por isso tem
+			     grupo próprio em vez de entrar em "O que aconteceu" ao lado de "Confirmado".
+
+			     A ordem repete a do card: o pedido de remarcação primeiro, porque é o que pede ação. -->
+			<div class="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+				<span class="text-[10px] font-semibold tracking-wide text-faint uppercase">
+					O paciente respondeu
+				</span>
+				<span class="flex items-center gap-1 text-[11px] text-muted">
+					<span class="text-warning"><CalendarClock size={11} /></span> Pediu para remarcar
+				</span>
+				<span class="flex items-center gap-1 text-[11px] text-muted">
+					<span class="text-teal"><Star size={11} /></span> Confirmou presença
 				</span>
 			</div>
 

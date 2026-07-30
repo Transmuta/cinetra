@@ -26,9 +26,21 @@ defmodule ApiWeb.PatientReplyController do
   operacional (`Api.Notifications.Fanout.patient_wants_reschedule/1`) — é a única notificação do
   sistema cujo autor não tem login.
 
-  `confirmou` **não** notifica, e isso é decisão de produto (doc 31 §4): a confirmação já aparece
-  no status do bloco e na timeline, e uma linha por sessão confirmada afogaria a caixa da recepção
-  numa clínica com milhares de presenças por mês.
+  `confirmou` **não** notifica, e isso é decisão de produto (doc 31 §4): uma linha por sessão
+  confirmada afogaria a caixa da recepção numa clínica com milhares de presenças por mês.
+
+  A justificativa escrita aqui era *"a confirmação já aparece no status do bloco"* — e **não
+  aparecia**. Nada no projeto escreve `:confirmado` (não há ação `:confirm` em `Appointment`, o
+  `statusActions` só oferece "Cancelar", e o rollup apenas *preserva* a fase); o status existe no
+  enum e nunca é alcançado. Na prática a resposta só era legível abrindo o drawer daquela sessão,
+  um bloco por vez — o mesmo buraco que o `quer_remarcar` tinha antes de cair na caixa.
+
+  Hoje ela aparece **no cartão da agenda**, como estrela, pelo agregado
+  `Api.Scheduling.Attendance.resposta_do_paciente`. Por participante, não no bloco: numa turma de
+  quatro, "confirmou" no bloco seria falso para os outros três.
+
+  O que continua faltando é o **tempo real**: esta rota não emite evento de agenda, então a estrela
+  entra na próxima leitura da tela, não no instante do clique do paciente.
   """
   use ApiWeb, :controller
 

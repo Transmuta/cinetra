@@ -90,6 +90,41 @@ defmodule Api.RlsSmokeTest do
     end)
   end
 
+  # O paciente do `fixture/0` nasce sem consentimento nem e-mail — o `Dispatch` não falaria com
+  # ele. Aqui ele precisa receber para haver mensagem, e mensagem para haver resposta.
+  defp alcancavel(ctx) do
+    Records.update_patient!(
+      ctx.paciente,
+      %{comunicacao: true, email: email_unico("rls-resposta")},
+      tenant: ctx.clinic.id,
+      actor: ctx.owner
+    )
+  end
+
+  # A resposta ao link, pela mesma porta do controller público (`record_reply` dentro de
+  # `in_clinic`).
+  #
+  # A mensagem **não** é criada aqui: com o paciente alcançável, o gatilho de criação do bloco já
+  # enfileirou a confirmação, e um segundo `Dispatch.dispatch` devolve `{:skip, :ja_na_fila}`. Ler
+  # a que existe é também o caminho real — o paciente responde à automática, não a uma inventada
+  # pelo teste. Zero mensagens aqui já seria falha de GUC, antes da asserção do agregado.
+  defp responder(ctx, appointment_id, resposta) do
+    [presenca | _] = bloco(ctx, appointment_id).attendances
+
+    Api.Tenancy.in_clinic(ctx.scope, fn ->
+      [message | _] =
+        Api.Messaging.list_attendance_messages!(presenca.id,
+          tenant: ctx.clinic.id,
+          authorize?: false
+        )
+
+      Api.Messaging.do_record_reply!(message, %{resposta: resposta},
+        tenant: ctx.clinic.id,
+        authorize?: false
+      )
+    end)
+  end
+
   # A próxima segunda-feira — dia de expediente (o seed abre seg–sex) e no **futuro**, que é o
   # recorte que pausar/cancelar pacote exige ("hoje ou depois"). Calculada, não fixa: a data
   # literal do resto do arquivo envelhece para o passado conforme a suíte roda.
@@ -166,6 +201,38 @@ defmodule Api.RlsSmokeTest do
       refute Enum.empty?(agenda.professionals), "profissionais vazios: a GUC não chegou"
       refute Enum.empty?(agenda.appointment_types), "tipos vazios: a GUC não chegou"
       refute Enum.empty?(agenda.patients), "pacientes vazios: a GUC não chegou"
+    end
+
+    test "a resposta do paciente atravessa a RLS de `messages` dentro da leitura da agenda" do
+      # O agregado `Attendance.resposta_do_paciente` (a estrelinha do card) faz a leitura da agenda
+      # olhar uma tabela de OUTRO domínio, `messages`, que tem RLS própria. É a forma de bug que
+      # este arquivo existe para pegar: se a GUC não valesse dentro da subquery do agregado, ela
+      # voltaria vazia e o campo chegaria `nil` — a estrela **nunca** apareceria no servidor real,
+      # com a suíte inteira verde (o sandbox do `mix test` roda como superusuário).
+      ctx = fixture()
+      paciente = alcancavel(ctx)
+
+      {:ok, appt} =
+        Scheduling.schedule_appointment(
+          %{
+            starts_at: at("08:00"),
+            professional_id: ctx.prof.id,
+            appointment_type_id: ctx.tipo.id,
+            patient_ids: [paciente.id]
+          },
+          scope: ctx.scope
+        )
+
+      responder(ctx, appt.id, :confirmou)
+
+      :ok = sem_guc()
+      agenda = Scheduling.load_agenda(ctx.scope, at("00:00"), at("23:00"))
+
+      assert [bloco] = agenda.appointments
+      assert [presenca] = bloco.attendances
+
+      assert presenca.resposta_do_paciente == :confirmou,
+             "resposta vazia: a GUC não chegou na subquery do agregado sobre `messages`"
     end
 
     test "load_availability_sources enxerga as 4 fontes" do

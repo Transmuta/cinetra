@@ -100,7 +100,10 @@ defmodule Api.Scheduling do
         :package_nome,
         :package_total,
         :package_sessao,
-        :package_falta_punitiva
+        :package_falta_punitiva,
+        # A resposta do paciente ao link (doc 52 §5) — o sinal do card. Desce no mesmo SELECT das
+        # presenças, como os quatro de pacote, e por isso sai igual pelas quatro portas do bloco.
+        :resposta_do_paciente
       ]
     ]
 

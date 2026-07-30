@@ -686,6 +686,70 @@ defmodule ApiWeb.AppointmentsControllerTest do
     {appt["id"], appt["version"]}
   end
 
+  # A mensagem ao paciente **e** a resposta dele, sem passar pelo token assinado — a rota pública
+  # `POST /api/reply/:token` tem teste próprio (`ApiWeb.PatientReplyControllerTest`); o que se
+  # exercita aqui é o outro lado, o da resposta chegando ao bloco.
+  #
+  # O paciente do `fixture/0` nasce sem consentimento nem e-mail, então o gatilho de criação
+  # devolveu `{:skip, :sem_consentimento}` e não há confirmação na fila para a trava de duplicata
+  # tropeçar.
+  defp responder!(ctx, appointment_id, resposta) do
+    paciente =
+      Records.update_patient!(
+        ctx.paciente,
+        %{comunicacao: true, email: email_unico("resposta")},
+        tenant: ctx.clinic.id,
+        actor: ctx.owner
+      )
+
+    clinic = Accounts.get_clinic!(ctx.clinic.id, authorize?: false)
+    presenca = primeira_presenca(ctx, appointment_id)
+
+    {:ok, message} =
+      Api.Messaging.Dispatch.dispatch(clinic, presenca, paciente, :confirmacao)
+
+    gravar_resposta!(ctx, message, resposta)
+  end
+
+  # Uma segunda mensagem para a mesma presença, sem resposta — o lembrete que chega depois da
+  # confirmação. `kind` diferente de propósito: a trava de duplicata do `Dispatch` recusaria uma
+  # segunda `:confirmacao` ainda na fila.
+  defp enfileirar!(ctx, appointment_id, kind) do
+    clinic = Accounts.get_clinic!(ctx.clinic.id, authorize?: false)
+    paciente = Records.get_patient!(ctx.paciente.id, tenant: ctx.clinic.id, authorize?: false)
+
+    {:ok, message} =
+      Api.Messaging.Dispatch.dispatch(
+        clinic,
+        primeira_presenca(ctx, appointment_id),
+        paciente,
+        kind
+      )
+
+    message
+  end
+
+  defp gravar_resposta!(ctx, message, resposta) do
+    Api.Tenancy.in_clinic(ctx.clinic.id, fn ->
+      Api.Messaging.do_record_reply!(message, %{resposta: resposta},
+        tenant: ctx.clinic.id,
+        authorize?: false
+      )
+    end)
+  end
+
+  defp primeira_presenca(ctx, appointment_id) do
+    Api.Tenancy.in_clinic(ctx.clinic.id, fn ->
+      Api.Scheduling.get_appointment!(appointment_id,
+        tenant: ctx.clinic.id,
+        authorize?: false,
+        load: [:attendances]
+      )
+    end)
+    |> Map.fetch!(:attendances)
+    |> hd()
+  end
+
   describe "ciclo de vida (Entrega 4)" do
     test "PATCH reschedule move o bloco e avança a versão", %{conn: conn} do
       ctx = fixture()
@@ -828,6 +892,81 @@ defmodule ApiWeb.AppointmentsControllerTest do
 
       assert [%{"falta_justificada" => true, "status" => "faltou"}] =
                json_response(resp, 200)["appointment"]["participants"]
+    end
+
+    test "a resposta do paciente viaja na presença — é a estrelinha do card", %{conn: conn} do
+      # A resposta ao link (doc 52 §5) era gravada e ficava **só** na timeline do drawer: para
+      # saber que o paciente confirmou era preciso abrir um bloco por vez. O card da agenda é
+      # onde a recepção olha; se o sinal não chega aqui, ele não existe na prática.
+      #
+      # Viaja por PARTICIPANTE, e não como um campo do bloco, pela mesma razão que a falta e o
+      # pacote viajam assim (D10/D11): numa turma de quatro, "confirmou" no bloco seria falso
+      # para os outros três.
+      ctx = fixture()
+      {id, _} = create_appt(conn, ctx)
+
+      responder!(ctx, id, :confirmou)
+
+      body =
+        conn
+        |> authed(ctx.owner)
+        |> get("/api/appointments?from=#{@segunda}")
+        |> json_response(200)
+
+      assert [%{"participants" => [%{"resposta" => "confirmou"}]}] = body["appointments"]
+    end
+
+    test "a ÚLTIMA resposta é a que viaja — quem confirmou e depois pediu remarcação mudou de ideia",
+         %{conn: conn} do
+      # `StampReply` preserva o instante da primeira resposta e sobrescreve a resposta em si. Se o
+      # card mostrasse a primeira, uma estrela continuaria no bloco de quem já pediu para remarcar
+      # — o pior dos dois erros possíveis aqui, porque esse é o caso que exige ação.
+      ctx = fixture()
+      {id, _} = create_appt(conn, ctx)
+
+      message = responder!(ctx, id, :confirmou)
+      gravar_resposta!(ctx, message, :quer_remarcar)
+
+      body =
+        conn
+        |> authed(ctx.owner)
+        |> get("/api/appointments?from=#{@segunda}")
+        |> json_response(200)
+
+      assert [%{"participants" => [%{"resposta" => "quer_remarcar"}]}] = body["appointments"]
+    end
+
+    test "uma mensagem mais nova SEM resposta não apaga a resposta que existe", %{conn: conn} do
+      # O caso que o filtro `not is_nil(resposta)` do agregado existe para cobrir, e ele é o
+      # comum: a sessão recebe confirmação **e** lembrete, e o paciente responde a um só. Sem o
+      # filtro, o agregado ordena por `respondido_em desc`, pega a mensagem mais recente — o
+      # lembrete, sem resposta — e devolve `nil`, apagando da tela a confirmação que o paciente deu.
+      ctx = fixture()
+      {id, _} = create_appt(conn, ctx)
+
+      responder!(ctx, id, :confirmou)
+      enfileirar!(ctx, id, :lembrete)
+
+      body =
+        conn
+        |> authed(ctx.owner)
+        |> get("/api/appointments?from=#{@segunda}")
+        |> json_response(200)
+
+      assert [%{"participants" => [%{"resposta" => "confirmou"}]}] = body["appointments"]
+    end
+
+    test "sem resposta nenhuma, a presença vem com `resposta` nula", %{conn: conn} do
+      ctx = fixture()
+      {_id, _} = create_appt(conn, ctx)
+
+      body =
+        conn
+        |> authed(ctx.owner)
+        |> get("/api/appointments?from=#{@segunda}")
+        |> json_response(200)
+
+      assert [%{"participants" => [%{"resposta" => nil}]}] = body["appointments"]
     end
 
     test "POST exclude some com o bloco da leitura (soft-delete, doc 40)", %{conn: conn} do

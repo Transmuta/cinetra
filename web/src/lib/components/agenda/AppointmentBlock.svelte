@@ -18,7 +18,9 @@
 	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 	import Zap from '@lucide/svelte/icons/zap';
 	import Package from '@lucide/svelte/icons/package';
-	import { statusSignal, packageBadge, type Appointment } from '$lib/agenda';
+	import Star from '@lucide/svelte/icons/star';
+	import CalendarClock from '@lucide/svelte/icons/calendar-clock';
+	import { statusSignal, packageBadge, replyBadges, type Appointment } from '$lib/agenda';
 	import { blockGeometry, type Slot } from '$lib/agenda-layout';
 	import type { AgendaAppointmentType } from '$lib/agenda';
 
@@ -89,8 +91,33 @@
 	// conta nada: `packageBadge` só escolhe entre "a posição na série" e "quantos em pacote".
 	const pacote = $derived(packageBadge(appt));
 
+	// A resposta do paciente ao link (doc 52 §5). Mora na LINHA 1, junto de conflito e encaixe, e
+	// não na terceira como o selo de pacote: a linha 1 é a única que existe em toda variante da
+	// escada abaixo, e "o paciente confirmou" é justamente o que a recepção varre a tela para ver.
+	// Na sessão de 15 min o selo de pacote desaparece; a estrela não pode.
+	const respostas = $derived(replyBadges(appt));
+
+	// O ícone é do TIPO de resposta; o `title` escreve por extenso, como o conflito e o encaixe.
+	// `Star` é o mesmo glifo que a timeline do drawer usa para a resposta (doc 52 §6) — um sinal,
+	// duas superfícies; `CalendarClock` é o mesmo de "Remarcar sessão" no rodapé do drawer.
+	const ICONE_DA_RESPOSTA = { confirmou: Star, quer_remarcar: CalendarClock };
+
+	// Teal para a confirmação (é a cor do sinal no drawer), âmbar para o pedido de remarcação —
+	// que é o único dos dois que pede ação de alguém.
+	const TOM_DA_RESPOSTA = { confirmou: 'text-teal', quer_remarcar: 'text-warning' };
+
 	const rotulo = $derived(
-		[startLabel, titulo, tipo?.nome, appt.encaixe ? 'encaixe' : null, pacote?.title, badge.label]
+		[
+			startLabel,
+			titulo,
+			tipo?.nome,
+			appt.encaixe ? 'encaixe' : null,
+			pacote?.title,
+			// No rótulo acessível a resposta entra SEMPRE, mesmo quando o ícone cabe na tela: o
+			// leitor de tela não tem `title` de ícone para consultar.
+			...respostas.map((r) => r.title),
+			badge.label
+		]
 			.filter(Boolean)
 			.join(' · ')
 	);
@@ -185,6 +212,23 @@
 				<Zap size={11} />
 			</span>
 		{/if}
+
+		<!-- Ícone COM rótulo, como os dois acima: o número é o rótulo e só aparece quando há mais de
+		     um respondente na turma — uma estrela solta num bloco de quatro não diria quantos
+		     confirmaram. O `title` escreve a frase inteira nos dois casos. -->
+		{#each respostas as r (r.kind)}
+			{@const Icone = ICONE_DA_RESPOSTA[r.kind]}
+			<span
+				title={r.title}
+				data-testid="reply-{r.kind}"
+				class="flex shrink-0 items-center gap-0.5 {TOM_DA_RESPOSTA[r.kind]}"
+			>
+				<Icone size={11} />
+				{#if r.label}
+					<span class="text-[9px] font-bold tabular-nums">{r.label}</span>
+				{/if}
+			</span>
+		{/each}
 
 		{#if linhas === 1}
 			<!-- Variante compacta: o nome sobe para a MESMA linha da hora. Empilhado ele precisaria
