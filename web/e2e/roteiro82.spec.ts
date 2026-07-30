@@ -1,6 +1,6 @@
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import { test, expect, abrirAgenda, blocos } from './fixtures';
-import { criarAgendamento, criarPaciente, tipoPorNome } from './helpers';
+import { criarAgendamento, criarPaciente, telUnico, tipoPorNome } from './helpers';
 
 /**
  * O roteiro de QA guiado (doc 82), na parte que **só a tela prova**.
@@ -38,6 +38,28 @@ function drawer(page: Page) {
  */
 async function hidratou(page: Page) {
 	await page.waitForLoadState('networkidle');
+}
+
+/**
+ * Digita o CPF e **confere que ele entrou inteiro** antes de seguir.
+ *
+ * A primeira tecla se perde se a página ainda não hidratou: ela cai num input cujo `oninput` não
+ * existe, o estado do Svelte não muda, e a hidratação reescreve `value={f.cpf}` — ainda vazio —
+ * por cima. Medido: `39053344705` virava `905.334.470-5`, dez dígitos. Com o CPF incompleto o
+ * lookup de duplicado nem dispara (ele exige 11), e o teste falhava acusando o aviso ausente em
+ * vez da tecla comida.
+ *
+ * O `toPass` redigita até o campo realmente conter o que se quis digitar — que é a única
+ * afirmação que interessa aqui.
+ */
+async function digitarCpf(campo: Locator, cpf: string) {
+	await expect(async () => {
+		await campo.fill('');
+		await campo.pressSequentially(cpf, { delay: 20 });
+		await expect(campo).toHaveValue(new RegExp(`\\d{3}\\.\\d{3}\\.\\d{3}-\\d{2}$`), {
+			timeout: 1_000
+		});
+	}).toPass({ timeout: 20_000 });
 }
 
 test.describe('Roteiro 82 · §6 agenda', () => {
@@ -111,23 +133,61 @@ test.describe('Roteiro 82 · §6 agenda', () => {
 	});
 });
 
-// ---------------------------------------------------------------------------------------------
-// §4 (cadastro de paciente) NÃO está automatizado aqui — de propósito.
-//
-// Os dois itens que valeriam a tela — o aviso "Possível duplicado: <nome> já tem este CPF" e o
-// CPF de DV errado desabilitando o salvar — foram conferidos **à mão** nesta rodada (doc 88 §3) e
-// os dois passam. A versão automatizada foi retirada porque não ficou estável: a cada `input` o
-// formulário re-renderiza (a consulta de duplicado é disparada no `oninput`) e o campo de CPF
-// aparece como `detached from the DOM, retrying` até o timeout.
-//
-// Digitando à mão o formulário se comporta — valores e aviso ficam de pé —, então isto está
-// registrado como observação a investigar, e não como defeito: ver doc 88, achado A-7. Enquanto a
-// causa não estiver entendida, um teste que falha por instabilidade própria é pior que teste
-// nenhum: ele treina a equipe a ignorar vermelho.
-//
-// A camada de regra destes itens continua coberta: as oito validações do §4 são exercidas contra
-// a API na mesma rodada (doc 88 §3).
-// ---------------------------------------------------------------------------------------------
+test.describe('Roteiro 82 · §4 cadastro de paciente', () => {
+	/**
+	 * O aviso de duplicado, que desde o doc 89 deixou de ser conveniência.
+	 *
+	 * Enquanto duplicado só avisava, este aviso era gentileza. Agora que o servidor **recusa** CPF,
+	 * telefone e e-mail repetidos, ele é o que evita digitar a ficha inteira para levar um 422 no
+	 * fim — e por isso precisa NOMEAR a outra ficha, senão a recepção não sabe o que fazer.
+	 *
+	 * Este teste já foi retirado uma vez, por instabilidade (`detached from the DOM, retrying`).
+	 * A causa não era o formulário: era um `build/` velho sendo servido pelo preview reusado — o
+	 * mesmo A-14 que mantinha o `agendar.spec.ts` verde e quebrado. Medido depois, com build fresco,
+	 * o nó do CPF nunca é substituído (`isConnected` segue true por 11 dígitos, debounce e lookup).
+	 */
+	test('CPF já usado avisa nomeando a outra ficha, antes de tentar salvar', async ({
+		page,
+		clinica
+	}) => {
+		const cpf = '39053344705';
+		const res = await clinica.api.post('/api/patients', {
+			data: { nome: 'Marina Original', tel: telUnico(), cpf }
+		});
+		expect(res.ok()).toBe(true);
+
+		await page.goto('/pacientes/novo');
+		const campoCpf = page.getByRole('textbox', { name: 'CPF' });
+		await expect(campoCpf).toBeVisible();
+
+		await page.getByRole('textbox', { name: /Nome completo/ }).fill('Clone Da Marina');
+		await digitarCpf(campoCpf, cpf);
+
+		// O aviso nomeia a outra ficha e diz o que fazer — é o que evita preencher 31 campos
+		// para levar o 422 no fim.
+		await expect(page.getByText(/já cadastrado/)).toBeVisible({ timeout: 10_000 });
+		await expect(page.getByText(/Marina Original/)).toBeVisible();
+	});
+
+	test('CPF com dígito errado barra o salvar e explica no rodapé (D10)', async ({
+		page,
+		clinica
+	}) => {
+		expect(clinica.id).toBeTruthy();
+		await page.goto('/pacientes/novo');
+		const campoCpf = page.getByRole('textbox', { name: 'CPF' });
+		await expect(campoCpf).toBeVisible();
+
+		await page.getByRole('textbox', { name: /Nome completo/ }).fill('Cpf Invalido');
+		// Nome exato: há um segundo "Telefone" na seção de Emergência.
+		await page.getByRole('textbox', { name: 'Telefone / WhatsApp*' }).fill('11991234567');
+		await digitarCpf(campoCpf, '12345678900');
+
+		// Nome e telefone preenchidos: o que segura o salvar é só o CPF.
+		await expect(page.getByRole('button', { name: /Cadastrar paciente/ })).toBeDisabled();
+		await expect(page.getByText(/CPF inválido/)).toBeVisible();
+	});
+});
 
 test.describe('Roteiro 82 · §11 relatórios', () => {
 	test('a fórmula do KPI abre por CLIQUE, não só por hover (AN-05 / ACC-10)', async ({
