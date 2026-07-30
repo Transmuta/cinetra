@@ -128,26 +128,20 @@ defmodule Api.Messaging.Message do
       prepare build(sort: [inserted_at: :asc])
     end
 
-    # Já existe uma mensagem deste tipo ESPERANDO para esta presença?
+    # O histórico de UMA presença — a base das travas de envio do `Api.Messaging.Dispatch` (§4).
     #
-    # É a pergunta da trava contra duplicata (§4): o botão do rodapé dispara para o bloco inteiro
-    # e nada impedia o segundo clique de enfileirar a mesma confirmação de novo — dentro da janela
-    # de silêncio, onde a primeira fica horas parada, isso vira uma pilha. Medido no dev de
-    # 2026-07-28: quatro linhas idênticas para o mesmo paciente.
-    #
-    # Só `:pendente` conta. Uma já entregue **pode** ser reenviada de propósito (a recepção pede),
-    # e uma que falhou precisa poder ser tentada de novo — a duplicata que não serve a ninguém é a
-    # que ainda nem saiu.
-    read :pending_for_attendance do
-      description "As mensagens deste tipo ainda na fila para esta presença."
+    # Devolve tudo: os três predicados que o `Dispatch` avalia (já respondeu? já tem uma na fila?
+    # já falei duas vezes?) olham recortes diferentes do mesmo punhado de linhas, e uma leitura por
+    # pergunta seriam três idas ao banco no caminho de todo envio para responder o que uma resolve.
+    # São 1–4 linhas por presença; o recorte sai em Elixir.
+    read :for_attendance do
+      description "As mensagens desta presença, em ordem cronológica."
 
       argument :attendance_id, :uuid, allow_nil?: false
-      argument :kind, Api.Messaging.MessageKind, allow_nil?: false
 
-      filter expr(
-               attendance_id == ^arg(:attendance_id) and kind == ^arg(:kind) and
-                 status == :pendente
-             )
+      filter expr(attendance_id == ^arg(:attendance_id))
+
+      prepare build(sort: [inserted_at: :asc])
     end
 
     # Tudo que ainda não saiu deste bloco — o que o ciclo de vida precisa retirar da fila quando o
@@ -305,7 +299,7 @@ defmodule Api.Messaging.Message do
     #
     # O que impede isto de virar um buraco é que **a RLS continua fechando**: sem GUC nenhuma, a
     # policy de `messages` não casa linha alguma. As únicas formas de ler sem tenant são as duas
-    # GUCs de porta única — `movimento.provider_message_id` (webhook) e `movimento.message_id`
+    # GUCs de porta única — `cinetra.provider_message_id` (webhook) e `cinetra.message_id`
     # (resposta do paciente) —, cada uma alcançando exatamente uma linha já identificada por um
     # segredo que o chamador provou possuir. Ou seja: aqui o Ash deixa passar e o Postgres decide.
     global? true

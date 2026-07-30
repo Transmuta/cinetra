@@ -220,6 +220,51 @@ defmodule ApiWeb.MessagesControllerTest do
       assert length(linha["mensagens"]) == 1
     end
 
+    test "quem já confirmou não recebe outra — e o motivo chega à tela", %{
+      ctx: ctx,
+      sessao: sessao
+    } do
+      # O par da regra de UI: o botão do rodapé fica desabilitado, mas na turma ele continua de pé
+      # por causa dos outros participantes. Quando o clique alcança quem já confirmou, o servidor
+      # recusa e o motivo é o que o toast escreve.
+      paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
+      appt = agendamento!(ctx, paciente: paciente)
+
+      [confirmacao] = mensagens_do(ctx, appt)
+      responder!(ctx, confirmacao, :confirmou)
+
+      conn = post(sessao, ~p"/api/appointments/#{appt.id}/messages", %{})
+
+      assert %{"resultados" => [%{"enviado" => false, "motivo" => "ja_confirmou"}]} =
+               json_response(conn, 201)
+    end
+
+    test "a terceira confirmação é recusada com `limite_de_envios`", %{ctx: ctx, sessao: sessao} do
+      # O teto contra spam (duas por presença). A primeira é a automática da criação; a segunda é o
+      # clique da recepção; a terceira é o paciente sendo cobrado três vezes pela mesma sessão.
+      paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
+      appt = agendamento!(ctx, paciente: paciente)
+
+      [automatica] = mensagens_do(ctx, appt)
+      entregar!(ctx, automatica)
+
+      assert %{"resultados" => [%{"enviado" => true}]} =
+               sessao
+               |> post(~p"/api/appointments/#{appt.id}/messages", %{})
+               |> json_response(201)
+
+      ctx |> mensagens_do(appt) |> Enum.each(&entregar_se_pendente!(ctx, &1))
+
+      assert %{"resultados" => [%{"enviado" => false, "motivo" => "limite_de_envios"}]} =
+               sessao
+               |> post(~p"/api/appointments/#{appt.id}/messages", %{})
+               |> json_response(201)
+
+      # E a tela vê exatamente duas — é delas que a regra do botão é derivada no cliente.
+      %{"participantes" => [linha]} = get_json(sessao, appt)
+      assert length(linha["mensagens"]) == 2
+    end
+
     test "devolve o motivo quando não dá para enviar", %{ctx: ctx, sessao: sessao} do
       paciente = paciente_com(ctx, comunicacao: false)
       appt = agendamento!(ctx, paciente: paciente)
@@ -282,6 +327,31 @@ defmodule ApiWeb.MessagesControllerTest do
   defp mensagens_do(ctx, appt) do
     Api.Tenancy.in_clinic(ctx.clinic.id, fn ->
       Api.Messaging.list_messages_for_appointment!(appt.id,
+        tenant: ctx.clinic.id,
+        authorize?: false
+      )
+    end)
+  end
+
+  # "Chegou ao paciente" — é o que gasta uma unidade do teto de confirmações. Pela ação do domínio,
+  # não por `Ash.Seed`: é a própria máquina de entrega que o teto consulta.
+  defp entregar!(ctx, message) do
+    Api.Tenancy.in_clinic(ctx.clinic.id, fn ->
+      Api.Messaging.do_mark_sent!(
+        message,
+        %{provider: "resend", provider_message_id: "prov-#{Api.Generators.unico()}"},
+        tenant: ctx.clinic.id,
+        authorize?: false
+      )
+    end)
+  end
+
+  defp entregar_se_pendente!(ctx, %{status: :pendente} = message), do: entregar!(ctx, message)
+  defp entregar_se_pendente!(_ctx, message), do: message
+
+  defp responder!(ctx, message, resposta) do
+    Api.Tenancy.in_clinic(ctx.clinic.id, fn ->
+      Api.Messaging.do_record_reply!(message, %{resposta: resposta},
         tenant: ctx.clinic.id,
         authorize?: false
       )

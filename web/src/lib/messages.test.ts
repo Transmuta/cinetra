@@ -3,6 +3,7 @@ import {
 	algumPodeReceber,
 	descarteTexto,
 	instanteDoStatus,
+	motivoDoBloqueio,
 	podeReenviar,
 	previsaoDeEnvio,
 	respostaTexto,
@@ -344,5 +345,120 @@ describe('algumPodeReceber', () => {
 
 	it('sem participante nenhum, nada a enviar', () => {
 		expect(algumPodeReceber([])).toBe(false);
+	});
+
+	// As duas travas novas (2026-07-29). São regra do `Dispatch` dos dois lados de propósito:
+	// divergir aqui faria o botão prometer um clique que volta como aviso.
+	it('quem JÁ CONFIRMOU não conta — não se pede o que já foi respondido', () => {
+		const p = participante({
+			mensagens: [msg({ kind: 'confirmacao', status: 'entregue', resposta: 'confirmou' })]
+		});
+
+		expect(algumPodeReceber([p])).toBe(false);
+		expect(podeReenviar(p)).toBe(false);
+	});
+
+	it('confirmar pelo LEMBRETE também barra — o link viaja nos dois', () => {
+		const p = participante({
+			mensagens: [msg({ kind: 'lembrete', status: 'entregue', resposta: 'confirmou' })]
+		});
+
+		expect(algumPodeReceber([p])).toBe(false);
+	});
+
+	it('quem pediu para REMARCAR continua alcançável — a recepção resolve e reconfirma', () => {
+		const p = participante({
+			mensagens: [msg({ kind: 'confirmacao', status: 'entregue', resposta: 'quer_remarcar' })]
+		});
+
+		expect(algumPodeReceber([p])).toBe(true);
+	});
+
+	it('duas confirmações fecham o teto', () => {
+		const p = participante({
+			mensagens: [
+				msg({ id: 'm1', kind: 'confirmacao', status: 'entregue' }),
+				msg({ id: 'm2', kind: 'confirmacao', status: 'enviado' })
+			]
+		});
+
+		expect(algumPodeReceber([p])).toBe(false);
+		expect(podeReenviar(p)).toBe(false);
+	});
+
+	it('o que FALHOU ou foi DESCARTADO não gasta o teto', () => {
+		// Nenhuma das duas falou com ninguém. Contá-las travaria justamente quem precisa reenviar:
+		// a recepção que acabou de corrigir o e-mail na ficha.
+		const p = participante({
+			mensagens: [
+				msg({ id: 'm1', kind: 'confirmacao', status: 'falhou' }),
+				msg({ id: 'm2', kind: 'confirmacao', status: 'descartada' }),
+				msg({ id: 'm3', kind: 'confirmacao', status: 'entregue' })
+			]
+		});
+
+		expect(algumPodeReceber([p])).toBe(true);
+	});
+
+	it('o teto é da CONFIRMAÇÃO — lembrete e cancelamento não o gastam', () => {
+		const p = participante({
+			mensagens: [
+				msg({ id: 'm1', kind: 'lembrete', status: 'entregue' }),
+				msg({ id: 'm2', kind: 'cancelamento', status: 'entregue' }),
+				msg({ id: 'm3', kind: 'confirmacao', status: 'entregue' })
+			]
+		});
+
+		expect(algumPodeReceber([p])).toBe(true);
+	});
+
+	it('na turma, basta UM participante fora das travas', () => {
+		// O botão do rodapé dispara para todos: barrado só quando ninguém pode receber.
+		const confirmou = participante({
+			mensagens: [msg({ kind: 'confirmacao', status: 'entregue', resposta: 'confirmou' })]
+		});
+
+		const livre = participante({ attendanceId: 'a2', patientId: 'p2', semEnvio: null });
+
+		expect(algumPodeReceber([confirmou, livre])).toBe(true);
+	});
+});
+
+describe('motivoDoBloqueio', () => {
+	it('quem já confirmou e quem bateu o teto têm frases próprias', () => {
+		const confirmou = participante({
+			mensagens: [msg({ kind: 'confirmacao', status: 'entregue', resposta: 'confirmou' })]
+		});
+
+		const noTeto = participante({
+			mensagens: [
+				msg({ id: 'm1', kind: 'confirmacao', status: 'entregue' }),
+				msg({ id: 'm2', kind: 'confirmacao', status: 'entregue' })
+			]
+		});
+
+		expect(motivoDoBloqueio([confirmou])).toBe('o paciente já confirmou presença');
+		expect(motivoDoBloqueio([noTeto])).toBe('já foram enviadas 2 confirmações para este paciente');
+	});
+
+	it('quem pode receber não tem bloqueio a explicar', () => {
+		expect(motivoDoBloqueio([participante({ semEnvio: null })])).toBeNull();
+		expect(motivoDoBloqueio(null)).toBeNull();
+	});
+
+	it('com motivos diferentes na turma, não escolhe um deles', () => {
+		// Uma frase só mentiria para o outro participante. O `title` genérico manda ler a timeline,
+		// que mostra os dois casos linha a linha.
+		const confirmou = participante({
+			mensagens: [msg({ kind: 'confirmacao', status: 'entregue', resposta: 'confirmou' })]
+		});
+
+		const semContato = participante({
+			attendanceId: 'a2',
+			patientId: 'p2',
+			semEnvio: 'sem_contato'
+		});
+
+		expect(motivoDoBloqueio([confirmou, semContato])).toBeNull();
 	});
 });

@@ -377,6 +377,137 @@ defmodule Api.Messaging.DispatchTest do
       assert {:ok, _} = Dispatch.dispatch(clinic, de_joao, joao, :confirmacao)
     end
 
+    test "quem já confirmou presença não recebe outra confirmação" do
+      # Ele já respondeu que vem: mandar de novo é pedir a mesma coisa duas vezes a quem já
+      # respondeu, e no WhatsApp é spam pago.
+      ctx = clinica()
+      sem_confirmacao_automatica(ctx)
+      paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
+      appt = agendamento!(ctx, paciente: paciente)
+      [presenca] = appt.attendances
+
+      assert {:ok, message} = Dispatch.dispatch(ctx.clinic, presenca, paciente, :confirmacao)
+      responder!(ctx, message, :confirmou)
+
+      assert {:skip, :ja_confirmou} =
+               Dispatch.dispatch(ctx.clinic, presenca, paciente, :confirmacao)
+    end
+
+    test "confirmar pelo LEMBRETE também conta — o link viaja nos dois" do
+      # `SendJob.render/1` põe o link de resposta em toda mensagem, então o paciente pode confirmar
+      # respondendo ao lembrete. Se a trava olhasse só as mensagens de confirmação, quem confirmou
+      # pelo lembrete continuaria recebendo pedidos de confirmação.
+      ctx = clinica()
+      sem_confirmacao_automatica(ctx)
+      paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
+      appt = agendamento!(ctx, paciente: paciente)
+      [presenca] = appt.attendances
+
+      assert {:ok, lembrete} = Dispatch.dispatch(ctx.clinic, presenca, paciente, :lembrete)
+      responder!(ctx, lembrete, :confirmou)
+
+      assert {:skip, :ja_confirmou} =
+               Dispatch.dispatch(ctx.clinic, presenca, paciente, :confirmacao)
+    end
+
+    test "quem pediu para remarcar NÃO é barrado — a recepção resolve e reconfirma" do
+      # `quer_remarcar` é o oposto de "está resolvido": a recepção liga, acerta o horário e a
+      # confirmação nova é justamente o que fecha o assunto. Barrar aqui deixaria o pedido sem
+      # resposta possível pelo canal que o originou.
+      ctx = clinica()
+      sem_confirmacao_automatica(ctx)
+      paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
+      appt = agendamento!(ctx, paciente: paciente)
+      [presenca] = appt.attendances
+
+      assert {:ok, message} = Dispatch.dispatch(ctx.clinic, presenca, paciente, :confirmacao)
+      entregar!(ctx, message)
+      responder!(ctx, message, :quer_remarcar)
+
+      assert {:ok, _} = Dispatch.dispatch(ctx.clinic, presenca, paciente, :confirmacao)
+    end
+
+    test "duas confirmações é o teto — a terceira não sai" do
+      # O teto contra spam. A primeira é a automática da criação (ou o primeiro clique), a segunda é
+      # a insistência legítima da recepção; a terceira é o paciente sendo cobrado três vezes pela
+      # mesma sessão.
+      ctx = clinica()
+      sem_confirmacao_automatica(ctx)
+      paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
+      appt = agendamento!(ctx, paciente: paciente)
+      [presenca] = appt.attendances
+
+      assert {:ok, primeira} = Dispatch.dispatch(ctx.clinic, presenca, paciente, :confirmacao)
+      entregar!(ctx, primeira)
+
+      assert {:ok, segunda} = Dispatch.dispatch(ctx.clinic, presenca, paciente, :confirmacao)
+      entregar!(ctx, segunda)
+
+      assert {:skip, :limite_de_envios} =
+               Dispatch.dispatch(ctx.clinic, presenca, paciente, :confirmacao)
+    end
+
+    test "o que FALHOU não gasta o teto — a recepção conserta a ficha e tenta de novo" do
+      # Mensagem que falhou não chegou a ninguém, então não é spam. Contá-la travaria exatamente
+      # quem mais precisa reenviar: quem corrigiu o e-mail errado na ficha.
+      ctx = clinica()
+      sem_confirmacao_automatica(ctx)
+      paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
+      appt = agendamento!(ctx, paciente: paciente)
+      [presenca] = appt.attendances
+
+      for _ <- 1..2 do
+        assert {:ok, message} = Dispatch.dispatch(ctx.clinic, presenca, paciente, :confirmacao)
+        falhar!(ctx, message)
+      end
+
+      assert {:ok, _} = Dispatch.dispatch(ctx.clinic, presenca, paciente, :confirmacao)
+    end
+
+    test "o teto é por PRESENÇA — a turma não trava por causa de um participante" do
+      ctx = clinica()
+      sem_confirmacao_automatica(ctx)
+      turma = Api.Generators.tipo!(ctx, grupo: true, capacidade: 4)
+      ana = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
+      joao = paciente_com(ctx, comunicacao: true, email: "joao@example.com")
+
+      quando = amanha_as(ctx, 10)
+      appt = agendamento!(ctx, paciente: ana, tipo: turma, quando: quando)
+      _ = agendamento!(ctx, paciente: joao, tipo: turma, quando: quando)
+
+      presencas = presencas_do(ctx, appt)
+      de_ana = Enum.find(presencas, &(&1.patient_id == ana.id))
+      de_joao = Enum.find(presencas, &(&1.patient_id == joao.id))
+
+      for _ <- 1..2 do
+        assert {:ok, message} = Dispatch.dispatch(ctx.clinic, de_ana, ana, :confirmacao)
+        entregar!(ctx, message)
+      end
+
+      assert {:skip, :limite_de_envios} = Dispatch.dispatch(ctx.clinic, de_ana, ana, :confirmacao)
+      assert {:ok, _} = Dispatch.dispatch(ctx.clinic, de_joao, joao, :confirmacao)
+    end
+
+    test "o teto não alcança lembrete, remarcação nem cancelamento" do
+      # Cada um desses anuncia um fato próprio: o lembrete é do cron (N horas antes), e remarcação e
+      # cancelamento trazem informação que a confirmação não tinha. Um teto de confirmação que
+      # calasse os três seria um controle fazendo quatro coisas com um nome só.
+      ctx = clinica()
+      sem_confirmacao_automatica(ctx)
+      paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
+      appt = agendamento!(ctx, paciente: paciente)
+      [presenca] = appt.attendances
+
+      for _ <- 1..2 do
+        assert {:ok, message} = Dispatch.dispatch(ctx.clinic, presenca, paciente, :confirmacao)
+        entregar!(ctx, message)
+      end
+
+      assert {:ok, _} = Dispatch.dispatch(ctx.clinic, presenca, paciente, :lembrete)
+      assert {:ok, _} = Dispatch.dispatch(ctx.clinic, presenca, paciente, :remarcacao)
+      assert {:ok, _} = Dispatch.dispatch(ctx.clinic, presenca, paciente, :cancelamento)
+    end
+
     test "não levanta quando o paciente não pode receber — devolve o motivo" do
       ctx = clinica()
       sem_confirmacao_automatica(ctx)
@@ -417,6 +548,45 @@ defmodule Api.Messaging.DispatchTest do
       authorize?: false
     )
   end
+
+  # ---- os três estados que as travas de confirmação leem ----
+  #
+  # Sempre pelas ações do domínio, sob a GUC: escrever o status à mão com `Ash.Seed` deixaria o
+  # teste verde com a máquina de entrega quebrada, e é justamente a máquina que o teto consulta.
+
+  # "A mensagem chegou ao paciente" — o que gasta uma unidade do teto.
+  defp entregar!(ctx, message) do
+    Api.Tenancy.in_clinic(ctx.clinic.id, fn ->
+      Messaging.do_mark_sent!(message, %{provider: "resend", provider_message_id: unico_id()},
+        tenant: ctx.clinic.id,
+        authorize?: false
+      )
+    end)
+  end
+
+  # "Não chegou a ninguém" — não gasta o teto (ver o teste do e-mail errado na ficha).
+  defp falhar!(ctx, message) do
+    Api.Tenancy.in_clinic(ctx.clinic.id, fn ->
+      Messaging.do_advance_message!(
+        message,
+        %{novo_status: :falhou, erro: "mailbox does not exist"},
+        tenant: ctx.clinic.id,
+        authorize?: false
+      )
+    end)
+  end
+
+  # O clique do paciente no link (doc 52 §5), pela mesma ação do controller público.
+  defp responder!(ctx, message, resposta) do
+    Api.Tenancy.in_clinic(ctx.clinic.id, fn ->
+      Messaging.do_record_reply!(message, %{resposta: resposta},
+        tenant: ctx.clinic.id,
+        authorize?: false
+      )
+    end)
+  end
+
+  defp unico_id, do: "prov-#{System.unique_integer([:positive])}"
 
   # As presenças do bloco, relidas: quem chamou `agendamento!` primeiro tem só a própria carregada,
   # e a turma se forma na segunda chamada.

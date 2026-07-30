@@ -7,6 +7,10 @@ defmodule Api.Messaging.Dispatch do
 
       consentimento na ficha? → tem destino? → pediu para parar? → qual canal?
 
+  Depois de "sim, dá para falar com esta pessoa" vem uma segunda camada, de natureza diferente:
+  **já falamos?** São as travas de repetição de `barreira/3` — já respondeu, já tem uma na fila,
+  já bateu o teto. As quatro primeiras perguntam se **pode**; estas perguntam se **deve**.
+
   Toda a razão de este módulo existir é ser chamado pelos **dois** lados:
 
     * o envio (manual, gatilho de criação, cron) — que precisa saber se manda;
@@ -41,8 +45,25 @@ defmodule Api.Messaging.Dispatch do
 
   import Api.Tenancy, only: [in_clinic: 2]
 
-  # Os tipos em que uma segunda mensagem **não diz nada de novo** — ver `ja_na_fila?/3`.
-  @sem_duplicata [:confirmacao, :lembrete]
+  # Os tipos em que uma segunda mensagem **não diz nada de novo** — ver `barreira/3`. Remarcação e
+  # cancelamento ficam fora: cada um anuncia um FATO novo, e remarcar duas vezes precisa avisar
+  # duas vezes.
+  @com_barreira [:confirmacao, :lembrete]
+
+  # Quantas confirmações uma presença pode receber, no total.
+  #
+  # **Dois, e o número tem uma leitura:** a primeira é a automática da criação (ou o primeiro
+  # clique da recepção), a segunda é a insistência legítima de quem não obteve resposta. A terceira
+  # é o paciente sendo cobrado três vezes pela mesma sessão — no WhatsApp, três vezes **pago**, e é
+  # assim que se perde um número por bloqueio (§9.1.1).
+  @limite_de_confirmacoes 2
+
+  # Os estados que **gastam** uma unidade do teto: a mensagem chegou ao paciente, ou vai chegar.
+  #
+  # `:falhou` e `:descartada` de fora, e não por generosidade: nenhuma das duas falou com ninguém.
+  # Contá-las travaria exatamente quem mais precisa reenviar — a recepção que acabou de corrigir o
+  # e-mail errado na ficha depois de dois bounces.
+  @alcancam_o_paciente [:pendente, :enviado, :entregue, :lido]
 
   alias Api.Messaging
   alias Api.Messaging.Templates
@@ -55,18 +76,27 @@ defmodule Api.Messaging.Dispatch do
     * `:sem_contato` — não há e-mail nem telefone utilizável **na ficha**;
     * `:canal_indisponivel` — a ficha tem destino, mas o transporte dele não está de pé;
     * `:opt_out` — o paciente pediu para parar;
-    * `:ja_na_fila` — já existe uma mensagem deste tipo esperando para esta presença.
+    * `:ja_na_fila` — já existe uma mensagem deste tipo esperando para esta presença;
+    * `:ja_confirmou` — o paciente já respondeu que vem;
+    * `:limite_de_envios` — a presença já recebeu o teto de confirmações.
 
-  O último é o único que **não** vem de `avaliar/2`: ele não é sobre poder falar com a pessoa, é
-  sobre não falar duas vezes. Por isso é decidido em `dispatch/5`, depois de a resposta já ser
-  "sim, dá para enviar".
+  Os **três últimos** não vêm de `avaliar/2`: nenhum é sobre poder falar com a pessoa, e todos são
+  sobre não falar **de novo**. Por isso são decididos em `dispatch/5` (ver `barreira/3`), depois de
+  a resposta já ser "sim, dá para enviar".
 
   Os dois do meio já foram um átomo só, e a fusão produzia uma mentira no balcão: paciente com
   celular na ficha e WhatsApp desligado lia "sem e-mail nem telefone cadastrado". Cada motivo
   existe porque leva a uma **ação diferente** — e "abra a ficha e preencha" é o conselho errado
   para quem já preencheu. `:canal_indisponivel` não é da recepção: é de quem opera a instalação.
   """
-  @type motivo :: :sem_consentimento | :sem_contato | :canal_indisponivel | :opt_out | :ja_na_fila
+  @type motivo ::
+          :sem_consentimento
+          | :sem_contato
+          | :canal_indisponivel
+          | :opt_out
+          | :ja_na_fila
+          | :ja_confirmou
+          | :limite_de_envios
 
   @doc """
   Este paciente receberia uma mensagem agora? Por qual canal, e em qual destino?
@@ -201,38 +231,73 @@ defmodule Api.Messaging.Dispatch do
   @spec dispatch(map(), map(), map(), atom(), keyword()) :: {:ok, map()} | {:skip, motivo()}
   def dispatch(clinic, attendance, patient, kind, opts \\ []) do
     with {:ok, canal, destino} <- avaliar(patient, clinic_id: clinic.id),
-         false <- ja_na_fila?(clinic, attendance, kind) do
+         nil <- barreira(clinic, attendance, kind) do
       {:ok, gravar_e_enfileirar(clinic, attendance, patient, kind, canal, destino, opts)}
     else
       {:skip, motivo} -> {:skip, motivo}
-      true -> {:skip, :ja_na_fila}
+      # `barreira/3` devolve o átomo do motivo, ou `nil` para "pode mandar" — e `nil` não chega
+      # aqui, porque é ele que faz o `with` seguir.
+      motivo when is_atom(motivo) -> {:skip, motivo}
     end
   end
 
-  # A trava contra a duplicata (§4). Uma mensagem deste tipo **ainda na fila** para esta presença
-  # significa que o envio já foi pedido e não saiu: enfileirar outra não adianta o relógio, só
-  # duplica o que vai chegar ao paciente. Dentro da janela de silêncio, onde a primeira fica horas
-  # parada, é o caso comum — quem clica não vê nada acontecer e clica de novo.
+  # As travas de repetição (§4), avaliadas depois de "dá para falar com esta pessoa?". Devolve o
+  # motivo, ou `nil` quando nada barra.
   #
-  # **Só vale para os tipos em que a segunda mensagem não diz nada de novo.** Confirmação e
-  # lembrete repetem o mesmo conteúdo, e o segundo é ruído. Remarcação e cancelamento são o
-  # oposto: cada um anuncia um FATO novo, e remarcar duas vezes precisa avisar duas vezes — o
-  # segundo aviso traz o horário que o primeiro não tinha. Travar por tipo, e não por presença,
-  # é o que separa os dois casos.
+  # **Uma leitura só para os três predicados.** Eles olham recortes diferentes do mesmo punhado de
+  # linhas (1–4 por presença), e uma query por pergunta seriam três idas ao banco em todo envio.
   #
   # **Roda dentro de `in_clinic/2`, e isso não é zelo.** O `dispatch/5` é chamado FORA de qualquer
   # transação com GUC (o controller sai do `in_clinic` antes de mapear os participantes; o cron
   # nunca entrou), e a escrita só funciona porque a própria ação carrega o `SetTenantGuc`. Uma
-  # leitura solta aqui rodaria sem GUC, a RLS devolveria lista vazia, e a trava passaria a nunca
+  # leitura solta aqui rodaria sem GUC, a RLS devolveria lista vazia, e as travas passariam a nunca
   # travar — em silêncio, e com a suíte verde, porque no `mix test` o sandbox roda como superusuário
   # (é a lição de `.claude/rules` / doc 30 que já custou três medições erradas).
-  defp ja_na_fila?(clinic, attendance, kind) when kind in @sem_duplicata do
+  defp barreira(clinic, attendance, kind) when kind in @com_barreira do
     in_clinic(clinic.id, fn ->
-      Messaging.list_pending_messages!(attendance.id, kind, authorize?: false) != []
+      attendance.id
+      |> Messaging.list_attendance_messages!(authorize?: false)
+      |> primeira_trava(kind)
     end)
   end
 
-  defp ja_na_fila?(_clinic, _attendance, _kind), do: false
+  defp barreira(_clinic, _attendance, _kind), do: nil
+
+  # O lembrete tem **só** a trava da fila: ele é do cron, um por sessão, e o teto de confirmação
+  # não é dele. Um controle que calasse os dois faria uma coisa com o nome de outra.
+  defp primeira_trava(mensagens, :lembrete) do
+    if na_fila?(mensagens, :lembrete), do: :ja_na_fila
+  end
+
+  # A ordem das três é a do que informa melhor quem lê o resultado no balcão: "ele já respondeu"
+  # encerra o assunto, "a anterior ainda está na fila" é temporário e volta a permitir, e o teto é
+  # definitivo para esta sessão.
+  defp primeira_trava(mensagens, :confirmacao) do
+    cond do
+      ja_confirmou?(mensagens) -> :ja_confirmou
+      na_fila?(mensagens, :confirmacao) -> :ja_na_fila
+      alcancadas(mensagens, :confirmacao) >= @limite_de_confirmacoes -> :limite_de_envios
+      true -> nil
+    end
+  end
+
+  # **Qualquer tipo conta, não só a confirmação.** `SendJob.render/1` põe o link de resposta em toda
+  # mensagem, então o paciente pode responder "vou" ao lembrete — e quem já disse que vem não deve
+  # receber um pedido de confirmação.
+  #
+  # `:quer_remarcar` **não** barra, e a assimetria é o ponto: aquilo é o oposto de "está resolvido".
+  # A recepção liga, acerta o horário, e a confirmação nova é justamente o que fecha o assunto.
+  defp ja_confirmou?(mensagens), do: Enum.any?(mensagens, &(&1.resposta == :confirmou))
+
+  # Uma deste tipo **ainda na fila** significa que o envio já foi pedido e não saiu: enfileirar
+  # outra não adianta o relógio, só duplica o que vai chegar. Dentro da janela de silêncio (§7),
+  # onde a primeira fica horas parada, é o caso comum — quem clica não vê nada acontecer e clica
+  # de novo. Medido no dev de 2026-07-28: quatro linhas idênticas para o mesmo paciente.
+  defp na_fila?(mensagens, kind),
+    do: Enum.any?(mensagens, &(&1.kind == kind and &1.status == :pendente))
+
+  defp alcancadas(mensagens, kind),
+    do: Enum.count(mensagens, &(&1.kind == kind and &1.status in @alcancam_o_paciente))
 
   defp gravar_e_enfileirar(clinic, attendance, patient, kind, canal, destino, opts) do
     # Uma leitura só do relógio para os dois usos. Chamar `quando_enviar/1` duas vezes deixaria a

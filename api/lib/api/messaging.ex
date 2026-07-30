@@ -31,9 +31,7 @@ defmodule Api.Messaging do
       define :enqueue_message, action: :enqueue
       define :list_messages_for_appointment, action: :for_appointment, args: [:appointment_id]
 
-      define :list_pending_messages,
-        action: :pending_for_attendance,
-        args: [:attendance_id, :kind]
+      define :list_attendance_messages, action: :for_attendance, args: [:attendance_id]
 
       define :list_pending_messages_for_appointment,
         action: :pending_for_appointment,

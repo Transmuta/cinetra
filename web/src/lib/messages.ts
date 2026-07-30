@@ -16,12 +16,31 @@ export type SemEnvio =
 	/**
 	 * Já há uma mensagem deste tipo esperando na fila para esta presença.
 	 *
-	 * Só aparece na **resposta do disparo**, nunca como explicação de silêncio na timeline: lá o
-	 * motivo só é calculado quando não existe mensagem nenhuma, e este significa o contrário.
+	 * Este e os dois abaixo só aparecem na **resposta do disparo**, nunca como explicação de
+	 * silêncio na timeline: lá o motivo só é calculado quando não existe mensagem nenhuma, e os três
+	 * significam o contrário — só existem porque já houve mensagem.
 	 */
-	| 'ja_na_fila';
+	| 'ja_na_fila'
+	/** O paciente já respondeu que vem; pedir de novo é cobrar quem já respondeu. */
+	| 'ja_confirmou'
+	/** A presença já recebeu o teto de confirmações (ver `LIMITE_DE_CONFIRMACOES`). */
+	| 'limite_de_envios';
 
 export type MessageStatus = 'pendente' | 'enviado' | 'entregue' | 'lido' | 'falhou' | 'descartada';
+
+/**
+ * O teto de confirmações por presença — espelho do `@limite_de_confirmacoes` do `Dispatch`.
+ *
+ * Duplicado do servidor **de propósito**: a tela precisa desabilitar o botão *antes* do clique, e
+ * ela não tem como perguntar.
+ *
+ * Nada compara os dois números em runtime — o que existe é o **valor fixado por teste dos dois
+ * lados**: aqui, em `messages.test.ts`, e lá, em `ApiWeb.MessagesControllerTest` ("a terceira
+ * confirmação é recusada"). Mudar um lado só deixa vermelho o teste daquele lado, então a
+ * divergência exige mexer no número e no teste — ato deliberado, não descuido. É a mesma forma de
+ * proteção da marca `bulk_pacote` dos notifiers.
+ */
+export const LIMITE_DE_CONFIRMACOES = 2;
 
 /**
  * Por que a mensagem foi tirada da fila antes de sair (`Api.Messaging.DescarteMotivo`).
@@ -85,9 +104,12 @@ const SEM_ENVIO_MOTIVO: Record<SemEnvio, string> = {
 	sem_contato: 'sem e-mail nem telefone cadastrado',
 	canal_indisponivel: 'o WhatsApp está indisponível e não há e-mail na ficha',
 	opt_out: 'o paciente pediu para não receber',
-	// Este não pede ação nenhuma — pelo contrário, diz que a ação já foi tomada. Some do balcão a
-	// impressão de que o clique falhou, que é o que faz a recepção clicar de novo.
-	ja_na_fila: 'a mensagem anterior ainda está na fila para este paciente'
+	// Os três abaixo não pedem ação nenhuma — pelo contrário, dizem que já foi feito o que havia
+	// para fazer. Some do balcão a impressão de que o clique falhou, que é o que faz a recepção
+	// clicar de novo.
+	ja_na_fila: 'a mensagem anterior ainda está na fila para este paciente',
+	ja_confirmou: 'o paciente já confirmou presença',
+	limite_de_envios: `já foram enviadas ${LIMITE_DE_CONFIRMACOES} confirmações para este paciente`
 };
 
 // O motivo cru vem da API: um átomo novo lá não pode virar `undefined` na tela.
@@ -252,6 +274,9 @@ export function respostaTexto(m: Message): string | null {
  */
 export function podeReenviar(p: MessageParticipant): boolean {
 	if (p.mensagens.length === 0) return !p.semEnvio;
+	// As duas travas de repetição valem mesmo depois de uma falha: não se insiste com quem já
+	// respondeu que vem, nem se estoura o teto porque a última tentativa foi a que falhou.
+	if (travaDeRepeticao(p)) return false;
 
 	const ultima = p.mensagens[p.mensagens.length - 1];
 	return ultima.status === 'falhou';
@@ -270,20 +295,72 @@ export function podeReenviar(p: MessageParticipant): boolean {
  * `null` é a timeline ainda carregando: não sabemos, e "não sei" não é "não dá" — o botão fica de
  * pé e o pior caso é o aviso que já existia.
  *
- * Quem já tem uma **confirmação na fila** também não conta: o servidor recusa a duplicata
- * (`:ja_na_fila`), e um botão que dispara para receber "nada enviado" de volta é o mesmo botão
- * que promete e não cumpre. A regra é a mesma dos dois lados de propósito — divergir aqui faria a
- * tela oferecer o que o `Dispatch` nega.
+ * Quem está sob uma **trava de repetição** também não conta: o servidor recusa (`:ja_na_fila`,
+ * `:ja_confirmou`, `:limite_de_envios`), e um botão que dispara para receber "nada enviado" de
+ * volta é o mesmo botão que promete e não cumpre. A regra é a mesma dos dois lados de propósito —
+ * divergir aqui faria a tela oferecer o que o `Dispatch` nega.
  */
 export function algumPodeReceber(participantes: MessageParticipant[] | null): boolean {
 	if (participantes === null) return true;
 
-	return participantes.some((p) => !p.semEnvio && !confirmacaoNaFila(p));
+	return participantes.some((p) => !p.semEnvio && !travaDeRepeticao(p));
+}
+
+/**
+ * Por que o "Enviar confirmação" está desabilitado — ou `null` quando ele pode disparar.
+ *
+ * Existe porque um botão desabilitado sem explicação faz a recepção clicar até desistir. Devolve a
+ * frase **só quando todos os participantes estão barrados pelo MESMO motivo**: numa turma onde um
+ * confirmou e outro não tem contato, qualquer frase única mentiria para um dos dois — e aí o
+ * genérico ("o motivo está em Comunicação") é o honesto, porque a timeline mostra os dois linha a
+ * linha.
+ */
+export function motivoDoBloqueio(participantes: MessageParticipant[] | null): string | null {
+	if (participantes === null || participantes.length === 0) return null;
+	if (algumPodeReceber(participantes)) return null;
+
+	const motivos = new Set(participantes.map((p) => p.semEnvio ?? travaDeRepeticao(p)));
+
+	return motivos.size === 1 ? motivoTexto([...motivos][0] as string) : null;
+}
+
+/**
+ * A trava de repetição desta presença, ou `null` quando não há nenhuma.
+ *
+ * **Espelha o `barreira/3` do `Dispatch`, na mesma ordem** — e a ordem importa porque é ela que
+ * escolhe a frase que a recepção lê: "já respondeu" encerra o assunto, "ainda está na fila" é
+ * temporário, o teto é definitivo para esta sessão.
+ */
+function travaDeRepeticao(p: MessageParticipant): SemEnvio | null {
+	if (p.mensagens.some((m) => m.resposta === 'confirmou')) return 'ja_confirmou';
+	if (confirmacaoNaFila(p)) return 'ja_na_fila';
+	if (confirmacoesEntregues(p) >= LIMITE_DE_CONFIRMACOES) return 'limite_de_envios';
+
+	return null;
 }
 
 // `kind` importa: a trava do servidor é por (presença, tipo). Um LEMBRETE parado na fila não
 // impede uma confirmação de sair, e travar por ele aqui faria a tela ser mais restritiva que a
 // regra — o tipo de divergência que ninguém percebe até alguém não conseguir mandar.
+//
+// **`resposta` é a exceção**, e por isso ela não está aqui: o link de resposta viaja em TODA
+// mensagem (`SendJob.render/1`), então quem confirmou pelo lembrete confirmou — e um pedido de
+// confirmação depois disso é cobrar quem já respondeu.
 function confirmacaoNaFila(p: MessageParticipant): boolean {
 	return p.mensagens.some((m) => m.kind === 'confirmacao' && m.status === 'pendente');
 }
+
+/**
+ * Quantas confirmações desta presença **alcançaram ou vão alcançar** o paciente.
+ *
+ * `falhou` e `descartada` de fora: nenhuma das duas falou com ninguém, e contá-las travaria
+ * justamente quem precisa reenviar — a recepção que acabou de corrigir o e-mail na ficha. Mesma
+ * lista do `@alcancam_o_paciente` do `Dispatch`.
+ */
+function confirmacoesEntregues(p: MessageParticipant): number {
+	return p.mensagens.filter(
+		(m) => m.kind === 'confirmacao' && ALCANCAM_O_PACIENTE.includes(m.status)
+	).length;
+}
+
+const ALCANCAM_O_PACIENTE: MessageStatus[] = ['pendente', 'enviado', 'entregue', 'lido'];

@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import '@testing-library/jest-dom/vitest';
 import { render, screen, fireEvent } from '@testing-library/svelte';
 import type { Appointment, AgendaPatient, AgendaAppointmentType, AgendaProfessional } from '$lib/agenda';
-import type { MessageParticipant } from '$lib/messages';
+import type { Message, MessageParticipant } from '$lib/messages';
 
 vi.mock('$app/forms', () => ({ enhance: () => ({ destroy() {} }) }));
 
@@ -363,6 +363,29 @@ describe('AppointmentDrawer', () => {
 	// O botão do rodapé promete disparo para o bloco inteiro. Com todo mundo barrado, o clique
 	// voltava com o mesmo motivo que a seção Comunicação já explica — aviso no lugar de ação.
 	describe('"Enviar confirmação" quando ninguém pode receber', () => {
+		const mensagem = (over: Partial<Message> = {}): Message => ({
+			id: 'm1',
+			canal: 'email',
+			kind: 'confirmacao',
+			status: 'entregue',
+			destino: 'joao@example.com',
+			erro: null,
+			erroTexto: null,
+			resposta: null,
+			automatico: true,
+			enfileiradoEm: '2026-08-10T12:00:00Z',
+			agendadoPara: null,
+			enviadoEm: '2026-08-10T12:00:05Z',
+			entregueEm: '2026-08-10T12:00:30Z',
+			lidoEm: null,
+			falhouEm: null,
+			descartadaEm: null,
+			descarteMotivo: null,
+			respondidoEm: null,
+			titulo: 'Clínica: sua sessão',
+			...over
+		});
+
 		function timeline(semEnvio: MessageParticipant['semEnvio']): MessageParticipant[] {
 			return [
 				{ attendanceId: 'at1', patientId: 'pac1', paciente: 'João Silva', mensagens: [], semEnvio }
@@ -372,6 +395,33 @@ describe('AppointmentDrawer', () => {
 		it('desabilita, com o porquê no title', () => {
 			render(AppointmentDrawer, {
 				props: { appt: appt(), ...base, mensagens: timeline('canal_indisponivel') }
+			});
+
+			const botao = screen.getByRole('button', { name: /Enviar confirmação/ });
+			expect(botao).toBeDisabled();
+			// O motivo por extenso, e não mais "o motivo está em Comunicação": com um só motivo em
+			// jogo, mandar a pessoa procurar a explicação em outro lugar é trabalho sem ganho.
+			expect(botao).toHaveAttribute('title', 'o WhatsApp está indisponível e não há e-mail na ficha');
+		});
+
+		it('com motivos DIFERENTES na turma, o title volta a mandar ler a timeline', () => {
+			// Uma frase única mentiria para um dos dois participantes. O genérico é o honesto — e a
+			// seção Comunicação mostra os dois casos linha a linha.
+			render(AppointmentDrawer, {
+				props: {
+					appt: appt(),
+					...base,
+					mensagens: [
+						...timeline('sem_contato'),
+						{
+							attendanceId: 'at2',
+							patientId: 'pac2',
+							paciente: 'Ana Souza',
+							mensagens: [mensagem({ status: 'entregue', resposta: 'confirmou' })],
+							semEnvio: null
+						}
+					]
+				}
 			});
 
 			const botao = screen.getByRole('button', { name: /Enviar confirmação/ });
@@ -388,6 +438,58 @@ describe('AppointmentDrawer', () => {
 		it('a timeline em voo não desabilita nada', () => {
 			// `mensagens` chega `null` até a busca do drawer voltar; desabilitar ali piscaria o botão.
 			render(AppointmentDrawer, { props: { appt: appt(), ...base, mensagens: null } });
+
+			expect(screen.getByRole('button', { name: /Enviar confirmação/ })).toBeEnabled();
+		});
+
+		// As duas travas de repetição (2026-07-29). Aqui o `title` diz QUAL é o motivo, e não o
+		// genérico: mandar a recepção caçar na timeline para descobrir que não há nada a fazer é o
+		// mesmo botão que promete e não cumpre, na forma passiva.
+		function comMensagens(mensagens: Message[]): MessageParticipant[] {
+			return [
+				{ attendanceId: 'at1', patientId: 'pac1', paciente: 'João Silva', mensagens, semEnvio: null }
+			];
+		}
+
+		it('quem já confirmou desabilita, e o title diz isso', () => {
+			render(AppointmentDrawer, {
+				props: {
+					appt: appt(),
+					...base,
+					mensagens: comMensagens([mensagem({ status: 'entregue', resposta: 'confirmou' })])
+				}
+			});
+
+			const botao = screen.getByRole('button', { name: /Enviar confirmação/ });
+			expect(botao).toBeDisabled();
+			expect(botao).toHaveAttribute('title', 'o paciente já confirmou presença');
+		});
+
+		it('o teto de duas confirmações desabilita, e o title diz isso', () => {
+			render(AppointmentDrawer, {
+				props: {
+					appt: appt(),
+					...base,
+					mensagens: comMensagens([
+						mensagem({ id: 'm1', status: 'entregue' }),
+						mensagem({ id: 'm2', status: 'entregue' })
+					])
+				}
+			});
+
+			const botao = screen.getByRole('button', { name: /Enviar confirmação/ });
+			expect(botao).toBeDisabled();
+			expect(botao).toHaveAttribute('title', 'já foram enviadas 2 confirmações para este paciente');
+		});
+
+		it('uma confirmação só não fecha o teto', () => {
+			render(AppointmentDrawer, {
+				props: {
+					appt: appt(),
+					...base,
+					mensagens: comMensagens([mensagem({ status: 'entregue' })])
+				}
+			});
 
 			expect(screen.getByRole('button', { name: /Enviar confirmação/ })).toBeEnabled();
 		});

@@ -32,7 +32,7 @@
 	import MessageTimeline from '$lib/components/agenda/MessageTimeline.svelte';
 	import ConflictErrorBox from '$lib/components/agenda/ConflictErrorBox.svelte';
 	import PriorityBadge from '$lib/components/fila/PriorityBadge.svelte';
-	import { algumPodeReceber, type MessageParticipant } from '$lib/messages';
+	import { algumPodeReceber, motivoDoBloqueio, type MessageParticipant } from '$lib/messages';
 	import type { Entry } from '$lib/waitlist';
 	import { formatarTelefone } from '$lib/telefone';
 	import { avatarColor } from '$lib/avatar';
@@ -263,6 +263,13 @@
 	// no `title` e, por extenso, na seção Comunicação logo acima.
 	const podeConfirmar = $derived(algumPodeReceber(mensagens));
 
+	// E o `title` diz QUAL motivo quando os participantes barrados compartilham um só — "já
+	// confirmou" e "duas confirmações já saíram" são as duas travas que a recepção mais vai
+	// encontrar, e mandá-la caçar isso na timeline para descobrir que não há nada a fazer é o
+	// mesmo botão que promete e não cumpre, só na forma passiva. Com motivos diferentes na turma
+	// volta o genérico: uma frase única mentiria para um dos dois.
+	const motivoDesabilitado = $derived(motivoDoBloqueio(mensagens));
+
 	// O erro (409/422) só é do drawer quando a última action foi de ciclo de vida (fonte única
 	// em `$lib/agenda`, não uma lista solta aqui).
 	const erro = $derived(
@@ -362,7 +369,8 @@
 				disabled={!podeConfirmar || confirmEnvio.algumEmVoo}
 				title={podeConfirmar
 					? undefined
-					: 'Ninguém deste agendamento pode receber agora — o motivo está em Comunicação'}
+					: (motivoDesabilitado ??
+						'Ninguém deste agendamento pode receber agora — o motivo está em Comunicação')}
 				size={15}
 				class="flex flex-1 items-center justify-center gap-2 rounded-lg border border-edge bg-surface px-3 py-2.5 text-[13px] font-semibold hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-surface"
 			>
