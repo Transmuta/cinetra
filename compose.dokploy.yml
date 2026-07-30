@@ -172,13 +172,13 @@ services:
       # /socket -> API (WebSocket do browser). Prioridade > catch-all do web.
       - traefik.http.routers.cinetra-api-socket-${STACK}.rule=Host(`${WEB_HOST}`) && PathPrefix(`/socket`)
       - traefik.http.routers.cinetra-api-socket-${STACK}.entrypoints=websecure
-      - traefik.http.routers.cinetra-api-socket-${STACK}.tls.certresolver=letsencrypt
+      - traefik.http.routers.cinetra-api-socket-${STACK}.tls=true
       - traefik.http.routers.cinetra-api-socket-${STACK}.priority=100
       - traefik.http.routers.cinetra-api-socket-${STACK}.service=cinetra-api-${STACK}
       # /webhooks -> API (provedores externos: Resend e os próximos).
       - traefik.http.routers.cinetra-api-webhooks-${STACK}.rule=Host(`${WEB_HOST}`) && PathPrefix(`/webhooks`)
       - traefik.http.routers.cinetra-api-webhooks-${STACK}.entrypoints=websecure
-      - traefik.http.routers.cinetra-api-webhooks-${STACK}.tls.certresolver=letsencrypt
+      - traefik.http.routers.cinetra-api-webhooks-${STACK}.tls=true
       - traefik.http.routers.cinetra-api-webhooks-${STACK}.priority=100
       - traefik.http.routers.cinetra-api-webhooks-${STACK}.service=cinetra-api-${STACK}
       # Serviço (compartilhado pelos dois routers) + health pelo Traefik (a imagem não tem curl).
@@ -208,7 +208,7 @@ services:
       API_URL: "http://api:4000"                # BFF -> API pela rede interna (app)
       API_PUBLIC_ORIGIN: "https://${WEB_HOST}"  # socket wss no mesmo domínio
       ORIGIN: "https://${WEB_HOST}"             # CSRF, URLs absolutas, decide o HSTS
-      ADDRESS_HEADER: "X-Forwarded-For"         # sob Traefik (era Fly-Client-IP)
+      ADDRESS_HEADER: "CF-Connecting-IP"        # atrás do Cloudflare: IP real do cliente (docs/59 §5.1)
       # Traces (doc 76). Vazio = o `otel.mjs` não constrói o SDK e o processo fica idêntico.
       # Porta 4318 (OTLP/HTTP) contra 4317 (gRPC) da API: cada SDK usa o protocolo batido na sua
       # comunidade, e o Alloy escuta os dois. O `--import ./otel.mjs` já está no Dockerfile.prod.
@@ -222,7 +222,7 @@ services:
       # Catch-all do domínio: tudo que não for /socket nem /webhooks. Prioridade < a da API.
       - traefik.http.routers.cinetra-web-${STACK}.rule=Host(`${WEB_HOST}`)
       - traefik.http.routers.cinetra-web-${STACK}.entrypoints=websecure
-      - traefik.http.routers.cinetra-web-${STACK}.tls.certresolver=letsencrypt
+      - traefik.http.routers.cinetra-web-${STACK}.tls=true
       - traefik.http.routers.cinetra-web-${STACK}.priority=1
       - traefik.http.services.cinetra-web-${STACK}.loadbalancer.server.port=3000
       # Health do BFF, que não existia. Aponta para **/health** (liveness), NÃO para /ready: o

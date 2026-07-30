@@ -91,9 +91,9 @@ Regras (nos **dois**):
 | Porta | Origem | Uso |
 |---|---|---|
 | `22` (SSH) | **só nossos IPs** (IP fixo/VPN) | administração |
-| `3000` (painel Dokploy) | **só nossos IPs** | administração |
-| `443` | mundo | o app (web + api) |
-| `80` | mundo | redirect + desafio Let's Encrypt |
+| `3000` (painel Dokploy) | **fechada** (após configurar o `dok`) | painel vai por `dok` + Cloudflare Access (§5.1) |
+| `443` | **só faixas do Cloudflare** | o app, atrás do proxy (§5.1) |
+| `80` | **só faixas do Cloudflare** | Cloudflare→origem; o redirect fica no Cloudflare |
 | `5432` (Postgres) | **fechado** | nunca sai da rede interna |
 
 Hardening do SSH: **só chave** (senha e root direto desabilitados, **passphrase na chave**),
@@ -140,16 +140,46 @@ Hardening do SSH: **só chave** (senha e root direto desabilitados, **passphrase
 5. Guarde a **chave SSH** da criação (não dá para baixar depois).
 6. **Swap** (2–4 GB) mesmo com 24 GB — barra runaway de build.
 
-## 5. DNS
+## 5. DNS (atrás do Cloudflare)
 
-Todos para o **IP público reservado** do A1 (não o efêmero — reserve um *Reserved Public IP*,
-senão o IP muda num restart e o DNS quebra):
+Registros para o **IP público do VPS**, todos **proxied (laranja)** no Cloudflare:
 
-- `cinetra.com.br` → **A record** (apex **não** aceita CNAME).
-- `hml.cinetra.com.br` → A record.
+- `cinetra.com.br` → **A** (apex, não aceita CNAME) — app prod.
+- `hml.cinetra.com.br` → **A** — app HML.
+- `dok.cinetra.com.br` → **A** — painel do Dokploy (§5.1).
 
-Só **dois hosts** — **não há `api.*`** (BFF-only: a API é servida em `/socket` e `/webhooks` do
-próprio domínio). O Traefik do Dokploy emite o TLS (Let's Encrypt) para cada host.
+**Não há `api.*`** — BFF-only: a API é servida em `/socket` e `/webhooks` do próprio domínio.
+
+### 5.1 Cloudflare (proxy + WAF)
+
+Decidido rodar atrás do Cloudflare com proxy. Feito **certo** — senão a proteção é furada:
+
+1. **Proxy ON + SSL/TLS = Full (strict).** Nunca "Flexible" (origem sem TLS = inseguro + loop de
+   redirect).
+2. **Cert na origem = Cloudflare Origin Certificate** (15 anos; SSL/TLS → Origin Server → Create
+   Certificate). Emita para `cinetra.com.br` **e** `*.cinetra.com.br` (um cert cobre prod, hml e
+   dok). Instale no Dokploy (Certificates). Os routers do
+   [`compose.dokploy.yml`](../compose.dokploy.yml) usam **`tls=true`** (sem `certresolver`) — o
+   Traefik serve esse cert.
+3. **Trancar a origem (crítico):** o firewall do VPS aceita `80`/`443` **só das faixas de IP do
+   Cloudflare** — senão um atacante pula o Cloudflare batendo no IP cru e o WAF vira enfeite. Mais
+   forte ainda: **Authenticated Origin Pulls** (mTLS Cloudflare↔origem).
+4. **IP real do cliente:** `ADDRESS_HEADER=CF-Connecting-IP` (o compose já traz) — o rate-limit da
+   API vê o IP do usuário, não o do Cloudflare. (Opcional: `forwardedHeaders.trustedIPs` com as
+   faixas do Cloudflare no entrypoint do Traefik.)
+5. **Painel `dok`:** atrás do **Cloudflare Access (Zero Trust)** — portão de login no edge (e-mail/
+   SSO) antes de tocar o VPS; grátis até 50 usuários. Substitui a allowlist de IP no Traefik. O
+   painel fica no domínio `dok.cinetra.com.br` (servido pelo mesmo cert), e a `3000` continua
+   fechada (§3).
+6. **Dois detalhes que mordem:**
+   - **`/webhooks`:** regra de WAF **skip** para o path `/webhooks` — senão o Cloudflare desafia o
+     POST do Resend e o webhook não chega.
+   - **WebSocket:** funciona proxied — o heartbeat do Phoenix mantém a conexão viva dentro do
+     timeout de 100s do Cloudflare.
+
+> **Ordem de emissão do cert:** com o Origin Certificate você **não** depende do desafio HTTP-01,
+> então pode subir com o proxy já ligado. (Se um dia usar Let's Encrypt na origem atrás de proxy,
+> seria via **DNS-01** — o HTTP-01 quebra na renovação com o proxy permanente.)
 
 ## 6. Dokploy: os dois stacks
 
@@ -181,8 +211,8 @@ o pipeline. **HML tem os seus próprios** — nunca compartilhe segredo/banco/bu
 | `R2_ACCOUNT_ID` / `R2_BUCKET` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | env | bucket do ambiente |
 
 `API_URL`, `API_PUBLIC_ORIGIN`, `ORIGIN`, `PHX_HOST`, `WEB_APP_URL`, `GOOGLE_REDIRECT_URI` e o
-`ADDRESS_HEADER=X-Forwarded-For` já saem prontos do `compose.dokploy.yml` a partir de `WEB_HOST`
-(domínio único) — não precisa setar à mão.
+`ADDRESS_HEADER=CF-Connecting-IP` (atrás do Cloudflare, §5.1) já saem prontos do
+`compose.dokploy.yml` a partir de `WEB_HOST` (domínio único) — não precisa setar à mão.
 
 > **`API_PUBLIC_ORIGIN` é build-arg E runtime, e têm de bater.** A CSP (`connect-src`) é assada no
 > **build** (`kit.csp`); a guarda de boot `conferirOrigem` (web/src/hooks.server.ts) **derruba o
@@ -224,8 +254,9 @@ Renomear `col_a → col_b` em expand-contract: **(1)** adiciona `col_b`, mantém
 
 ## 9. TLS, HSTS, CSP
 
-- **TLS + redirect http→https**: do **Traefik** (o `force_https` da edge Fly não existe mais). Os
-  labels no compose pedem `certresolver=letsencrypt`.
+- **TLS**: atrás do Cloudflare (Full strict), a origem serve um **Cloudflare Origin Certificate**
+  instalado no Dokploy; os routers do compose usam **`tls=true`** (sem `certresolver`). O redirect
+  http→https fica no Cloudflare (Always Use HTTPS). Ver §5.1.
 - **HSTS**: continua saindo do **BFF** (`web/src/hooks.server.ts`, quando o request é https),
   **não** do Traefik. Depende de `ORIGIN=https://...` correto (o compose garante).
 - **CSP**: build-time (§7). Confira no deploy que `connect-src` traz o par `https://`/`wss://` do
