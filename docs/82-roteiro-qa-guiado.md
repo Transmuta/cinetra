@@ -49,7 +49,12 @@ Stack local (`docker compose up`) ou HML. Atenção a três armadilhas de ambien
 - [ ] **Magic link** do e-mail loga e cai no onboarding; criar a clínica → vira `owner` com os
       5 tipos de atendimento semeados.
 - [ ] **Magic link usado de novo** (mesmo link) → recusado, com caminho para pedir outro.
-- [ ] **Link velho** (peça dois; use o primeiro) → o mais recente vale; o consumido não.
+- [ ] **Link velho** (peça dois; use o primeiro) → **os dois valem**. Cada link emitido vale até
+      expirar; só o **consumido** é recusado. É decisão de 2026-07-30 (doc 88, A-12): revogar os
+      anteriores quebraria o caso mais comum — pedir outro e clicar no primeiro e-mail.
+- [ ] **Cadastrou e não abriu o link?** Pedir de novo em `/entrar` **não envia nada** — o `User` só
+      nasce quando o link é consumido, e o login não cria conta (ADR-015). A tela neutra aponta a
+      saída ("Peça outro em Criar conta"); confira que a frase está lá (doc 88, A-11).
 - [ ] **Google**: "Continuar com Google" completa o ciclo e cai logado (o botão navega página
       inteira — não pode dar 404).
 - [ ] **Errar o e-mail** no login → mesma tela neutra (nada de "conta não existe").
@@ -81,8 +86,11 @@ Stack local (`docker compose up`) ou HML. Atenção a três armadilhas de ambien
 - [ ] **Trocar papel** de um membro ativo → reflete no próximo request (sem exigir re-login).
 - [ ] **Revogar acesso** de Bia → a sessão dela morre no próximo clique; re-convidar funciona.
 - [ ] **≥1 owner**: tentar rebaixar/remover a única dona → recusado com explicação.
-- [ ] Profissional/recepção acessando `/configuracoes/equipe` direto pela URL → **403** da
-      tela, não tela vazia.
+- [ ] Profissional/recepção acessando `/configuracoes/equipe` direto pela URL → a **lista abre**
+      ("quem trabalha junto sabe quem trabalha junto"), e o que some são as **ações**: sem
+      "Convidar membro", sem "Remover acesso", e a API recusa a escrita com 403. **Corrigido em
+      2026-07-30**: o roteiro pedia 403 da tela, e a decisão implementada é esta (doc 88, A-3).
+- [ ] Já a **Auditoria** é 403 de verdade para os dois papéis — inclusive pela URL direta.
 
 ---
 
@@ -123,11 +131,22 @@ contraprova: Rafael só lê.*
 - [ ] **CPF com dígito errado** (`123.456.789-00`) → **barra o salvar** com mensagem no rodapé
       (D10); corrigir para um válido libera. `111.111.111-11` também barra.
 - [ ] **E-mail sem forma de e-mail** barra; **nascimento no futuro** barra; **ano 1889** barra.
-- [ ] **Duplicado por CPF**: cadastre o mesmo CPF de um paciente existente → **aviso** (não
-      barra) nomeando o outro paciente.
-- [ ] **Duplicado por telefone**: idem.
+> **Mudou em 2026-07-29** (doc 89, e o roteiro foi corrigido em 30/07 — doc 88, A-8): CPF,
+> telefone e e-mail preenchidos são **únicos por clínica**. O duplicado deixou de avisar e passou
+> a **barrar**. Antes disso o esperado aqui era "avisa, não barra" — se estiver rodando uma cópia
+> antiga do roteiro, é esta a diferença.
+
+- [ ] **Duplicado por CPF**: cadastre o mesmo CPF de um paciente existente → **recusado (422)**,
+      com *"este CPF já está em outra ficha da clínica — se ela estiver arquivada, reative-a"*.
+      Vale com e sem máscara (`390.533.447-05` colide com `39053344705`).
+- [ ] **Duplicado por telefone e por e-mail**: idem, cada um citando o próprio campo. O telefone
+      colide em qualquer formato (`+55 11 99111-0000` = `11991110000`).
+- [ ] **Ficha arquivada também bloqueia** — e a mensagem manda reativar, em vez de recadastrar.
+- [ ] O **aviso** de possível duplicado continua existindo *antes* do save (para não digitar a
+      ficha inteira e levar o 422 no fim) — ele confere os três campos, não só um.
 - [ ] **Duplicado por nome + nascimento** (o cadastro sem documento): mesmo nome e mesma data →
-      aviso "já tem este nome e data de nascimento".
+      aviso "já tem este nome e data de nascimento". Este **continua sendo só aviso** — nome e
+      nascimento não são chave.
 - [ ] **CEP**: digitar um CEP real preenche endereço/bairro/cidade/UF.
 
 ### Ficha
@@ -309,6 +328,7 @@ de Equipe (AN-06).*
 | Profissionais/tipos: editar | ✅ | ✅ | ❌ | ❌ |
 | Horários/exceções: editar | ✅ | ✅ | ❌ | ❌ |
 | Dados da clínica: editar | ✅ | ✅ | ❌ | ❌ |
+| Equipe: **ler a lista** | ✅ | ✅ | ✅ | ✅ |
 | Equipe: convidar/papéis | ✅ | ✅ | ❌ (403) | ❌ (403) |
 | Auditoria: ler | ✅ | ✅ | ❌ (403) | ❌ (403) |
 | Relatórios | ✅ | ✅ | só os próprios | ✅ |

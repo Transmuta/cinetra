@@ -540,7 +540,40 @@ ambiente:
 > magic links vieram iguais" era artefato da caixa respondendo 500; medido direito (A-12), os
 > tokens são distintos e ambos valem.
 
-## 8. Para a conversa com a Andreza
+## 8. Rodada 4 (2026-07-30) — os achados consertados
+
+Decisão do usuário: seguir as recomendações. O que entrou, e a prova de cada um.
+
+| Achado | Conserto | Prova |
+| --- | --- | --- |
+| **A-1** Relatórios não contava faltas de turma | `load_summary` passou a contar **presença**, não bloco: `atendimentos`, `concluidos`, `faltas` e `futuros` saem das `attendances`; `cancelados` e **ocupação** seguem por bloco, de propósito | 2 testes novos em `summary_test.exs` (turma 1+1 e turma 2 faltas), escritos **vermelhos** antes |
+| **A-10** Rede fora perdia a ficha | `$lib/forms.svelte`: `envio`/`envioPorItem` não chamam `update()` em `result.type === 'error'` — é o `applyAction` que trocava a página. `PatientForm` idem, com a frase no rodapé que já é `role="alert"` | 4 testes de unidade + o e2e de offline, que **saiu de `test.fail()` e agora passa** |
+| **A-11** Cadastro pendente sem saída | A tela neutra do **login** aponta *"Peça outro em Criar conta"*. Frase fixa, igual para todo mundo — o ADR-015 continua de pé | 2 testes no `AuthForm.svelte.test.ts` (aparece no login, não no cadastro) |
+| **A-2** `recepcao.spec.ts` obsoleto | Passou a provar a regra nova: `201` com telefone e `422` sem — as duas lado a lado, porque "403 por engano" e "422 de validação" são ambos "não deu certo" | suíte e2e verde |
+| **A-3 / A-8 / A-12** roteiro desatualizado | Doc 82 corrigido nos três pontos (§1 links, §2/§12 lista da Equipe, §4 duplicado barra), com nota do que mudou e quando | — |
+| **A-14 / A-5** e2e verde contra build velho | `playwright.config.ts`: `reuseExistingServer: false` e `timeout` 120s → 300s | o `agendar.spec.ts` quebrado **apareceu** assim que o build ficou fresco |
+| **A-4** `--with-deps` manual | `RUN npx playwright install --with-deps chromium` no `Dockerfile.dev` do web | — |
+| **A-9** 500 em tudo sem dizer por quê | `fixtures.ts` ganhou um `diagnostico()`: lê `/api/health` e distingue **codegen pendente**, erro de compilação e processo fora do ar | — |
+| **A-7** 404 dizia "Em construção" | `error(404, 'Página não encontrada')`, e o `(app)/+error.svelte` manda para a **agenda**, não para Equipe & acessos | — |
+| — (achado desta rodada) | `isolamento.spec.ts` casava `getByText('404')` com o **timestamp** do nome da clínica; virou `exact: true` | era flake por sorte do relógio |
+
+**Não** foram mexidos, e por quê:
+
+- **A-6** (o formulário re-renderiza a cada tecla) — segue como observação: não reproduzi dano ao
+  usuário, e mexer nisso sem entender a causa do laço é trocar um risco por outro.
+- **A-12** — decisão explícita de manter (ver o achado).
+
+### Placar depois dos consertos
+
+| Suíte | Resultado |
+| --- | --- |
+| API (`mix test`) | **1701 testes, 0 falhas** (+18 doctests) |
+| Web (`npm run coverage`) | **2272 testes, 185 arquivos, 0 falhas**, gate de cobertura passou |
+| E2E (`npm run test:e2e`) | **50 testes, 0 falhas** |
+| `mix format --check-formatted` · `mix compile --warnings-as-errors` | ambos limpos |
+| axe interno | **0 violações** (as 28 de contraste no escuro foram resolvidas em paralelo) |
+
+## 9. Para a conversa com a Andreza
 
 1. **O roteiro tem três trechos desatualizados, e é o item mais barato da lista** — reescrever
    **antes** da re-homologação, senão ela anota desvio onde o comportamento é o desejado:
