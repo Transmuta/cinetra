@@ -200,6 +200,68 @@ defmodule Api.Scheduling.SummaryTest do
       assert t2 == outro.id
     end
 
+    # Mesmo A-1 do doc 88, na quebra que ficou para trás. As outras três quebras passaram a contar
+    # PRESENÇA; `por_tipo` seguiu contando BLOCO, e a divergência é visível na própria tela: o card
+    # divide `row.total` por `totais.atendimentos` para mostrar a porcentagem, então uma turma de
+    # quatro aparece como "1 (25%)" embaixo de um KPI que diz 4.
+    #
+    # A invariante que fecha o assunto é a soma: as quebras do mesmo relatório têm de somar o mesmo
+    # total, senão uma delas está medindo outra coisa.
+    test "por_tipo conta PRESENÇA, não bloco — e soma o mesmo que os totais" do
+      ctx = setup_clinic()
+      turma = tipo!(ctx, nome: "Pilates #{unico()}", grupo: true, capacidade: 4)
+      outro = paciente!(ctx, "Segundo Paciente")
+
+      # Uma turma com DOIS participantes (1 bloco, 2 presenças)...
+      schedule(ctx, @segunda, "08:00", %{
+        appointment_type_id: turma.id,
+        patient_ids: [ctx.paciente.id, outro.id]
+      })
+
+      # ...e um atendimento individual (1 bloco, 1 presença).
+      schedule(ctx, @segunda, "09:00")
+
+      r = summary(ctx, @segunda, @segunda)
+
+      assert r.totais.atendimentos == 3
+
+      assert Enum.sum(Enum.map(r.por_tipo, & &1.total)) == r.totais.atendimentos,
+             "por_tipo soma #{Enum.sum(Enum.map(r.por_tipo, & &1.total))} " <>
+               "mas os totais dizem #{r.totais.atendimentos} — unidades diferentes"
+
+      # A turma (2 pessoas) vem na frente do individual (1), que é a ordenação por volume real.
+      assert [%{appointment_type_id: t1, total: 2}, %{appointment_type_id: t2, total: 1}] =
+               r.por_tipo
+
+      assert t1 == turma.id
+      assert t2 == ctx.tipo.id
+    end
+
+    # A presença `:cancelada` é o participante que saiu da turma — não foi atendido nem faltou, e
+    # sai da conta como já sai das outras três quebras (`summary_presencas/1`).
+    test "por_tipo ignora a presença cancelada, como as outras quebras" do
+      ctx = setup_clinic()
+      turma = tipo!(ctx, nome: "Pilates #{unico()}", grupo: true, capacidade: 4)
+      outro = paciente!(ctx, "Segundo Paciente")
+
+      appt =
+        schedule(ctx, @segunda, "08:00", %{
+          appointment_type_id: turma.id,
+          patient_ids: [ctx.paciente.id, outro.id]
+        })
+
+      {:ok, _} =
+        Scheduling.remove_appointment_participants(appt, %{patient_ids: [outro.id]},
+          scope: ctx.scope
+        )
+
+      r = summary(ctx, @segunda, @segunda)
+      turma_id = turma.id
+
+      assert [%{appointment_type_id: ^turma_id, total: 1}] = r.por_tipo
+      assert r.totais.atendimentos == 1
+    end
+
     test "por_profissional traz total/concluídos/faltas/taxa por profissional" do
       ctx = setup_clinic()
 

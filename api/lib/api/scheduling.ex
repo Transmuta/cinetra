@@ -924,10 +924,21 @@ defmodule Api.Scheduling do
     }
   end
 
+  # Mesma unidade das outras três quebras: PRESENÇA, não bloco (A-1, doc 88). Esta ficou para trás
+  # na virada e a divergência era visível na própria tela — o card divide `row.total` por
+  # `totais.atendimentos`, então uma turma de quatro aparecia como "1 (25%)" embaixo de um KPI
+  # dizendo 4, e as porcentagens não somavam 100 por estarem misturando duas contagens.
+  #
+  # `total: 0` sai da lista: com a unidade nova um bloco pode não contribuir presença nenhuma (o
+  # último participante saiu da turma), e uma linha "0" num ranking de volume não diz nada. Não
+  # mexe na invariante — zero não soma.
   defp summary_por_tipo(ativos) do
     ativos
     |> Enum.group_by(& &1.appointment_type_id)
-    |> Enum.map(fn {type_id, list} -> %{appointment_type_id: type_id, total: length(list)} end)
+    |> Enum.map(fn {type_id, blocos} ->
+      %{appointment_type_id: type_id, total: length(summary_presencas(blocos))}
+    end)
+    |> Enum.reject(&(&1.total == 0))
     |> Enum.sort_by(& &1.total, :desc)
   end
 
