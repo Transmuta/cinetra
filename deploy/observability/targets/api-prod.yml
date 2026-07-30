@@ -1,0 +1,39 @@
+# Alvos do `/metrics` da API em PRODUÇÃO (doc 74).
+#
+# Ative montando este arquivo no lugar do de dev — no `.env` do stack de observabilidade:
+#
+#     PROMETHEUS_TARGETS=./targets/api-prod.yml
+#     METRICS_NETWORK=dokploy-network
+#
+# ## Por que NOME DE CONTAINER, e não nome de serviço
+#
+# Na VM de produção há DOIS stacks do compose, cada um com um serviço chamado `api`. O nome do
+# serviço é ambíguo entre eles; o nome do container não é. O padrão do compose é
+# `<projeto>-<serviço>-<n>` — confira com `docker ps --format '{{.Names}}'` antes do primeiro
+# deploy, porque nome errado aqui não derruba nada: o alvo fica `DOWN`, os painéis da aplicação
+# ficam vazios, e vazio lê-se como "tudo calmo".
+#
+# O alerta `cinetra-coleta-de-metrica-parada` existe exatamente para esse caso, e o painel "Alvos
+# raspando" mostra o número contra o total esperado.
+#
+# ## Por que DOIS grupos, e não um com dois alvos
+#
+# Cada grupo carrega seus próprios `labels`. Um grupo só com os dois alvos daria o mesmo `env` aos
+# dois — e as séries de produção e homologação cairiam na mesma linha do painel, fazendo um teste
+# de carga no HML parecer pico de produção.
+#
+# ## A rede
+#
+# Os dois containers da API estão em `dokploy-network`, que é EXTERNA e compartilhada por todos os
+# stacks da máquina (ver `networks:` em `compose.dokploy.yml`). É por isso que um Prometheus só
+# alcança os dois — sem ela, seria preciso entrar na rede `data` de cada stack, uma por uma.
+
+- targets:
+    - cinetra-prod-api-1:4021
+  labels:
+    env: prod
+
+- targets:
+    - cinetra-hml-api-1:4021
+  labels:
+    env: hml

@@ -1,0 +1,133 @@
+# Datasource provisionada — o Grafana já sobe com o Loki ligado, sem passo manual na UI.
+# Configuração manual não sobrevive a recriar o container, e a VM obs é descartável de propósito.
+apiVersion: 1
+
+datasources:
+  - name: Loki
+    type: loki
+    access: proxy
+    uid: loki
+    url: http://loki:3100
+    isDefault: true
+    jsonData:
+      # Bate com o `retention_period` do loki.yml. Serve para a UI não oferecer janela de consulta
+      # que já não tem dado por trás — evita a pergunta "por que 60 dias volta vazio?".
+      maxLines: 5000
+      # ---- A COSTURA ENTRE LOG E TRACE (doc 76) --------------------------------------------------
+      #
+      # É esta regra que transforma dois bancos separados numa ferramenta só: toda linha de log que
+      # carrega `trace_id` ganha um botão que abre o trace correspondente no Tempo. O caminho real
+      # de uma investigação passa por aqui — acha-se o erro pelo log (é onde está a mensagem), e
+      # dali se pergunta "o que essa requisição estava fazendo".
+      #
+      # Ela é a razão de o `trace_id` ter sido acrescentado ao log dos DOIS serviços. Sem o campo na
+      # linha, este bloco é inerte e nada avisa: o botão simplesmente não aparece.
+      #
+      # O regex casa o JSON dos dois lados (`LoggerJSON` no Elixir, `log.ts` no BFF), que emitem a
+      # mesma chave de propósito.
+      derivedFields:
+        - name: TraceID
+          matcherRegex: '"trace_id":"(\w+)"'
+          # `${__value.raw}` é o id capturado — o Grafana o usa como consulta no datasource abaixo.
+          url: '${__value.raw}'
+          datasourceUid: tempo
+          urlDisplayLabel: 'Ver trace'
+    editable: false
+
+  # ---- Traces: onde foi o tempo DESTA requisição (doc 76) --------------------------------------
+  #
+  # A terceira pergunta. O Loki diz que `GET /api/agenda` demorou 3 s e o Prometheus diz que a CPU
+  # estava tranquila; só o trace diz que 2,8 s foram numa consulta do Ecto disparada duas vezes —
+  # com a linha do BFF por cima, porque o trace começa no Node e atravessa para o Elixir.
+  - name: Tempo
+    type: tempo
+    access: proxy
+    uid: tempo
+    url: http://tempo:3200
+    jsonData:
+      # A volta do caminho de cima: do span de volta para as linhas de log daquela requisição.
+      # `filterByTraceID` usa o mesmo `trace_id` que o `derivedFields` do Loki extrai, então os dois
+      # sentidos dependem do MESMO campo — quebrou um, quebraram os dois.
+      tracesToLogsV2:
+        datasourceUid: loki
+        # A janela do log é aberta um pouco antes e depois do span: o relógio do container que
+        # escreve o log e o do que fecha o span não são o mesmo, e uma janela justa perde a linha
+        # por milissegundos.
+        spanStartTimeShift: '-5m'
+        spanEndTimeShift: '5m'
+        filterByTraceID: true
+      # Grafo de dependências entre serviços, desenhado a partir dos próprios spans. Não confundir
+      # com `serviceMap`, que é o painel equivalente alimentado pelo `metrics_generator` do Tempo —
+      # esse fica DESLIGADO enquanto os spans saírem com atributo de alta cardinalidade
+      # (ver o cabeçalho de tempo.yml). Este aqui lê o trace direto e funciona hoje.
+      nodeGraph:
+        enabled: true
+    editable: false
+
+  # ---- Métricas: a máquina, os containers e a BEAM (doc 74) ------------------------------------
+  #
+  # A fonte que faltava. O Loki mede a requisição — sabe que ela demorou 3 s. Só isto aqui sabe
+  # que a CPU estava saturada, que o disco estava em 95%, ou que o pool do Ecto tinha 40 consultas
+  # na fila esperando conexão. Sintoma e causa, lado a lado no mesmo Grafana.
+  #
+  # O label `env` existe nos DOIS datasources, e é deliberado: a variável `$env` dos dashboards
+  # vale para os dois, então alternar entre painel de métrica e painel de log não perde o ambiente
+  # selecionado. No Loki ele vem do `OBS_ENV` do Alloy; aqui vem do bloco `static_configs` do job
+  # `api`, no prometheus.yml.
+  #
+  # NÃO vem do `external_labels` — aquele só é anexado quando o dado SAI do Prometheus
+  # (remote_write, federação, notificação de alerta) e é invisível em consulta local. A primeira
+  # versão apostou nele e `label_values(env)` devolvia lista vazia, com todo painel filtrado
+  # respondendo `success` e VAZIO. Ver doc 74 §7.1.
+  #
+  # Máquina e containers não têm `env` de propósito: a máquina é uma só, compartilhada pelos dois
+  # ambientes.
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    uid: prometheus
+    url: http://prometheus:9090
+    jsonData:
+      # Precisa bater com o `scrape_interval` do prometheus.yml. Se mentir para mais, o Grafana
+      # escolhe passos maiores que o dado e o gráfico fica escadinha; para menos, ele interpola
+      # buraco onde não há amostra e desenha linha onde não houve medição.
+      timeInterval: 15s
+      httpMethod: POST
+    editable: false
+
+  # ---- Banco da aplicação, SÓ as views `metrics_*` (doc 73) ------------------------------------
+  #
+  # Log responde "o que o sistema fez"; não responde "em que estado o negócio está". Job atrasado
+  # na fila, lembrete pendente que não saiu, taxa de falta por profissional — nada disso é linha de
+  # log. Por isso o Grafana também lê o banco.
+  #
+  # O usuário é `cinetra_metrics`: NOBYPASSRLS, sem GRANT em tabela nenhuma, só `SELECT` nas views.
+  # `SELECT * FROM patients` por este datasource responde `permission denied` — a barreira é
+  # privilégio do Postgres, não disciplina de quem escreve o painel. Ver a migration `MetricsViews`
+  # e `priv/sql/setup_metrics_role.sql`.
+  #
+  # Sem as variáveis preenchidas, o datasource sobe e falha ao conectar: os painéis de banco ficam
+  # com erro VISÍVEL, em vez de painel vazio que ninguém desconfia.
+  - name: Postgres (Cinetra)
+    type: grafana-postgresql-datasource
+    access: proxy
+    uid: cinetra-db
+    # Em dev, `db` (o serviço do compose da aplicação). Em produção há DOIS stacks com um serviço
+    # chamado `db` cada, então use o NOME DO CONTAINER, que é único: `cinetra-prod-db-1`.
+    url: ${METRICS_DB_HOST}:${METRICS_DB_PORT}
+    user: ${METRICS_DB_USER}
+    database: ${METRICS_DB_NAME}
+    secureJsonData:
+      password: ${METRICS_DB_PASSWORD}
+    jsonData:
+      # Rede interna do Docker, entre containers da mesma máquina. TLS aqui exigiria certificado no
+      # Postgres sem ganho — o tráfego não sai do host. Se um dia o banco for remoto, isto vira
+      # `require`.
+      sslmode: disable
+      postgresVersion: 1600
+      # Teto de conexões: painel aberto num monitor de parede reconsulta sozinho, e o pool do banco
+      # é do app antes de ser do painel. 4 basta para os dashboards que existem.
+      maxOpenConns: 4
+      maxIdleConns: 2
+      connMaxLifetime: 14400
+    editable: false

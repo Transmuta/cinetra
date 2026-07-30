@@ -1,0 +1,38 @@
+# Roteamento do harness LOCAL (compose.bff-test.yml), via FILE PROVIDER do Traefik.
+# Por que file provider e não os labels do provider docker (como em produção): o Docker Desktop
+# no WSL devolve erro no socket-proxy e o provider docker do Traefik não lê os labels. Na OCI/VPS
+# (Linux) o provider docker funciona — lá valem os labels do compose.dokploy.yml. Aqui, este
+# arquivo reproduz EXATAMENTE o mesmo roteamento (as mesmas regras e prioridades).
+#
+# Traefik alcança `api:4000` e `web:3000` pelo DNS do Docker (rede `edge` compartilhada).
+
+http:
+  routers:
+    # /socket -> API (WebSocket). Prioridade > catch-all do web.
+    api-socket:
+      rule: "Host(`cinetra.localhost`) && PathPrefix(`/socket`)"
+      entryPoints: [web]
+      priority: 100
+      service: api
+    # /webhooks -> API (provedores externos).
+    api-webhooks:
+      rule: "Host(`cinetra.localhost`) && PathPrefix(`/webhooks`)"
+      entryPoints: [web]
+      priority: 100
+      service: api
+    # tudo o mais -> web (BFF).
+    web:
+      rule: "Host(`cinetra.localhost`)"
+      entryPoints: [web]
+      priority: 1
+      service: web
+
+  services:
+    api:
+      loadBalancer:
+        servers:
+          - url: "http://api:4000"
+    web:
+      loadBalancer:
+        servers:
+          - url: "http://web:3000"

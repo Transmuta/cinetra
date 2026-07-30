@@ -1,0 +1,99 @@
+# Loki — armazenamento e consulta de log, com retenção de 30 dias (doc 62 §5).
+#
+# Este arquivo serve os DOIS ambientes. O que muda entre eles é só o backend de objeto, e a troca
+# é por variável de ambiente (o container sobe com `-config.expand-env=true`):
+#
+#   * local/dev  — `filesystem`, tudo no volume do container;
+#   * produção   — `s3` apontando para o R2, o que torna a VM de observabilidade DESCARTÁVEL:
+#                  perder a máquina deixa de perder os 30 dias.
+#
+# ATENÇÃO ao mexer: a retenção não é o `retention_period` sozinho. Sem o bloco `compactor` com
+# `retention_enabled: true`, aquele número é INERTE e o bucket cresce para sempre. É o erro
+# clássico desta configuração, e o motivo do passo de verificação no dia 31 (doc 62 §10).
+
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  # `warn`: o Loki em `info` narra cada compactação e cada flush. Log da ferramenta de log
+  # competindo por espaço com o log do produto é o começo de uma espiral.
+  log_level: warn
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /loki
+  # Instância única. Réplica exigiria um segundo nó, e o desenho do doc 62 §3 é deliberado:
+  # a durabilidade vem do object storage, não de réplica de processo.
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: 2026-01-01
+      store: tsdb
+      object_store: ${LOKI_OBJECT_STORE:-filesystem}
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+storage_config:
+  tsdb_shipper:
+    active_index_directory: /loki/index
+    cache_location: /loki/cache
+  filesystem:
+    directory: /loki/chunks
+  # Só usado quando LOKI_OBJECT_STORE=s3. O R2 é S3-compatível; `region: auto` é o que ele espera.
+  aws:
+    s3: ${LOKI_S3_URL:-}
+    endpoint: ${LOKI_S3_ENDPOINT:-}
+    bucketnames: ${LOKI_S3_BUCKET:-}
+    access_key_id: ${LOKI_S3_ACCESS_KEY_ID:-}
+    secret_access_key: ${LOKI_S3_SECRET_ACCESS_KEY:-}
+    region: auto
+    s3forcepathstyle: true
+
+limits_config:
+  # ---- OS 30 DIAS ----------------------------------------------------------------------------
+  retention_period: 720h
+
+  # Teto de ingestão. Não é economia: é o que impede um laço de log num deploy ruim de consumir a
+  # retenção inteira em uma tarde. 4 MB/s é ~20× o pico do cenário "alvo" do doc 62 §2.
+  ingestion_rate_mb: 4
+  ingestion_burst_size_mb: 8
+
+  # Rejeita evento mais velho que a própria retenção — e o número tem de ser ESSE, não menor.
+  #
+  # Medido: com 168h, o agente reiniciado releu o histórico dos containers e mandou lotes que
+  # misturavam entradas antigas e novas. O Loki responde 400 ao **lote inteiro**, e o Alloy o
+  # descarta por completo — matando junto as linhas válidas. O sintoma foi cruel: pipeline de pé,
+  # `/ready` verde, consulta devolvendo vazio, e nada no log dizendo que dado estava sendo perdido.
+  #
+  # Casar com `retention_period` elimina a classe: nada que ainda caiba na retenção é recusado, e
+  # o que é mais velho que ela seria apagado de qualquer jeito.
+  reject_old_samples: true
+  reject_old_samples_max_age: 720h
+
+  # Teto de séries por tenant. Com a disciplina de labels do doc 62 §6 (só `service`, `env`,
+  # `level`) o número real fica na casa das dezenas — este limite existe para que um label de
+  # alta cardinalidade adicionado por engano falhe ALTO, em vez de degradar calado.
+  max_global_streams_per_user: 5000
+
+  max_query_series: 5000
+  max_entries_limit_per_query: 10000
+
+compactor:
+  working_directory: /loki/compactor
+  # ---- SEM ISTO, O retention_period ACIMA NÃO FAZ NADA ---------------------------------------
+  retention_enabled: true
+  delete_request_store: ${LOKI_OBJECT_STORE:-filesystem}
+  # Janela para reverter um engano antes de o dado sumir de verdade.
+  retention_delete_delay: 2h
+  compaction_interval: 10m
+
+analytics:
+  # Não telefona para casa. Coerente com o resto do desenho: o que sai desta máquina é decisão
+  # explícita, não default de fornecedor.
+  reporting_enabled: false

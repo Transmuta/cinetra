@@ -1,0 +1,348 @@
+{
+  "uid": "cinetra-auditoria",
+  "title": "Cinetra · Auditoria e acesso",
+  "description": "A trilha `audit_events` (docs 61 e 63) vista de cima. A tela /configuracoes/auditoria responde 'o que aconteceu com ESTE registro' para UMA clínica; aqui a pergunta é outra e nenhuma tela a faz: existe padrão de acesso fora do normal? O painel lê só resource, action_type, action, user_id e o horário — label, user_label, diff e meta ficam fora da view porque o diff guarda o VALOR alterado, que é o conteúdo da ficha.",
+  "tags": [
+    "cinetra",
+    "banco",
+    "seguranca",
+    "aprofundamento"
+  ],
+  "timezone": "browser",
+  "refresh": "5m",
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "db",
+        "label": "Banco",
+        "type": "datasource",
+        "query": "grafana-postgresql-datasource",
+        "current": {},
+        "options": []
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Acessos negados",
+      "description": "`action_type = deny`: alguém pediu e a policy recusou. É o sinal de segurança mais barato que o sistema produz, e hoje ninguém o olha. Leia junto com o 403 do dashboard de Atrito — é o mesmo evento visto do outro lado da fronteira, e a divergência entre os dois números é informação (403 sem deny = recusa que nem chegou à policy).",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "uid": "${db}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT count(*) AS negados FROM metrics_audit_events WHERE action_type = 'deny' AND $__timeFilter(at)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 10
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Leituras de ficha",
+      "description": "Abertura de prontuário/ficha registrada pela trilha. O número absoluto não diz muito; ele existe para dar denominador ao painel de baixo, onde o que interessa é a DISTRIBUIÇÃO entre pessoas.",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
+      "datasource": {
+        "uid": "${db}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT count(*) AS leituras FROM metrics_audit_events WHERE action_type = 'read' AND $__timeFilter(at)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0
+        }
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Exclusões",
+      "description": "`destroy` na janela. Exclusão é o gesto mais caro de auditar depois do fato — se o volume subir sem explicação, é aqui que aparece antes de alguém reclamar que 'sumiu'.",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "datasource": {
+        "uid": "${db}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT count(*) AS exclusoes FROM metrics_audit_events WHERE action_type = 'destroy' AND $__timeFilter(at)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0
+        }
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Evento mais antigo (dias)",
+      "description": "A prova de que a poda de 90 dias está viva. Passou de 90, o PruneTrail parou — e ele falha DEVAGAR: ninguém percebe, a tabela só cresce, e a promessa de retenção da política de privacidade deixa de ser verdade. Ignora o seletor de tempo: é estado.",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "datasource": {
+        "uid": "${db}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT coalesce(round(extract(epoch FROM now() - min(at)) / 86400.0), 0) AS dias FROM metrics_audit_events"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "d",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 88
+              },
+              {
+                "color": "red",
+                "value": 92
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Eventos por tipo de ação",
+      "description": "create/update/destroy/read/deny ao longo do tempo. `read` domina por construção (toda abertura de ficha conta) — o que se olha aqui é a mudança de proporção, não o valor absoluto.",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 5
+      },
+      "datasource": {
+        "uid": "${db}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT date_trunc('day', at) AS time, action_type AS metric, count(*) AS value FROM metrics_audit_events WHERE $__timeFilter(at) GROUP BY 1, 2 ORDER BY 1"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "stacking": {
+              "mode": "normal"
+            },
+            "fillOpacity": 80,
+            "lineWidth": 0
+          }
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "table",
+      "title": "Recurso × ação",
+      "description": "O mapa do que a trilha cobre de fato. Serve também de conferência do doc 63: recurso que deveria estar coberto e aparece com zero é captura que não foi ligada — e isso não dá erro em lugar nenhum.",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 5
+      },
+      "datasource": {
+        "uid": "${db}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT resource AS recurso, count(*) FILTER (WHERE action_type = 'create') AS criou, count(*) FILTER (WHERE action_type = 'update') AS alterou, count(*) FILTER (WHERE action_type = 'destroy') AS excluiu, count(*) FILTER (WHERE action_type = 'read') AS leu, count(*) FILTER (WHERE action_type = 'deny') AS negado FROM metrics_audit_events WHERE $__timeFilter(at) GROUP BY 1 ORDER BY 2 + 3 + 4 + 5 + 6 DESC"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "table",
+      "title": "Quem mais lê ficha",
+      "description": "Leituras por pessoa, com a média por dia ativo. O que se procura não é o volume alto — recepção de clínica cheia lê muito, e está certo — e sim o DESVIO: alguém lendo dez vezes mais que os colegas do mesmo papel, ou lendo fora do horário de atendimento. Sem nome de paciente: a view não carrega label.",
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 14
+      },
+      "datasource": {
+        "uid": "${db}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT c.nome AS clinica, e.user_id, m.papel, count(*) AS leituras, count(DISTINCT date_trunc('day', e.at)) AS dias_ativos, round(count(*)::numeric / nullif(count(DISTINCT date_trunc('day', e.at)), 0), 1) AS por_dia FROM metrics_audit_events e JOIN metrics_clinics c ON c.id = e.clinic_id LEFT JOIN metrics_memberships m ON m.user_id = e.user_id AND m.clinic_id = e.clinic_id WHERE e.action_type = 'read' AND e.user_id IS NOT NULL AND $__timeFilter(e.at) GROUP BY 1, 2, 3 ORDER BY 4 DESC LIMIT 25"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "table",
+      "title": "Recusas por pessoa e recurso",
+      "description": "Uma pessoa recusada repetidamente no mesmo recurso quase nunca é ataque: é permissão faltando para um trabalho legítimo, e a correção é de papel, não de segurança. O padrão contrário — muitos recursos diferentes, poucas tentativas em cada — é o que merece olhar de perto.",
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 14
+      },
+      "datasource": {
+        "uid": "${db}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT c.nome AS clinica, e.user_id, m.papel, e.resource AS recurso, e.action AS acao, count(*) AS recusas, max(e.at) AS ultima FROM metrics_audit_events e JOIN metrics_clinics c ON c.id = e.clinic_id LEFT JOIN metrics_memberships m ON m.user_id = e.user_id AND m.clinic_id = e.clinic_id WHERE e.action_type = 'deny' AND $__timeFilter(e.at) GROUP BY 1, 2, 3, 4, 5 ORDER BY 6 DESC LIMIT 25"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Atividade por hora do dia",
+      "description": "Distribuição das últimas semanas. O uso de uma clínica tem forma de expediente; acesso concentrado de madrugada é a anomalia que este recorte existe para mostrar — e que nenhum total diário revelaria.",
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 24
+      },
+      "datasource": {
+        "uid": "${db}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT extract(hour FROM at)::int AS hora, count(*) FILTER (WHERE action_type = 'read') AS leituras, count(*) FILTER (WHERE action_type IN ('create', 'update', 'destroy')) AS escritas, count(*) FILTER (WHERE action_type = 'deny') AS recusas FROM metrics_audit_events WHERE $__timeFilter(at) GROUP BY 1 ORDER BY 1"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "version": 1
+}

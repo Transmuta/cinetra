@@ -1,0 +1,44 @@
+node_modules
+
+# Output
+.output
+.vercel
+.netlify
+.wrangler
+/.svelte-kit*
+/build*
+.claude-playwright
+
+# Playwright
+/test-results
+/playwright-report
+/blob-report
+/playwright/.cache
+
+# Cobertura (Vitest)
+/coverage
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+.env.*
+!.env.example
+!.env.test
+
+# Vite
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# Source maps de produção: artefato de build para traduzir stack na investigação.
+# NUNCA no diretório servido (ver scripts/mover-sourcemaps.mjs).
+sourcemaps/
+
+# relatórios das varreduras/sondas de a11y (AN-08 e doc 83) — artefato de auditoria, o
+# conteúdo vai para docs/
+/a11y-report.json
+/a11y-report-interno.json
+/a11y-teclado.json
+/a11y-anexos.json

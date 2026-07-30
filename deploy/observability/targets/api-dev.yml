@@ -1,0 +1,13 @@
+# Alvos do `/metrics` da API em DESENVOLVIMENTO (doc 74).
+#
+# Lido por `file_sd_configs` no job `api` do prometheus.yml. Formato do Prometheus: uma lista de
+# grupos, cada um com `targets` e os `labels` que aquele grupo carrega.
+#
+# Um serviço só, e o nome do compose (`api`) resolve porque o Prometheus entra na rede da
+# aplicação (`METRICS_NETWORK`). O par de produção está em `api-prod.yml`.
+- targets:
+    - api:4021
+  labels:
+    # O `env` que a variável `$env` do Grafana lê — mesmo nome do label que o Alloy põe no Loki, de
+    # propósito: alternar entre painel de métrica e painel de log não perde o ambiente selecionado.
+    env: dev

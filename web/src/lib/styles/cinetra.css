@@ -1,0 +1,494 @@
+/* Cinetra — superfícies de marketing/autenticação (interface/Cinetra Landing.dc.html).
+   Paleta quente (papel #F6F4EF · navy #212A37 · sálvia #7FA59A · sálvia-fundo #4E7468 ·
+   azul #3A5A78), separada do design system teal do app interno. Tudo escopado sob
+   `.cn-root` para NÃO vazar no shell administrativo — só as @keyframes são globais
+   (os `animation:` inline das artes/seções as referenciam pelo nome). */
+
+.cn-root {
+	font-family: var(--mv-font-sans);
+	color: #212a37;
+	background: #f6f4ef;
+	-webkit-font-smoothing: antialiased;
+}
+.cn-root a {
+	text-decoration: none;
+	color: inherit;
+}
+.cn-root input::placeholder {
+	color: #b0aa9c;
+}
+.cn-root input:focus-visible,
+.cn-root button:focus-visible {
+	outline: 2px solid #4e7468;
+	outline-offset: 2px;
+}
+.cn-root ::selection {
+	background: rgba(127, 165, 154, 0.35);
+}
+
+/* Hovers (o protótipo usa `style-hover`; aqui viram classes reais). */
+.cn-navlinks a:hover,
+.cn-foot a:hover {
+	color: #212a37;
+}
+.cn-hover-nav:hover {
+	background: #ece9e1 !important;
+}
+.cn-hover-dark:hover {
+	background: #2e3b4c !important;
+}
+.cn-hover-white:hover {
+	background: #eaf0ee !important;
+}
+.cn-hover-border:hover {
+	border-color: #212a37 !important;
+}
+.cn-hover-glass:hover {
+	background: rgba(255, 255, 255, 0.18) !important;
+}
+
+/* Atalho "pular para o conteúdo" (doc 57): fora da tela até receber foco pelo teclado.
+   `left:-9999px` em vez de `display:none` de propósito — o que some do fluxo não é focável,
+   e um atalho que não recebe foco não serve para nada. */
+.cn-skip {
+	position: absolute;
+	left: -9999px;
+	top: 0;
+	z-index: 100;
+}
+.cn-skip:focus-visible {
+	left: 12px;
+	top: 12px;
+	background: #212a37;
+	color: #fff;
+	font-size: 14px;
+	font-weight: 600;
+	padding: 10px 16px;
+	border-radius: 9px;
+}
+
+/* Sanfona de dúvidas (doc 57). `<details>` nativo — o estilo só troca o marcador padrão por um
+   "+" que vira "−", mantendo o teclado e o leitor de tela que o elemento já traz de graça.
+   Mesmas linhas divisórias da seção "as dores", para a página não ganhar uma linguagem nova. */
+.cn-faq details {
+	border-top: 1px solid #dcd8ce;
+}
+.cn-faq details:last-of-type {
+	border-bottom: 1px solid #dcd8ce;
+}
+.cn-faq summary {
+	display: flex;
+	align-items: center;
+	gap: 20px;
+	padding: 24px 0;
+	cursor: pointer;
+	list-style: none; /* Firefox */
+}
+/* O triângulo do WebKit/Blink só some por este pseudo-elemento. */
+.cn-faq summary::-webkit-details-marker {
+	display: none;
+}
+.cn-faq summary h3 {
+	flex: 1;
+	margin: 0;
+	font-size: 19px;
+	font-weight: 700;
+	line-height: 1.4;
+	letter-spacing: -0.01em;
+	/* `pretty`, não `balance`: as manchetes centradas da página usam `balance` porque lá as duas
+	   linhas devem ter o mesmo peso. Aqui o texto é alinhado à esquerda numa coluna estreita, e
+	   equilibrar deixava "Como funciona a / confirmação de sessão?" com a primeira linha pela
+	   metade. `pretty` enche a linha e só evita a órfã. Medido a 412px. */
+	text-wrap: pretty;
+}
+.cn-faq summary:hover h3 {
+	color: #4a6e62;
+}
+/* O foco precisa envolver a linha inteira: `summary` é o alvo do teclado, e um anel só no texto
+   deixaria a pessoa sem saber que o item todo é o botão. */
+.cn-faq summary:focus-visible {
+	outline: 2px solid #4e7468;
+	outline-offset: 4px;
+	border-radius: 6px;
+}
+.cn-faq-sinal {
+	position: relative;
+	flex-shrink: 0;
+	width: 22px;
+	height: 22px;
+}
+.cn-faq-sinal::before,
+.cn-faq-sinal::after {
+	content: '';
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	width: 14px;
+	height: 2px;
+	background: #696356;
+	transform: translate(-50%, -50%);
+	transition: transform 0.2s ease;
+}
+/* A barra vertical do "+" gira até deitar sobre a horizontal e virar "−". */
+.cn-faq-sinal::after {
+	transform: translate(-50%, -50%) rotate(90deg);
+}
+.cn-faq details[open] .cn-faq-sinal::after {
+	transform: translate(-50%, -50%) rotate(0deg);
+}
+.cn-faq details[open] .cn-faq-sinal::before,
+.cn-faq details[open] .cn-faq-sinal::after {
+	background: #4a6e62;
+}
+.cn-faq p {
+	margin: 0;
+	padding: 0 0 26px;
+	/* Sem `max-width` próprio: quem limita a linha é a coluna de 680px, que já dá ~76 caracteres.
+	   Um teto em `ch` menor que o container deixaria o parágrafo encostado à esquerda dentro de
+	   um bloco centrado, com um vão à direita que só parece erro de alinhamento. */
+	font-size: 16px;
+	line-height: 1.65;
+	color: #575249;
+	text-wrap: pretty;
+}
+
+/* Documentos legais (/privacidade e /termos). Prosa longa, não superfície de conversão: a
+   medida da linha manda, e não a largura da coluna. `65ch` é o intervalo confortável de leitura,
+   e é ele que decide onde o texto para, não o grid de 1160px da landing. */
+.cn-legal {
+	max-width: 65ch;
+}
+.cn-legal section + section {
+	margin-top: 44px;
+}
+.cn-legal h2 {
+	font-size: 26px;
+	line-height: 1.25;
+	letter-spacing: -0.015em;
+	font-weight: 700;
+	margin: 0 0 14px;
+	text-wrap: pretty;
+}
+.cn-legal p {
+	margin: 0 0 14px;
+	font-size: 16.5px;
+	line-height: 1.68;
+	color: #575249;
+	text-wrap: pretty;
+}
+.cn-legal ul {
+	margin: 0 0 14px;
+	padding: 0;
+	list-style: none;
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+/* Marcador desenhado, e não `list-style`: é o mesmo ponto sálvia dos bullets da seção "as
+   dores", para o documento não estrear uma linguagem visual própria. */
+.cn-legal li {
+	position: relative;
+	padding-left: 20px;
+	font-size: 16.5px;
+	line-height: 1.6;
+	color: #575249;
+	text-wrap: pretty;
+}
+.cn-legal li::before {
+	content: '';
+	position: absolute;
+	left: 2px;
+	top: 0.66em;
+	width: 5px;
+	height: 5px;
+	border-radius: 50%;
+	background: #7fa59a;
+}
+.cn-legal strong {
+	color: #212a37;
+	font-weight: 700;
+}
+
+/* Cartão para o documento par, no fim do texto. */
+.cn-legal-par {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	margin-top: 52px;
+	padding: 22px 24px;
+	background: #fff;
+	border: 1px solid #e6e2d8;
+	border-radius: 16px;
+	transition:
+		border-color 0.2s,
+		transform 0.2s;
+}
+.cn-legal-par:hover {
+	border-color: #212a37;
+	transform: translateY(-2px);
+}
+
+/* Sumário: a única navegação dentro de um texto que ninguém lê inteiro. Gruda abaixo do topo
+   sticky (63px + folga) e rola sozinho quando a lista é mais alta que a janela. */
+.cn-sumario {
+	position: sticky;
+	top: 88px;
+	/* Rola sozinho quando a lista é mais alta que a janela: com 14 seções ela já passa em
+	   notebook de 768px de altura, e sem isto o fim do índice ficaria inalcançável. Barra fina
+	   porque ela encosta no texto, e a grossa do sistema leria como divisória de coluna. */
+	max-height: calc(100dvh - 120px);
+	overflow: auto;
+	scrollbar-width: thin;
+	scrollbar-color: #dcd8ce transparent;
+}
+.cn-sumario ol {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+	counter-reset: sec;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+.cn-sumario li {
+	counter-increment: sec;
+}
+.cn-sumario a {
+	display: flex;
+	gap: 10px;
+	padding: 7px 10px;
+	border-radius: 8px;
+	font-size: 14px;
+	line-height: 1.4;
+	color: #575249;
+	text-wrap: pretty;
+	transition:
+		background 0.2s,
+		color 0.2s;
+}
+/* O número é secundário pelo TAMANHO (11px mono contra 14px), não por um cinza claro: o tom que
+   a hierarquia pedia (#a8a294) dá 2,6:1 contra o papel, longe dos 4,5:1 da WCAG AA. */
+.cn-sumario a::before {
+	content: counter(sec, decimal-leading-zero);
+	font-family: 'Martian Mono', monospace;
+	font-size: 11px;
+	color: #696356;
+	padding-top: 2px;
+}
+.cn-sumario a:hover {
+	background: #ece9e1;
+	color: #212a37;
+}
+
+/* Colapsos responsivos do protótipo (:35-42). */
+@media (max-width: 900px) {
+	.cn-navlinks,
+	.cn-brandpanel {
+		display: none !important;
+	}
+	.cn-hero-in {
+		max-width: 100% !important;
+	}
+	.cn-h1 {
+		font-size: 44px !important;
+	}
+	.cn-grid2,
+	.cn-grid3,
+	.cn-dorow,
+	.cn-depo {
+		grid-template-columns: 1fr !important;
+	}
+	.cn-sect {
+		padding: 64px 22px !important;
+	}
+	.cn-num {
+		grid-template-columns: 1fr !important;
+		gap: 26px !important;
+	}
+}
+
+/* Acabamento da landing no mobile. Tudo abaixo é DESVIO deliberado do protótipo (que só
+   empilhava as colunas e parava por aí) — não sincronizar de volta com ele. */
+@media (max-width: 900px) {
+	/* UMA calha só. `.cn-sect` já dá 22px à seção, e o wrapper interno somava outros 30 —
+	   52px de cada lado, 27% de um celular de 390px gastos em margem. Quem tem `.cn-wrap`
+	   está DENTRO de uma `.cn-sect` e por isso zera a sua; o `header`/`footer` não estão em
+	   seção nenhuma, então recebem a calha diretamente para alinhar com o resto. */
+	.cn-wrap {
+		padding-left: 0 !important;
+		padding-right: 0 !important;
+	}
+	.cn-topbar,
+	.cn-footrow {
+		padding-left: 22px !important;
+		padding-right: 22px !important;
+	}
+
+	/* Topo numa linha só. Com a calha de 30px e o gap de 34px do desktop, "Começar grátis"
+	   quebrava em duas linhas e o header (que é sticky) inchava para 89px de altura. */
+	.cn-topbar {
+		gap: 12px !important;
+	}
+	.cn-topbar a {
+		white-space: nowrap;
+	}
+
+	/* Títulos. Só o `h1` tinha tamanho de mobile; os `h2` seguiam em 44–56px e gastavam cinco
+	   linhas cada um. `clamp` em vez de um valor fixo porque este mesmo breakpoint atende do
+	   celular de 320px ao tablet de 900px — um número só ficaria grande demais numa ponta ou
+	   pequeno demais na outra. */
+	.cn-landing h2 {
+		font-size: clamp(30px, 8.5vw, 40px) !important;
+	}
+	.cn-quote {
+		font-size: clamp(21px, 5.6vw, 27px) !important;
+	}
+
+	/* Empilhado, o gap de 36px era distância ENTRE COLUNAS virada em buraco vertical. */
+	.cn-dorow {
+		gap: 16px !important;
+	}
+
+	/* Os números: as bordas do meio separavam COLUNAS. Empilhadas viravam dois traços verticais
+	   soltos ao lado do "+12h"; aqui elas viram o que sempre quiseram ser — régua entre linhas. */
+	.cn-num > div {
+		border: 0 !important;
+	}
+	.cn-num > div + div {
+		border-top: 1px solid rgba(22, 36, 30, 0.18) !important;
+		padding-top: 26px;
+	}
+}
+
+/* Celular estreito (o piso de 320px: iPhone SE 1). O `nowrap` acima resolve a quebra feia do
+   botão, mas sozinho ele trocaria a quebra por SCROLL HORIZONTAL — nesta largura a marca por
+   extenso mais os dois links não cabem numa linha no tamanho de sempre. Então a linha continua
+   inteira e quem cede é o tamanho: calha menor, marca um pouco menor, links mais justos.
+   Medido: 320px sem transbordo e ainda com folga. */
+@media (max-width: 380px) {
+	.cn-sect,
+	.cn-topbar,
+	.cn-footrow {
+		padding-left: 16px !important;
+		padding-right: 16px !important;
+	}
+	.cn-topbar svg {
+		height: 20px !important;
+	}
+	.cn-topbar .cn-hover-nav,
+	.cn-topbar .cn-hover-dark {
+		font-size: 13px !important;
+		padding-left: 9px !important;
+		padding-right: 9px !important;
+	}
+}
+
+/* DESVIO deliberado do protótipo — não sincronizar de volta com ele.
+   O split da auth é `grid-template-columns:1fr 1fr` inline, e a regra acima só esconde o painel
+   de marca; a COLUNA dele continuava lá. Resultado medido a 390px: o formulário preso em 195px,
+   metade da tela vazia à direita e todo rótulo quebrado em duas linhas. Esconder o painel exige
+   colapsar a coluna junto. `!important` porque o valor a vencer é inline (convenção do arquivo). */
+@media (max-width: 900px) {
+	.cn-authsplit {
+		grid-template-columns: 1fr !important;
+	}
+
+	/* Documento legal empilhado: o sumário vira um bloco no topo, com régua separando-o do
+	   texto. `sticky` aqui seria pior que inútil — numa tela de 390px a lista de 14 itens
+	   ocuparia a janela inteira e grudaria por cima da leitura. */
+	.cn-legalgrid {
+		grid-template-columns: 1fr !important;
+		gap: 30px !important;
+	}
+	.cn-sumario {
+		position: static;
+		max-height: none;
+		overflow: visible;
+		padding-bottom: 26px;
+		border-bottom: 1px solid #dcd8ce;
+	}
+	.cn-legal-h1 {
+		font-size: clamp(30px, 8.5vw, 40px) !important;
+	}
+	/* A medida de linha já cabe na tela; o teto em `ch` só criaria um vão à direita. */
+	.cn-legal {
+		max-width: 100%;
+	}
+}
+
+/* Animações da arte orgânica e das entradas (:23-30). Globais de propósito. */
+@keyframes cnRise {
+	from {
+		opacity: 0;
+		transform: translateY(26px);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
+@keyframes cnFade {
+	from {
+		opacity: 0;
+		transform: translateY(14px);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
+@keyframes cnBlob {
+	0%,
+	100% {
+		border-radius: 42% 58% 63% 37% / 45% 45% 55% 55%;
+		transform: rotate(0deg);
+	}
+	50% {
+		border-radius: 58% 42% 37% 63% / 55% 55% 45% 45%;
+		transform: rotate(14deg);
+	}
+}
+@keyframes cnBreathe {
+	0%,
+	100% {
+		transform: scale(1);
+	}
+	50% {
+		transform: scale(1.06);
+	}
+}
+/* `cnFloat` morava aqui: fazia o mock da agenda flutuar. Saiu com o último uso (doc 57) —
+   keyframe sem quem a referencie é peso que nenhuma ferramenta do projeto remove, porque o
+   `animation:` que a chamava era inline e o Tailwind não varre valor de atributo `style`. */
+@keyframes cnScrollcue {
+	0%,
+	100% {
+		transform: translateY(0);
+		opacity: 0.35;
+	}
+	50% {
+		transform: translateY(9px);
+		opacity: 1;
+	}
+}
+@keyframes cnFlow {
+	to {
+		stroke-dashoffset: 0;
+	}
+}
+@keyframes cnDrift {
+	0%,
+	100% {
+		transform: translate(0, 0);
+	}
+	50% {
+		transform: translate(-14px, 18px);
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.cn-root *,
+	.cn-root *::before,
+	.cn-root *::after {
+		animation-duration: 0.001ms !important;
+	}
+}

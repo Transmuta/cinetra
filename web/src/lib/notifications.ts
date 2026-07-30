@@ -1,0 +1,174 @@
+// Modelo de notificações in-app (doc 31), client-safe (sem segredo, sem fetch). Os tipos e os
+// rótulos/ícones por espécie que a tela e o Rail compartilham.
+
+import { appointmentHref } from '$lib/agenda';
+import type { PageInfo } from '$lib/pagination';
+
+export type NotificationKind =
+	| 'appointment_scheduled'
+	| 'appointment_rescheduled'
+	| 'appointment_canceled'
+	// A2 (doc 41 etapa 5): falta por participante e entrada em turma — as duas que o doc 31 §3a
+	// deixou para "depois" porque esperavam a fatia de turma/pacote.
+	| 'appointment_missed'
+	| 'participant_added'
+	// Bate-volta da Onda 3 (doc 43 §5b): a massa por pacote é UM evento, não N.
+	| 'package_bulk_adjusted'
+	// O irmão que faltava: cancelar a massa esvaziava a agenda do profissional em silêncio
+	// (doc 66 §5).
+	| 'package_bulk_canceled'
+	| 'slot_opened'
+	| 'member_joined'
+	// Onda 4 / Frente 10: governança (#50), fila urgente (#48) e os dois lembretes por cron (#51).
+	| 'role_changed'
+	| 'member_removed'
+	| 'waitlist_urgent'
+	| 'daily_digest'
+	| 'session_soon'
+	// Fase 2 da comunicação (doc 63 §5): a única cujo autor não tem login — o paciente respondeu
+	// "preciso remarcar" no link da mensagem.
+	| 'patient_wants_reschedule';
+
+export interface AppNotification {
+	id: string;
+	kind: NotificationKind;
+	title: string;
+	body: string;
+	data: Record<string, unknown>;
+	read: boolean;
+	inserted_at: string;
+}
+
+export interface NotificationsData {
+	notifications: AppNotification[];
+	unread: number;
+	// #54: a caixa passou a ser paginada. `total` não vem (ver `$lib/pagination`).
+	page: PageInfo;
+}
+
+// Tamanho de página da caixa. Menor que o das listas de cadastro (50): a caixa é lida de relance,
+// não estudada — e o "carregar mais" é um clique, não uma navegação de trabalho.
+export const PAGE_SIZE = 20;
+
+// ---- O contrato do filtro Todas / Não lidas (doc 53) ------------------------------------
+//
+// Este par é o **dono único** da chave. Ela atravessa três lugares — a sidebar que monta o
+// link, o `load` que lê a URL e o resgate da página-além-do-fim — e estava escrita à mão nos
+// três. O modo de falha de manter assim não é um erro de compilação: renomear em dois deles
+// deixa o terceiro **parar de filtrar em silêncio** (o link segue válido, a tela segue
+// abrindo, só não filtra). Por isso vira função, não constante solta.
+const FILTRO_PARAM = 'filtro';
+const FILTRO_NAO_LIDAS = 'nao-lidas';
+
+/** O href de cada filtro. Sem `?page=`: a página 3 de "Todas" não é a página 3 de "Não lidas". */
+export function notificationsHref(onlyUnread: boolean): string {
+	return onlyUnread ? `/notificacoes?${FILTRO_PARAM}=${FILTRO_NAO_LIDAS}` : '/notificacoes';
+}
+
+/** Lê o filtro da query string. Valor desconhecido degrada para "todas", o estado neutro. */
+export function onlyUnreadFrom(params: URLSearchParams): boolean {
+	return params.get(FILTRO_PARAM) === FILTRO_NAO_LIDAS;
+}
+
+// Tempo relativo curto (pt-BR) para o carimbo de cada notificação. `now` injetável para o teste
+// não depender do relógio de parede.
+export function relativeTime(iso: string, now: Date = new Date()): string {
+	const then = new Date(iso);
+	const min = Math.floor((now.getTime() - then.getTime()) / 60_000);
+	if (min < 1) return 'agora';
+	if (min < 60) return `há ${min} min`;
+	const h = Math.floor(min / 60);
+	if (h < 24) return `há ${h} h`;
+	const d = Math.floor(h / 24);
+	if (d === 1) return 'ontem';
+	if (d < 7) return `há ${d} dias`;
+	return then.toLocaleDateString('pt-BR');
+}
+
+// A data que a notificação carrega, quando carrega uma. Descartada se não for `YYYY-MM-DD`:
+// `data` é payload livre (jsonb), e o destino de navegação não deve confiar nele sem olhar.
+function dateParam(data: Record<string, unknown>): string | null {
+	const date = data?.date;
+	return typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : null;
+}
+
+// O bloco de que a notificação fala, quando fala de um só. Mesma desconfiança do `date`: o
+// payload é jsonb, e um uuid é a forma que o destino aceita — nada de string arbitrária virando
+// parâmetro de URL.
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function appointmentParam(data: Record<string, unknown>): string | null {
+	const id = data?.appointment_id;
+	return typeof id === 'string' && UUID.test(id) ? id : null;
+}
+
+// Para onde a notificação leva ao ser aberta (#56 — deep-link fino).
+//
+// Antes todo aviso de agenda caía em `/agenda` no estado padrão, ou seja, no dia de HOJE: abrir
+// "seu paciente de quinta foi remarcado" mostrava a agenda de hoje, e a pessoa tinha de navegar
+// até lá na mão. O `data` da notificação já trazia o `date` desde o começo — faltava usá-lo.
+//
+// O segundo passo é o **bloco**, não só o dia (doc 85): o aviso fala de UMA sessão, e o
+// `appointment_id` já viajava no payload de quase todos. Levar ao dia deixava a última busca para
+// quem leu — numa quinta cheia, encontrar qual das trinta linhas mudou.
+//
+// A data continua viajando junto do id, e é ela o degrau de queda: se o bloco não estiver mais na
+// janela (excluído, remarcado de novo), a tela ainda abre o dia de que o aviso falava.
+//
+// `null` = sem destino conhecido (a linha só marca lida).
+export function notificationHref(n: {
+	kind: NotificationKind;
+	data?: Record<string, unknown>;
+}): string | null {
+	const data = n.data ?? {};
+	const date = dateParam(data);
+	const bloco = appointmentParam(data);
+	const agenda = appointmentHref(bloco, date);
+
+	switch (n.kind) {
+		// Um bloco, um dia: abrem a sessão de que falam.
+		case 'appointment_scheduled':
+		case 'appointment_rescheduled':
+		case 'appointment_canceled':
+		case 'appointment_missed':
+		case 'participant_added':
+		case 'session_soon':
+			return agenda;
+
+		// O resumo é de N sessões do dia seguinte — não há bloco para abrir, e o payload não traz
+		// `appointment_id` nenhum. Leva ao DIA, que é justamente o assunto ("você tem 6 amanhã").
+		case 'daily_digest':
+			return appointmentHref(null, date);
+
+		// A massa por pacote é um evento de N sessões em datas diferentes: não há um dia só para
+		// onde levar, então continua abrindo a agenda no padrão.
+		case 'package_bulk_adjusted':
+		case 'package_bulk_canceled':
+			return '/agenda';
+
+		// Leva à sessão que ele quer mudar: quem remarca é a recepção, e é do drawer daquele bloco
+		// que sai o "Remarcar".
+		case 'patient_wants_reschedule':
+			return agenda;
+
+		// A vaga que abriu (AN-12, doc 64): o drawer do bloco cancelado/faltou é onde mora a lista
+		// de **quem cabe naquele horário**, com o "Agendar" ao lado de cada candidato. `/fila` era o
+		// destino antes dessa seção existir, e mostra a fila inteira — a recepção tinha de refazer
+		// no olho o casamento que a notificação já tinha feito ("3 pacientes cabem"). Sem o id no
+		// payload, cai na fila como antes.
+		case 'slot_opened':
+			return bloco ? agenda : '/fila';
+
+		// O aviso É sobre a prioridade: a fila já abre filtrada no que motivou o sino.
+		case 'waitlist_urgent':
+			return '/fila?prio=urgente';
+
+		case 'member_joined':
+		case 'member_removed':
+		case 'role_changed':
+			return '/configuracoes/equipe';
+
+		default:
+			return null;
+	}
+}

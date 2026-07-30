@@ -1,0 +1,295 @@
+// Grafana Alloy — o coletor (doc 62 §4 e §7.4).
+//
+// Roda na máquina onde os CONTAINERS estão (em produção, a VM do app — não a de observabilidade),
+// lê os logs pela API do Docker, corta o ruído, aplica a rede de segurança de redação e empurra
+// para o Loki.
+//
+// ## A ordem dos estágios é o desenho, não acaso
+//
+//   descoberta → rótulos → DESCARTE do ruído → redação → escrita
+//
+// O descarte vem antes da redação porque evento descartado não precisa ser processado; a redação
+// vem antes da escrita porque é a última chance de barrar o que escapou da origem.
+
+// ---- Descoberta -------------------------------------------------------------------------------
+
+discovery.docker "containers" {
+	host             = "unix:///var/run/docker.sock"
+	refresh_interval = "15s"
+}
+
+// ---- Rótulos: POUCOS, e de baixa cardinalidade -----------------------------------------------
+//
+// Regra do doc 62 §6: rótulo é para o que tem punhado de valores; o resto vai DENTRO da linha.
+// `clinic_id` como rótulo, a 200 clínicas × 4 serviços × 2 ambientes, criaria milhares de streams
+// e degradaria ingestão e consulta. `request_id` como rótulo seria um stream por requisição —
+// derruba o Loki no primeiro dia. Os dois continuam consultáveis via `| json`.
+
+discovery.relabel "containers" {
+	targets = discovery.docker.containers.targets
+
+	// ALLOWLIST por projeto do compose, não blacklist por nome.
+	//
+	// Medido ao subir: com filtro negativo (`drop` em "alloy|loki|grafana") vazaram DUAS classes
+	// de container. Primeiro o próprio stack — o regex do relabel é **ancorado**, então
+	// "(alloy|loki|grafana)" não casa com "observability-alloy-1" e o log da ferramenta de log
+	// entrou na conta da retenção do produto. Segundo, e pior: containers de OUTROS projetos na
+	// mesma máquina (um `educatizzy-postgres` apareceu inteiro), porque o agente lê o daemon do
+	// Docker, não um diretório.
+	//
+	// Blacklist erra aberto; allowlist erra fechado. Com dado de saúde por perto, coletar demais
+	// é pior do que coletar de menos — e "de menos" dá erro visível na primeira consulta.
+	rule {
+		source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+		regex         = sys.env("OBS_PROJETOS")
+		action        = "keep"
+	}
+
+	// O nome do container vem com "/" na frente.
+	rule {
+		source_labels = ["__meta_docker_container_name"]
+		regex         = "/(.*)"
+		target_label  = "service"
+	}
+}
+
+loki.source.docker "containers" {
+	host       = "unix:///var/run/docker.sock"
+	targets    = discovery.relabel.containers.output
+	labels     = {env = sys.env("OBS_ENV")}
+	forward_to = [loki.process.higiene.receiver]
+}
+
+// ---- Higiene ----------------------------------------------------------------------------------
+
+loki.process "higiene" {
+	// 1) RUÍDO: health check.
+	//
+	// O Traefik bate a cada 10s; com 2 serviços × 2 ambientes são 34.560 requisições/dia que não
+	// dizem nada. No cenário "hoje" do doc 62 §2 isso seria a MAIOR parte do volume. A API já
+	// filtra os próprios (ApiWeb.RequestLogger), mas o access log do Traefik não — este estágio
+	// pega o que sobrar, de qualquer serviço.
+	stage.drop {
+		expression = "(GET|HEAD) /api/(health|ready).*\" 2[0-9][0-9]"
+		drop_counter_reason = "healthcheck"
+	}
+
+	// 2) RUÍDO: asset estático do BFF. Conteúdo imutável servido pelo sirv; um evento por arquivo
+	// por navegação, e nenhum deles já ajudou a diagnosticar coisa alguma.
+	stage.drop {
+		expression = "/_app/immutable/"
+		drop_counter_reason = "asset"
+	}
+
+	// 3) REDAÇÃO — a terceira camada do doc 05 §2.4, e a única que independe do código da app.
+	//
+	// A primeira camada (allowlist na origem) é quem deve bastar. Esta existe porque um `dbg/1`
+	// esquecido, uma mensagem de exceção nova ou um provider que muda o texto do erro não passam
+	// por revisão nenhuma — e, uma vez escrito, o dado já saiu da máquina.
+	//
+	// CPF: pontuado por inteiro, ou 11 dígitos EXATOS delimitados.
+	//
+	// A primeira versão era `\d{3}\.?\d{3}\.?\d{3}-?\d{2}` — com todo separador opcional e sem
+	// delimitador. Medido: ela comeu `verificar-1785259312-344832`, que virou `verificar-1[CPF]4832`.
+	// Um timestamp unix. Qualquer corrida de 11 dígitos casava, e ela ainda atravessava hífen.
+	//
+	// Isso é pior que não redigir: destrói dado operacional E deixa um `[CPF]` no lugar, fazendo
+	// parecer que havia PII trafegando onde havia um id. Quem lesse o log tiraria a conclusão
+	// errada sobre o próprio sistema.
+	//
+	// Os `\b` importam: sem eles, um timestamp de 13 dígitos teria 11 deles comidos pelo meio.
+	// Com eles, só uma corrida de exatamente 11 dígitos casa — que é a forma crua do CPF.
+	stage.replace {
+		expression = "\\b(\\d{3}\\.\\d{3}\\.\\d{3}-\\d{2}|\\d{11})\\b"
+		replace    = "[CPF]"
+	}
+
+	// E-mail. O `send_job` já classifica o motivo do bounce antes de logar, mas esta é a rede
+	// para o endereço que entrar por outro caminho.
+	stage.replace {
+		expression = "([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})"
+		replace    = "[EMAIL]"
+	}
+
+	// Telefone brasileiro — **só as formas com separador**: `(11) 98765-4321`, `11 98765-4321`,
+	// `+55 11 98765-4321`.
+	//
+	// Exigir o separador é deliberado. Sem ele, `\d{2}\d{4}\d{4}` casa com toda corrida de 10
+	// dígitos — o mesmo estrago do CPF acima, e por isso o mesmo remédio. A forma crua de 11
+	// dígitos (`11987654321`) não fica descoberta: ela cai na regra de CPF logo acima e sai
+	// redigida assim mesmo. O rótulo erra, a proteção não.
+	//
+	// ATENÇÃO ao editar: no `stage.replace` o que é substituído são os **grupos de captura**, não
+	// o match inteiro. A primeira versão tinha grupos internos — `(\+55…)?(\(\d{2}\)|\b\d{2})` —
+	// e o resultado medido foi `fone [TELEFONE] 98765-4321`: só o DDD saiu, e o número ficou.
+	// Uma redação que PARECE ter funcionado é pior que nenhuma, porque ninguém vai reler a linha.
+	// Por isso: um único grupo externo, e tudo por dentro em `(?:…)`.
+	stage.replace {
+		expression = "((?:\\+55[\\s-]?)?(?:\\(\\d{2}\\)|\\b\\d{2})[\\s-]9?\\d{4}[\\s-]?\\d{4})\\b"
+		replace    = "[TELEFONE]"
+	}
+
+	// 4) NÍVEL como rótulo — cardinalidade 3, e é o filtro mais usado numa investigação.
+	//
+	// A chave do JSON é `severity` nos dois lados (o `LoggerJSON.Formatters.Basic` do Elixir e o
+	// `$lib/server/log.ts` do BFF). A primeira versão extraía `severity` mas rotulava a partir de
+	// uma chave `level` inexistente, e o rótulo saía sempre vazio — a consulta por
+	// `{level="error"}` devolvia zero com o log todo presente, que é o pior tipo de defeito de
+	// observabilidade: o painel diz "nenhum erro" e ninguém desconfia.
+	//
+	// Linha que não for JSON (o dev roda em texto colorido) simplesmente não ganha o rótulo, em
+	// vez de quebrar o pipeline. O Loki 3 ainda deixa o `detected_level` como rede.
+	stage.json {
+		expressions = {nivel = "severity"}
+	}
+
+	stage.labels {
+		values = {level = "nivel"}
+	}
+
+	forward_to = [loki.write.destino.receiver]
+}
+
+// ---- Escrita ----------------------------------------------------------------------------------
+
+loki.write "destino" {
+	endpoint {
+		url = sys.env("LOKI_PUSH_URL")
+	}
+
+	// Fila em disco: se o Loki cair ou a rede entre as VMs piscar, o log espera em vez de sumir.
+	// Sem isto, uma indisponibilidade do Loki apaga justamente a janela do incidente que a
+	// derrubou.
+	wal {
+		enabled = true
+	}
+}
+
+// ================================================================================================
+// TRACES (doc 76)
+// ================================================================================================
+//
+// O segundo pipeline deste arquivo, e ele corre na DIREÇÃO CONTRÁRIA do de cima. Log o agente vai
+// buscar (lê o socket do Docker); span o app EMPURRA para cá. Por isso este lado tem porta
+// escutando, e o outro não.
+//
+//   apps → receptor OTLP → limite de memória → lote → Tempo
+//
+// ## Por que passar pelo agente em vez de o app falar direto com o Tempo
+//
+// Porque este é o lugar onde a poda vai acontecer. A instrumentação começou com os atributos
+// PADRÃO das bibliotecas — que incluem `url.path` com o UUID na rota e o SQL do Ecto —, e a
+// intenção é ir removendo o que não precisa sair. Fazer isso aqui vale para os dois serviços de
+// uma vez, sem rebuild de imagem e sem tocar em código de aplicação; fazer no app significaria a
+// mesma regra escrita em Elixir e em TypeScript, divergindo com o tempo.
+//
+// É a mesma razão pela qual a redação de PII do log mora aqui e não no logger de cada app.
+
+otelcol.receiver.otlp "apps" {
+	// gRPC é o que a API Elixir usa; HTTP é o que o BFF Node usa. Manter as duas é mais barato do
+	// que padronizar: cada SDK tem um caminho que é o batido pela comunidade, e sair dele troca
+	// uma porta por uma classe de bug de codificação.
+	grpc {
+		endpoint = "0.0.0.0:4317"
+	}
+
+	http {
+		endpoint = "0.0.0.0:4318"
+	}
+
+	output {
+		traces = [otelcol.processor.memory_limiter.protecao.input]
+	}
+}
+
+// A cadeia: recebe → limita memória → **poda** → lote → Tempo.
+
+// A salvaguarda que protege o LOG do TRACE.
+//
+// Os dois pipelines dividem um processo e um `mem_limit` de 384m. Sem teto aqui, uma rajada de
+// span (um laço instrumentado, um endpoint novo com N+1) enche a fila do OTel, o container é morto
+// pelo OOM e o que cai junto é a **coleta de log** — que estava funcionando perfeitamente. Com o
+// teto, o excesso de span é RECUSADO na porta (o app recebe erro e reenfileira) e o log segue.
+//
+// Degradar o sinal novo para preservar o sinal que a operação já depende é a troca certa.
+otelcol.processor.memory_limiter "protecao" {
+	check_interval = "1s"
+	limit          = "150MiB"
+
+	output {
+		traces = [otelcol.processor.filter.encanamento.input]
+	}
+}
+
+// ---- PODA 1: o encanamento do banco não é evento ----------------------------------------------
+//
+// Medido num POST /api/appointments real (doc 76 §11): **30 dos 67 spans** eram `begin`, `commit`
+// e `SELECT set_config(...)`. Quase metade do trace dizendo "abriu transação" e "carimbou a GUC do
+// tenant" — e o `set_config` sozinho aparecia 14 vezes, porque é o que o RLS exige a cada
+// transação (ADR-018).
+//
+// Isso não é dado de diagnóstico: é encanamento. E o custo não é só volume — são 30 linhas
+// empurrando para fora da tela as 34 consultas que respondem "onde foi o tempo".
+//
+// O que se perde: enxergar as fronteiras de transação na cascata. Aceito conscientemente — quando
+// a pergunta for essa, ela se responde melhor no log do Postgres do que num trace de aplicação.
+otelcol.processor.filter "encanamento" {
+	// `ignore`: span sem `db.statement` (todo span de HTTP) faz a expressão falhar, e o padrão do
+	// processador é DESCARTAR o span quando a condição erra. Sem esta linha a poda do banco levaria
+	// junto os spans de servidor — o trace inteiro sumiria.
+	error_mode = "ignore"
+
+	traces {
+		// A lista é de condições que DESCARTAM. `(?i)` porque o Ecto emite `begin`/`commit` em
+		// minúsculas e o `SELECT set_config` em maiúsculas.
+		span = [
+			`IsMatch(attributes["db.statement"], "(?i)^(begin|commit|rollback|savepoint|release|select set_config)")`,
+		]
+	}
+
+	output {
+		traces = [otelcol.processor.batch.lotes.input]
+	}
+}
+
+// ---- O LUGAR DA PRÓXIMA PODA ------------------------------------------------------------------
+//
+// Quando um atributo se mostrar dispensável — e a intenção declarada é que vários sejam —, ele sai
+// AQUI, entre o limite de memória e o lote. Um processador a mais na cadeia, e os dois serviços
+// param de mandar aquele campo no mesmo deploy:
+//
+//     otelcol.processor.transform "poda" {
+//       error_mode = "ignore"
+//       trace_statements {
+//         context    = "span"
+//         statements = [
+//           // o caminho com o id do paciente; `http.route` (parametrizada) permanece
+//           `delete_key(attributes, "url.path")`,
+//           // o SQL do Ecto, que é útil na largada e volumoso depois
+//           `delete_key(attributes, "db.statement")`,
+//         ]
+//       }
+//       output { traces = [otelcol.processor.batch.lotes.input] }
+//     }
+//
+// Deixado como comentário DE PROPÓSITO: processador vazio que não remove nada é código morto que
+// parece proteção — a mesma classe de erro do rótulo `level` que saía sempre vazio (§4 acima).
+
+otelcol.processor.batch "lotes" {
+	output {
+		traces = [otelcol.exporter.otlp.tempo.input]
+	}
+}
+
+otelcol.exporter.otlp "tempo" {
+	client {
+		endpoint = sys.env("TEMPO_OTLP_ENDPOINT")
+
+		// Sem TLS: o tráfego não sai do host, exatamente como no datasource do Postgres do
+		// Grafana. Certificado entre containers da mesma máquina custaria rotação e não compraria
+		// ameaça nenhuma que já não implique acesso ao próprio host.
+		tls {
+			insecure = true
+		}
+	}
+}

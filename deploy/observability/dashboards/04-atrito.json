@@ -1,0 +1,440 @@
+{
+  "uid": "cinetra-atrito",
+  "title": "Cinetra · Atrito (4xx)",
+  "description": "A faixa que nenhum outro painel enxerga. O RequestLogger só marca 5xx como level=error (request_logger.ex, nivel/1), de propósito: 401 de sessão expirada e 422 de formulário não são incidente. Só que 'não é incidente' não quer dizer 'não interessa' — 4xx é onde o produto briga com quem o usa. Tudo aqui sai do campo status do MESMO evento de requisição, sem instrumentação nova.",
+  "tags": [
+    "cinetra",
+    "logs",
+    "produto",
+    "aprofundamento"
+  ],
+  "timezone": "browser",
+  "refresh": "5m",
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "env",
+        "label": "Ambiente",
+        "description": "Preenchido a partir dos rótulos que existem no Loki. Fixar 'prod' fazia todo painel abrir vazio em dev.",
+        "type": "query",
+        "datasource": {
+          "type": "loki",
+          "uid": "loki"
+        },
+        "query": "label_values(env)",
+        "refresh": 1,
+        "sort": 1,
+        "includeAll": false,
+        "multi": false,
+        "current": {},
+        "options": [],
+        "definition": "label_values(env)"
+      },
+      {
+        "name": "parser",
+        "label": "Formato do log",
+        "description": "json em produção (LoggerJSON); logfmt em dev, onde a API loga texto legível.",
+        "type": "custom",
+        "query": "json,logfmt",
+        "current": {
+          "text": "json",
+          "value": "json"
+        },
+        "options": [
+          {
+            "text": "json",
+            "value": "json",
+            "selected": true
+          },
+          {
+            "text": "logfmt",
+            "value": "logfmt",
+            "selected": false
+          }
+        ]
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "422 — formulário recusado",
+      "description": "Validação de domínio reprovando o que a recepção digitou. Subiu depois de um deploy? A regra nova está pegando gente de verdade. Concentrado numa rota? É lá que o formulário está pedindo o que ninguém tem à mão.",
+      "gridPos": {
+        "h": 5,
+        "w": 5,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "instant": true,
+          "expr": "sum(count_over_time({env=\"$env\", service=~\".*api.*\"} | $parser | status = \"422\" [$__range]))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          }
+        }
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "409 — conflito de agenda",
+      "description": "Dupla marcação barrada pela exclusion constraint. O doc 71 §3.1 encontrou isso como ERROR: no log do Postgres — incorrelacionável, e ainda por cima confundido com incidente. Aqui vem com rota, clinic_id e actor_id, que é o que permite responder 'quem estava tentando o quê'. Volume alto e constante numa clínica costuma ser processo de trabalho, não bug.",
+      "gridPos": {
+        "h": 5,
+        "w": 5,
+        "x": 5,
+        "y": 0
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "instant": true,
+          "expr": "sum(count_over_time({env=\"$env\", service=~\".*api.*\"} | $parser | status = \"409\" [$__range]))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          }
+        }
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "403 — acesso negado",
+      "description": "Policy do Ash recusando. As duas leituras são opostas e é preciso escolher olhando a rota: policy apertada demais (a pessoa deveria poder) ou tentativa real (a pessoa não deveria). Cruze com a trilha — action_type=:deny no painel de Auditoria é o mesmo evento visto do outro lado.",
+      "gridPos": {
+        "h": 5,
+        "w": 5,
+        "x": 10,
+        "y": 0
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "instant": true,
+          "expr": "sum(count_over_time({env=\"$env\", service=~\".*api.*\"} | $parser | status = \"403\" [$__range]))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 20
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "429 — rate limit",
+      "description": "O limite mordendo. Se vier de rota de autenticação, é provável que seja robô e o limite está fazendo o trabalho dele. Se vier de rota de agenda com clinic_id de cliente, é usuário legítimo sendo barrado — e aí o limite é que está errado.",
+      "gridPos": {
+        "h": 5,
+        "w": 5,
+        "x": 15,
+        "y": 0
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "instant": true,
+          "expr": "sum(count_over_time({env=\"$env\", service=~\".*api.*\"} | $parser | status = \"429\" [$__range]))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "401 — sessão",
+      "description": "Alto por natureza: toda aba aberta com cookie vencido produz um. O que interessa é a FORMA, não o valor — um degrau súbito costuma ser rotação de segredo, expiração encurtada ou o cookie deixando de viajar.",
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 20,
+        "y": 0
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "instant": true,
+          "expr": "sum(count_over_time({env=\"$env\", service=~\".*api.*\"} | $parser | status = \"401\" [$__range]))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          }
+        }
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "4xx por status, ao longo do tempo",
+      "description": "A forma separa as causas: 401 acompanha o horário de uso; 422 costuma pular depois de um deploy; 429 vem em rajada. Uma classe que muda sozinha aponta a mudança que a causou.",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 5
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "legendFormat": "{{status}}",
+          "expr": "sum by (status) (count_over_time({env=\"$env\", service=~\".*api.*\"} | $parser | status >= 400 | status < 500 [$__auto]))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "stacking": {
+              "mode": "normal"
+            },
+            "fillOpacity": 80,
+            "lineWidth": 0
+          }
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "table",
+      "title": "Onde dói — rota × status (4xx)",
+      "description": "A tabela que diz por onde começar. 401 espalhado é rotina; qualquer outro status concentrado numa rota é um lugar concreto para olhar o código ou a tela.",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 5
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "instant": true,
+          "format": "table",
+          "expr": "topk(20, sum by (route, status) (count_over_time({env=\"$env\", service=~\".*api.*\"} | $parser | status >= 400 | status < 500 | status != \"401\" | route != \"\" [$__range])))"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Recusa por clínica (4xx, exceto 401)",
+      "description": "Uma clínica sozinha no topo raramente é bug: é fluxo de trabalho, dado de cadastro ou treinamento. Várias juntas, no mesmo instante, é mudança nossa.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 14
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "legendFormat": "{{clinic_id}}",
+          "expr": "topk(10, sum by (clinic_id) (count_over_time({env=\"$env\", service=~\".*api.*\"} | $parser | status >= 400 | status < 500 | status != \"401\" | clinic_id != \"\" [$__auto])))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10
+          }
+        }
+      }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Rotas com mais recusa (4xx, exceto 401)",
+      "description": "A mesma informação da tabela, no tempo — serve para separar 'sempre foi assim' de 'começou hoje às 14h'.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 14
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "legendFormat": "{{route}}",
+          "expr": "topk(10, sum by (route) (count_over_time({env=\"$env\", service=~\".*api.*\"} | $parser | status >= 400 | status < 500 | status != \"401\" | route != \"\" [$__auto])))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10
+          }
+        }
+      }
+    },
+    {
+      "id": 10,
+      "type": "logs",
+      "title": "As recusas, uma a uma (sem 401)",
+      "description": "Cada linha traz request_id, clinic_id e actor_id. É por onde a investigação continua: o request_id amarra todas as linhas daquela requisição no Explore.",
+      "gridPos": {
+        "h": 11,
+        "w": 24,
+        "x": 0,
+        "y": 22
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{env=\"$env\", service=~\".*api.*\"} | $parser | status >= 400 | status < 500 | status != \"401\""
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none"
+      }
+    }
+  ],
+  "schemaVersion": 39,
+  "version": 1
+}

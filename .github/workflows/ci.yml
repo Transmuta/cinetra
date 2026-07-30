@@ -1,0 +1,218 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]   # main -> deploy prod; develop -> deploy HML (job `deploy`)
+  pull_request:
+
+# Um run por branch/PR; cancela os anteriores ainda rodando.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  api:
+    name: API — testes + cobertura (mínimo 80%)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+    services:
+      db:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      MIX_ENV: test
+      DATABASE_HOST: localhost
+      DATABASE_USER: postgres
+      DATABASE_PASSWORD: postgres
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Elixir/OTP
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.18.4"
+          otp-version: "27"
+
+      - name: Cache deps e _build
+        uses: actions/cache@v4
+        with:
+          path: |
+            api/deps
+            api/_build
+          key: ${{ runner.os }}-mix-${{ hashFiles('api/mix.lock') }}
+          restore-keys: ${{ runner.os }}-mix-
+
+      - run: mix deps.get
+
+      # Espelha o alias `precommit`: formatação e zero-warnings barram o merge.
+      - run: mix format --check-formatted
+      - run: mix compile --warnings-as-errors
+
+      - name: Preparar banco (migrations Ash)
+        run: mix ash.setup --quiet
+
+      # `mix coveralls` roda a suíte e FALHA abaixo do minimum_coverage (coveralls.json).
+      - name: Testes + gate de cobertura
+        run: mix coveralls
+
+  # ---------------------------------------------------------------------------
+  # O job `api` acima conecta como `postgres`, que é SUPERUSER e portanto
+  # **bypassa RLS**. Consequência: uma leitura por-tenant que esqueça o
+  # `in_clinic`/`with_clinic` passa verde ali e devolve LISTA VAZIA no servidor
+  # real (que conecta como `cinetra_app`, NOBYPASSRLS — ver entrypoint.dev.sh).
+  #
+  # Essa classe de bug já mordeu 3× na fatia Agenda e era invisível ao gate.
+  # Este job fecha o buraco: roda os testes marcados `@tag :rls` com o MESMO
+  # role do servidor, então "esqueci o in_clinic" vira build vermelho.
+  #
+  # Só o subconjunto marcado, de propósito: a suíte inteira sob RLS exigiria que
+  # todo setup de teste fosse tenant-consciente, o que é outra empreitada. O
+  # subconjunto cobre os caminhos de leitura/escrita por-tenant que importam.
+  # ---------------------------------------------------------------------------
+  api-rls:
+    name: API — RLS (role restrito, NOBYPASSRLS)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+    services:
+      db:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      MIX_ENV: test
+      DATABASE_HOST: localhost
+      DATABASE_USER: postgres
+      DATABASE_PASSWORD: postgres
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Elixir/OTP
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.18.4"
+          otp-version: "27"
+
+      - name: Cache deps e _build
+        uses: actions/cache@v4
+        with:
+          path: |
+            api/deps
+            api/_build
+          key: ${{ runner.os }}-mix-${{ hashFiles('api/mix.lock') }}
+          restore-keys: ${{ runner.os }}-mix-
+
+      - run: mix deps.get
+
+      # DDL como `postgres` — o role restrito não cria tabela (é o desenho).
+      - name: Preparar banco (migrations Ash, como postgres)
+        run: mix ash.setup --quiet
+
+      # Cria o role + grants + default privileges. Mesmo SQL do entrypoint dev.
+      # O banco é `cinetra_test` (config/test.exs) — não o `api_test` default do Phoenix.
+      # Grants são por-banco: apontar para o banco errado deixava o gate decorativo (o passo
+      # falhava com ON_ERROR_STOP antes de `mix test --only rls`).
+      - name: Criar role restrito cinetra_app
+        run: |
+          PGPASSWORD=postgres psql -h localhost -U postgres -d cinetra_test \
+            -v ON_ERROR_STOP=1 -q -f priv/sql/setup_app_role.sql
+
+      # A partir daqui o app é `cinetra_app`: sujeito às policies de RLS.
+      #
+      # `SKIP_DB_SETUP` é obrigatório aqui: o alias `test` prepararia o banco, e o role
+      # restrito não tem CREATE no schema (é o desenho). Sem isso o job morre com
+      # `ERROR 42501 permission denied for schema public` antes do primeiro teste. O setup
+      # já foi feito acima, como `postgres`.
+      - name: Testes de RLS (como cinetra_app)
+        env:
+          DATABASE_USER: cinetra_app
+          DATABASE_PASSWORD: cinetra_app
+          SKIP_DB_SETUP: "1"
+        run: mix test --only rls
+
+  web:
+    name: Web — svelte-check + unit/integração (Vitest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+      - run: npm run check
+      # test unit/integração + gate de cobertura (thresholds em vite.config.ts).
+      - run: npm run coverage
+      - run: npm run build
+
+  # ---------------------------------------------------------------------------
+  # Deploy: dispara o webhook do Dokploy, que builda a imagem no A1 (ARM). Só em
+  # PUSH para main (prod) ou develop (HML), e SÓ depois dos gates passarem (needs).
+  # Nunca em PR. A URL de cada ambiente vem de um GitHub Secret, criada no painel
+  # do Dokploy (Deployments → Webhook). Enquanto o Dokploy não existir, o secret
+  # está ausente e o passo é PULADO sem falhar o CI. Ver docs/59 §2.
+  # ---------------------------------------------------------------------------
+  deploy:
+    name: Deploy — webhook do Dokploy
+    needs: [api, api-rls, web]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Disparar deploy no ambiente da branch
+        env:
+          WEBHOOK_PROD: ${{ secrets.DOKPLOY_DEPLOY_WEBHOOK_PROD }}
+          WEBHOOK_HML: ${{ secrets.DOKPLOY_DEPLOY_WEBHOOK_HML }}
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            URL="$WEBHOOK_PROD"; ALVO="prod"
+          else
+            URL="$WEBHOOK_HML"; ALVO="hml"
+          fi
+          if [ -z "$URL" ]; then
+            echo "Webhook de $ALVO ausente (Dokploy ainda não provisionado) — pulando deploy."
+            exit 0
+          fi
+          echo "Disparando deploy de $ALVO no Dokploy…"
+          curl -fsS -X POST "$URL"
+
+  # O e2e **saiu do CI** (decisão de 2026-07-27). Ele precisa da stack inteira — API, banco e a
+  # caixa de e-mail de dev, para consumir o magic link —, e este workflow sobe só o web. Um job
+  # que pula com aviso é ruído com cara de cobertura.
+  #
+  # Ele roda **local**, contra o `docker compose`, e aponta para onde se mandar:
+  #
+  #     npm run test:e2e                                  # preview local (build automático)
+  #     E2E_BASE_URL=https://hml.exemplo.com \
+  #     E2E_API_ORIGIN=https://api-hml.exemplo.com npm run test:e2e
+  #
+  # Ver `web/e2e/README.md`. Um estudo sobre e2e está previsto — quando ele definir a forma, o
+  # job volta com a stack que precisa.

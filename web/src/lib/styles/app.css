@@ -1,0 +1,338 @@
+/* Design system da Cinetra (ADR-010 / doc 03 §4). Duas camadas:
+   1) proveniência — custom properties `--mv-*` com os hex verbatim do protótipo
+      (interface/Movimento.dc.html theme() :301-313), trocadas por [data-theme];
+   2) utilitários — `@theme inline` mapeia aquelas variáveis para os namespaces do
+      Tailwind v4, gerando bg-surface, text-muted, border-edge, etc. `inline` faz o
+      utilitário referenciar var(--mv-…) em vez de copiar o valor, então a troca de tema
+      em runtime continua sendo só um atributo no <html>. */
+@import 'tailwindcss';
+
+/* Dark por atributo, não por classe nem media pura: o SSR estampa data-theme no <html>
+   e não há flash (hooks.server.ts). */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+/* ══ CAMADA 1 — proveniência. Hex verbatim do protótipo. ══════════════════════════ */
+
+:root {
+	--mv-font-sans: 'Hanken Grotesk Variable', 'Hanken Grotesk', system-ui, sans-serif;
+	--mv-font-mono: 'Martian Mono', ui-monospace, monospace;
+
+	/* Raios. Campos/botões = 8px — e o utilitário de fato usado no app para eles é
+	   `rounded-lg` (77 usos: botões, inputs, painéis pequenos), então `--mv-radius-lg`
+	   PRECISA valer 8px, não 14px. Cards não usam `rounded-lg`: cada superfície leva um
+	   raio arbitrário próprio (rounded-[10px] listas, rounded-[12px] fila/modais). Pill = 999px. */
+	--mv-radius-sm: 6px;
+	--mv-radius: 8px;
+	--mv-radius-lg: 8px; /* era 14px — deixava todo botão/campo do app arredondado demais */
+	--mv-radius-pill: 999px;
+
+	/* Sombras — sutil no claro; pop de menus/cards flutuantes */
+	--mv-shadow-1: 0 1px 1px rgba(20, 24, 30, 0.03);
+	--mv-shadow-card: 0 12px 40px rgba(20, 24, 30, 0.08);
+	--mv-shadow-pop: 0 8px 24px rgba(8, 10, 12, 0.18);
+	/* brilho teal da marca (quadrado do rail, :1310) */
+	--mv-shadow-teal: 0 2px 8px rgba(15, 181, 166, 0.35);
+	/* toast (:3494) e painel de modal (:1901) — iguais nos dois temas */
+	--mv-shadow-toast: 0 8px 24px rgba(8, 10, 12, 0.3);
+	--mv-shadow-modal: 0 24px 60px rgba(8, 10, 12, 0.4);
+
+	/* ── Semânticas: FUNDO (badge, chip, botão sólido) ──
+	   Iguais nos dois temas, e é de propósito: badge é badge — a de ENCAIXE é âmbar no claro e
+	   no escuro. Como o fundo não muda, o texto sobre ele também não pode mudar: vai em
+	   `--mv-on-solid`, fixo (a regra de família do doc 83 §5, cujo precedente é o próprio
+	   ENCAIXE). A exceção é `danger`, escurecido justamente para MANTER o texto branco — botão
+	   destrutivo com texto escuro sobre vermelho claro perde a força de aviso.
+
+	   Não confunda com `--mv-success` e parentes logo abaixo, que são as versões de TEXTO e
+	   mudam com o tema. Usar o token de fundo como texto (ou vice-versa) reprova o
+	   `contraste.test.ts`. */
+	--mv-success-solid: #2da160; /* + on-solid: 5,31 */
+	--mv-warning-solid: #f5a623; /* + on-solid: 8,63 */
+	--mv-danger-solid: #d83b40; /* era #e5484d — branco só dava 3,91; agora 4,55 */
+	--mv-info-solid: #2b7fff; /* + on-solid: 4,65 */
+	/* Texto/ícone sobre fundo semântico sólido. Fixo nos dois temas porque o fundo é fixo. */
+	--mv-on-solid: #161a1e;
+
+	/* Teal — cor de marca / foco. solid/hover iguais nos dois temas (:303) */
+	--mv-teal-solid: #0fb5a6;
+	--mv-teal-hover: #0ba294;
+
+	/* Cores de marca do logo Cinetra (swooshes) e dos gradientes de landing/aside.
+	   Iguais nos dois temas — são pigmento da marca, não superfície (cinetra.html :21). */
+	--mv-sage: #7fa59a;
+	--mv-blue: #3a5a78;
+}
+
+/* ---- Tema claro (theme() com d=false) ---- */
+:root,
+:root[data-theme='light'] {
+	--mv-canvas: #fbfcfd;
+	--mv-surface: #ffffff;
+	--mv-surface2: #f6f8f9;
+	--mv-bs: #e4e7eb; /* borda sutil  */
+	--mv-bd: #cdd3d9; /* borda densa  */
+	--mv-text: #161a1e;
+	--mv-muted: #5c6670;
+	/* era #8a929b (3,15 sobre branco, 2,96 sobre surface2) — o token mais usado do app para
+	   metadado de 11–12px, e sozinho 86% de todo o contraste reprovado no doc 83. O valor é o
+	   MÍNIMO que passa 4,5, de propósito: `muted` está em 5,49 e a faixa utilizável é estreita,
+	   então cada ponto a mais aproxima os dois cinzas e apaga a hierarquia. */
+	--mv-faint: #6b737c;
+	--mv-primary: #16181c;
+	--mv-primary-hover: #2a2e34;
+	--mv-on-primary: #ffffff;
+	--mv-teal-text: #067a6f; /* era #0a7e73 — 4,46 sobre o próprio chip; agora 4,71 */
+	--mv-teal-subtle: #e5f7f4;
+	--mv-teal-border: #7fdacd;
+	--mv-card-shadow: var(--mv-shadow-card);
+
+	/* Semânticas como TEXTO/ÍCONE (`text-danger`, `text-warning`…) — por tema, e não
+	   compartilhadas, porque **uma cor que contrasta com branco não contrasta com quase-preto**.
+	   Era o furo silencioso: as mesmas quatro cores serviam de fundo e de texto, e como texto no
+	   claro chegavam a 2,03 (`warning`, 23 usos). Medido no doc 83.
+
+	   Os valores passam 4,5 em DUAS famílias de fundo, e é a segunda que os empurrou mais escuro
+	   que o mínimo óbvio: além das superfícies (branco/surface2/canvas), eles precisam passar
+	   sobre a PRÓPRIA tinta — o app pinta callout e chip com `bg-<sem>/10..14` e põe `text-<sem>`
+	   em cima, e ali o fundo já está tingido da cor do texto. O primeiro conserto desta paleta
+	   mediu só as superfícies, e o chip ENCAIXE da legenda sobrou em 4,19.
+	   `contraste.test.ts` fixa os dois casos. Números: tinta 14% / superfície. */
+	--mv-success: #037736; /* 4,64 / 5,68 */
+	--mv-warning: #a15200; /* era 2,03 sobre branco — o pior par do app. Agora 4,63 / 5,64 */
+	--mv-danger: #c3262b; /* 4,63 / 5,78 */
+	--mv-info: #0b5fdf; /* 4,61 / 5,65 */
+
+	/* Wordmark do logo (paths escuros do Cinetra) — slate no claro, quase-branco no escuro. */
+	--mv-wordmark: #212a37;
+	/* Sombra ampla de landing (hero mock, painéis flutuantes) — cinetra.html --shadow-lg. */
+	--mv-shadow-lg: 0 30px 80px rgba(20, 24, 30, 0.14);
+
+	/* Rail (barra de ícones) — escura nos dois temas (:305) */
+	--mv-rail: #16181c;
+	--mv-rail-item: #26292f;
+}
+
+/* ---- Tema escuro (theme() com d=true) ---- */
+:root[data-theme='dark'] {
+	--mv-canvas: #0c0d0e;
+	--mv-surface: #16181c;
+	--mv-surface2: #1c1f24;
+	--mv-bs: #24282e;
+	--mv-bd: #313640;
+	--mv-text: #eceef0;
+	--mv-muted: #9aa3ac;
+	--mv-faint: #7e8790; /* era #6b747d — 3,48 sobre surface2; agora 4,53 */
+	--mv-primary: #eceef0;
+	--mv-primary-hover: #ffffff;
+	--mv-on-primary: #16181c;
+	--mv-teal-text: #3fd6c7;
+	--mv-teal-subtle: rgba(15, 181, 166, 0.16);
+	--mv-teal-border: rgba(127, 218, 205, 0.45);
+	--mv-card-shadow: none; /* sombra do card só no claro (:1683) */
+
+	/* Semânticas como texto — ver o bloco claro. Aqui `success` e `warning` ficam nos valores
+	   originais: sobre fundo quase-preto eles já passavam (5,40 e 8,77). Só o vermelho e o azul
+	   precisaram clarear. */
+	--mv-success: #2da160;
+	--mv-warning: #f5a623;
+	--mv-danger: #f5585d; /* clareado além do mínimo pela tinta: 4,61 / 5,45 */
+	--mv-info: #3c90ff; /* 4,64 / 5,61 */
+
+	--mv-wordmark: #eceef0;
+	--mv-shadow-lg: 0 30px 80px rgba(0, 0, 0, 0.6);
+
+	--mv-rail: #08090a;
+	--mv-rail-item: #1a1d22;
+}
+
+/* Respeita o SO quando não há escolha explícita de tema. */
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme]) {
+		--mv-canvas: #0c0d0e;
+		--mv-surface: #16181c;
+		--mv-surface2: #1c1f24;
+		--mv-bs: #24282e;
+		--mv-bd: #313640;
+		--mv-text: #eceef0;
+		--mv-muted: #9aa3ac;
+		--mv-faint: #7e8790;
+		--mv-primary: #eceef0;
+		--mv-primary-hover: #ffffff;
+		--mv-on-primary: #16181c;
+		--mv-teal-text: #3fd6c7;
+		--mv-teal-subtle: rgba(15, 181, 166, 0.16);
+		--mv-teal-border: rgba(127, 218, 205, 0.45);
+		--mv-card-shadow: none;
+		/* As semânticas de TEXTO também entram aqui: sem elas, quem não escolheu tema e está no
+		   escuro do SO herdaria as do bloco claro (marrom sobre quase-preto). */
+		--mv-success: #2da160;
+		--mv-warning: #f5a623;
+		--mv-danger: #f5585d;
+		--mv-info: #3c90ff;
+		--mv-wordmark: #eceef0;
+		--mv-shadow-lg: 0 30px 80px rgba(0, 0, 0, 0.6);
+		--mv-rail: #08090a;
+		--mv-rail-item: #1a1d22;
+	}
+}
+
+/* ══ CAMADA 2 — utilitários. `inline` → o utilitário referencia var(--mv-…). ══════ */
+
+@theme inline {
+	--font-sans: var(--mv-font-sans);
+	--font-mono: var(--mv-font-mono);
+
+	/* sobrescreve a escala de raio do Tailwind pela do protótipo, de propósito */
+	--radius-sm: var(--mv-radius-sm);
+	--radius-md: var(--mv-radius);
+	--radius-lg: var(--mv-radius-lg);
+	--radius-full: var(--mv-radius-pill);
+
+	--shadow-sm: var(--mv-shadow-1);
+	--shadow-card: var(--mv-card-shadow);
+	--shadow-lg: var(--mv-shadow-lg);
+	--shadow-pop: var(--mv-shadow-pop);
+	--shadow-teal: var(--mv-shadow-teal);
+	--shadow-toast: var(--mv-shadow-toast);
+	--shadow-modal: var(--mv-shadow-modal);
+
+	/* superfícies → bg-canvas, bg-surface, bg-surface-2 */
+	--color-canvas: var(--mv-canvas);
+	--color-surface: var(--mv-surface);
+	--color-surface-2: var(--mv-surface2);
+
+	/* bordas → border-edge / border-edge-strong (bs = sutil, bd = densa) */
+	--color-edge: var(--mv-bs);
+	--color-edge-strong: var(--mv-bd);
+
+	/* texto → text-ink / text-muted / text-faint (`ink` evita o feio `text-text`) */
+	--color-ink: var(--mv-text);
+	--color-muted: var(--mv-muted);
+	--color-faint: var(--mv-faint);
+
+	--color-primary: var(--mv-primary);
+	--color-primary-hover: var(--mv-primary-hover);
+	--color-on-primary: var(--mv-on-primary);
+
+	--color-teal: var(--mv-teal-solid);
+	--color-teal-hover: var(--mv-teal-hover);
+	--color-teal-text: var(--mv-teal-text);
+	--color-teal-subtle: var(--mv-teal-subtle);
+	--color-teal-border: var(--mv-teal-border);
+
+	/* Marca Cinetra → text-wordmark, bg-sage, bg-blue, from-blue/to-sage (gradientes) */
+	--color-wordmark: var(--mv-wordmark);
+	--color-sage: var(--mv-sage);
+	--color-blue: var(--mv-blue);
+
+	/* rail escuro (barra de ícones) → bg-rail / bg-rail-item */
+	--color-rail: var(--mv-rail);
+	--color-rail-item: var(--mv-rail-item);
+
+	/* Semânticas de TEXTO (por tema) → text-danger, text-warning, border-danger/30, bg-danger/10… */
+	--color-success: var(--mv-success);
+	--color-warning: var(--mv-warning);
+	--color-danger: var(--mv-danger);
+	--color-info: var(--mv-info);
+
+	/* Semânticas de FUNDO (fixas) → bg-warning-solid + text-on-solid. Um badge usa este par;
+	   `bg-warning` (sem `-solid`) pintaria o marrom do texto e o badge sumiria. */
+	--color-success-solid: var(--mv-success-solid);
+	--color-warning-solid: var(--mv-warning-solid);
+	--color-danger-solid: var(--mv-danger-solid);
+	--color-info-solid: var(--mv-info-solid);
+	--color-on-solid: var(--mv-on-solid);
+}
+
+/* As animações do protótipo viram tokens --animate-* → animate-* */
+@theme {
+	--animate-fade: mvFade 0.18s ease-out;
+	/* .18s como no modal do protótipo (:1901); os menus lá usam até menos (.13s) */
+	--animate-scale: mvScale 0.18s ease-out;
+
+	@keyframes mvFade {
+		from {
+			opacity: 0;
+			transform: translateY(8px);
+		}
+		to {
+			opacity: 1;
+			transform: none;
+		}
+	}
+	@keyframes mvScale {
+		from {
+			opacity: 0;
+			transform: scale(0.975);
+		}
+		to {
+			opacity: 1;
+			transform: none;
+		}
+	}
+}
+
+/* O que o preflight do Tailwind não cobre, do <style> do protótipo. */
+@layer base {
+	html,
+	body {
+		overscroll-behavior-y: none;
+	}
+
+	body {
+		font-family: var(--mv-font-sans);
+		background-color: var(--mv-canvas);
+		color: var(--mv-text);
+	}
+
+	::-webkit-scrollbar {
+		width: 10px;
+		height: 10px;
+	}
+	::-webkit-scrollbar-thumb {
+		background: rgba(140, 150, 160, 0.32);
+		border-radius: 8px;
+		border: 2px solid transparent;
+		background-clip: padding-box;
+	}
+	::-webkit-scrollbar-thumb:hover {
+		background: rgba(140, 150, 160, 0.5);
+	}
+	::-webkit-scrollbar-track {
+		background: transparent;
+	}
+
+	/* Anel de foco DUPLO (1.4.11, piso 3:1).
+
+	   O teal sozinho media 2,41–2,57 sobre as superfícies do tema claro: quem navega por teclado
+	   quase não via onde estava. Trocar o teal por uma cor escura não resolve — o **rail é escuro
+	   nos dois temas**, e ali o escuro é que desapareceria. Nenhuma cor única serve.
+
+	   Daí os dois anéis: o `box-shadow` preenche o 1px que o `outline-offset` abre, na cor do
+	   texto do tema. Em cada superfície pelo menos um dos dois contrasta — sobre `surface`
+	   claro o companheiro dá 17,49; sobre o rail, o teal dá 6,92. O contrato está fixado em
+	   `contraste.test.ts`, que também confere se esta regra continua citando os dois. */
+	:where(input, select, button, textarea, [tabindex]):focus-visible {
+		outline: 2px solid var(--mv-teal-solid);
+		outline-offset: 1px;
+		box-shadow: 0 0 0 1px var(--mv-text);
+	}
+
+	/* O Tailwind v4 tirou do preflight o `cursor: pointer` que o v3 punha em `button`, então
+	   todo botão do app passou a mostrar a seta comum — o que o faz parecer inerte. Restaurado
+	   aqui, uma vez, em vez de espalhar `cursor-pointer` por centenas de classes. `:where`
+	   mantém especificidade 0 (qualquer utilitário de cursor ganha) e o `:disabled` fica de
+	   fora: botão desabilitado não deve prometer clique. */
+	:where(button, [role='button'], summary):not(:disabled) {
+		cursor: pointer;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		*,
+		*::before,
+		*::after {
+			animation-duration: 0.001ms !important;
+			transition-duration: 0.001ms !important;
+		}
+	}
+}

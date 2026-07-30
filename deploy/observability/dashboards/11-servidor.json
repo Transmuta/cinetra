@@ -1,0 +1,659 @@
+{
+  "uid": "cinetra-servidor",
+  "title": "Cinetra · Servidor",
+  "description": "O estado da MÁQUINA, dos containers e da BEAM (doc 74). Fecha a lacuna que o doc 62 §11.2 deixou registrada por escrito: o Loki sabe que a requisição demorou 3 s, e só este painel sabe se a causa foi CPU saturada, disco lento, container estrangulado pelo mem_limit ou fila do pool do Ecto. Ordem de leitura: de cima para baixo é do geral para o específico — máquina, container, aplicação.",
+  "tags": [
+    "cinetra",
+    "metricas",
+    "infra",
+    "aprofundamento"
+  ],
+  "timezone": "browser",
+  "refresh": "1m",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "env",
+        "label": "Ambiente",
+        "description": "Filtra SÓ os painéis da aplicação. Máquina e containers não têm este label de propósito: a máquina é uma só, compartilhada por produção e homologação — quem encher o disco derruba os dois, e carimbar um ambiente ali criaria a ilusão de que há disco separado.",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": "label_values(env)",
+        "refresh": 1,
+        "sort": 1,
+        "includeAll": false,
+        "multi": false,
+        "current": {},
+        "options": [],
+        "definition": "label_values(env)"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 100,
+      "type": "row",
+      "title": "A máquina",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "CPU",
+      "description": "Percentual do tempo em que os núcleos NÃO estavam ociosos, média de todos. Numa máquina de 4 OCPU, sustentar acima de 80% significa que a fila de execução já está esperando — e a latência do usuário sobe antes deste número chegar a 100.",
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "100 - (avg(rate(node_cpu_seconds_total{mode=\"idle\"}[$__rate_interval])) * 100)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 70 },
+              { "color": "red", "value": 85 }
+            ]
+          }
+        }
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "reduceOptions": { "calcs": ["lastNotNull"] }
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Memória",
+      "description": "Usa MemAvailable, não MemFree — a diferença importa: o Linux usa toda a RAM livre como cache de disco, e MemFree num servidor saudável é sempre próximo de zero. MemAvailable é quanto uma aplicação nova conseguiria alocar, que é a pergunta real.",
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 80 },
+              { "color": "red", "value": 90 }
+            ]
+          }
+        }
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "reduceOptions": { "calcs": ["lastNotNull"] }
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Disco (pior partição)",
+      "description": "O MAIOR uso entre os sistemas de arquivos reais — não a média. Média esconde exatamente o caso que importa: o volume do Postgres em 98% com o resto vazio dá uma média tranquila e um banco parado. Disco cheio é a falha que o doc 62 §3 nomeia como o risco real de dividir a máquina.",
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "100 - (min(node_filesystem_avail_bytes{fstype=~\"ext4|xfs\"} / node_filesystem_size_bytes) * 100)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 75 },
+              { "color": "red", "value": 85 }
+            ]
+          }
+        }
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "reduceOptions": { "calcs": ["lastNotNull"] }
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Alvos raspando",
+      "description": "Quantos dos alvos de coleta responderam na última raspagem. É o equivalente para métricas do que o 'Linhas de log por minuto' é para o Loki (doc 62 §11.3): painel vazio pode significar 'nenhum problema' ou 'a coleta morreu', e sem este número não há como distinguir. Menos que o total é métrica faltando em algum painel abaixo.",
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "sum(up)", "legendFormat": "no ar" },
+        { "refId": "B", "expr": "count(up)", "legendFormat": "esperados" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 4 }
+            ]
+          }
+        }
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": { "calcs": ["lastNotNull"] }
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "CPU por modo",
+      "description": "Empilhado, e é aqui que a causa aparece. `system` alto = o kernel trabalhando (rede, I/O). `iowait` alto = a CPU parada ESPERANDO disco, e o remédio é disco, não CPU. `steal` alto na Oracle A1 = o hipervisor tirando tempo da VM, e aí não há nada a otimizar no código.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "legendFormat": "{{mode}}",
+          "expr": "sum by (mode) (rate(node_cpu_seconds_total{mode!=\"idle\"}[$__rate_interval])) / on() group_left count(count by (cpu) (node_cpu_seconds_total))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 40,
+            "stacking": { "mode": "normal" }
+          }
+        }
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] } }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Memória e swap",
+      "description": "Swap em uso num servidor com 24 GB é sinal de que algum container estourou o próprio teto e o kernel foi buscar disco — e disco é ~1000× mais lento que RAM, então a latência de tudo sobe junto. Se aparecer, o painel de containers abaixo diz de quem é.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "legendFormat": "em uso",
+          "expr": "node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes"
+        },
+        {
+          "refId": "B",
+          "legendFormat": "total",
+          "expr": "node_memory_MemTotal_bytes"
+        },
+        {
+          "refId": "C",
+          "legendFormat": "swap em uso",
+          "expr": "node_memory_SwapTotal_bytes - node_memory_SwapFree_bytes"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "min": 0,
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "total" },
+            "properties": [
+              { "id": "custom.fillOpacity", "value": 0 },
+              { "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [10, 10] } },
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "text" } }
+            ]
+          }
+        ]
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["lastNotNull", "max"] } }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Disco: uso por partição",
+      "description": "Cada sistema de arquivos real, separado. Os pseudo-sistemas (tmpfs, overlay, cgroup) e as camadas de imagem do Docker ficam de fora pelo filtro do node-exporter — sem isso, dezenas de linhas de overlay empurram para fora a única que importa, a do volume onde o Postgres escreve.",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 14 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "legendFormat": "{{mountpoint}}",
+          "expr": "100 - (node_filesystem_avail_bytes{fstype=~\"ext4|xfs\"} / node_filesystem_size_bytes * 100)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 }
+        }
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Disco: leitura e escrita",
+      "description": "Vazão agregada. Interessa junto com o `iowait` do painel de CPU: iowait alto COM vazão alta é trabalho legítimo; iowait alto SEM vazão é disco saturado em IOPS ou latência — dois diagnósticos com remédios diferentes.",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 14 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "legendFormat": "leitura",
+          "expr": "sum(rate(node_disk_read_bytes_total[$__rate_interval]))"
+        },
+        {
+          "refId": "B",
+          "legendFormat": "escrita",
+          "expr": "sum(rate(node_disk_written_bytes_total[$__rate_interval]))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "min": 0,
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 }
+        }
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Rede",
+      "description": "Só as interfaces físicas — `lo`, `veth*`, `br-*` e `docker*` ficam de fora porque contam o tráfego ENTRE containers, que atravessa a memória da máquina e não a rede de verdade. Sem esse filtro, o backup noturno de um container para outro apareceria como pico de banda externa.",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 14 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "legendFormat": "entrada",
+          "expr": "sum(rate(node_network_receive_bytes_total{device!~\"lo|veth.*|br-.*|docker.*\"}[$__rate_interval]))"
+        },
+        {
+          "refId": "B",
+          "legendFormat": "saída",
+          "expr": "sum(rate(node_network_transmit_bytes_total{device!~\"lo|veth.*|br-.*|docker.*\"}[$__rate_interval]))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "min": 0,
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 }
+        }
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+    },
+    {
+      "id": 200,
+      "type": "row",
+      "title": "Os containers",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 22 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "CPU por container",
+      "description": "Em núcleos: 1,0 é um núcleo inteiro ocupado. Responde a pergunta que o painel de CPU da máquina não responde — 'subiu, mas de quem?'. O pico do build do release Elixir aparece aqui, e é o maior consumidor da caixa segundo o doc 62 §3.",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 23 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "legendFormat": "{{name}}",
+          "expr": "sum by (name) (rate(container_cpu_usage_seconds_total{name!=\"\"}[$__rate_interval]))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 2,
+          "min": 0,
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 }
+        }
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] } }
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Memória por container: % do próprio teto",
+      "description": "Uso CONTRA o `mem_limit` do compose — a curva que antecede o OOM kill. É o painel que fecha o argumento do doc 62 §3: a segunda VM foi trocada por limite de memória por container, e é aqui que se confere se o limite está segurando ou estrangulando.\n\nO denominador leva `> 0` porque container sem `mem_limit` reporta teto zero, e a divisão sairia `+Inf` — uma linha vertical que arruína a escala do painel inteiro e faz os containers com limite virarem um traço rente ao eixo.",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 23 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "legendFormat": "{{name}}",
+          "expr": "100 * container_memory_working_set_bytes{name!=\"\"} / (container_spec_memory_limit_bytes{name!=\"\"} > 0)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "min": 0,
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 90 }
+            ]
+          }
+        }
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["lastNotNull", "max"] } }
+    },
+    {
+      "id": 12,
+      "type": "table",
+      "title": "Containers agora",
+      "description": "Uma linha por container, com o tempo desde a última partida. `uptime` baixo em container que ninguém tocou é a assinatura de reinício automático — OOM kill ou crash loop — e é a evidência que o painel 'Boot, desligamento e falha alta' do dashboard de Infraestrutura confirma pelo log.",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 32 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "",
+          "expr": "time() - container_start_time_seconds{name!=\"\"}"
+        },
+        {
+          "refId": "B",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "",
+          "expr": "container_memory_working_set_bytes{name!=\"\"}"
+        },
+        {
+          "refId": "C",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "",
+          "expr": "sum by (name) (rate(container_cpu_usage_seconds_total{name!=\"\"}[$__rate_interval]))"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": { "byField": "name", "mode": "outer" }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Time 1": true,
+              "Time 2": true,
+              "Time 3": true,
+              "__name__": true,
+              "__name__ 1": true,
+              "__name__ 2": true,
+              "id": true,
+              "id 1": true,
+              "id 2": true,
+              "image": true,
+              "image 1": true,
+              "image 2": true,
+              "instance": true,
+              "instance 1": true,
+              "instance 2": true,
+              "instance 3": true,
+              "job": true,
+              "job 1": true,
+              "job 2": true,
+              "job 3": true
+            },
+            "renameByName": {
+              "name": "container",
+              "Value #A": "no ar há",
+              "Value #B": "memória",
+              "Value #C": "cpu (núcleos)"
+            }
+          }
+        },
+        { "id": "sortBy", "options": { "fields": {}, "sort": [{ "field": "memória", "desc": true }] } }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "no ar há" },
+            "properties": [{ "id": "unit", "value": "s" }, { "id": "decimals", "value": 0 }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "memória" },
+            "properties": [{ "id": "unit", "value": "bytes" }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "cpu (núcleos)" },
+            "properties": [{ "id": "decimals", "value": 3 }]
+          }
+        ]
+      },
+      "options": { "showHeader": true }
+    },
+    {
+      "id": 300,
+      "type": "row",
+      "title": "A aplicação — BEAM, pool do Ecto e filas ($env)",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 40 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "p95 de latência por rota",
+      "description": "As 5 rotas mais lentas. O label `path` vem do router do Phoenix, então `/api/patients/:id` é UMA série — não uma por paciente.\n\nO Loki também responde p95 (doc 62 §11.2), e a diferença é a janela: o log guarda 30 dias com a linha inteira e serve para investigar UMA requisição; isto aqui é agregado barato e serve para ver a tendência sem varrer log.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 41 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "legendFormat": "{{path}}",
+          "expr": "topk(5, histogram_quantile(0.95, sum by (le, path) (rate(api_prom_ex_phoenix_http_request_duration_milliseconds_bucket{env=\"$env\"}[$__rate_interval]))))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "min": 0,
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 0 }
+        }
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["max"] } }
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Requisições por status",
+      "description": "Taxa por segundo, separada por código. 5xx subindo é incidente; 4xx subindo costuma ser cliente novo integrando errado ou token expirando em massa. A trilha de qual requisição foi está no Loki, filtrando por `status`.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 41 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "legendFormat": "{{status}}",
+          "expr": "sum by (status) (rate(api_prom_ex_phoenix_http_requests_total{env=\"$env\"}[$__rate_interval]))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 30,
+            "stacking": { "mode": "normal" }
+          }
+        }
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean"] } }
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "Pool do Ecto: espera por conexão",
+      "description": "`queue_time` é quanto a consulta esperou por uma conexão LIVRE, antes de o banco ver qualquer SQL. É o número mais importante desta aplicação depois da CPU: com RLS por transação (ADR-018) toda leitura ocupa uma conexão pelo `SET LOCAL`, então a saturação aparece aqui primeiro — minutos antes do timeout que o usuário vê.\n\nSe `queue_time` sobe e `total_time` não, o banco está ocioso e o pool é que está pequeno. Se sobem juntos, o gargalo é o banco.",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 49 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "legendFormat": "p95 espera na fila",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(api_prom_ex_ecto_repo_query_queue_time_milliseconds_bucket{env=\"$env\"}[$__rate_interval])))"
+        },
+        {
+          "refId": "B",
+          "legendFormat": "p95 consulta inteira",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(api_prom_ex_ecto_repo_query_total_time_milliseconds_bucket{env=\"$env\"}[$__rate_interval])))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "min": 0,
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 }
+        }
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+    },
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "Filas do Oban",
+      "description": "Jobs esperando (`available`) e em execução, por fila. Fila crescendo é lembrete de paciente que não vai sair no horário, materialização de pacote parada, poda que morreu — e nada disso aparece lendo log linha a linha, porque a ausência de um job não gera evento.\n\nO log responde o complemento: POR QUE o job falhou (`Oban.Telemetry.attach_default_logger`, doc 62).",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 49 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "legendFormat": "{{queue}} · esperando",
+          "expr": "sum by (queue) (api_prom_ex_oban_queue_length_count{env=\"$env\",state=\"available\"})"
+        },
+        {
+          "refId": "B",
+          "legendFormat": "{{queue}} · executando",
+          "expr": "sum by (queue) (api_prom_ex_oban_queue_length_count{env=\"$env\",state=\"executing\"})"
+        },
+        {
+          "refId": "C",
+          "legendFormat": "{{queue}} · para retentar",
+          "expr": "sum by (queue) (api_prom_ex_oban_queue_length_count{env=\"$env\",state=\"retryable\"})"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "min": 0,
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 }
+        }
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+    },
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "BEAM: memória e processos",
+      "description": "`processes` subindo sem parar é vazamento de processo — o modo clássico de a BEAM morrer por OOM com o código todo aparentemente correto. `binary` subindo sozinho aponta binário grande retido por referência, que é a outra forma.\n\nO eixo direito conta processos vivos; o esquerdo é memória.",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 49 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "legendFormat": "memória: processos",
+          "expr": "api_prom_ex_beam_memory_processes_total_bytes{env=\"$env\"}"
+        },
+        {
+          "refId": "B",
+          "legendFormat": "memória: binários",
+          "expr": "api_prom_ex_beam_memory_binary_total_bytes{env=\"$env\"}"
+        },
+        {
+          "refId": "C",
+          "legendFormat": "memória: ETS",
+          "expr": "api_prom_ex_beam_memory_ets_total_bytes{env=\"$env\"}"
+        },
+        {
+          "refId": "D",
+          "legendFormat": "processos vivos",
+          "expr": "api_prom_ex_beam_stats_process_count{env=\"$env\"}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "min": 0,
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "processos vivos" },
+            "properties": [
+              { "id": "unit", "value": "none" },
+              { "id": "decimals", "value": 0 },
+              { "id": "custom.axisPlacement", "value": "right" },
+              { "id": "custom.fillOpacity", "value": 0 }
+            ]
+          }
+        ]
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+    }
+  ],
+  "schemaVersion": 39,
+  "version": 1
+}

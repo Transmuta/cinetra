@@ -1,0 +1,397 @@
+{
+  "uid": "cinetra-mensagens",
+  "title": "Cinetra · Mensagens ao paciente",
+  "description": "O funil de entrega de WhatsApp e e-mail (docs 52 e 65), lido do banco pelas views metrics_*. Existe para responder a pergunta que abriu o plano de logs e que log nenhum responde: 'por que o lembrete não saiu na terça'. Mensagem que não saiu não produz linha de log — ela produz uma LINHA PARADA na tabela, e é essa que o painel 'lembretes atrasados' procura. O motivo textual da falha fica de fora de propósito: a coluna erro guarda o texto cru do provedor, que num bounce cita o destinatário; a leitura classificada existe na tela da clínica, sob RLS.",
+  "tags": [
+    "cinetra",
+    "banco",
+    "comunicacao",
+    "aprofundamento"
+  ],
+  "timezone": "browser",
+  "refresh": "5m",
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "db",
+        "label": "Banco",
+        "type": "datasource",
+        "query": "grafana-postgresql-datasource",
+        "current": {},
+        "options": []
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Lembretes atrasados",
+      "description": "Mensagens ainda `pendente` com `agendado_para` no passado. IGNORA o seletor de tempo de propósito: é uma pergunta sobre AGORA, não sobre a janela. Qualquer valor diferente de zero significa que alguém não foi avisado — job parado, fila entupida ou erro que impediu o disparo. É o número mais acionável deste dashboard.",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "uid": "${db}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT count(*) AS atrasados FROM metrics_messages WHERE status = 'pendente' AND agendado_para IS NOT NULL AND agendado_para < now()"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Mensagens no período",
+      "description": "Total criado na janela, todos os canais e tipos.",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
+      "datasource": {
+        "uid": "${db}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT count(*) AS total FROM metrics_messages WHERE $__timeFilter(inserted_at)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0
+        }
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Taxa de entrega",
+      "description": "Entregues (ou lidas) sobre o que saiu daqui. Não conta as pendentes: uma mensagem agendada para amanhã não é uma falha de hoje, e somá-la afundaria a taxa sem que nada estivesse errado.",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "datasource": {
+        "uid": "${db}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT round(100.0 * count(*) FILTER (WHERE status IN ('entregue', 'lido')) / nullif(count(*) FILTER (WHERE status <> 'pendente'), 0), 1) AS taxa FROM metrics_messages WHERE $__timeFilter(inserted_at)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 85
+              },
+              {
+                "color": "green",
+                "value": 95
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Falharam",
+      "description": "Status `falhou` na janela. Falha isolada é endereço errado na ficha; rajada é credencial, domínio ou o provedor.",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "datasource": {
+        "uid": "${db}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT count(*) AS falharam FROM metrics_messages WHERE status = 'falhou' AND $__timeFilter(inserted_at)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Estado por dia",
+      "description": "A escada de entrega ao longo do tempo (pendente → enviado → entregue → lido, com falhou fora da escada). Uma faixa de `pendente` que engorda e não escoa é fila parada.",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 5
+      },
+      "datasource": {
+        "uid": "${db}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT date_trunc('day', inserted_at) AS time, status AS metric, count(*) AS value FROM metrics_messages WHERE $__timeFilter(inserted_at) GROUP BY 1, 2 ORDER BY 1"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "stacking": {
+              "mode": "normal"
+            },
+            "fillOpacity": 80,
+            "lineWidth": 0
+          }
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Por tipo de mensagem",
+      "description": "confirmacao sai na criação do agendamento; lembrete é o cron; remarcacao e cancelamento são os gatilhos do C7(b). Se um tipo some do gráfico depois de um deploy, o gatilho dele quebrou — e nada mais avisaria.",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 5
+      },
+      "datasource": {
+        "uid": "${db}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT date_trunc('day', inserted_at) AS time, kind AS metric, count(*) AS value FROM metrics_messages WHERE $__timeFilter(inserted_at) GROUP BY 1, 2 ORDER BY 1"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "stacking": {
+              "mode": "normal"
+            },
+            "fillOpacity": 80,
+            "lineWidth": 0
+          }
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "table",
+      "title": "Funil por template e canal",
+      "description": "A tabela que mostra ONDE o funil vaza. Um template com entrega alta e leitura zero no WhatsApp é normal para e-mail (o projeto não rastreia leitura de e-mail, por decisão do C4) e suspeito no WhatsApp.",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 14
+      },
+      "datasource": {
+        "uid": "${db}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT template, canal, count(*) AS total, count(*) FILTER (WHERE status = 'pendente') AS pendentes, count(*) FILTER (WHERE enviado_em IS NOT NULL) AS enviadas, count(*) FILTER (WHERE entregue_em IS NOT NULL) AS entregues, count(*) FILTER (WHERE lido_em IS NOT NULL) AS lidas, count(*) FILTER (WHERE status = 'falhou') AS falharam FROM metrics_messages WHERE $__timeFilter(inserted_at) GROUP BY 1, 2 ORDER BY 3 DESC"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "table",
+      "title": "Tempo até entregar (segundos)",
+      "description": "Da entrada na fila até o provedor confirmar. p95 alto com p50 baixo é cauda — costuma ser retry do Oban, não lentidão do provedor. Só entram as mensagens que de fato foram entregues.",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 14
+      },
+      "datasource": {
+        "uid": "${db}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT canal, count(*) AS entregues, round(percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM entregue_em - enfileirado_em))::numeric, 1) AS p50, round(percentile_cont(0.95) WITHIN GROUP (ORDER BY extract(epoch FROM entregue_em - enfileirado_em))::numeric, 1) AS p95, round(max(extract(epoch FROM entregue_em - enfileirado_em))::numeric, 1) AS maximo FROM metrics_messages WHERE entregue_em IS NOT NULL AND enfileirado_em IS NOT NULL AND $__timeFilter(inserted_at) GROUP BY 1"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "table",
+      "title": "Respostas do paciente",
+      "description": "A resposta não é estado (doc 52 §5): ela pode chegar depois de falhou, e por isso mora em coluna própria. Volume aqui é sinal de que a comunicação virou mão dupla — e de quanto trabalho ela devolve para a recepção.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 23
+      },
+      "datasource": {
+        "uid": "${db}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT coalesce(resposta, '(sem resposta)') AS resposta, count(*) AS total FROM metrics_messages WHERE $__timeFilter(inserted_at) GROUP BY 1 ORDER BY 2 DESC"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "table",
+      "title": "Por clínica",
+      "description": "Volume e falha lado a lado. Uma clínica com taxa de falha muito acima das outras costuma ter problema de CADASTRO (telefone/e-mail errado na ficha), não de infraestrutura — e a correção é na ficha, não aqui.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 23
+      },
+      "datasource": {
+        "uid": "${db}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT c.nome AS clinica, count(*) AS total, count(*) FILTER (WHERE m.status = 'falhou') AS falharam, round(100.0 * count(*) FILTER (WHERE m.status = 'falhou') / nullif(count(*), 0), 1) AS pct_falha FROM metrics_messages m JOIN metrics_clinics c ON c.id = m.clinic_id WHERE $__timeFilter(m.inserted_at) GROUP BY 1 ORDER BY 2 DESC LIMIT 20"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "version": 1
+}

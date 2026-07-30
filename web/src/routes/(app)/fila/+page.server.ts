@@ -1,0 +1,202 @@
+import { error, fail } from '@sveltejs/kit';
+import type { Actions, PageServerLoad } from './$types';
+import {
+	fetchWaitlist,
+	enqueueEntry,
+	updateEntry,
+	dequeueEntry,
+	convertEntry,
+	type UpdateInput
+} from '$lib/server/waitlist';
+import { fetchAppointmentTypes } from '$lib/server/appointment-types';
+import { finish, parseIds } from '$lib/server/mutate';
+import {
+	parsePriorityFilter,
+	PAGE_SIZE,
+	type Priority,
+	type Rule,
+	type TimeWindow
+} from '$lib/waitlist';
+import { parsePage } from '$lib/pagination';
+
+// Fila de espera (doc 25, Entrega 5). Molde de Pacientes no load (todo membro lê; o `?prio` é o
+// segmento da sidebar) e de Agenda nas actions (uma por operação, mesmo formato de retorno com
+// `code` propagado).
+//
+// Desde o F6 a fila é **paginada**, e por isso o `?prio` passou a filtrar no SERVIDOR: filtrar a
+// página no cliente mostraria "os urgentes que por acaso caíram nesta página", e o rodapé
+// contaria outra coisa. As contagens da sidebar vêm junto, pelo mesmo motivo. Como em toda a
+// agenda, NÃO há recorte de papel no load — a API é que recorta.
+export const load: PageServerLoad = async (event) => {
+	// Etiqueta de invalidação do tempo real (D-E5.3): o sinal `waitlist_changed` do canal
+	// reexecuta SÓ este load (`invalidate('fila:dados')`), sem arrastar o do layout.
+	event.depends('fila:dados');
+
+	// O fuso vem do /me do layout (ADR-009): a conversão vaga-local → instante UTC da conversão
+	// acontece no cliente (`toUtcIso`), e sem o fuso ela erraria por horas — invisível em UTC.
+	// F6: a fila deixou de vir inteira. `?page=` na URL vira `offset` para a API — mesma
+	// tradução da lista de Pacientes, pelos mesmos helpers (`$lib/pagination`).
+	const current = parsePage(event.url.searchParams.get('page'));
+	const prio = parsePriorityFilter(event.url.searchParams.get('prio'));
+	const janela = { limit: PAGE_SIZE, offset: (current - 1) * PAGE_SIZE, prio };
+
+	const [{ me }, wl, types] = await Promise.all([
+		event.parent(),
+		fetchWaitlist(event, janela),
+		fetchAppointmentTypes(event)
+	]);
+
+	if (!wl.data) {
+		error(wl.status || 502, 'Não foi possível carregar a fila de espera.');
+	}
+
+	return {
+		waitlist: wl.data.waitlist,
+		professionals: wl.data.professionals,
+		// Ativos E arquivados (a API manda os dois); o seletor da conversão filtra os ativos.
+		appointmentTypes: types.data?.appointment_types ?? [],
+		timezone: me.timezone ?? 'UTC',
+		// Data local de hoje (ADR-009): a lista marca a regra `:data` no passado como expirada.
+		today: wl.data.today,
+		prio,
+		pageInfo: wl.data.page,
+		counts: wl.data.counts,
+		current
+	};
+};
+
+export const actions: Actions = {
+	// Adicionar à fila (upsert por paciente). `professional_ids` e `rules` chegam como JSON em
+	// campos hidden (o modal os monta). Só barramos aqui o que nem faz sentido mandar; a forma
+	// das regras (`RuleShape`) e a permissão são do servidor.
+	enqueue: async (event) => {
+		const form = await event.request.formData();
+		const patient_id = String(form.get('patient_id') ?? '');
+		if (!patient_id) return fail(400, { action: 'enqueue', error: 'Escolha um paciente.' });
+
+		const obs = String(form.get('obs') ?? '').trim();
+
+		return finish(
+			'enqueue',
+			await enqueueEntry(event, {
+				patient_id,
+				prio: parsePrio(form.get('prio')),
+				janela: parseJanela(form.get('janela')),
+				professional_ids: parseIds(form.get('professional_ids')),
+				rules: parseRules(form.get('rules')),
+				...(obs ? { obs } : {})
+			})
+		);
+	},
+
+	// Editar um item. É a mesma tela do adicionar, com `id`; manda o conjunto inteiro de campos
+	// (o modal mostra todos e submete todos) — inclusive `obs` vazio, que aqui LIMPA a observação.
+	atualizar: async (event) => {
+		const s = await submission(event, 'atualizar');
+		if (!('id' in s)) return s;
+		const { form, id } = s;
+
+		const input: UpdateInput = {
+			prio: parsePrio(form.get('prio')),
+			janela: parseJanela(form.get('janela')),
+			professional_ids: parseIds(form.get('professional_ids')),
+			rules: parseRules(form.get('rules')),
+			obs: String(form.get('obs') ?? '').trim()
+		};
+
+		return finish('atualizar', await updateEntry(event, id, input));
+	},
+
+	// Sair da fila (a lixeira). Destroy de verdade — as regras vão junto pelo cascade.
+	remover: async (event) => {
+		const s = await submission(event, 'remover');
+		if (!('id' in s)) return s;
+		return finish('remover', await dequeueEntry(event, s.id));
+	},
+
+	// Converter a vaga em agendamento (e sair da fila). `starts_at` já em UTC (o cliente converte
+	// pelo fuso da clínica). Propaga `schedule_conflict` (422) para a tela oferecer o Encaixe.
+	converter: async (event) => {
+		const s = await submission(event, 'converter');
+		if (!('id' in s)) return s;
+		const { form, id } = s;
+
+		const starts_at = String(form.get('starts_at') ?? '');
+		if (!Number.isFinite(Date.parse(starts_at))) {
+			return fail(400, { action: 'converter', error: 'Escolha uma data e um horário válidos.' });
+		}
+
+		const professional_id = String(form.get('professional_id') ?? '');
+		const appointment_type_id = String(form.get('appointment_type_id') ?? '');
+		if (!professional_id || !appointment_type_id) {
+			return fail(400, {
+				action: 'converter',
+				error: 'Escolha o profissional e o tipo de atendimento.'
+			});
+		}
+
+		const obs = String(form.get('obs') ?? '').trim();
+		const duracao = Number(form.get('duration_minutos'));
+
+		return finish(
+			'converter',
+			await convertEntry(event, id, {
+				starts_at,
+				professional_id,
+				appointment_type_id,
+				encaixe: form.get('encaixe') === 'on' || form.get('encaixe') === 'true',
+				...(obs ? { obs } : {}),
+				...(Number.isFinite(duracao) && duracao > 0 ? { duration_minutos: duracao } : {})
+			})
+		);
+	}
+};
+
+// Lê o corpo e exige o `id` do item — o preâmbulo das actions com id próprio (molde da agenda).
+async function submission(event: Parameters<Actions[string]>[0], action: string) {
+	const form = await event.request.formData();
+	const id = String(form.get('id') ?? '');
+	if (!id) return fail(400, { action, error: 'Item da fila não informado.' });
+	return { form, id };
+}
+
+// Prioridade/janela do cliente não são de confiança: casam contra os valores conhecidos e caem
+// no default (o `<select>` só oferece válidos, mas o servidor não terceriza a validação ao form).
+const PRIOS: readonly Priority[] = ['urgente', 'alta', 'normal', 'baixa'];
+function parsePrio(raw: FormDataEntryValue | null): Priority {
+	const v = String(raw ?? '');
+	return PRIOS.find((p) => p === v) ?? 'normal';
+}
+
+const JANELAS: readonly TimeWindow[] = ['manha', 'tarde', 'qualquer'];
+function parseJanela(raw: FormDataEntryValue | null): TimeWindow {
+	const v = String(raw ?? '');
+	return JANELAS.find((j) => j === v) ?? 'qualquer';
+}
+
+// `rules` também é JSON num hidden. Normaliza defensivamente (a `RuleShape` do servidor é a
+// autoridade da forma; aqui só evitamos mandar lixo estrutural que estouraria antes dela).
+function parseRules(raw: FormDataEntryValue | null): Rule[] {
+	try {
+		const parsed = JSON.parse(String(raw ?? '[]'));
+		if (!Array.isArray(parsed)) return [];
+		return parsed
+			.filter((r): r is Record<string, unknown> => typeof r === 'object' && r !== null)
+			.map((r): Rule => ({
+				...(typeof r.id === 'string' && r.id ? { id: r.id } : {}),
+				tipo: r.tipo === 'data' ? 'data' : 'semana',
+				dows: Array.isArray(r.dows)
+					? r.dows.filter((d): d is number => Number.isInteger(d) && d >= 0 && d <= 6)
+					: [],
+				data: typeof r.data === 'string' && r.data ? r.data : null,
+				periodos: Array.isArray(r.periodos)
+					? r.periodos.filter(
+							(p): p is [string, string] =>
+								Array.isArray(p) && p.length === 2 && typeof p[0] === 'string' && typeof p[1] === 'string'
+						)
+					: []
+			}));
+	} catch {
+		return [];
+	}
+}

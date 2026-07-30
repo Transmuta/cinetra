@@ -1,0 +1,76 @@
+# Imagem de produção do web BFF (SvelteKit + adapter-node). Build → servidor Node standalone.
+# Difere do Dockerfile.dev: `vite build` (não `vite dev`), sem devDeps no runtime, não-root.
+
+# ---- build ----
+FROM node:22 AS build
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+RUN npm ci
+
+COPY . .
+
+# S3 (Onda 5) — a origem pública da API entra no `connect-src` da CSP, e a CSP é fixada no
+# BUILD (`kit.csp`), não em runtime. Por isso ela vem por `ARG` e não pelo `environment:` do compose:
+# o `environment:` só existe quando o container sobe, tarde demais para o header.
+#
+# Consequência a saber: a imagem fica **atada ao ambiente**. Construir para produção e rodar em
+# staging serve o header errado, e o sintoma é o WebSocket bloqueado no console do browser —
+# não um erro de servidor. O default é o de desenvolvimento (src/lib/csp.js).
+ARG API_PUBLIC_ORIGIN
+ENV API_PUBLIC_ORIGIN=${API_PUBLIC_ORIGIN}
+
+# Doc 51 — a origem do bucket de anexos entra no MESMO `connect-src` (o `PUT` do browser vai
+# direto ao R2), pela mesma razão de ser `ARG`. Não é segredo: é o id público da conta, e o
+# bucket continua privado — o acesso é por URL assinada de vida curta.
+#
+# Vazio é estado válido: sem ele o `connect-src` não ganha o bucket, e a fatia de anexos já
+# responde 503 na API por falta de credencial.
+ARG R2_ACCOUNT_ID
+ENV R2_ACCOUNT_ID=${R2_ACCOUNT_ID}
+
+RUN npm run build
+
+# Nenhum source map pode entrar na imagem servida (doc 78 §2).
+#
+# O `postbuild` (`scripts/mover-sourcemaps.mjs`) já move os `.map` para fora de `build/client`.
+# Esta linha existe porque **um script não consegue verificar que ele mesmo rodou**: trocar
+# `npm run build` por `vite build` aqui, ou remover o `postbuild` do package.json, desligaria a
+# proteção sem nenhum sintoma — e o resultado seria o código-fonte da aplicação baixável em
+# `<nome>.js.map`, adivinhável a partir do HTML.
+#
+# Aqui a checagem falha o build da IMAGEM, que é a última fronteira antes de produção.
+RUN if find build/client -name '*.map' | grep -q .; then \
+      echo 'ERRO: source map dentro de build/client — o código-fonte iria para produção.' >&2; \
+      find build/client -name '*.map' >&2; \
+      exit 1; \
+    fi
+
+# Descarta devDeps para a imagem final.
+RUN npm prune --omit=dev
+
+# ---- runtime ----
+FROM node:22-slim AS app
+
+ENV NODE_ENV=production \
+    PORT=3000
+
+WORKDIR /app
+COPY --from=build --chown=node:node /app/build ./build
+COPY --from=build --chown=node:node /app/node_modules ./node_modules
+COPY --from=build --chown=node:node /app/package.json ./package.json
+# Instrumentação de trace (doc 76). Vem do CONTEXTO, não do estágio de build: `otel.mjs` não passa
+# pelo Vite — é carregado pelo Node cru, antes da aplicação.
+COPY --chown=node:node otel.mjs ./otel.mjs
+
+USER node
+EXPOSE 3000
+
+# adapter-node: servidor em build/. Precisa de ORIGIN (CSRF/URLs) e API_URL (BFF→API) por env.
+#
+# `--import ./otel.mjs` roda a instrumentação ANTES do servidor. A ordem é o ponto: as bibliotecas
+# são instrumentadas trocando o módulo por baixo de quem o importa, então carregar depois do
+# SvelteKit sobe um SDK que não intercepta nada — e não avisa. Sem
+# `OTEL_EXPORTER_OTLP_ENDPOINT` o arquivo é um no-op.
+CMD ["node", "--import", "./otel.mjs", "build"]
