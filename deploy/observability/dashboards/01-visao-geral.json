@@ -4,7 +4,8 @@
   "description": "A tela de 30 segundos: dá para trabalhar agora? Tudo derivado de log (doc 62 §10.3) — quando a fase de métricas chegar, estes números virão do Prometheus, mais baratos e com retenção maior.",
   "tags": [
     "cinetra",
-    "logs"
+    "logs",
+    "aprofundamento"
   ],
   "timezone": "browser",
   "refresh": "1m",

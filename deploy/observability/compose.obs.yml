@@ -114,6 +114,14 @@ services:
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
       GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://localhost:3000}
+      # A tela que abre ao entrar (doc 86). Sem isto o Grafana abre a home dele, que lista os
+      # treze dashboards em ordem alfabética e não diz por onde começar — e a resposta honesta é
+      # que só UM deles deve ser aberto por hábito.
+      #
+      # É CAMINHO DE ARQUIVO, não UID. O `default_home_dashboard_path` lê o JSON do disco; apontar
+      # para `cinetra-dia-a-dia` aqui não dá erro — o Grafana cai calado na home padrão, e a única
+      # pista fica numa linha de log que ninguém procura.
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/provisioning/dashboards/cinetra/12-dia-a-dia.json
       # SMTP do alerta (doc 62 §11). Sem isto o alerta dispara e fica só na tela — e alerta que
       # ninguém vê é painel, não alerta.
       GF_SMTP_ENABLED: ${GRAFANA_SMTP_ENABLED:-false}
@@ -324,8 +332,21 @@ services:
       # DE MÉTRICA em toda série. É custo dobrado: memória aqui e cardinalidade no Prometheus,
       # para um dado que o nome do container já carrega.
       - --store_container_labels=false
-      # Os coletores caros e de alta cardinalidade, desligados. `disk` e `network` ficam.
-      - --disable_metrics=advtcp,cpu_topology,cpuset,hugetlb,memory_numa,percpu,process,referenced_memory,resctrl,sched,tcp,udp
+      # Os coletores caros e de alta cardinalidade, desligados. `network` fica.
+      #
+      # `disk` e `diskIO` entraram na lista em 2026-07-29 (doc 86) depois de medidos: eles rendiam
+      # `container_fs_*`, ~1.500 das 7.567 séries do Prometheus — uma por container × dispositivo,
+      # 21 nomes de métrica, e NENHUM painel jamais abriu um deles. Pior que o volume era o
+      # trabalho: o cAdvisor varria estatística de cgroup de bloco a cada 15 s para ninguém ler.
+      #
+      # Desligar aqui é diferente de podar no `prometheus.yml`: aqui o dado não é CALCULADO. A
+      # `metric_relabel_configs` do job `cadvisor` também lista `container_fs_*` fora, e a
+      # duplicação é deliberada — é a rede para quem mexer neste flag sem passar por lá.
+      #
+      # A troca: perde-se disco POR CONTAINER. A pergunta que importa — "o disco vai encher?" — é
+      # respondida pelo `node_filesystem_*`, que mede a partição de verdade; e para saber de quem é
+      # o volume, `docker system df -v` responde na hora, sem custar série temporal para sempre.
+      - --disable_metrics=advtcp,cpu_topology,cpuset,disk,diskIO,hugetlb,memory_numa,percpu,process,referenced_memory,resctrl,sched,tcp,udp
     volumes:
       - /:/rootfs:ro
       - /var/run:/var/run:ro

@@ -4,7 +4,8 @@
   "description": "As duas classes de falha que não aparecem numa tela de latência: o que quebra na máquina do usuário e o que roda fora do request (Oban). Ver doc 62 §7.2 e §9.",
   "tags": [
     "cinetra",
-    "logs"
+    "logs",
+    "aprofundamento"
   ],
   "timezone": "browser",
   "refresh": "1m",

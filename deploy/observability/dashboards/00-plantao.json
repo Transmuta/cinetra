@@ -4,7 +4,8 @@
   "description": "Consultas prontas para as perguntas de plantão. Todas funcionam em dev (log em texto) e em produção (log em JSON): usam `detected_level`, que o Loki deduz nos dois formatos, e filtros de linha tolerantes ao separador (`status=500` e `\"status\":500`). Por isso NÃO tem a variável 'Formato do log' dos outros dashboards. Leia de cima para baixo: os três primeiros painéis dizem SE há incidente; o resto diz ONDE.",
   "tags": [
     "cinetra",
-    "plantao"
+    "plantao",
+    "aprofundamento"
   ],
   "timezone": "browser",
   "schemaVersion": 39,

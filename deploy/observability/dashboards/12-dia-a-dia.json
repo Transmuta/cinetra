@@ -1,0 +1,836 @@
+{
+  "uid": "cinetra-dia-a-dia",
+  "title": "Cinetra · Dia a dia",
+  "description": "A ÚNICA tela que precisa ser aberta por hábito (doc 86). Ela responde uma pergunta — 'está tudo bem?' — com oito luzes que não pedem interpretação: verde é normal, vermelho pede ação, e a descrição de cada painel diz o que fazer. Os outros doze dashboards continuam lá, marcados como 'aprofundamento': são para quando uma luz acender e for preciso descobrir o porquê. Se esta tela estiver toda verde, não há nada a fazer no Grafana hoje.",
+  "tags": [
+    "cinetra",
+    "dia-a-dia"
+  ],
+  "timezone": "browser",
+  "refresh": "1m",
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "env",
+        "label": "Ambiente",
+        "description": "Filtra a aplicação (API, log, erros). As luzes de MÁQUINA — disco e memória — ignoram este seletor de propósito: a máquina é uma só, compartilhada por produção e homologação. Quem encher o disco derruba os dois.",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": "label_values(env)",
+        "refresh": 1,
+        "sort": 1,
+        "includeAll": false,
+        "multi": false,
+        "current": {},
+        "options": [],
+        "definition": "label_values(env)"
+      },
+      {
+        "name": "db",
+        "label": "Banco",
+        "type": "datasource",
+        "query": "grafana-postgresql-datasource",
+        "current": {},
+        "options": []
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "text",
+      "title": "Como ler esta tela",
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "**Verde = normal. Vermelho = alguém precisa agir.** Não é preciso entender de métrica: passe o mouse sobre o título de qualquer luz e a descrição diz o que ela mede **e o que fazer se estiver vermelha**.\n\nAs oito luzes de cima falam de **agora**. Os três gráficos do meio mostram as **últimas 24 h**, e servem para você aprender o que é normal aqui — um número só não diz se 400 ms é bom; a linha dos últimos dias diz.\n\nSe tudo estiver verde, **não há nada a fazer no Grafana hoje**. Se algo acender, comece pelas linhas de erro no fim desta página, e só depois abra o dashboard de aprofundamento que a última seção indica."
+      }
+    },
+    {
+      "id": 2,
+      "type": "row",
+      "title": "AGORA — verde é normal, vermelho pede ação",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 7
+      },
+      "panels": []
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "A API está no ar?",
+      "description": "'NÃO' significa que o Prometheus não conseguiu falar com a aplicação nos últimos 15 s — ou ela caiu, ou a rede entre elas caiu. É a primeira coisa a checar, porque quando isto está vermelho todas as outras luzes desta tela ficam sem sentido: elas vão parecer calmas por falta de dado, não por falta de problema. O que fazer: `docker compose logs api --tail=100` na máquina, e olhar a luz 'Está chegando log?' ao lado.",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "min(up{job=\"api\", env=\"$env\"})",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "NÃO",
+                  "index": 0
+                },
+                "1": {
+                  "text": "Sim",
+                  "index": 1
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Está chegando log?",
+      "description": "Quantas linhas de log chegaram nos últimos 5 minutos. Se cair a zero, o problema não é a aplicação — é o agente de coleta, a rede ou a máquina. Confira ESTA luz antes de concluir que 'não há erro nenhum': sem log chegando, a luz de erros ao lado fica verde por cegueira. O que fazer: `docker compose -f compose.obs.yml logs alloy --tail=50`.",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 8
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "sum(count_over_time({env=\"$env\"} [5m]))",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Erros na última hora",
+      "description": "Linhas de log de nível `error` na última hora. Zero é o normal — este sistema não erra de rotina, então qualquer número diferente de zero é uma pessoa que viu algo quebrar, ou um job que não completou. O que fazer: role até 'As últimas linhas de erro' no fim desta página; a linha traz o que aconteceu, para qual clínica e em qual requisição.",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 12,
+        "y": 8
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "sum(count_over_time({env=\"$env\", level=\"error\"} [1h]))",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "unit": "short",
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "A tela está lenta? (p95)",
+      "description": "O tempo que 95 de cada 100 requisições não passaram — ou seja, quase todo mundo foi atendido em menos que isto. Use o p95, não a média: a média esconde a minoria que espera 4 s, e é essa minoria que reclama. Verde até 800 ms; acima de 1,5 s a recepcionista sente a tela travar. O que fazer: abra 'Cinetra · Servidor' e veja se o pool do Ecto está com fila — é a causa mais comum aqui, porque a RLS por transação faz toda leitura ocupar uma conexão.",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(api_prom_ex_phoenix_http_request_duration_milliseconds_bucket{env=\"$env\"}[$__rate_interval])))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "decimals": 0,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 800
+              },
+              {
+                "color": "red",
+                "value": 1500
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Paciente sem aviso",
+      "description": "Lembretes que já passaram da hora de sair e continuam `pendente`. IGNORA o seletor de tempo de propósito: é uma pergunta sobre AGORA. Qualquer valor diferente de zero significa que alguém não foi avisado da sessão — job parado, fila entupida, ou o provedor de WhatsApp recusando. É o número mais acionável desta tela, porque o prejuízo é imediato e do paciente. O que fazer: abra 'Cinetra · Mensagens ao paciente' e veja o motivo da falha.",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 13
+      },
+      "datasource": {
+        "uid": "${db}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT count(*) AS atrasados FROM metrics_messages WHERE status = 'pendente' AND agendado_para IS NOT NULL AND agendado_para < now()"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 8,
+      "type": "stat",
+      "title": "Trabalho parado na fila",
+      "description": "Tarefas de segundo plano (lembrete, materialização de pacote, poda) que já deveriam ter rodado e estão esperando há mais de 5 minutos. Um ou dois de passagem é normal; uma dezena parada significa que o Oban não está consumindo — e como quase tudo que o paciente recebe passa por aqui, fila parada é aviso que não sai. O que fazer: abra 'Cinetra · Trabalho em segundo plano' e olhe se há job em `retryable` repetindo o mesmo erro.",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 13
+      },
+      "datasource": {
+        "uid": "${db}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT count(*) AS parados FROM metrics_oban_jobs WHERE state = 'available' AND scheduled_at < now() - interval '5 minutes'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 10
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 9,
+      "type": "stat",
+      "title": "Disco",
+      "description": "Percentual ocupado da partição mais cheia da máquina. Esta luz é da MÁQUINA: ela não muda com o seletor de ambiente, porque produção e homologação dividem o mesmo disco — quem encher derruba os dois. Aos 90% o Postgres começa a recusar escrita e o sistema para de agendar. O que fazer: `docker system df -v` mostra quem está ocupando; a retenção do Loki e do Prometheus é o suspeito usual.",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 12,
+        "y": 13
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max(100 - 100 * node_filesystem_avail_bytes{fstype!=\"\"} / node_filesystem_size_bytes{fstype!=\"\"})"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 80
+              },
+              {
+                "color": "red",
+                "value": 90
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 10,
+      "type": "stat",
+      "title": "Memória da máquina",
+      "description": "Percentual da RAM que NÃO está disponível. Também é da máquina, e também ignora o seletor de ambiente. Acima de 90% o kernel começa a matar processo (OOM kill) e o escolhido costuma ser o maior — o Postgres ou a própria API. O que fazer: abra 'Cinetra · Servidor', seção 'Os containers', e veja quem está perto do próprio teto de memória.",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 13
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 80
+              },
+              {
+                "color": "red",
+                "value": 90
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 11,
+      "type": "row",
+      "title": "ÚLTIMAS 24 HORAS — para saber o que é normal aqui",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 18
+      },
+      "panels": []
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Requisições por minuto, por resultado",
+      "description": "O volume que a aplicação atendeu, separado pelo código de resposta. `200` e `302` são sucesso. `401`/`403` são sessão expirada ou permissão — sobem sozinhos e não são incidente. `422` é formulário recusado. A linha que importa é `500`: erro nosso, e nenhuma quantidade dela é normal. O uso desta linha não é o valor absoluto — é a FORMA: um degrau para zero no meio do dia é queda; um pico de 500 é deploy ruim.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 19
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (status) (rate(api_prom_ex_phoenix_http_requests_total{env=\"$env\"}[$__rate_interval])) * 60",
+          "legendFormat": "{{status}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqpm",
+          "decimals": 1,
+          "min": 0,
+          "custom": {
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "never"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "5.."
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Tempo de resposta (p95 e p99)",
+      "description": "As mesmas duas perguntas da luz de lentidão, agora ao longo do tempo. O p95 é a experiência de quase todo mundo; o p99 é a cauda — se ele disparar sozinho e o p95 ficar liso, o problema é de uma rota específica ou de um relatório pesado, não do sistema. As linhas subindo JUNTAS é que indica saturação: banco, CPU ou pool.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 19
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(api_prom_ex_phoenix_http_request_duration_milliseconds_bucket{env=\"$env\"}[$__rate_interval])))",
+          "legendFormat": "p95"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(api_prom_ex_phoenix_http_request_duration_milliseconds_bucket{env=\"$env\"}[$__rate_interval])))",
+          "legendFormat": "p99"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "decimals": 0,
+          "min": 0,
+          "custom": {
+            "fillOpacity": 5,
+            "lineWidth": 2,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Erros por hora",
+      "description": "A mesma contagem da luz de erros, desenhada. Serve para responder o que a luz não responde: 'isto é novo, ou vem acontecendo há dias?'. Erro que aparece em degrau costuma ter começado num deploy; erro que pinga de hora em hora costuma ser um job repetindo a mesma falha.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 19
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "sum(count_over_time({env=\"$env\", level=\"error\"} [1h]))",
+          "queryType": "range",
+          "legendFormat": "erros"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "min": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "red"
+          },
+          "custom": {
+            "fillOpacity": 20,
+            "lineWidth": 2,
+            "showPoints": "never",
+            "drawStyle": "bars"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 15,
+      "type": "row",
+      "title": "SE ALGO ACIMA ESTIVER VERMELHO, COMECE AQUI",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 27
+      },
+      "panels": []
+    },
+    {
+      "id": 16,
+      "type": "logs",
+      "title": "As últimas linhas de erro",
+      "description": "As linhas cruas, mais recentes primeiro. É aqui que se descobre O QUE quebrou — as luzes acima só dizem QUE quebrou. Cada linha traz a requisição, a clínica e o usuário; clicar nela abre o contexto no Explore, e de lá dá para seguir o mesmo `trace_id` até o trecho de código que estourou.",
+      "gridPos": {
+        "h": 11,
+        "w": 24,
+        "x": 0,
+        "y": 28
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "{env=\"$env\", level=\"error\"}",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "id": 17,
+      "type": "text",
+      "title": "Onde procurar detalhe — os dashboards de aprofundamento",
+      "gridPos": {
+        "h": 13,
+        "w": 24,
+        "x": 0,
+        "y": 39
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "Estes doze **não são para abrir por hábito** — são para quando uma luz acender. Cada um responde uma pergunta estreita, e a coluna da direita diz qual luz costuma levar até ele.\n\n| Dashboard | Abra quando |\n| --- | --- |\n| **00 · Plantão** | algo está quebrado agora e você quer todos os sintomas numa tela |\n| **Servidor** | a tela está lenta, ou a memória/disco acendeu — CPU, pool do Ecto, BEAM, containers |\n| **Mensagens ao paciente** | 'Paciente sem aviso' acendeu — motivo da falha, opt-out, resposta do provedor |\n| **Trabalho em segundo plano** | 'Trabalho parado na fila' acendeu — job em retry, fila entupida |\n| **Erros e jobs** · **Requisições** | 'Erros na última hora' acendeu e você quer agrupar por causa |\n| **Atrito (4xx)** | ninguém está errando, mas alguém está *travando* — 422 repetido é formulário confuso |\n| **Agenda e fila** · **Uso e clínicas** | perguntas de negócio, não de saúde: volume, ocupação, fila de espera |\n| **Auditoria e acesso** | quem mexeu no quê, e acesso negado |\n| **Visão geral** · **Infraestrutura** | as duas telas amplas de onde estas luzes foram extraídas |\n\nE um aviso que vale mais que os doze: **métrica serve para PERCEBER, log serve para ENTENDER**. Nenhuma luz desta tela sabe *qual* paciente ou *qual* requisição — isso é trabalho do Loki, no painel de linhas acima."
+      }
+    }
+  ],
+  "schemaVersion": 39,
+  "version": 1
+}

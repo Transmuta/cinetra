@@ -4,7 +4,8 @@
   "description": "Onde o tempo foi e quem está reclamando. Agrupa por ROTA (já sanitizada — `/pacientes/:id`, nunca o id do paciente), que é o que torna o agrupamento possível sem cardinalidade explosiva.",
   "tags": [
     "cinetra",
-    "logs"
+    "logs",
+    "aprofundamento"
   ],
   "timezone": "browser",
   "refresh": "1m",
