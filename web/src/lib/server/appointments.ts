@@ -154,6 +154,50 @@ export async function fetchCounts(
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Um bloco por id — resolve o link do drawer (`/agenda?agendamento=<id>`)
+// ---------------------------------------------------------------------------
+
+export interface AppointmentData {
+	appointment: Appointment;
+	/** Os pacientes citados no bloco, como no GET da janela: o bloco carrega ids, não nomes. */
+	patients: AgendaPatient[];
+	/**
+	 * O fuso da clínica. É ele que transforma o `starts_at` (instante UTC) no **dia local** do
+	 * bloco — a agenda que o link precisa carregar. Sem ele, um bloco às 22h30 de São Paulo
+	 * (01:30Z do dia seguinte) abriria a agenda do dia errado.
+	 */
+	timezone: string;
+}
+
+export interface AppointmentResult {
+	status: number;
+	data: AppointmentData | null;
+}
+
+/**
+ * O bloco de `?agendamento=<id>`, ou `null`.
+ *
+ * **404 é o caso normal aqui**, não a exceção: id inventado, bloco de outra clínica, excluído,
+ * ou do colega quando o papel é `profissional` (o recorte A7 vive na leitura do domínio). Todos
+ * degradam para `null` — link inválido abre a agenda de hoje, nunca uma tela de erro. É a mesma
+ * decisão do `?paciente=` da ficha: conveniência de navegação não derruba tela.
+ */
+export async function fetchAppointment(
+	event: RequestEvent,
+	id: string
+): Promise<AppointmentResult> {
+	try {
+		const res = await apiFetch(event, `/api/appointments/${encodeURIComponent(id)}`, {
+			headers: { accept: 'application/json' }
+		});
+		if (!res.ok) return { status: res.status, data: null };
+		return { status: res.status, data: (await res.json()) as AppointmentData };
+	} catch {
+		return { status: 0, data: null };
+	}
+}
+
 // Corpo do POST (doc 25 §5). `ends_at` NÃO entra: é derivado no servidor a partir do tipo
 // (A3) ou de `duration_minutos` (A-D8). `clinic_id` jamais entra.
 export interface AppointmentInput {

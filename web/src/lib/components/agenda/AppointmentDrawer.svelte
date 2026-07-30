@@ -16,6 +16,7 @@
 	import UserX from '@lucide/svelte/icons/user-x';
 	import X from '@lucide/svelte/icons/x';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
+	import Link2 from '@lucide/svelte/icons/link-2';
 	import RotateCcw from '@lucide/svelte/icons/rotate-ccw';
 	import CalendarClock from '@lucide/svelte/icons/calendar-clock';
 	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
@@ -47,6 +48,7 @@
 		resolvedCount,
 		isTerminal,
 		canExcludeAppointment,
+		appointmentLink,
 		DRAWER_ACTIONS,
 		canMutateAppointment,
 		canCreateEncaixe,
@@ -106,6 +108,21 @@
 	// enquanto a sessão individual o mostrava: duas regras para o mesmo fato, na mesma tela.
 	function plural(n: number, singular: string, muitos = `${singular}s`): string {
 		return `${n} ${n === 1 ? singular : muitos}`;
+	}
+
+	// Copiar o link deste agendamento (o botão do cabeçalho). Toast só depois de a área de
+	// transferência aceitar: dizer "copiado" e não ter copiado é a mentira do doc 52 §6 de novo,
+	// e aqui ela custa uma mensagem colada em branco no WhatsApp da colega. Em contexto sem
+	// clipboard (http, permissão negada) o toast diz que não deu.
+	async function copiarLink() {
+		const url = appointmentLink(location.origin, appt.id);
+
+		try {
+			await navigator.clipboard.writeText(url);
+			onToast('Link copiado');
+		} catch {
+			onToast('Não foi possível copiar o link.');
+		}
 	}
 
 	const inicio = $derived(zonedParts(appt.starts_at, timezone));
@@ -425,6 +442,20 @@
 				</div>
 			{/if}
 		</div>
+
+		<!-- Copiar o link deste agendamento. Ícone só, do mesmo peso do X do shell: é ferramenta
+		     de cabeçalho, não ação sobre a sessão (essas moram no rodapé). O que vai para a área de
+		     transferência é a forma CANÔNICA (`appointmentLink`) — sem a data que está na barra de
+		     endereço, para o link não quebrar se o bloco for remarcado depois. -->
+		<button
+			type="button"
+			onclick={copiarLink}
+			aria-label="Copiar link deste agendamento"
+			title="Copiar link deste agendamento"
+			class="grid size-7.5 shrink-0 place-items-center rounded-md text-muted hover:bg-surface-2"
+		>
+			<Link2 size={16} />
+		</button>
 	{/snippet}
 
 	<div class="space-y-3.5 text-[13px]">

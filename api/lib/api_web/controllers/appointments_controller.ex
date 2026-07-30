@@ -33,6 +33,35 @@ defmodule ApiWeb.AppointmentsController do
     end)
   end
 
+  # GET /api/appointments/:id
+  #
+  # UM bloco, para resolver o link do drawer (`/agenda?agendamento=<id>`): quem recebe o link
+  # não sabe em que dia o bloco está, e é o `timezone` da resposta que permite ao cliente
+  # descobrir — o dia local do `starts_at` é a agenda que ele precisa carregar.
+  #
+  # A visibilidade é a de `load_visible_appointment/2`, a MESMA leitura que o push do canal usa
+  # (`Api.Scheduling`): `HideExcluded` e `OwnAgendaOnly` já somem com o bloco excluído e com o
+  # bloco do colega quando o papel é `profissional`. Reimplementar o recorte aqui seria a
+  # segunda cópia da regra — e um permalink que vaza é pior que um permalink que não abre.
+  # `nil` cobre tudo o que não é legível, inclusive id malformado (404, não 500).
+  def show(conn, %{"id" => id}) do
+    with_member_scope(conn, fn scope ->
+      case Scheduling.load_visible_appointment(scope, id) do
+        %{appointment: appointment, patients: patients} ->
+          json(conn, %{
+            appointment: render_appointment(appointment),
+            # O sidecar de nomes, como no GET da janela: quem chega pelo link não baixou dia
+            # nenhum, e o bloco carrega `patient_ids`, não nomes.
+            patients: Enum.map(patients, &render_patient/1),
+            timezone: Scheduling.clinic_timezone(scope.clinic_id)
+          })
+
+        nil ->
+          not_found(conn)
+      end
+    end)
+  end
+
   # POST /api/appointments
   def create(conn, params) do
     with_member_scope(conn, fn scope ->

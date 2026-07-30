@@ -57,6 +57,51 @@ describe('notificationHref', () => {
 		expect(href('daily_digest', { date: '2026-08-14' })).toBe('/agenda?date=2026-08-14');
 	});
 
+	// Doc 85: o dia era só metade do caminho. O aviso fala de UMA sessão, e o `appointment_id` já
+	// viajava no payload — levar ao dia deixava a última busca para quem leu (achar qual das trinta
+	// linhas de uma quinta cheia mudou).
+	describe('o bloco, não só o dia', () => {
+		const BLOCO = '019fb075-0f05-7f86-9622-414af0e1974f';
+
+		it('abre o agendamento de que o aviso fala', () => {
+			for (const kind of [
+				'appointment_scheduled',
+				'appointment_rescheduled',
+				'appointment_canceled',
+				'appointment_missed',
+				'participant_added',
+				'session_soon',
+				'patient_wants_reschedule'
+			] as NotificationKind[]) {
+				expect(href(kind, { date: '2026-08-13', appointment_id: BLOCO })).toBe(
+					`/agenda?date=2026-08-13&agendamento=${BLOCO}`
+				);
+			}
+		});
+
+		// A data viaja JUNTO do id de propósito: é o degrau de queda da regra "`date` na URL manda".
+		// Bloco excluído (ou remarcado outra vez) não abre o drawer, mas a tela ainda mostra o dia
+		// de que o aviso falava, em vez de cair no hoje da clínica.
+		it('mantém a data ao lado do id, como degrau de queda', () => {
+			expect(href('appointment_canceled', { date: '2026-08-13', appointment_id: BLOCO })).toContain(
+				'date=2026-08-13'
+			);
+		});
+
+		// O resumo diário é de N sessões: não há bloco, e o payload não traz id nenhum.
+		it('o resumo diário continua levando ao DIA', () => {
+			expect(href('daily_digest', { date: '2026-08-14' })).toBe('/agenda?date=2026-08-14');
+		});
+
+		// `data` é jsonb livre — id que não é uuid não vira parâmetro de URL.
+		it('id que não é uuid é ignorado', () => {
+			expect(href('appointment_canceled', { date: '2026-08-13', appointment_id: 'x' })).toBe(
+				'/agenda?date=2026-08-13'
+			);
+			expect(href('appointment_canceled', { appointment_id: 42 })).toBe('/agenda');
+		});
+	});
+
 	// `data` é jsonb livre; o destino de navegação não confia nele sem olhar.
 	it('data com formato inválido é ignorada', () => {
 		expect(href('appointment_canceled', { date: 'amanhã' })).toBe('/agenda');
@@ -67,7 +112,14 @@ describe('notificationHref', () => {
 		expect(href('package_bulk_adjusted', { afetadas: 3 })).toBe('/agenda');
 	});
 
-	it('vaga livre leva à fila, e urgente leva à fila já filtrada', () => {
+	// A vaga que abriu leva ao DRAWER do bloco (AN-12, doc 64): é lá que mora a lista de quem cabe
+	// naquele horário, com o "Agendar" ao lado de cada candidato. `/fila` mostra a fila inteira e
+	// obrigava a recepção a refazer no olho o casamento que a notificação já tinha feito.
+	it('vaga livre leva ao bloco que abriu; sem id, à fila', () => {
+		const BLOCO = '019fb075-0f05-7f86-9622-414af0e1974f';
+		expect(href('slot_opened', { date: '2026-08-13', appointment_id: BLOCO })).toBe(
+			`/agenda?date=2026-08-13&agendamento=${BLOCO}`
+		);
 		expect(href('slot_opened')).toBe('/fila');
 		expect(href('waitlist_urgent')).toBe('/fila?prio=urgente');
 	});

@@ -24,6 +24,8 @@ import {
 	parseDateParam,
 	parseHiddenProfs,
 	serializeHiddenProfs,
+	appointmentLink,
+	appointmentHref,
 	patientNameMap,
 	participantActions,
 	resolvedCount,
@@ -476,6 +478,34 @@ describe('estado na URL', () => {
 	it('serialize é o inverso e some da URL quando vazio', () => {
 		expect(serializeHiddenProfs(['p1', 'p2'])).toBe('p1,p2');
 		expect(serializeHiddenProfs([])).toBeNull();
+	});
+
+	// O link que viaja NÃO leva `date`: quem recebe pode abri-lo depois de o bloco ser remarcado,
+	// e a data congelada o levaria a um dia sem o bloco. Sem ela, o servidor resolve o dia pelo
+	// próprio bloco. Esta asserção é o contrato — se `date` voltar para cá, o link volta a
+	// quebrar em silêncio.
+	it('o link do agendamento é só o id, sem data', () => {
+		expect(appointmentLink('https://app.cinetra.com.br', 'a1')).toBe(
+			'https://app.cinetra.com.br/agenda?agendamento=a1'
+		);
+		expect(appointmentLink('https://x', 'a1')).not.toContain('date=');
+	});
+
+	it('escapa o id no link', () => {
+		expect(appointmentLink('https://x', 'a&b=c')).toBe('https://x/agenda?agendamento=a%26b%3Dc');
+	});
+
+	// O link INTERNO (sino, trilha, ficha) leva as duas metades: a data é o degrau de queda pela
+	// regra "`date` na URL manda" — bloco fora da janela ainda abre o dia de que o aviso falava,
+	// em vez de cair no hoje da clínica sem relação com o que se clicou.
+	it('o link interno leva dia E id', () => {
+		expect(appointmentHref('a1', '2026-07-20')).toBe('/agenda?date=2026-07-20&agendamento=a1');
+	});
+
+	it('cada metade que falta simplesmente sai do link', () => {
+		expect(appointmentHref('a1', null)).toBe('/agenda?agendamento=a1');
+		expect(appointmentHref(null, '2026-07-20')).toBe('/agenda?date=2026-07-20');
+		expect(appointmentHref(undefined, undefined)).toBe('/agenda');
 	});
 });
 

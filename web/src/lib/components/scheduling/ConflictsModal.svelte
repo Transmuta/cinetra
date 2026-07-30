@@ -8,7 +8,9 @@
 	//
 	// A lista mostra os primeiros (o servidor detalha 10) e o rodapé diz o número **real**: numa
 	// mudança que afeta 80 sessões, 80 linhas não ajudam ninguém a começar; "10 e mais 70" ajudam.
+	import ExternalLink from '@lucide/svelte/icons/external-link';
 	import Modal from '$lib/components/Modal.svelte';
+	import { appointmentHref } from '$lib/agenda';
 	import {
 		diaCurto,
 		motivoLabel,
@@ -41,6 +43,24 @@
 					{#if c.professional.nome}
 						<span class="truncate text-[12.5px] text-muted">{c.professional.nome}</span>
 					{/if}
+					<span class="flex-1"></span>
+					<!--
+						O modal manda remarcar ou cancelar e, até aqui, não dava o caminho: a recepção
+						anotava dia e hora e ia procurar na agenda (doc 85).
+
+						**Em outra aba**, e é o único link do app assim: o 409 não salvou nada, então o
+						formulário de horário atrás do modal ainda tem a edição inteira por aplicar. Sair
+						desta aba jogaria fora o trabalho que o próprio modal está pedindo para viabilizar.
+					-->
+					<a
+						href={appointmentHref(c.appointment_id, c.date)}
+						target="_blank"
+						rel="noopener"
+						class="inline-flex shrink-0 items-center gap-1 text-[11.5px] font-semibold text-teal-text hover:underline"
+						aria-label="Abrir {diaCurto(c.date)} às {c.hora} na agenda, em outra aba"
+					>
+						<ExternalLink size={12} /> Abrir
+					</a>
 				</div>
 
 				{#if c.patients.length}

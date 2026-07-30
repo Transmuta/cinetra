@@ -300,7 +300,7 @@ defmodule Api.Notifications.Fanout do
   minutos sobre uma janela, então "15 minutos" seria uma imprecisão escrita na cara do usuário
   enquanto o horário é sempre exato.
   """
-  def session_soon(clinic_id, recipient_id, %DateTime{} = starts_at, tz) do
+  def session_soon(clinic_id, recipient_id, %{id: id, starts_at: %DateTime{} = starts_at}, tz) do
     hora = LocalTime.from_minutes(LocalTime.to_local_minutes(starts_at, tz))
 
     notify(
@@ -309,7 +309,10 @@ defmodule Api.Notifications.Fanout do
       :session_soon,
       "Sessão começando",
       "Sua próxima sessão começa às #{hora}.",
-      %{date: local_date_iso(starts_at, tz), hora: hora}
+      # Recebe o BLOCO, não só o instante, porque o `appointment_id` é o que deixa o sino abrir a
+      # sessão de que ele fala — e não a agenda do dia, onde ela ainda tem de ser procurada. É o
+      # aviso mais imediato do conjunto: quem o lê está a 15 minutos de atender.
+      %{appointment_id: id, date: local_date_iso(starts_at, tz), hora: hora}
     )
 
     :ok

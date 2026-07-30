@@ -202,6 +202,10 @@ defmodule ApiWeb.Router do
     get "/appointments", AppointmentsController, :index
     post "/appointments", AppointmentsController, :create
 
+    # Um bloco por id — resolve o link do drawer (`/agenda?agendamento=<id>`), onde quem recebe
+    # o link não sabe em que dia o bloco está. Depois de `/counts` pela mesma razão de sempre.
+    get "/appointments/:id", AppointmentsController, :show
+
     # Ciclo de vida (Entrega 4): ações nomeadas, uma rota por transição (doc 25 §3).
     patch "/appointments/:id/reschedule", AppointmentsController, :reschedule
     post "/appointments/:id/cancel", AppointmentsController, :cancel

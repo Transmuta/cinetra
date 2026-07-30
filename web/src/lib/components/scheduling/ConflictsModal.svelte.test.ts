@@ -65,6 +65,28 @@ describe('ConflictsModal (A3/D12)', () => {
 		expect(screen.queryByText(/não listados aqui/)).not.toBeInTheDocument();
 	});
 
+	// Doc 85: o modal manda remarcar ou cancelar, e até aqui não dava o caminho — a recepção
+	// anotava dia e hora e ia procurar na agenda.
+	it('cada conflito abre o agendamento na agenda', () => {
+		render(ConflictsModal, { props: base() });
+
+		expect(screen.getByRole('link', { name: /Abrir 20\/07 às 14:00/ })).toHaveAttribute(
+			'href',
+			'/agenda?date=2026-07-20&agendamento=a1'
+		);
+	});
+
+	// **Outra aba**, e é o único link do app assim: o 409 não salvou nada, então o formulário de
+	// horário atrás do modal ainda tem a edição por aplicar. Navegar nesta aba jogaria fora
+	// exatamente o trabalho que o modal está pedindo para viabilizar.
+	it('o link abre em outra aba, para não perder a edição por trás do modal', () => {
+		render(ConflictsModal, { props: base() });
+
+		const link = screen.getByRole('link', { name: /Abrir 20\/07/ });
+		expect(link).toHaveAttribute('target', '_blank');
+		expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'));
+	});
+
 	// O gate é absoluto (D12): o modal informa, não oferece saída. Um "salvar mesmo assim" aqui
 	// seria a única porta para gravar por cima de agenda marcada — e ela não deve existir.
 	it('NÃO oferece forçar a mudança — só o "Entendi", que fecha', async () => {

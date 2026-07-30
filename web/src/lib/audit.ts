@@ -514,6 +514,21 @@ export function entrySessionAt(entry: Pick<AuditEntry, 'meta'>): string | null {
 }
 
 /**
+ * O bloco de que a linha fala, quando ele está no contexto — o caso da linha de **presença**, cujo
+ * registro tocado é a presença e não o agendamento (`meta: [:appointment_id, …]` em
+ * `Api.Scheduling.Attendance`).
+ *
+ * Na linha de agendamento o id é o próprio `record_id`, e quem monta o link decide qual usar.
+ * `meta` é jsonb livre: string que não seja uuid não vira parâmetro de URL.
+ */
+export function entryAppointmentId(entry: Pick<AuditEntry, 'meta'>): string | null {
+	const valor = entry.meta?.appointment_id;
+	return typeof valor === 'string' && UUID.test(valor) ? valor : null;
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
  * Quem estava no bloco, em uma linha. Um nome; dois nomes; daí em diante os dois primeiros e a
  * conta ("Ana, Caio e mais 3") — a lista inteira de uma turma cheia estouraria a linha e faria
  * o feed perder o alinhamento que se varre com o olho.

@@ -7,7 +7,7 @@
 	// contaria uma sessão que ele não fez. O selo, portanto, sai do status da presença.
 	import History from '@lucide/svelte/icons/history';
 	import Package from '@lucide/svelte/icons/package';
-	import { attendanceSelo, zonedParts, m2t } from '$lib/agenda';
+	import { appointmentHref, attendanceSelo, zonedParts, m2t } from '$lib/agenda';
 	import type { HistorySession } from '$lib/server/patients';
 
 	let {
@@ -28,6 +28,11 @@
 	}
 
 	const selo = (s: HistorySession) => attendanceSelo(s.status, s.falta_justificada);
+
+	// O bloco daquela sessão, com o dia ao lado (doc 85). A linha é a presença, mas o que se abre é
+	// o bloco — é lá que estão a observação, o participante e o débito de pacote.
+	const linkDaSessao = (s: HistorySession) =>
+		appointmentHref(s.appointment_id, zonedParts(s.starts_at, timezone).date);
 </script>
 
 <!--
@@ -52,39 +57,50 @@
 			<ul class="divide-y divide-edge">
 				{#each sessions as s (s.id)}
 					{@const tag = selo(s)}
-					<li class="flex items-center gap-2.5 px-3 py-2.5">
-						<span
-							class="inline-block size-2.5 shrink-0 rounded-full"
-							style="background:{s.cor ?? 'var(--color-edge)'}"
-						></span>
-						<div class="min-w-0 flex-1">
-							<div class="flex items-center gap-2">
-								<!-- largura fixa: sem ela as datas não alinham entre linhas, que é o
-								     motivo de o protótipo reservar uma coluna para elas -->
-								<span class="shrink-0 font-mono text-[11.5px] text-muted">{quando(s.starts_at)}</span>
-								{#if s.package_id}
-									<span
-										class="inline-flex items-center gap-1 text-[11px] text-faint"
-										title="Sessão de pacote"
-									>
-										<Package size={12} /> pacote
-									</span>
-								{/if}
-							</div>
-							<div class="truncate text-[12px] text-muted">
-								{s.tipo ?? 'Sessão'}{s.profissional ? ` · ${s.profissional}` : ''}
-							</div>
-						</div>
-						<span
-							class="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold"
-							style="background:{tag.tone
-								? `color-mix(in srgb, var(--color-${tag.tone}) 14%, transparent)`
-								: 'var(--color-surface-2)'}; color:{tag.tone
-								? `var(--color-${tag.tone})`
-								: 'var(--color-muted)'}"
+					<li>
+						<!-- A linha vira LINK para o bloco (doc 85). O histórico responde "o que
+						     aconteceu"; a pergunta seguinte é sempre sobre uma daquelas sessões (o que
+						     foi anotado, quem atendeu, qual pacote debitou) — e a resposta mora no drawer,
+						     que até aqui só se alcançava indo à agenda e caçando o dia. -->
+						<a
+							href={linkDaSessao(s)}
+							class="flex w-full items-center gap-2.5 px-3 py-2.5 hover:bg-surface-2"
 						>
-							{tag.label}
-						</span>
+							<span
+								class="inline-block size-2.5 shrink-0 rounded-full"
+								style="background:{s.cor ?? 'var(--color-edge)'}"
+							></span>
+							<div class="min-w-0 flex-1">
+								<div class="flex items-center gap-2">
+									<!-- largura fixa: sem ela as datas não alinham entre linhas, que é o
+									     motivo de o protótipo reservar uma coluna para elas -->
+									<span class="shrink-0 font-mono text-[11.5px] text-muted">
+										{quando(s.starts_at)}
+									</span>
+									{#if s.package_id}
+										<span
+											class="inline-flex items-center gap-1 text-[11px] text-faint"
+											title="Sessão de pacote"
+										>
+											<Package size={12} /> pacote
+										</span>
+									{/if}
+								</div>
+								<div class="truncate text-[12px] text-muted">
+									{s.tipo ?? 'Sessão'}{s.profissional ? ` · ${s.profissional}` : ''}
+								</div>
+							</div>
+							<span
+								class="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold"
+								style="background:{tag.tone
+									? `color-mix(in srgb, var(--color-${tag.tone}) 14%, transparent)`
+									: 'var(--color-surface-2)'}; color:{tag.tone
+									? `var(--color-${tag.tone})`
+									: 'var(--color-muted)'}"
+							>
+								{tag.label}
+							</span>
+						</a>
 					</li>
 				{/each}
 			</ul>

@@ -2,6 +2,7 @@
 	// Agenda (doc 25, Entregas 1 e 2). Quatro visões: Dia e Lista leem blocos do dia; Semana e
 	// Mês leem contagens. Remarcar, arrastar e mudar status são a Entrega 4.
 	import { untrack } from 'svelte';
+	import { goto, invalidate, invalidateAll, pushState, replaceState } from '$app/navigation';
 	import { deserialize } from '$app/forms';
 	import { page as pageState } from '$app/state';
 	import { reportar } from '$lib/report';
@@ -46,16 +47,31 @@
 
 	const podeCriar = $derived(canCreateAppointment(data.me?.papel));
 
-	// Mesmo helper de estado-na-URL de `pacientes/+page.svelte:53`: aplica um patch na query
-	// string e navega sem empilhar histórico.
-	function navigate(patch: Record<string, string | null>) {
+	// A query atual com um patch aplicado — só a FORMA da URL, sem decidir como navegar. Dois
+	// consumidores com necessidades opostas: `navigate` precisa reexecutar o load (mudou o dia,
+	// mudou o dado), e o drawer precisa NÃO reexecutar (ver `selecionar`).
+	function urlCom(patch: Record<string, string | null>): string {
 		const params = new URLSearchParams(pageState.url.searchParams);
 		for (const [key, value] of Object.entries(patch)) {
 			if (value === null || value === '') params.delete(key);
 			else params.set(key, value);
 		}
 		const qs = params.toString();
-		goto(qs ? `/agenda?${qs}` : '/agenda', { keepFocus: true, noScroll: true, replaceState: true });
+		return qs ? `/agenda?${qs}` : '/agenda';
+	}
+
+	// Mesmo helper de estado-na-URL de `pacientes/+page.svelte:53`: aplica um patch na query
+	// string e navega sem empilhar histórico.
+	//
+	// Sempre larga o `agendamento`: trocar de dia, de visão ou de colunas fecha o drawer — o
+	// bloco aberto é do dia que estava na tela. Sem isto o id sobreviveria à navegação e o
+	// drawer tentaria abrir um bloco que não está mais na janela.
+	function navigate(patch: Record<string, string | null>) {
+		goto(urlCom({ ...patch, agendamento: null }), {
+			keepFocus: true,
+			noScroll: true,
+			replaceState: true
+		});
 	}
 
 	// ---- Tempo real (Entrega 3, ADR-004) --------------------------------------------------
@@ -264,17 +280,66 @@
 	// `selecionado` é DERIVADO da lista atual (já com o patch de tempo real): quando uma mutação
 	// reexecuta o load, o bloco no drawer reflete o novo estado sem fechar — e um bloco que
 	// desaparecer da janela fecha o drawer sozinho, em vez de mostrar um estado congelado.
-	let selectedId = $state<string | null>(null);
+	//
+	// **Qual bloco está aberto viaja na URL** (`?agendamento=<id>`), para que o drawer seja
+	// LINKÁVEL: `/agenda?agendamento=<id>` abre o bloco direto, e o load resolve o dia por ele
+	// (ver `diaDoBloco` em `+page.server.ts`).
+	//
+	// Mas abrir e fechar é **shallow routing**, não `goto`: o load desta página lê
+	// `url.searchParams`, então uma navegação de verdade refaria a busca do dia inteiro (agenda +
+	// expediente de todas as colunas) a cada bloco aberto. E aí entra o detalhe que decide a forma
+	// deste código: `pushState`/`replaceState` do Kit atualizam **`page.state`** e deliberadamente
+	// **não** `page.url` — eles até guardam a URL da última navegação real para restaurá-la no
+	// popstate (`client.js`, `PAGE_URL_KEY`). Ler só a URL faria o drawer nunca abrir no clique;
+	// ler só o estado o faria nunca abrir pelo link (o servidor não pode mandar `page.state`).
+	//
+	// Então as duas fontes têm papéis distintos, e é a diferença entre `undefined` e `null` que as
+	// combina:
+	//
+	//   * `undefined` — o shallow routing nunca falou deste bloco: vale a URL (o link recebido, e
+	//     também o que o back/forward restaura, porque o popstate devolve o estado do histórico);
+	//   * um id — foi aberto por clique;
+	//   * `null` — foi FECHADO por clique. Precisa ser explícito: a URL "velha" que sobra em
+	//     `page.url` ainda tem o parâmetro, e sem o `null` o drawer reabriria sozinho.
+	const noEstado = $derived((pageState.state as { agendamento?: string | null }).agendamento);
+	const selectedId = $derived(
+		noEstado !== undefined ? noEstado : pageState.url.searchParams.get('agendamento')
+	);
 	let remarcando = $state(false);
 
 	const selecionado = $derived(appointments.find((a) => a.id === selectedId) ?? null);
 
-	// O drawer fecha sozinho se o bloco saiu da janela (remarcado para outro dia, por exemplo).
+	function selecionar(id: string) {
+		remarcando = false;
+
+		// `date` viaja junto do id, e não é redundância: é o que FIXA o dia. Sem ele, uma
+		// remarcação para outro dia reexecutaria o load, que resolveria o dia pelo bloco — e a
+		// tela pularia de data no meio do atendimento. Com `date` na URL o bloco só sai da janela,
+		// e o drawer fecha (que é o comportamento de sempre).
+		const url = urlCom({ agendamento: id, date: data.date });
+
+		// Abrir EMPILHA: o back fecha o drawer, que é o que se espera de um painel. Trocar de
+		// bloco com ele já aberto REFINA a mesma tela, e empilhar aí faria o back passear pelos
+		// blocos visitados antes de fechar — o I68 da paginação, em `querystring.ts`.
+		if (selectedId) replaceState(url, { agendamento: id });
+		else pushState(url, { agendamento: id });
+	}
+
+	// `date` fica (e entra, se o link canônico não a trazia): fechar o painel não é sair do dia que
+	// está na tela — e sem ela um F5 depois de fechar cairia no hoje da clínica, não no dia aberto.
+	function fecharDrawer() {
+		remarcando = false;
+		replaceState(urlCom({ agendamento: null, date: data.date }), { agendamento: null });
+	}
+
+	// O bloco pode sair da janela com o drawer aberto (remarcado para outro dia, excluído por
+	// outra pessoa): `selecionado` vira `null` e o painel some sozinho. O que sobra a fazer é
+	// largar a remarcação — e **nada de navegar aqui**: este efeito também roda na hidratação de
+	// um link morto (bloco excluído, de outra clínica, do colega), e shallow routing antes de o
+	// roteador iniciar é erro no console. O parâmetro órfão na URL não abre nada e se resolve no
+	// próximo carregamento; é o mesmo tratamento do `?paciente=` inválido.
 	$effect(() => {
-		if (selectedId && !selecionado) {
-			selectedId = null;
-			remarcando = false;
-		}
+		if (selectedId && !selecionado) remarcando = false;
 	});
 
 	const selTipo = $derived(
@@ -283,11 +348,6 @@
 	const selProf = $derived(
 		selecionado ? data.professionals.find((p) => p.id === selecionado.professional_id) : undefined
 	);
-
-	function selecionar(id: string) {
-		selectedId = id;
-		remarcando = false;
-	}
 
 	// A timeline de comunicação (doc 52 §6), buscada quando o drawer abre — não no load da agenda.
 	// Um dia cheio tem dezenas de blocos e o drawer mostra um; carregar a comunicação de todos
@@ -594,7 +654,7 @@
 		{form}
 		{mensagens}
 		candidatos={candidatosDoDrawer}
-		onClose={() => (selectedId = null)}
+		onClose={fecharDrawer}
 		onReschedule={() => (remarcando = true)}
 		onToast={(m) => toast(m)}
 	/>

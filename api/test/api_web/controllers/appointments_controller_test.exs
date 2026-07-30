@@ -214,6 +214,106 @@ defmodule ApiWeb.AppointmentsControllerTest do
     end
   end
 
+  # O bloco por id — a leitura que resolve o link do drawer (`/agenda?agendamento=<id>`). Quem
+  # recebe o link não sabe o dia, e é este endpoint que descobre: sem ele o link só funciona
+  # carregando a data junto, e quebra em silêncio quando o bloco é remarcado.
+  #
+  # A visibilidade NÃO é reimplementada aqui: sai de `Scheduling.load_visible_appointment/2`,
+  # a mesma leitura do push do canal. Por isso os quatro 404 abaixo — outra clínica, excluído,
+  # bloco do colega (A7) e id malformado — são o contrato que importa provar: um permalink que
+  # vaza é pior que um permalink que não abre.
+  describe "GET /api/appointments/:id" do
+    defp criar!(conn, ctx, overrides \\ %{}) do
+      conn
+      |> authed(ctx.owner)
+      |> post("/api/appointments", payload(ctx, overrides))
+      |> json_response(201)
+      |> Map.fetch!("appointment")
+    end
+
+    test "200 devolve o bloco, os pacientes citados e o fuso", %{conn: conn} do
+      ctx = fixture()
+      appt = criar!(conn, ctx)
+
+      body =
+        conn |> authed(ctx.owner) |> get("/api/appointments/#{appt["id"]}") |> json_response(200)
+
+      assert body["appointment"]["id"] == appt["id"]
+      assert body["appointment"]["starts_at"] == "2026-07-20T11:00:00Z"
+      # O sidecar de nomes, como no GET da janela: quem chega pelo link não baixou dia nenhum.
+      assert [%{"nome" => "Paciente"}] = body["patients"]
+      # O fuso vem na resposta porque é ele que diz a que DIA local o bloco pertence — o
+      # cliente precisa disso para carregar a agenda certa.
+      assert body["timezone"] == "America/Sao_Paulo"
+    end
+
+    test "sem sessão é 401", %{conn: conn} do
+      ctx = fixture()
+      appt = criar!(conn, ctx)
+
+      assert json_response(get(conn, "/api/appointments/#{appt["id"]}"), 401)
+    end
+
+    test "bloco de OUTRA clínica é 404", %{conn: conn} do
+      ctx = fixture()
+      outra = fixture()
+      appt = criar!(conn, outra)
+
+      assert json_response(
+               conn |> authed(ctx.owner) |> get("/api/appointments/#{appt["id"]}"),
+               404
+             )
+    end
+
+    test "bloco EXCLUÍDO é 404 (doc 40)", %{conn: conn} do
+      ctx = fixture()
+      appt = criar!(conn, ctx)
+
+      conn
+      |> authed(ctx.owner)
+      |> post("/api/appointments/#{appt["id"]}/exclude", %{})
+      |> json_response(200)
+
+      assert json_response(
+               conn |> authed(ctx.owner) |> get("/api/appointments/#{appt["id"]}"),
+               404
+             )
+    end
+
+    # A7 pelo caminho da leitura: para o profissional, o bloco do colega é indistinguível de
+    # inexistente. Se este teste ficar verde com um 200, o link vira vazamento de agenda.
+    test "profissional NÃO lê o bloco do colega (404)", %{conn: conn} do
+      ctx = fixture()
+
+      colega =
+        Directory.create_professional!("Dr. Y", %{tel: Api.Generators.telefone_unico()},
+          tenant: ctx.clinic.id,
+          actor: ctx.owner
+        )
+
+      do_colega = criar!(conn, ctx, %{"professional_id" => colega.id})
+      proprio = criar!(conn, ctx, %{"starts_at" => "2026-07-20T14:00:00Z"})
+
+      prof_user = sessao_de_membro!(ctx.owner, ctx.clinic, :profissional, ctx.prof.id)
+
+      assert json_response(
+               conn |> authed(prof_user) |> get("/api/appointments/#{do_colega["id"]}"),
+               404
+             )
+
+      # E o próprio continua legível — o 404 acima é recorte, não porta fechada.
+      assert json_response(
+               conn |> authed(prof_user) |> get("/api/appointments/#{proprio["id"]}"),
+               200
+             )
+    end
+
+    test "id malformado é 404, não 500", %{conn: conn} do
+      ctx = fixture()
+      assert json_response(conn |> authed(ctx.owner) |> get("/api/appointments/nao-e-uuid"), 404)
+    end
+  end
+
   describe "GET /api/appointments/counts" do
     # As visões Semana e Mês (doc 25 §9, Entrega 2). A quebra é por **dia × profissional**
     # (B-D2): ocultar alguém na sidebar é filtro de cliente, e sem a quebra a barra da semana

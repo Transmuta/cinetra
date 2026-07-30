@@ -12,6 +12,7 @@ import {
 	cancelAppointment,
 	reopenAppointment,
 	excludeAppointment,
+	fetchAppointment,
 	agendaQuery,
 	availabilityQuery
 } from './appointments';
@@ -218,6 +219,46 @@ describe('fetchCounts', () => {
 			status: 0,
 			data: null
 		});
+	});
+});
+
+// A leitura que resolve o link do drawer: quem recebe `/agenda?agendamento=<id>` não sabe o dia,
+// e é o par (`starts_at`, `timezone`) desta resposta que diz qual agenda carregar.
+describe('fetchAppointment', () => {
+	const um = {
+		appointment: { id: 'a1', starts_at: '2026-07-21T01:30:00Z' },
+		patients: [{ id: 'pat1', nome: 'Maria Silva', tel: null, ativo: true }],
+		timezone: 'America/Sao_Paulo'
+	};
+
+	it('pede o bloco por id e devolve o fuso junto', async () => {
+		m.apiFetch.mockResolvedValueOnce(res(200, um));
+		const r = await fetchAppointment(event, 'a1');
+
+		expect(m.apiFetch.mock.calls[0][1]).toBe('/api/appointments/a1');
+		expect(r.data?.appointment.starts_at).toBe('2026-07-21T01:30:00Z');
+		expect(r.data?.timezone).toBe('America/Sao_Paulo');
+	});
+
+	// O id vem da URL — quem cola o link escolhe o que vai no caminho.
+	it('escapa o id', async () => {
+		m.apiFetch.mockResolvedValueOnce(res(404));
+		await fetchAppointment(event, '../counts?from=2026-01-01');
+		expect(m.apiFetch.mock.calls[0][1]).toBe(
+			'/api/appointments/..%2Fcounts%3Ffrom%3D2026-01-01'
+		);
+	});
+
+	// 404 é o caso NORMAL deste endpoint (bloco de outra clínica, excluído, do colega, id
+	// inventado). Nada disso pode derrubar a agenda: o link inválido abre o dia de hoje.
+	it('404 vira data null, sem lançar', async () => {
+		m.apiFetch.mockResolvedValueOnce(res(404));
+		expect((await fetchAppointment(event, 'x')).data).toBeNull();
+	});
+
+	it('rede fora vira status 0 com data null', async () => {
+		m.apiFetch.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+		expect(await fetchAppointment(event, 'x')).toEqual({ status: 0, data: null });
 	});
 });
 

@@ -9,6 +9,7 @@
 	import {
 		auditHref,
 		dayKey,
+		entryAppointmentId,
 		entryContext,
 		entryHeadline,
 		entrySessionAt,
@@ -16,6 +17,7 @@
 		formatTime,
 		type AuditEntry
 	} from '$lib/audit';
+	import { appointmentHref } from '$lib/agenda';
 	import FieldDiff from './FieldDiff.svelte';
 
 	// Uma entrada do feed de auditoria (doc 25 §11.4), em três níveis:
@@ -58,11 +60,24 @@
 			: (TONE[entry.action_type] ?? TONE.update)
 	);
 
-	// "Ver na agenda" leva ao DIA do agendamento (a agenda lê `?date=`). Depende de `starts_at`,
-	// que o participante agora também tem (a API o enriquece a partir do bloco) — some só quando
-	// o bloco não é mais legível, p.ex. depois de excluído.
+	// "Ver na agenda" leva ao AGENDAMENTO da linha (doc 85), com o dia ao lado. Depende de
+	// `starts_at`, que o participante também tem (a API o enriquece a partir do bloco) — some só
+	// quando o bloco não é mais legível, p.ex. depois de excluído.
+	//
+	// O id sai de onde ele mora em cada natureza de linha: na de AGENDAMENTO o próprio registro
+	// tocado é o bloco; na de PRESENÇA o registro é a presença, e o bloco vem no contexto. Auditar
+	// é ler uma linha e querer ver o que ela descreve — e levar ao dia deixava a última busca para
+	// o auditor, num feed em que todas as linhas de um profissional se parecem.
+	//
+	// A data continua no link porque é ela o degrau de queda: numa trilha se lê justamente o que
+	// mudou, e um bloco remarcado depois (ou excluído) ainda abre o dia de que a linha fala.
 	const sessionAt = $derived(entrySessionAt(entry));
-	const agendaHref = $derived(sessionAt ? `/agenda?date=${dayKey(sessionAt, timezone)}` : null);
+	const blocoId = $derived(
+		entry.resource === 'appointment' ? entry.record_id : entryAppointmentId(entry)
+	);
+	const agendaHref = $derived(
+		sessionAt ? appointmentHref(blocoId, dayKey(sessionAt, timezone)) : null
+	);
 
 	// "Ver histórico" isola a cadeia deste registro (`?record_id=`). O filtro sempre existiu na
 	// API e no load; o que faltava era **entrada** para ele — sem este link, só chegava lá quem
@@ -92,12 +107,21 @@
 	<div class="min-w-0 flex-1">
 		<div class="flex items-baseline justify-between gap-3">
 			<h3 class="min-w-0 text-[13px] font-semibold leading-snug text-ink">{headline}</h3>
+			<!--
+				ACC-23 (doc 83): a linha mostra só a HORA, e a data completa vivia apenas no `title` —
+				hover de mouse. Numa trilha de auditoria "14:32" sem dia não localiza nada, e o
+				`datetime` não é lido por leitor de tela (é para máquina).
+
+				Então o mesmo dado, duas formas: a curta para os olhos (`aria-hidden`, porque o texto ao
+				lado já a cobre) e a completa em `sr-only`. O `title` fica para o mouse.
+			-->
 			<time
 				class="shrink-0 whitespace-nowrap font-mono text-[11px] text-faint"
 				datetime={entry.at}
 				title={formatAt(entry.at, timezone)}
 			>
-				{formatTime(entry.at, timezone)}
+				<span aria-hidden="true">{formatTime(entry.at, timezone)}</span>
+				<span class="sr-only">{formatAt(entry.at, timezone)}</span>
 			</time>
 		</div>
 

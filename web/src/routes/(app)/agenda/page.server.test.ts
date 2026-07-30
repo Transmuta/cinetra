@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const m = vi.hoisted(() => ({
 	fetchAgenda: vi.fn(),
+	fetchAppointment: vi.fn(),
 	fetchAvailability: vi.fn(),
 	fetchCounts: vi.fn(),
 	createAppointment: vi.fn(),
@@ -31,6 +32,7 @@ type LoadOk = {
 	date: string;
 	today: string;
 	hidden: string[];
+	view: string;
 };
 
 // O load lê o FUSO da clínica do layout pai — é só isso que ele precisa saber antes da
@@ -274,6 +276,90 @@ describe('load', () => {
 	it('erro da API vira erro de rota', async () => {
 		m.fetchAgenda.mockResolvedValue({ status: 502, data: null });
 		await expect(runLoad('?date=2026-07-20')).rejects.toBeTruthy();
+	});
+});
+
+// -------------------------------------------------------------------------------------
+// `?agendamento=<id>` — o link do drawer
+//
+// Quem recebe o link não sabe em que dia o bloco está. A regra é uma só, e é ela que decide
+// tudo aqui: **`date` na URL manda**. Sem `date`, o dia sai do bloco (uma leitura por id);
+// com `date`, é o dia da URL que carrega e o bloco fora dele simplesmente não abre.
+//
+// Não é detalhe de implementação: é o que impede a tela de PULAR de dia sozinha. Enquanto o
+// drawer está aberto a URL sempre carrega `date` (a tela a escreve junto), então remarcar um
+// bloco para outro dia continua só fechando o drawer — e não teleportando a recepção para
+// outra data no meio de um atendimento.
+// -------------------------------------------------------------------------------------
+describe('load com ?agendamento=', () => {
+	const bloco = (over: Record<string, unknown> = {}) => ({
+		status: 200,
+		data: {
+			// 22:30 em São Paulo = 01:30Z do dia SEGUINTE. O dia local é 20/07, não 21/07.
+			appointment: { id: 'a1', starts_at: '2026-07-21T01:30:00Z' },
+			patients: [],
+			timezone: 'America/Sao_Paulo',
+			...over
+		}
+	});
+
+	it('sem `date`, carrega o dia LOCAL do bloco', async () => {
+		m.fetchAppointment.mockResolvedValue(bloco());
+		m.fetchAgenda.mockResolvedValue(payload());
+
+		const r = await runLoad('?agendamento=a1');
+
+		expect(m.fetchAppointment).toHaveBeenCalledTimes(1);
+		expect(m.fetchAppointment.mock.calls[0][1]).toBe('a1');
+		// Pelo UTC daria 21/07 e o drawer abriria num dia sem o bloco.
+		expect(r.date).toBe('2026-07-20');
+		expect(m.fetchAgenda.mock.calls[0][1].from).toBe('2026-07-20');
+	});
+
+	// A trava do teleporte. Com `date` na URL não há nem leitura por id: o dia é o da URL.
+	it('com `date`, a URL manda — e o bloco não é nem consultado', async () => {
+		m.fetchAgenda.mockResolvedValue(payload());
+
+		const r = await runLoad('?date=2026-08-15&agendamento=a1');
+
+		expect(m.fetchAppointment).not.toHaveBeenCalled();
+		expect(r.date).toBe('2026-08-15');
+	});
+
+	// Link velho, bloco excluído, id inventado, bloco de outra clínica ou do colega (A7): a API
+	// devolve 404 e a agenda abre normalmente. Link inválido não é tela de erro.
+	it('bloco que não resolve cai no hoje da clínica, sem quebrar', async () => {
+		vi.setSystemTime(new Date('2026-07-20T14:00:00Z'));
+		m.fetchAppointment.mockResolvedValue({ status: 404, data: null });
+		m.fetchAgenda.mockResolvedValue(payload());
+
+		const r = await runLoad('?agendamento=sumiu');
+
+		expect(r.date).toBe('2026-07-20');
+		vi.useRealTimers();
+	});
+
+	// Semana e Mês não carregam bloco nenhum (doc 25 §10) — um link para um agendamento numa
+	// dessas visões abriria uma barra de ocupação e nenhum drawer. Pedir o bloco implica a visão
+	// que mostra bloco.
+	it('força uma visão que carrega blocos', async () => {
+		m.fetchAppointment.mockResolvedValue(bloco());
+		m.fetchAgenda.mockResolvedValue(payload());
+
+		const r = await runLoad('?agendamento=a1&view=mes');
+
+		expect(r.view).toBe('dia');
+		expect(m.fetchCounts).not.toHaveBeenCalled();
+		expect(r.appointments).toHaveLength(1);
+	});
+
+	// A Lista mostra os mesmos blocos do Dia — quem manda o link de dentro dela não precisa ser
+	// jogado para a grade.
+	it('não mexe na Lista, que já mostra blocos', async () => {
+		m.fetchAppointment.mockResolvedValue(bloco());
+		m.fetchAgenda.mockResolvedValue(payload());
+
+		expect((await runLoad('?agendamento=a1&view=lista')).view).toBe('lista');
 	});
 });
 

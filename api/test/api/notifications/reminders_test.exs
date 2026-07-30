@@ -185,7 +185,7 @@ defmodule Api.Notifications.RemindersTest do
 
       tz = Scheduling.clinic_timezone(ctx.clinic.id)
       {:ok, as_nove} = Scheduling.LocalTime.to_utc(proxima_segunda(), "09:00", tz)
-      agenda(ctx, as_nove)
+      appt = agenda(ctx, as_nove)
 
       # 15 min antes das 09:00 → a janela [+15, +20) contém o bloco.
       agora = DateTime.add(as_nove, -15 * 60, :second)
@@ -193,11 +193,16 @@ defmodule Api.Notifications.RemindersTest do
       assert {:ok, %{enviados: 1}} =
                perform_job(SessionSoonJob, %{"agora" => DateTime.to_iso8601(agora)})
 
-      assert [%{body: body}] =
+      assert [%{body: body, data: data}] =
                Notifications.list_inbox(scope_for(prof_user, ctx.clinic)).results
                |> Enum.filter(&(&1.kind == :session_soon))
 
       assert body =~ "09:00"
+
+      # O `appointment_id` é o que permite ao sino abrir **o bloco**, e não só o dia dele: sem
+      # ele, "sessão começando" leva a uma agenda em que a pessoa ainda tem de procurar qual.
+      assert data["appointment_id"] == appt.id
+      assert data["date"] == proxima_segunda() |> Date.to_iso8601()
     end
 
     # O ponto do ladrilho: a rodada anterior e a seguinte não podem pegar o mesmo bloco, senão o

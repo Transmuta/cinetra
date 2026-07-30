@@ -34,13 +34,25 @@ describe('AuditEntry', () => {
 		expect(getByText('Dra. Bea · seg 20/07, 08:00')).toBeInTheDocument();
 	});
 
-	// Dentro de um grupo que já é o dia, repetir "20/07/2026" em 50 linhas é ruído — a data
-	// completa fica no `title` (e no `datetime`, para quem lê a máquina).
-	it('mostra só a hora, com o carimbo completo no title', () => {
-		const { getByText } = render(AuditEntry, { props: { entry: entry(), timezone: TZ } });
-		const time = getByText('11:30');
+	// Dentro de um grupo que já é o dia, repetir "20/07/2026" em 50 linhas é ruído — VISUALMENTE.
+	// Para leitor de tela é o contrário: "11:30" sozinho não localiza nada numa trilha, e o
+	// `datetime` é para máquina, não para voz (ACC-23, doc 83). Daí o mesmo dado em duas formas.
+	it('mostra só a hora aos olhos, e o carimbo completo para o leitor de tela', () => {
+		const { getByText, container } = render(AuditEntry, {
+			props: { entry: entry(), timezone: TZ }
+		});
+
+		const time = container.querySelector('time')!;
 		expect(time).toHaveAttribute('title', '20/07/2026 11:30');
 		expect(time).toHaveAttribute('datetime', '2026-07-20T14:30:00Z');
+
+		// A hora curta é a que se vê — e é escondida da voz, porque o carimbo ao lado já a contém.
+		const curta = getByText('11:30');
+		expect(curta).toHaveAttribute('aria-hidden', 'true');
+
+		// O carimbo completo existe e é o que o leitor de tela lê.
+		const completa = getByText('20/07/2026 11:30');
+		expect(completa.className).toContain('sr-only');
 	});
 
 	it('numa atualização mostra o diff campo-a-campo', () => {
@@ -59,9 +71,54 @@ describe('AuditEntry', () => {
 		expect(queryByText('Situação:')).toBeNull();
 	});
 
-	it('tem "Ver na agenda" apontando para o dia local', () => {
+	// Doc 85: "Ver na agenda" abre o BLOCO da linha, não só o dia dele — auditar é ler uma linha e
+	// querer ver o que ela descreve, e num feed todas as linhas de um profissional se parecem. A
+	// data continua no link como degrau de queda (bloco excluído ainda abre o dia certo).
+	it('tem "Ver na agenda" apontando para o agendamento, com o dia local ao lado', () => {
 		const { getByRole } = render(AuditEntry, { props: { entry: entry(), timezone: TZ } });
-		expect(getByRole('link', { name: /Ver na agenda/ })).toHaveAttribute('href', '/agenda?date=2026-07-20');
+		expect(getByRole('link', { name: /Ver na agenda/ })).toHaveAttribute(
+			'href',
+			'/agenda?date=2026-07-20&agendamento=a1'
+		);
+	});
+
+	// Na linha de PRESENÇA o registro tocado é a presença; o bloco vem no contexto (`meta`), e é
+	// dele que o link tem de sair — senão abriria a agenda com o id de uma attendance, que não
+	// casa com bloco nenhum e não abre nada.
+	it('na linha de presença, o bloco sai do contexto e não do record_id', () => {
+		const bloco = '019fb075-0f05-7f86-9622-414af0e1974f';
+		const { getByRole } = render(AuditEntry, {
+			props: {
+				entry: entry({
+					resource: 'attendance',
+					record_id: 'att-9',
+					meta: { session_starts_at: '2026-07-20T11:00:00Z', appointment_id: bloco }
+				}),
+				timezone: TZ
+			}
+		});
+		expect(getByRole('link', { name: /Ver na agenda/ })).toHaveAttribute(
+			'href',
+			`/agenda?date=2026-07-20&agendamento=${bloco}`
+		);
+	});
+
+	// `meta` é jsonb livre: sem um bloco identificável, o link degrada para o DIA em vez de sumir.
+	it('presença sem bloco no contexto ainda leva ao dia', () => {
+		const { getByRole } = render(AuditEntry, {
+			props: {
+				entry: entry({
+					resource: 'attendance',
+					record_id: 'att-9',
+					meta: { session_starts_at: '2026-07-20T11:00:00Z' }
+				}),
+				timezone: TZ
+			}
+		});
+		expect(getByRole('link', { name: /Ver na agenda/ })).toHaveAttribute(
+			'href',
+			'/agenda?date=2026-07-20'
+		);
 	});
 
 	// O `record_id` sempre existiu na API e no load; o que faltava era ENTRADA para ele — sem

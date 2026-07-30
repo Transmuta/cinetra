@@ -2,6 +2,7 @@ import { error, fail } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import {
 	fetchAgenda,
+	fetchAppointment,
 	fetchAvailability,
 	fetchCounts,
 	createAppointment,
@@ -22,6 +23,7 @@ import {
 } from '$lib/agenda';
 import {
 	parseView,
+	viewRendersCounts,
 	weekDays,
 	monthWindow,
 	type AgendaView,
@@ -52,18 +54,35 @@ export const load: PageServerLoad = async (event) => {
 	// — `invalidateAll` arrastaria junto o do layout.
 	event.depends('agenda:dados');
 
-	const view = parseView(event.url.searchParams.get('view'));
+	// `?agendamento=<id>` — o link do drawer (o bloco que abre selecionado). A tela lê o id da
+	// própria URL; aqui ele serve para duas coisas: escolher uma visão que mostre blocos, e
+	// descobrir o dia quando a URL não trouxe `date`.
+	const agendamento = event.url.searchParams.get('agendamento');
+
+	// Semana e Mês não carregam bloco nenhum (doc 25 §10): um link para um agendamento numa
+	// dessas visões abriria uma barra de ocupação e drawer nenhum. Pedir o bloco implica a visão
+	// que mostra bloco — e a Lista, que já mostra, fica como está.
+	const pedidaView = parseView(event.url.searchParams.get('view'));
+	const view = agendamento && viewRendersCounts(pedidaView) ? 'dia' : pedidaView;
 
 	// "Pediram uma data" ≠ "mandaram alguma coisa em `?date=`": `?date=ontem` é lixo e cai no
 	// hoje da clínica como se não tivesse vindo nada. Sem esta distinção, uma URL inválida
 	// mostraria o dia errado.
 	const pedida = parseDateParam(event.url.searchParams.get('date'), '');
 
+	// **`date` na URL manda.** É a regra que mantém a tela previsível: enquanto o drawer está
+	// aberto a data viaja na URL junto do id, então remarcar um bloco para outro dia FECHA o
+	// drawer (o bloco sai da janela carregada) em vez de teleportar a recepção para outra data.
+	// Sem `date` — o link canônico, `/agenda?agendamento=<id>` — é o bloco que decide o dia.
+	//
 	// Só quem NÃO pediu data precisa saber que dia é na clínica antes de buscar — e é só o
 	// FUSO que falta para isso, porque o relógio é o do nosso próprio servidor. `event.parent()`
 	// põe o load do layout e o desta página em fila, então esperá-lo quando a data já veio na
 	// URL custaria um round-trip inteiro em toda navegação entre dias, sem usá-lo para nada.
-	const date = pedida || todayInZone(new Date().toISOString(), await fusoDaClinica(event));
+	const date =
+		pedida ||
+		(agendamento && (await diaDoBloco(event, agendamento))) ||
+		todayInZone(new Date().toISOString(), await fusoDaClinica(event));
 
 	// `?paciente=<id>` — o "Agendar" da ficha (doc 51 §L2). Resolve o paciente aqui para a tela
 	// poder abrir o modal já com ele escolhido; sem isso o botão devolveria a recepção à busca de
@@ -105,6 +124,26 @@ export const load: PageServerLoad = async (event) => {
 		today: todayInZone(agenda.data.agora, agenda.data.timezone)
 	};
 };
+
+// O DIA LOCAL do bloco de `?agendamento=<id>` — ou `null`.
+//
+// O `starts_at` é um instante UTC, e o dia da agenda é o da clínica: um bloco às 22h30 em São
+// Paulo é 01:30Z do dia seguinte, e pelo UTC o link abriria a agenda de amanhã, sem o bloco. O
+// fuso vem na resposta desta leitura para o cálculo não depender do `/me` (que poria o load do
+// layout na fila).
+//
+// `null` em tudo o que não resolve — id inventado, malformado, bloco excluído, de outra clínica
+// ou do colega (o recorte A7 vive na leitura do domínio): o link inválido abre o hoje da clínica.
+// Mesma decisão do `?paciente=` abaixo: conveniência de navegação não derruba tela.
+async function diaDoBloco(
+	event: Parameters<PageServerLoad>[0],
+	id: string
+): Promise<string | null> {
+	const { data } = await fetchAppointment(event, id);
+	if (!data?.appointment?.starts_at) return null;
+
+	return todayInZone(data.appointment.starts_at, data.timezone);
+}
 
 // O paciente de `?paciente=<id>`, no formato que o picker do modal entende.
 //

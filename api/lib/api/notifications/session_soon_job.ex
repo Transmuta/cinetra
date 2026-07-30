@@ -60,7 +60,7 @@ defmodule Api.Notifications.SessionSoonJob do
           Reminders.por_dono_da_coluna(clinic_id, de, ate, fn user_id, blocos ->
             # Um aviso por bloco: numa turma o profissional tem UM bloco, e dois blocos
             # distintos na mesma janela são dois compromissos de verdade.
-            Enum.each(blocos, &Fanout.session_soon(clinic_id, user_id, &1.starts_at, tz))
+            Enum.each(blocos, &Fanout.session_soon(clinic_id, user_id, &1, tz))
             length(blocos)
           end)
       end)

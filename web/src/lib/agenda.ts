@@ -936,6 +936,47 @@ export function serializeHiddenProfs(ids: string[]): string | null {
 }
 
 /**
+ * O link canônico de um agendamento — o que se manda para outra pessoa.
+ *
+ * **Sem `date` de propósito.** A agenda aberta na tela carrega a data na URL (é ela que fixa o
+ * dia e evita a tela pular sozinha quando um bloco é remarcado), mas um link que viaja não pode
+ * depender dela: quem recebe pode abri-lo depois de o bloco ter mudado de dia, e cairia num dia
+ * sem o bloco. Sem `date`, o servidor resolve o dia PELO BLOCO (`diaDoBloco`, em
+ * `agenda/+page.server.ts`) e o drawer abre sempre.
+ *
+ * O id é opaco (uuid) e vai como parâmetro — nada de nome de paciente na URL, que entraria em
+ * histórico de browser e log de proxy.
+ */
+export function appointmentLink(origin: string, id: string): string {
+	return `${origin}/agenda?agendamento=${encodeURIComponent(id)}`;
+}
+
+/**
+ * O link **interno** para um bloco: o dia **e** o id.
+ *
+ * Diferente do `appointmentLink` de propósito. Um link que viaja (WhatsApp, e-mail) não pode levar
+ * data, porque é aberto dias depois e o bloco pode ter mudado de dia. Um link que a própria
+ * aplicação mostra é lido em minutos, e aí a data vale mais: pela regra do load (`date` na URL
+ * manda), ela é o **degrau de queda** — se o bloco não estiver mais na janela (excluído, ou
+ * remarcado para outro dia), a tela ainda abre o dia sobre o qual o aviso falava, em vez de cair no
+ * hoje da clínica sem relação com o que se clicou.
+ *
+ * Aceita as duas metades como opcionais e devolve o link mais específico que der: sino, trilha,
+ * ficha e prévia de conflito têm cada um o seu jeito de saber o dia (ou de não saber).
+ */
+export function appointmentHref(
+	id: string | null | undefined,
+	date: string | null | undefined
+): string {
+	const params = new URLSearchParams();
+	if (date) params.set('date', date);
+	if (id) params.set('agendamento', id);
+
+	const qs = params.toString();
+	return qs ? `/agenda?${qs}` : '/agenda';
+}
+
+/**
  * O preset de "Novo agendamento" quando o gatilho é o BOTÃO, e não o clique numa célula vazia
  * (ACC-03, doc 83).
  *

@@ -67,6 +67,20 @@ describe('PatientHistory', () => {
 		expect(screen.getByText('pacote')).toBeInTheDocument();
 	});
 
+	// Doc 85: a linha é a presença, mas o que se abre é o BLOCO — é lá que estão a observação, o
+	// participante e o débito de pacote. Antes o histórico era leitura sem saída: para ver a sessão
+	// era preciso ir à agenda e caçar o dia.
+	//
+	// O dia vai no link junto do id: 11:00Z é 08:00 em São Paulo, do dia 20 — a asserção é o que
+	// impede o link de sair com o dia UTC.
+	it('cada linha abre o agendamento daquela sessão', () => {
+		render(PatientHistory, { sessions: [sessao()] });
+		expect(screen.getByRole('link', { name: /Pilates/ })).toHaveAttribute(
+			'href',
+			'/agenda?date=2026-07-20&agendamento=a1'
+		);
+	});
+
 	// doc 56: o aviso existia e era um beco sem saída — informava a truncagem e não oferecia o
 	// caminho. Agora a ficha abre com 8 linhas e o resto é um link que sobe o teto pela URL.
 	it('quando o servidor cortou a lista, oferece o caminho para o resto', () => {

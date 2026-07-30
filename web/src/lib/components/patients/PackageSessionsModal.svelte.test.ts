@@ -90,6 +90,16 @@ describe('PackageSessionsModal', () => {
 		expect(screen.getByText('Agendada')).toBeInTheDocument();
 	});
 
+	// Doc 85: é aqui que nasce a pergunta "por que esta ficou segurada / faltou?", e a resposta está
+	// no drawer daquele bloco. 11:00Z é 08:00 em São Paulo — o `date` do link é o dia local.
+	it('cada sessão abre o seu bloco na agenda', async () => {
+		vi.stubGlobal('fetch', mockFetch({}));
+		abrir();
+
+		const primeira = await screen.findByRole('link', { name: /Concluída/ });
+		expect(primeira).toHaveAttribute('href', '/agenda?date=2026-07-20&agendamento=p1');
+	});
+
 	it('mostra o contador do pacote e o nome do tipo', async () => {
 		vi.stubGlobal('fetch', mockFetch({}));
 		abrir();

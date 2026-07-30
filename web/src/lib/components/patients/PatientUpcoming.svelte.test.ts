@@ -54,6 +54,18 @@ describe('PatientUpcoming', () => {
 		expect(screen.getByText('2')).toBeInTheDocument();
 	});
 
+	// Doc 85: "quando ele volta?" é respondida aqui, mas a ação seguinte (remarcar, confirmar, ler a
+	// observação) mora no drawer daquela sessão — e não havia caminho da ficha até ele.
+	//
+	// 18:00Z é 15:00 em São Paulo, do mesmo dia; o `date` no link é o local, não o UTC.
+	it('cada linha abre o agendamento daquela sessão', () => {
+		render(PatientUpcoming, { sessions: [sessao()], patientId: 'pac1' });
+		expect(screen.getByRole('link', { name: /Pilates/ })).toHaveAttribute(
+			'href',
+			'/agenda?date=2026-09-25&agendamento=a1'
+		);
+	});
+
 	// O cartão para em 5 (`@proximas_na_ficha`): quem tem pacote de 20 sessões vê o resto na
 	// agenda dele, não numa lista de 20 linhas que refaz o problema do doc 56.
 	it('quando há mais, manda para a agenda do paciente', () => {

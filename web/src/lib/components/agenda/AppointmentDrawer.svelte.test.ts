@@ -128,6 +128,52 @@ describe('AppointmentDrawer', () => {
 			expect(screen.queryByTestId('drawer-tipo')).not.toBeInTheDocument();
 		});
 
+		// Copiar link. O que vai para a área de transferência é a forma CANÔNICA: só o id, sem a
+		// data que está na barra de endereço — é isso que faz o link continuar abrindo depois de o
+		// bloco ser remarcado para outro dia.
+		describe('copiar link', () => {
+			function comClipboard(writeText: () => Promise<void>) {
+				Object.defineProperty(navigator, 'clipboard', {
+					value: { writeText },
+					configurable: true
+				});
+			}
+
+			it('copia o link do agendamento SEM a data, e só então avisa', async () => {
+				const escrito: string[] = [];
+				comClipboard(async (...args: unknown[]) => {
+					escrito.push(String(args[0]));
+				});
+
+				const toasts: string[] = [];
+				render(AppointmentDrawer, {
+					props: { appt: appt(), ...base, onToast: (m: string) => toasts.push(m) }
+				});
+
+				await fireEvent.click(screen.getByRole('button', { name: /Copiar link/ }));
+
+				expect(escrito).toHaveLength(1);
+				expect(escrito[0]).toContain('/agenda?agendamento=a1');
+				expect(escrito[0]).not.toContain('date=');
+				expect(toasts).toEqual(['Link copiado']);
+			});
+
+			// "Copiado" sem ter copiado manda a colega colar uma mensagem em branco — é a mentira
+			// do doc 52 §6 outra vez, agora no clipboard.
+			it('clipboard recusado NÃO diz que copiou', async () => {
+				comClipboard(() => Promise.reject(new Error('NotAllowedError')));
+
+				const toasts: string[] = [];
+				render(AppointmentDrawer, {
+					props: { appt: appt(), ...base, onToast: (m: string) => toasts.push(m) }
+				});
+
+				await fireEvent.click(screen.getByRole('button', { name: /Copiar link/ }));
+
+				expect(toasts).toEqual(['Não foi possível copiar o link.']);
+			});
+		});
+
 		// O status saiu do cabeçalho, mas continua sendo a primeira coisa do corpo — e continua
 		// saindo de `statusSignal` (achado A).
 		it('o status desceu para o corpo, com o encaixe ao lado', () => {

@@ -10,7 +10,7 @@
 	// ficha já faz seis em paralelo no `load`.
 	import Loader from '@lucide/svelte/icons/loader-circle';
 	import Modal from '$lib/components/Modal.svelte';
-	import { zonedParts, m2t } from '$lib/agenda';
+	import { appointmentHref, zonedParts, m2t } from '$lib/agenda';
 	import type { Package as Pkg } from '$lib/packages';
 
 	type Sessao = {
@@ -71,7 +71,7 @@
 		},
 		agendada: { label: 'Agendada', classe: 'border-edge-strong', estilo: '' },
 		segurada: { label: 'Segurada', classe: 'border-dashed border-faint opacity-60', estilo: '' },
-		falta: { label: 'Falta', classe: 'border-transparent bg-danger', estilo: '' }
+		falta: { label: 'Falta', classe: 'border-transparent bg-danger-solid', estilo: '' }
 	};
 
 	const DOW = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
@@ -119,16 +119,23 @@
 
 		<ul class="flex max-h-72 flex-col divide-y divide-edge overflow-y-auto">
 			{#each sessoes as s, i (s.attendance_id)}
-				<li class="flex items-center gap-2.5 py-2">
-					<span class="w-5 shrink-0 text-right font-mono text-[10px] text-faint">{i + 1}</span>
-					<span
-						class="box-border size-3.5 shrink-0 rounded-full border-2 {ESTADO[s.estado].classe}"
-						style={ESTADO[s.estado].estilo}
-					></span>
-					<span class="min-w-0 flex-1 text-[12.5px] font-medium">{quando(s.starts_at)}</span>
-					<span class="shrink-0 text-[11.5px] font-semibold text-muted">
-						{ESTADO[s.estado].label}
-					</span>
+				<li>
+					<!-- Cada sessão abre o seu bloco na agenda (doc 85). É a lista onde a pergunta "por
+					     que esta ficou segurada / faltou?" nasce, e a resposta está no drawer. -->
+					<a
+						href={appointmentHref(s.appointment_id, zonedParts(s.starts_at, timezone).date)}
+						class="flex items-center gap-2.5 rounded-md py-2 hover:bg-surface-2"
+					>
+						<span class="w-5 shrink-0 text-right font-mono text-[10px] text-faint">{i + 1}</span>
+						<span
+							class="box-border size-3.5 shrink-0 rounded-full border-2 {ESTADO[s.estado].classe}"
+							style={ESTADO[s.estado].estilo}
+						></span>
+						<span class="min-w-0 flex-1 text-[12.5px] font-medium">{quando(s.starts_at)}</span>
+						<span class="shrink-0 text-[11.5px] font-semibold text-muted">
+							{ESTADO[s.estado].label}
+						</span>
+					</a>
 				</li>
 			{/each}
 		</ul>
