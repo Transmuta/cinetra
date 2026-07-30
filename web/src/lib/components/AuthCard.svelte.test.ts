@@ -33,6 +33,22 @@ describe('AuthCard', () => {
 		expect(queryByRole('link', { name: /Voltar ao site/ })).toBeNull();
 	});
 
+	it('fixa o tema claro no próprio nó — entrada e onboarding não seguem o dark mode', () => {
+		const { container } = render(AuthCard, {
+			props: { title: 'Entrar', children: snippet('x') }
+		});
+
+		// A raiz da tela carrega o tema: os tokens `--mv-*` são re-declarados aqui (app.css) e
+		// tudo que está dentro — inclusive os controles do onboarding, que usam `bg-surface` e
+		// `text-ink` — resolve pelo claro, mesmo com o <html> em `data-theme="dark"`.
+		// O elo do lado do CSS está em `styles/tema-escopo.test.ts`; a prova visual, no e2e.
+		const raiz = container.querySelector('.cn-root');
+		expect(raiz).toHaveAttribute('data-theme', 'light');
+		// `color-scheme` é o par obrigatório: sem ele o browser continua pintando as superfícies
+		// que ele mesmo desenha (scrollbar, autofill, seletor de data) no escuro do sistema.
+		expect(raiz?.getAttribute('style')).toContain('color-scheme:light');
+	});
+
 	it('mantém o gancho que colapsa o split no mobile', () => {
 		const { container } = render(AuthCard, {
 			props: { title: 'Entrar', children: snippet('x') }

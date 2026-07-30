@@ -19,10 +19,21 @@
 
 <!-- Auth em split (Cinetra Landing.dc.html): painel de marca navy à esquerda + painel de
      formulário papel à direita. Até 900px sobra só o formulário, ocupando a tela inteira —
-     `cn-authsplit` é o gancho que colapsa a coluna vazia (cinetra.css). -->
+     `cn-authsplit` é o gancho que colapsa a coluna vazia (cinetra.css).
+
+     `data-theme="light"`: estas telas (entrar, criar-conta, comecar) NÃO seguem o tema do
+     usuário — são o papel/navy da marca, que é pigmento e não superfície de app. O atributo
+     re-declara os tokens claros aqui (app.css, bloco do tema claro), então o que está dentro
+     resolve pelo claro mesmo com o <html> em `data-theme="dark"`. Sem isso, o `/comecar` ficava
+     com card de papel e campo quase-preto: é a única das três que usa os controles do design
+     system (`Field`, `Button`) em vez dos hex do protótipo.
+
+     `color-scheme:light` é o par obrigatório do atributo — ele governa o que o BROWSER pinta
+     (scrollbar, autofill, seletor nativo), que nenhuma custom property alcança. -->
 <div
 	class="cn-root cn-authsplit"
-	style="min-height:100dvh;display:grid;grid-template-columns:1fr 1fr"
+	data-theme="light"
+	style="color-scheme:light;min-height:100dvh;display:grid;grid-template-columns:1fr 1fr"
 >
 	<!-- painel de marca -->
 	<div
