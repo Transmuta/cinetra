@@ -239,6 +239,8 @@ export async function criarAgendamento(
 		appointment_type_id: string;
 		patient_ids: string[];
 		obs?: string;
+		/** Fora do expediente só entra como encaixe (RN-12) — o cenário da borda do dia usa isto. */
+		encaixe?: boolean;
 	}
 ): Promise<Agendamento> {
 	const body = await post<{ appointment: Agendamento }>(api, '/api/appointments', input);

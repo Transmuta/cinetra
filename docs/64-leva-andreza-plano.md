@@ -63,7 +63,7 @@ e **um item novo entrou**.
 | `AN-10` | Duplicado por nome + nascimento (HOM-013, resto) | **P** | ✅ **construído** ([§4c](#4c-o-que-foi-construído-an-06-08-10-e-11)) |
 | `AN-11` | Validação de CPF/e-mail/nascimento (HOM-012) | **P** | ✅ **construído** ([§4c](#4c-o-que-foi-construído-an-06-08-10-e-11)) |
 | `AN-12` | Fila: UI "quem cabe aqui" (HOM-018) | **P** | ✅ **construído** ([§4b](#4b-o-que-foi-construído-an-12)) |
-| `AN-13` | Rodar o roteiro §06 como QA guiado (HOM-030) | **P** | pronto — a única que resta |
+| `AN-13` | Rodar o roteiro §06 como QA guiado (HOM-030) | **P** | 🟡 **roteiro pronto** ([doc 82](82-roteiro-qa-guiado.md) — a app inteira, fluxo a fluxo); falta **executar** |
 | `AN-14` | Pacote na agenda: progresso (HOM-019/020) | **M** | ✅ **construído** — entregue pelo redesenho do drawer ([doc 75](75-drawer-do-agendamento.md)): selo `3/10` no card individual, pacote por participante no drawer, na forma exata da D12 |
 
 **Todas as 11 entram nesta leva**, na ordem da [§6](#6-ordem-sugerida).
