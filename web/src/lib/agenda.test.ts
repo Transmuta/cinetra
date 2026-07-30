@@ -30,9 +30,11 @@ import {
 	packageBadge,
 	packageDebit,
 	shortDayLabel,
+	presetDoBotao,
 	type Appointment,
 	type Participant
 } from './agenda';
+import type { Period } from './scheduling';
 
 const SP = 'America/Sao_Paulo';
 
@@ -761,5 +763,36 @@ describe('ciclo de vida (Entrega 4)', () => {
 				tone: null
 			});
 		});
+	});
+});
+
+// ACC-03 (doc 83, WCAG 2.1.1): criar agendamento só existia por ponteiro. O botão "Novo
+// agendamento" precisa de um preset, e este é o palpite — primeiro profissional VISÍVEL e o
+// começo do expediente dele.
+describe('presetDoBotao', () => {
+	const profs = [{ id: 'p1' }, { id: 'p2' }];
+	const disp = [
+		{ professional_id: 'p1', date: '2026-08-03', periods: [['09:30', '12:00']] as Period[] },
+		{ professional_id: 'p2', date: '2026-08-03', periods: [['13:00', '18:00']] as Period[] }
+	];
+
+	it('pega o primeiro profissional e o início do expediente dele', () => {
+		expect(presetDoBotao(profs, [], disp)).toEqual({ professional_id: 'p1', hora: '09:30' });
+	});
+
+	it('respeita o filtro da sidebar — profissional oculto não é preselecionado', () => {
+		expect(presetDoBotao(profs, ['p1'], disp)).toEqual({ professional_id: 'p2', hora: '13:00' });
+	});
+
+	it('sem expediente no dia, cai em 08:00 em vez de campo vazio', () => {
+		const semGrade = [{ professional_id: 'p1', date: '2026-08-03', periods: [] as Period[] }];
+		expect(presetDoBotao(profs, [], semGrade)).toEqual({ professional_id: 'p1', hora: '08:00' });
+		// Profissional sem entrada nenhuma na disponibilidade também.
+		expect(presetDoBotao(profs, [], [])).toEqual({ professional_id: 'p1', hora: '08:00' });
+	});
+
+	it('devolve null quando TODOS estão ocultos — não há coluna para abrir o modal', () => {
+		expect(presetDoBotao(profs, ['p1', 'p2'], disp)).toBeNull();
+		expect(presetDoBotao([], [], disp)).toBeNull();
 	});
 });

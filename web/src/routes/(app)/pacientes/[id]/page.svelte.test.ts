@@ -1,11 +1,13 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import '@testing-library/jest-dom/vitest';
 import { render, screen, cleanup } from '@testing-library/svelte';
+import { flushSync } from 'svelte';
 
 vi.mock('$app/forms', () => ({ enhance: () => ({ destroy() {} }) }));
 vi.mock('$app/navigation', () => ({ invalidateAll: vi.fn() }));
 
 import Page from './+page.svelte';
+import { currentToast, dismissToast } from '$lib/toast.svelte';
 import type { Patient } from '$lib/patients';
 
 // O paciente do dia a dia: nome, telefone e convênio preenchidos, o resto em branco. Medido ao
@@ -185,5 +187,60 @@ describe('ficha do paciente — o repetido (M2, doc 56)', () => {
 		// os dois fatos continuam na tela
 		expect(screen.getByText('Consentimento LGPD')).toBeInTheDocument();
 		expect(screen.getByText(/contato autorizado/i)).toBeInTheDocument();
+	});
+});
+
+// A ficha ligava `form.error` a UM lugar só — o modal da grade do pacote — e ele só existe
+// enquanto está aberto. Então arquivar o paciente, ou o 422 do arquivar-pacote ("ainda há sessão
+// futura", que o próprio servidor documenta como "o erro vai para a tela"), sumiam: o botão
+// parava de girar e nada mais acontecia.
+describe('ficha do paciente — falha de action', () => {
+	beforeEach(() => dismissToast());
+
+	it('erro do arquivar o PACIENTE vira toast de erro', () => {
+		render(Page, {
+			data: data(),
+			form: { action: 'deactivate', error: 'Você não tem permissão para esta ação.' } as never
+		});
+		flushSync();
+
+		expect(currentToast()?.message).toBe('Você não tem permissão para esta ação.');
+		expect(currentToast()?.variant).toBe('error');
+	});
+
+	it('erro do arquivar o PACOTE vira toast de erro', () => {
+		render(Page, {
+			data: data(),
+			form: { action: 'archivePackage', error: 'Ainda há sessão futura neste pacote.' } as never
+		});
+		flushSync();
+
+		expect(currentToast()?.message).toBe('Ainda há sessão futura neste pacote.');
+	});
+
+	it('falha sem mensagem cai na genérica — nunca em silêncio', () => {
+		render(Page, { data: data(), form: { action: 'pausePackage' } as never });
+		flushSync();
+
+		expect(currentToast()?.message).toBe('Não foi possível concluir a ação.');
+	});
+
+	// A exceção deliberada: a grade tem modal aberto, e o erro mora DENTRO dele (com o que a
+	// pessoa preencheu à vista). Um toast em cima seria a mesma frase duas vezes.
+	it('erro da GRADE não vira toast — ele fica dentro do modal', () => {
+		render(Page, {
+			data: data(),
+			form: { action: 'grade', error: 'Escolha o profissional, os dias e o horário.' } as never
+		});
+		flushSync();
+
+		expect(currentToast()).toBeNull();
+	});
+
+	it('sucesso não vira toast de erro', () => {
+		render(Page, { data: data(), form: { ok: true, action: 'deactivate' } as never });
+		flushSync();
+
+		expect(currentToast()).toBeNull();
 	});
 });

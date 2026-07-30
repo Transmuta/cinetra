@@ -69,37 +69,42 @@ function historyLimit(url: URL): number {
 
 // Arquivar/reativar vive aqui (não no formulário): é reversível e o `enhance` recarrega a ficha.
 // Owner/admin apenas — a policy da API barra os demais (403 → mensagem).
+// O `action` viaja em TODA falha porque a tela decide por ele onde a mensagem aparece: o erro da
+// grade fica dentro do modal que está aberto (com o que a pessoa preencheu à vista), e todo o
+// resto vira toast. Sem o rótulo, a ficha não tinha como distinguir os dois casos — e escolheu
+// mostrar só o primeiro, deixando arquivar paciente e o ciclo de vida do pacote em silêncio.
 export const actions: Actions = {
 	deactivate: async (event) => {
 		const res = await deactivatePatient(event, event.params.id);
-		if (!res.ok) return fail(res.status, { error: res.error });
+		if (!res.ok) return fail(res.status, { action: 'deactivate', error: res.error });
 		return { archived: true };
 	},
 	reactivate: async (event) => {
 		const res = await reactivatePatient(event, event.params.id);
-		if (!res.ok) return fail(res.status, { error: res.error });
+		if (!res.ok) return fail(res.status, { action: 'reactivate', error: res.error });
 		return { archived: false };
 	},
 
 	// Ciclo de vida do pacote (Fatia 3): pausar/retomar/cancelar operam sobre a série inteira. O
 	// `id` do pacote chega do form; o `enhance` recarrega a ficha com os contadores atualizados.
-	pausePackage: (event) => lifecycle(event, pausePackage),
-	resumePackage: (event) => lifecycle(event, resumePackage),
-	cancelPackage: (event) => lifecycle(event, cancelPackage),
+	pausePackage: (event) => lifecycle(event, 'pausePackage', pausePackage),
+	resumePackage: (event) => lifecycle(event, 'resumePackage', resumePackage),
+	cancelPackage: (event) => lifecycle(event, 'cancelPackage', cancelPackage),
 	// Arquivar (D1): fecha o pacote em `concluido`. A tela só oferece com 0 restantes, mas quem
 	// decide é o servidor — ele recusa (422) se sobrou sessão futura, e o erro dele vai para a tela.
-	archivePackage: (event) => lifecycle(event, archivePackage),
+	archivePackage: (event) => lifecycle(event, 'archivePackage', archivePackage),
 
 	// O `+`/`−` do ADR-011 (não há renovação: o total é editável sobre o mesmo pacote). O `−` não
 	// escolhe a sessão — o servidor tira a última FUTURA (D3), para o cliente não alcançar o passado.
-	addPackageSession: (event) => lifecycle(event, addPackageSession),
-	removePackageSession: (event) => lifecycle(event, removePackageSession),
+	addPackageSession: (event) => lifecycle(event, 'addPackageSession', addPackageSession),
+	removePackageSession: (event) => lifecycle(event, 'removePackageSession', removePackageSession),
 
 	// Ajustar a grade (contrato 09:441): remarca as sessões futuras para os dias/horários novos.
+	// `action: 'grade'` é o que faz o erro ficar DENTRO do modal em vez de virar toast.
 	adjustPackageGrade: async (event) => {
 		const data = await event.request.formData();
 		const id = String(data.get('package_id') ?? '');
-		if (!id) return fail(400, { error: 'Pacote não informado.' });
+		if (!id) return fail(400, { action: 'grade', error: 'Pacote não informado.' });
 
 		const dows = String(data.get('dows') ?? '')
 			.split(',')
@@ -117,24 +122,28 @@ export const actions: Actions = {
 		const professional_id = String(data.get('professional_id') ?? '');
 
 		if (!dows.length || dows.some((d) => !horarios[String(d)]) || !professional_id) {
-			return fail(400, { error: 'Escolha o profissional, os dias e o horário de cada dia.' });
+			return fail(400, {
+				action: 'grade',
+				error: 'Escolha o profissional, os dias e o horário de cada dia.'
+			});
 		}
 
 		const res = await adjustPackageGrade(event, id, { dows, horarios, professional_id });
-		if (!res.ok) return fail(res.status || 400, { error: res.error });
+		if (!res.ok) return fail(res.status || 400, { action: 'grade', error: res.error });
 		return { ok: true };
 	}
 };
 
 async function lifecycle(
 	event: Parameters<Actions[string]>[0],
+	action: string,
 	fn: (e: typeof event, id: string) => Promise<{ ok: boolean; status: number; error?: string }>
 ) {
 	const data = await event.request.formData();
 	const id = String(data.get('package_id') ?? '');
-	if (!id) return fail(400, { error: 'Pacote não informado.' });
+	if (!id) return fail(400, { action, error: 'Pacote não informado.' });
 
 	const res = await fn(event, id);
-	if (!res.ok) return fail(res.status, { error: res.error });
+	if (!res.ok) return fail(res.status, { action, error: res.error });
 	return { ok: true };
 }

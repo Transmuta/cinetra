@@ -65,4 +65,36 @@ describe('Modal (shell)', () => {
 		expect(document.activeElement).toBe(gatilho);
 		gatilho.remove();
 	});
+
+	// ACC-07 (doc 83, WCAG 2.1.2/2.4.3): o passo 2 de 2. Medido no browser, o foco escapava do
+	// diálogo no 7º Tab e caía no `body` — a tela de trás, que o `aria-modal` esconde do leitor
+	// de tela mas não do Tab.
+	it('o Tab circula dentro do diálogo e não escapa para o fundo', async () => {
+		const fundo = document.createElement('button');
+		fundo.textContent = 'atrás do overlay';
+		document.body.appendChild(fundo);
+
+		const { getByRole, getByLabelText } = render(Modal, {
+			props: { title: 'T', onClose: noop, children: body, footer }
+		});
+		const painel = getByRole('dialog');
+		const fechar = getByLabelText('Fechar');
+		const acao = getByRole('button', { name: 'ação' });
+
+		// Do ÚLTIMO focável, Tab volta ao primeiro (em vez de sair para `fundo`).
+		acao.focus();
+		await fireEvent.keyDown(painel, { key: 'Tab' });
+		expect(document.activeElement).toBe(fechar);
+
+		// Do PRIMEIRO, Shift+Tab vai ao último.
+		await fireEvent.keyDown(painel, { key: 'Tab', shiftKey: true });
+		expect(document.activeElement).toBe(acao);
+
+		// E do próprio painel (onde o foco pousa ao abrir), Shift+Tab também não sai.
+		painel.focus();
+		await fireEvent.keyDown(painel, { key: 'Tab', shiftKey: true });
+		expect(document.activeElement).toBe(acao);
+
+		fundo.remove();
+	});
 });

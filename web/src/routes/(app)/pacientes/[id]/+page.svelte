@@ -18,6 +18,8 @@
 	import ArchiveRestore from '@lucide/svelte/icons/archive-restore';
 	import CalendarPlus from '@lucide/svelte/icons/calendar-plus';
 	import { initials } from '$lib/format';
+	import { avatarStyle } from '$lib/avatar';
+	import { toast } from '$lib/toast.svelte';
 	import { patientColor, convLabel, idade, prefNomes, canManagePatients } from '$lib/patients';
 	import { canManageAttachments } from '$lib/attachments';
 	import PackageList from '$lib/components/patients/PackageList.svelte';
@@ -48,6 +50,18 @@
 	// A grade fecha no sucesso; o erro mantém o modal aberto, com a mensagem do servidor.
 	$effect(() => {
 		if (form?.ok) ajustandoGrade = null;
+	});
+
+	// Falha de action vira toast — MENOS a da grade, que tem modal aberto e mostra a mensagem lá
+	// dentro (repetir seria a mesma frase duas vezes, uma delas por cima do que a pessoa digitou).
+	//
+	// Este era o buraco: `form.error` só estava ligado ao modal da grade, e ele só existe enquanto
+	// está aberto. Arquivar o paciente sem permissão, ou o 422 do arquivar-pacote ("ainda há sessão
+	// futura" — que o próprio servidor documenta como "o erro vai para a tela"), paravam o giro do
+	// botão e não diziam mais nada.
+	$effect(() => {
+		if (!form || form.ok || form.action === 'grade') return;
+		toast(form.error ?? 'Não foi possível concluir a ação.', 'error');
 	});
 
 	// O título do modal da trilha é o do TIPO — a mesma identidade que o cartão usa.
@@ -254,8 +268,8 @@
 	<div class="mb-4 rounded-2xl border border-edge bg-surface p-5 md:px-6 md:py-[22px]">
 		<div class="flex flex-wrap items-start gap-4">
 			<span
-				class="grid size-[54px] shrink-0 place-items-center rounded-full text-[20px] font-bold text-white md:size-16"
-				style="background:{patientColor(p.cor_indice)}"
+				class="grid size-[54px] shrink-0 place-items-center rounded-full text-[20px] font-bold md:size-16"
+				style={avatarStyle(p.cor_indice)}
 			>
 				{initials(p.nome)}
 			</span>

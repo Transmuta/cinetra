@@ -25,6 +25,21 @@ describe('Topbar', () => {
 		expect(getByRole('button', { name: 'Abrir menu' })).toBeInTheDocument();
 	});
 
+	// ACC-08 (doc 83): o hambúrguer comanda a gaveta, e quem usa leitor de tela precisa saber se
+	// ela está aberta — senão o botão é um destino sem estado.
+	it('o hambúrguer declara se a gaveta está aberta e o que ele controla', () => {
+		const fechado = render(Topbar, { props: { pathname: '/agenda', me } });
+		const botao = fechado.getByRole('button', { name: 'Abrir menu' });
+		expect(botao).toHaveAttribute('aria-expanded', 'false');
+		expect(botao).toHaveAttribute('aria-controls', 'menu-navegacao');
+
+		const aberto = render(Topbar, { props: { pathname: '/agenda', me, menuAberto: true } });
+		expect(aberto.getByRole('button', { name: 'Fechar menu' })).toHaveAttribute(
+			'aria-expanded',
+			'true'
+		);
+	});
+
 	it('não traz mais o toggle de tema (foi para o rail)', () => {
 		const { queryByRole } = render(Topbar, { props: { pathname: '/agenda', me } });
 		expect(queryByRole('button', { name: /tema/i })).toBeNull();

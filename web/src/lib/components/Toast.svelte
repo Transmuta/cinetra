@@ -13,12 +13,26 @@
 	const active = $derived(currentToast());
 </script>
 
-{#if active}
-	<!-- o wrapper centraliza; o pill é quem anima (mvFade mexe em transform, e animar
-	     o próprio elemento centralizado por translateX faria o pill pular no fim) -->
-	<div class="pointer-events-none fixed inset-x-0 bottom-5.5 z-[60] flex justify-center px-4">
+<!--
+	A região de status é SEMPRE montada, e vazia enquanto não há toast (ACC-05, doc 83).
+
+	Antes o `{#if}` embrulhava o próprio `role="status"`: região e conteúdo nasciam no mesmo
+	instante, e uma live region que já aparece preenchida tipicamente **não é anunciada** — o
+	leitor de tela precisa observar a mudança dentro de uma região que já existia. Como este toast
+	é o feedback de salvar/excluir/arquivar de todo o app, o efeito prático era que quase nenhuma
+	confirmação de ação chegava a quem não vê a tela.
+
+	O wrapper centraliza; o pill é quem anima (mvFade mexe em transform, e animar o próprio
+	elemento centralizado por translateX faria o pill pular no fim).
+-->
+<div
+	role="status"
+	aria-live="polite"
+	aria-atomic="true"
+	class="pointer-events-none fixed inset-x-0 bottom-5.5 z-60 flex justify-center px-4"
+>
+	{#if active}
 		<div
-			role="status"
 			class="flex animate-fade items-center gap-2 rounded-[10px] bg-primary px-4 py-2.5 text-[13px] font-semibold text-on-primary shadow-toast"
 		>
 			{#if active.variant === 'error'}
@@ -28,5 +42,5 @@
 			{/if}
 			{active.message}
 		</div>
-	</div>
-{/if}
+	{/if}
+</div>

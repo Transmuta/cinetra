@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import '@testing-library/jest-dom/vitest';
-import { render } from '@testing-library/svelte';
+import { render, fireEvent } from '@testing-library/svelte';
 
 import Page from './+page.svelte';
 import type { ReportsData } from '$lib/reports';
@@ -65,26 +65,50 @@ describe('Relatórios — render', () => {
 	// total, e a ocupação é minutos, não sessões. A asserção é sobre a FÓRMULA, não sobre o
 	// texto bonito: se a conta do servidor mudar e ninguém atualizar aqui, a tela passa a
 	// explicar errado — que é pior do que não explicar.
+	//
+	// ACC-10 (doc 83) — a primeira entrega pendurou a explicação num `title=` de <div> e num
+	// `aria-label` de <span> sem role (atributo PROIBIDO, que a tecnologia assistiva ignora).
+	// Ou seja: existia só para quem usa mouse e vê a tela — no celular, onde não há hover, o
+	// número voltava a ser um número sem conta. Agora é botão + diálogo, alcançável pelo dedo,
+	// pelo Tab e pelo leitor de tela.
 	describe('a fórmula de cada KPI está na tela', () => {
-		it('taxa de falta diz que o denominador são as sessões fechadas', () => {
-			const { getByLabelText } = render(Page, { props: { data: data() as never } });
-			const explicacao = getByLabelText(/Como este número é calculado.*Faltas ÷/i);
-			expect(explicacao).toHaveAccessibleName(/concluídos \+ faltas/i);
-			expect(explicacao).toHaveAccessibleName(/já fecharam/i);
+		it('cada um dos cinco KPIs tem um BOTÃO de explicação — não hover', () => {
+			const { getAllByRole } = render(Page, { props: { data: data() as never } });
+			const botoes = getAllByRole('button', { name: /como .+ é calculad/i });
+
+			expect(botoes).toHaveLength(5);
+			// A regressão do ACC-10 em si: se isto voltar a ser <span>, o toque e o teclado
+			// perdem a explicação de novo — e nenhuma outra asserção deste arquivo perceberia.
+			for (const b of botoes) expect(b.tagName).toBe('BUTTON');
 		});
 
-		it('ocupação diz que é minuto, e mostra o par da divisão', () => {
-			const { getByLabelText } = render(Page, { props: { data: data() as never } });
+		it('taxa de falta abre o diálogo dizendo que o denominador são as sessões fechadas', async () => {
+			const { getByRole } = render(Page, { props: { data: data() as never } });
+			await fireEvent.click(getByRole('button', { name: /como taxa de falta é calculad/i }));
+
+			const dialogo = getByRole('dialog');
+			expect(dialogo).toHaveTextContent(/Faltas ÷ \(concluídos \+ faltas\)/i);
+			expect(dialogo).toHaveTextContent(/já fecharam/i);
+		});
+
+		it('ocupação diz que é minuto, e mostra o par da divisão', async () => {
+			const { getByRole } = render(Page, { props: { data: data() as never } });
+			await fireEvent.click(getByRole('button', { name: /como ocupação é calculad/i }));
+
 			// 300 e 540 vêm do `report()` — a explicação carrega os números reais do período,
 			// senão vira prosa genérica que não ajuda a conferir.
-			expect(getByLabelText(/Minutos ocupados ÷ minutos de expediente/i)).toHaveAccessibleName(
-				/300 de 540 min/
-			);
+			const dialogo = getByRole('dialog');
+			expect(dialogo).toHaveTextContent(/Minutos ocupados ÷ minutos de expediente/i);
+			expect(dialogo).toHaveTextContent(/300 de 540 min/);
 		});
 
-		it('todos os cinco KPIs explicam a própria conta', () => {
-			const { getAllByLabelText } = render(Page, { props: { data: data() as never } });
-			expect(getAllByLabelText(/Como este número é calculado/i)).toHaveLength(5);
+		it('o diálogo fecha, e só um abre por vez', async () => {
+			const { getByRole, queryByRole } = render(Page, { props: { data: data() as never } });
+			await fireEvent.click(getByRole('button', { name: /como atendimentos é calculad/i }));
+			expect(getByRole('dialog')).toHaveTextContent(/exceto os cancelados/i);
+
+			await fireEvent.click(getByRole('button', { name: 'Fechar' }));
+			expect(queryByRole('dialog')).not.toBeInTheDocument();
 		});
 	});
 

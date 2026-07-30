@@ -295,4 +295,26 @@ describe('PatientForm — edição', () => {
 		});
 		expect(getByText('Nome do convênio')).toBeInTheDocument();
 	});
+
+	// ACC-04 (doc 83, WCAG 3.3.1/4.1.3): o erro do servidor vivia num `<span class="hidden … md:flex">`.
+	// Abaixo de `md` o lugar dele era um `<div>` VAZIO: a pessoa salvava no celular, o 422 voltava
+	// ("CPF já cadastrado") e a tela não dizia nada. E em nenhuma largura era live region, então o
+	// leitor de tela também não recebia.
+	it('o erro do servidor é anunciado e aparece em QUALQUER largura', () => {
+		const { getByRole } = render(PatientForm, {
+			props: { professionals, error: 'CPF já cadastrado para outro paciente.' }
+		});
+
+		const aviso = getByRole('alert');
+		expect(aviso).toHaveTextContent('CPF já cadastrado para outro paciente.');
+		// A classe não pode esconder o aviso numa faixa de largura — era o defeito.
+		expect(aviso.className).not.toContain('hidden');
+		expect(aviso.className).not.toContain('md:flex');
+	});
+
+	it('a DICA neutra não é alert (senão o leitor de tela a anunciaria a cada toque)', () => {
+		const { queryByRole, getByText } = render(PatientForm, { props: { professionals } });
+		expect(queryByRole('alert')).toBeNull();
+		expect(getByText(/Nome e telefone são obrigatórios/)).toBeInTheDocument();
+	});
 });

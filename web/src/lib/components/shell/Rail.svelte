@@ -55,9 +55,13 @@
 	class="flex w-14 shrink-0 flex-col items-center gap-1 bg-rail py-3"
 >
 	<!-- Marca Cinetra (símbolo) sobre ladrilho claro, p/ contraste no rail escuro. -->
+	<!-- ACC-25 (doc 83): o nome saía só do `title`, que é mecanismo de ÚLTIMO recurso — e este é o
+	     primeiro ponto de tabulação do app. O `aria-label` diz também para onde vai; o `title` fica
+	     para o tooltip do mouse. -->
 	<a
 		href="/"
 		title="Cinetra"
+		aria-label="Cinetra — página inicial"
 		class="mb-2.5 grid size-[34px] place-items-center rounded-[9px] bg-white"
 	>
 		<Mark class="size-6" />
@@ -96,7 +100,7 @@
 		<Bell size={18} />
 		{#if unread > 0}
 			<span
-				class="absolute -right-0.5 -top-0.5 grid h-3.75 min-w-3.75 place-items-center rounded-full border-[1.5px] border-rail bg-teal px-0.75 text-[9px] font-semibold leading-none text-white"
+				class="absolute -right-0.5 -top-0.5 grid h-3.75 min-w-3.75 place-items-center rounded-full border-[1.5px] border-rail bg-teal px-0.75 text-[9px] font-semibold leading-none text-on-solid"
 			>
 				{badge}
 			</span>

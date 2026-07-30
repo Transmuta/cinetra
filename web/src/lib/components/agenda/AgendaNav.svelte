@@ -7,6 +7,7 @@
 	// em `shiftByView`, testado à parte.
 	import ChevronLeft from '@lucide/svelte/icons/chevron-left';
 	import ChevronRight from '@lucide/svelte/icons/chevron-right';
+	import Plus from '@lucide/svelte/icons/plus';
 	import { VIEWS, VIEW_LABELS, shiftByView, viewLabel, type AgendaView } from '$lib/agenda-views';
 	import DayViewers from './DayViewers.svelte';
 
@@ -16,7 +17,8 @@
 		view = 'dia',
 		viewers = [],
 		onDate,
-		onView
+		onView,
+		onNew = undefined
 	}: {
 		date: string;
 		today: string;
@@ -25,6 +27,11 @@
 		viewers?: string[];
 		onDate: (date: string) => void;
 		onView: (view: AgendaView) => void;
+		/**
+		 * Abrir o modal de criar (ACC-03). Ausente = sem botão: é assim que quem não pode criar, ou
+		 * o dia sem nenhuma coluna visível, deixa de ver uma ação que não levaria a nada.
+		 */
+		onNew?: () => void;
 	} = $props();
 
 	const label = $derived(viewLabel(date, today, view));
@@ -81,6 +88,25 @@
 	</div>
 
 	<DayViewers nomes={viewers} />
+
+	<!--
+		ACC-03 (doc 83, WCAG 2.1.1 — nível A): até aqui criar agendamento existia SÓ por ponteiro —
+		clique numa célula vazia (um `div onclick`) ou arraste. A sonda de teclado listou os focáveis
+		do `<main>` da agenda: oito, todos de navegação. Este botão é o caminho de teclado, e reusa o
+		mesmo modal do clique na célula (só sem preset de hora vinda do pixel).
+
+		Só aparece com `onNew`: quem não pode criar (a policy é a autoridade; aqui é espelho de UX)
+		não recebe o callback, e o botão não existe em vez de existir e recusar.
+	-->
+	{#if onNew}
+		<button
+			type="button"
+			onclick={onNew}
+			class="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3 text-[12.5px] font-semibold text-on-primary hover:bg-primary-hover"
+		>
+			<Plus size={15} /> Novo agendamento
+		</button>
+	{/if}
 
 	<div class="flex items-center gap-0.5 rounded-lg border border-edge bg-surface-2 p-0.5">
 		{#each VIEWS as key (key)}

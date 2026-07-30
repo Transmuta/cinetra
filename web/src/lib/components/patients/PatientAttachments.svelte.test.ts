@@ -26,7 +26,7 @@ const anexo = (over: Partial<Attachment> = {}): Attachment => ({
 function montar(over: Partial<Parameters<typeof render>[1]> = {}) {
 	const onChanged = vi.fn();
 
-	render(PatientAttachments, {
+	const utils = render(PatientAttachments, {
 		patientId: 'p1',
 		attachments: [],
 		limites,
@@ -34,7 +34,7 @@ function montar(over: Partial<Parameters<typeof render>[1]> = {}) {
 		...(over as object)
 	});
 
-	return { onChanged };
+	return { onChanged, ...utils };
 }
 
 beforeEach(() => {
@@ -91,6 +91,25 @@ describe('PatientAttachments — estados da seção', () => {
 		const input = container.querySelector('input[type="file"]');
 		expect(input?.getAttribute('accept')).toBe(limites.tipos.join(','));
 		expect(input?.getAttribute('accept')).not.toContain('*');
+	});
+
+	// ACC-01 (doc 83, WCAG 2.1.1 — nível A). O input era `class="hidden"`, e `display:none` tira o
+	// elemento da ordem de tabulação INTEIRA: o único gatilho sobrava a `<label>`, que não é
+	// focável. Medido no browser, não havia caminho de teclado nenhum para anexar — nem Tab, nem
+	// Enter, e o arraste é só ponteiro.
+	it('o input de arquivo é alcançável por teclado (escondido, não removido)', () => {
+		const { container } = montar();
+		const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+
+		expect(input).not.toBeNull();
+		// `sr-only` esconde SEM tirar da tabulação; `hidden` (display:none) tira.
+		expect(input.className).toContain('sr-only');
+		expect(input.className).not.toContain('hidden');
+		expect(input.tabIndex).toBeGreaterThanOrEqual(0);
+
+		// E a zona precisa mostrar que está com foco — senão a pessoa tabula às cegas (2.4.7).
+		const zona = input.closest('label')!;
+		expect(zona.className).toContain('focus-within:');
 	});
 });
 
@@ -196,5 +215,99 @@ describe('PatientAttachments — renomear', () => {
 		await userEvent.clear(screen.getByLabelText('Nome do anexo'));
 
 		expect(screen.getByRole('button', { name: 'Salvar' })).toBeDisabled();
+	});
+});
+
+// O que a pessoa na recepção NÃO pode ler: mensagem de sistema. O upload lia `e.message` de
+// qualquer exceção que caísse no catch, e havia dois jeitos fáceis de a exceção não ser nossa —
+// `res.json()` num corpo que não é JSON (502 com HTML do proxy, 413 do teto) levanta
+// `SyntaxError: Unexpected token '<'`, e o `fetch` que morre no meio levanta
+// `TypeError: Failed to fetch`. As duas frases iam para o toast, em inglês, verbatim.
+describe('PatientAttachments — erro que não é nosso não chega ao usuário', () => {
+	const pdf = () => new File(['%PDF-1.4'], 'laudo.pdf', { type: 'application/pdf' });
+
+	function fileInput(container: HTMLElement) {
+		return container.querySelector('input[type="file"]') as HTMLInputElement;
+	}
+
+	it('corpo não-JSON no início do upload mostra a mensagem da tela, não a do parser', async () => {
+		vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+			new Response('<html><body>502 Bad Gateway</body></html>', {
+				status: 502,
+				headers: { 'content-type': 'text/html' }
+			})
+		);
+
+		const { container } = montar();
+		await userEvent.upload(fileInput(container), pdf());
+
+		await waitFor(() => expect(currentToast()).not.toBeNull());
+		expect(currentToast()?.message).toBe('Não foi possível iniciar o envio.');
+		expect(currentToast()?.variant).toBe('error');
+	});
+
+	it('rede fora não vira "Failed to fetch"', async () => {
+		vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('Failed to fetch'));
+
+		const { container } = montar();
+		await userEvent.upload(fileInput(container), pdf());
+
+		await waitFor(() => expect(currentToast()).not.toBeNull());
+		expect(currentToast()?.message).toBe('Não foi possível iniciar o envio.');
+		expect(currentToast()?.message).not.toMatch(/fetch|JSON|token|undefined/i);
+	});
+
+	// 201 com corpo torto: o código seguia para `inicio.upload.url` e o toast dizia "Cannot read
+	// properties of undefined (reading 'url')".
+	it('resposta bem-formada no status mas torta no corpo não vaza o TypeError', async () => {
+		vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+			new Response(JSON.stringify({ ok: true }), { status: 201 })
+		);
+
+		const { container } = montar();
+		await userEvent.upload(fileInput(container), pdf());
+
+		await waitFor(() => expect(currentToast()).not.toBeNull());
+		expect(currentToast()?.message).toBe('Não foi possível iniciar o envio.');
+	});
+
+	// O backstop: erro que NÃO é nosso e não passa pelo `pedir` (um bug de verdade no meio do
+	// caminho) cai na genérica em vez de imprimir a mensagem do motor.
+	it('bug inesperado no meio do envio cai na genérica', async () => {
+		vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					ok: true,
+					attachment: { id: 'ax9' },
+					upload: { url: 'https://bucket/assinada', headers: {} }
+				}),
+				{ status: 201 }
+			)
+		);
+		// O passo 2 (os bytes) usa XMLHttpRequest — aqui ele explode antes de existir. `function`
+		// (e não arrow) porque o vitest avisa quando o mock de um construtor não é construtível.
+		vi.spyOn(globalThis, 'XMLHttpRequest').mockImplementation(function XhrQuebrado(): never {
+			throw new TypeError("Cannot set properties of undefined (setting 'onload')");
+		});
+
+		const { container } = montar();
+		await userEvent.upload(fileInput(container), pdf());
+
+		await waitFor(() => expect(currentToast()).not.toBeNull());
+		expect(currentToast()?.message).toBe('Falha ao enviar o arquivo.');
+		expect(currentToast()?.message).not.toMatch(/undefined|Cannot/i);
+	});
+
+	it('corpo não-JSON ao abrir avisa em vez de morrer calado', async () => {
+		const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+		vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+			new Response('<html>502</html>', { status: 502, headers: { 'content-type': 'text/html' } })
+		);
+
+		montar({ attachments: [anexo()] });
+		await userEvent.click(screen.getByRole('button', { name: /abrir laudo\.pdf/i }));
+
+		await waitFor(() => expect(currentToast()?.message).toBe('Não foi possível abrir.'));
+		expect(open).not.toHaveBeenCalled();
 	});
 });

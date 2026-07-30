@@ -93,4 +93,27 @@ describe('Drawer (shell)', () => {
 		expect(document.activeElement).toBe(gatilho);
 		gatilho.remove();
 	});
+
+	// ACC-07 (doc 83): o par do teste do Modal. Foi no DRAWER que a sonda mediu o escape — 7º Tab
+	// e o foco caía no `body`, atrás do overlay.
+	it('o Tab circula dentro do painel e não escapa para o fundo', async () => {
+		const fundo = document.createElement('button');
+		document.body.appendChild(fundo);
+
+		const { getByRole, getByLabelText } = render(Drawer, {
+			props: { label: 'D', onClose: noop, children: body, footer }
+		});
+		const painel = getByRole('dialog');
+		const fechar = getByLabelText('Fechar');
+		const acao = getByRole('button', { name: 'ação' });
+
+		acao.focus();
+		await fireEvent.keyDown(painel, { key: 'Tab' });
+		expect(document.activeElement).toBe(fechar);
+
+		await fireEvent.keyDown(painel, { key: 'Tab', shiftKey: true });
+		expect(document.activeElement).toBe(acao);
+
+		fundo.remove();
+	});
 });

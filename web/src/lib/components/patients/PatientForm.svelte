@@ -23,6 +23,7 @@
 	import UserSearch from '@lucide/svelte/icons/user-search';
 	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 	import { initials } from '$lib/format';
+	import { avatarStyle } from '$lib/avatar';
 	import { patientColor, idade, stripTitle, emailValido, nascimentoValido, type Patient } from '$lib/patients';
 	import { profColor, type Professional } from '$lib/professionals';
 	import { maskCpf, maskTel, maskCep, maskMy, maskUf } from '$lib/masks';
@@ -245,6 +246,27 @@
 	const nascOk = $derived(f.nascimento === '' || nascimentoValido(f.nascimento));
 	const identOk = $derived(cpfOk && emailOk && nascOk);
 
+	/**
+	 * O que está errado AGORA, em uma frase — ou `null` se nada está.
+	 *
+	 * Sai do markup para cá (ACC-04) porque o rodapé passou a tratar problema e dica como coisas
+	 * diferentes: o problema é `role="alert"` e aparece em qualquer largura; a dica, não. A ordem é
+	 * a mesma de antes — o erro do servidor primeiro, porque ele é o que a pessoa acabou de causar.
+	 */
+	const problema = $derived(
+		error
+			? error
+			: !telOk && f.tel.trim() !== ''
+				? 'Telefone incompleto — use DDD + número.'
+				: !cpfOk
+					? 'CPF inválido — confira os dígitos.'
+					: !emailOk
+						? 'E-mail inválido — use nome@dominio.'
+						: !nascOk
+							? 'Data de nascimento inválida.'
+							: null
+	);
+
 	function fichaPayload() {
 		const clean = Object.fromEntries(
 			Object.entries(f).map(([k, v]) => [k, typeof v === 'string' && v.trim() === '' ? null : v])
@@ -326,7 +348,11 @@
 			<Icon size={17} />
 		</span>
 		<div class="min-w-0 flex-1">
-			<div class="text-[15px] font-bold">{t}</div>
+			<!-- `h2`, e não `div` (ACC-22, doc 83): a hierarquia visual já existia — o que faltava era
+			     dizê-la na marcação, para navegar a ficha por headings (que é como leitor de tela
+			     varre página). O preflight do Tailwind zera margem e tamanho do `h2`, então as
+			     classes mandam e nada muda na tela. `h2` porque o `h1` é o título da seção, no topbar. -->
+			<h2 class="text-[15px] font-bold">{t}</h2>
 			<div class="text-[11.5px] text-faint">{sub}</div>
 		</div>
 		<span class="shrink-0 font-mono text-[10.5px] {filled ? 'text-teal-text' : 'text-faint'}">{filled}/{total}</span>
@@ -346,8 +372,8 @@
 			<ChevronLeft size={18} />
 		</a>
 		<span
-			class="grid size-[42px] shrink-0 place-items-center rounded-full text-[15px] font-bold text-white"
-			style="background:{patientColor(corIndice)}"
+			class="grid size-[42px] shrink-0 place-items-center rounded-full text-[15px] font-bold"
+			style={avatarStyle(corIndice)}
 		>
 			{f.nome.trim() ? initials(f.nome) : '?'}
 		</span>
@@ -649,7 +675,7 @@
 										? 'border-transparent bg-teal-subtle text-teal-text'
 										: 'border-edge bg-surface text-ink hover:bg-surface-2'}"
 								>
-									<span class="grid size-5 place-items-center rounded-full text-[9px] font-bold text-white" style="background:{profColor(p.cor_indice)}">
+									<span class="grid size-5 place-items-center rounded-full text-[9px] font-bold" style={avatarStyle(p.cor_indice)}>
 										{initials(p.nome)}
 									</span>
 									{stripTitle(p.nome)}{#if on}<Check size={13} />{/if}
@@ -718,25 +744,29 @@
 
 	<!-- Rodapé fixo -->
 	<footer class="flex shrink-0 items-center gap-3 border-t border-edge bg-surface px-4 py-3 md:px-6">
-		<span class="hidden flex-1 items-center gap-1.5 text-[12px] md:flex {error ? 'text-danger' : 'text-faint'}">
-			{#if error}
-				<TriangleAlert size={14} /> {error}
-			{:else if !telOk && f.tel.trim() !== ''}
-				<TriangleAlert size={14} /> Telefone incompleto — use DDD + número.
-			{:else if !cpfOk}
-				<TriangleAlert size={14} /> CPF inválido — confira os dígitos.
-			{:else if !emailOk}
-				<TriangleAlert size={14} /> E-mail inválido — use nome@dominio.
-			{:else if !nascOk}
-				<TriangleAlert size={14} /> Data de nascimento inválida.
-			{:else}
-				<!-- Era "nenhum campo é obrigatório", e a frase sobreviveu à `TelObrigatorio`: o
-				     asterisco já estava no rótulo do telefone e o rodapé seguia prometendo o
-				     contrário, na mesma tela. -->
+		<!--
+			ACC-04 (doc 83): problema e DICA são coisas diferentes, e antes dividiam o mesmo `<span
+			class="hidden … md:flex">`. Consequências, as duas medidas: no celular o 422 do servidor
+			não aparecia em lugar nenhum (o espaço dele era um `<div>` vazio), e em nenhuma largura
+			havia live region, então o leitor de tela nunca recebia o erro.
+
+			Agora: **problema** é `role="alert"` e visível em qualquer largura; **dica** continua só no
+			desktop (esconder uma dica não custa tarefa) e sem `role`, senão o leitor a anunciaria a
+			cada tecla digitada.
+		-->
+		{#if problema}
+			<span role="alert" class="flex flex-1 items-center gap-1.5 text-[12px] text-danger">
+				<TriangleAlert size={14} class="shrink-0" /> {problema}
+			</span>
+		{:else}
+			<!-- Era "nenhum campo é obrigatório", e a frase sobreviveu à `TelObrigatorio`: o
+			     asterisco já estava no rótulo do telefone e o rodapé seguia prometendo o
+			     contrário, na mesma tela. -->
+			<span class="hidden flex-1 items-center gap-1.5 text-[12px] text-faint md:flex">
 				Nome e telefone são obrigatórios — o resto pode ficar para depois.
-			{/if}
-		</span>
-		<div class="flex-1 md:hidden"></div>
+			</span>
+			<div class="flex-1 md:hidden"></div>
+		{/if}
 		<a
 			href={editing ? `/pacientes/${patient?.id}` : '/pacientes'}
 			class="rounded-lg border border-edge bg-surface px-4 py-2 text-[13px] font-semibold text-ink hover:bg-surface-2"

@@ -8,6 +8,7 @@
 	// esquerda dele), corpo que rola sozinho e rodapé opcional.
 	import type { Snippet } from 'svelte';
 	import X from '@lucide/svelte/icons/x';
+	import { aprisionarTab } from '$lib/dialogo';
 
 	let {
 		label,
@@ -63,6 +64,7 @@
 		role="dialog"
 		aria-modal="true"
 		aria-label={label}
+		onkeydown={(e) => aprisionarTab(e, painel)}
 	>
 		<div class="flex items-center gap-2 border-b border-edge px-4 py-3.5">
 			{#if header}{@render header()}{/if}

@@ -9,6 +9,7 @@
 	import ChevronLeft from '@lucide/svelte/icons/chevron-left';
 	import ChevronRight from '@lucide/svelte/icons/chevron-right';
 	import { initials } from '$lib/format';
+	import { avatarStyle } from '$lib/avatar';
 	import { formatarTelefone } from '$lib/telefone';
 	import {
 		canManagePatients,
@@ -133,8 +134,8 @@
 			>
 				<span class="flex min-w-0 items-center gap-2.5">
 					<span
-						class="grid size-7 shrink-0 place-items-center rounded-full text-[10px] font-bold text-white"
-						style="background:{patientColor(p.cor_indice)}"
+						class="grid size-7 shrink-0 place-items-center rounded-full text-[10px] font-bold"
+						style={avatarStyle(p.cor_indice)}
 					>
 						{initials(p.nome)}
 					</span>
@@ -166,8 +167,8 @@
 			>
 				<div class="flex items-center gap-2.5">
 					<span
-						class="grid size-8.5 shrink-0 place-items-center rounded-full text-[11px] font-bold text-white"
-						style="background:{patientColor(p.cor_indice)}"
+						class="grid size-8.5 shrink-0 place-items-center rounded-full text-[11px] font-bold"
+						style={avatarStyle(p.cor_indice)}
 					>
 						{initials(p.nome)}
 					</span>

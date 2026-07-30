@@ -26,6 +26,7 @@
 	import PeriodEditor from '$lib/components/scheduling/PeriodEditor.svelte';
 	import ProfessionalHoursEditor from './ProfessionalHoursEditor.svelte';
 	import { initials } from '$lib/format';
+	import { avatarStyle } from '$lib/avatar';
 	import {
 		profColor,
 		initialGrade,
@@ -182,6 +183,23 @@
 	);
 	const canSave = $derived(nomeOk && telOk && attendanceOk && !gradeInvalid && !newExceptionInvalid);
 
+	/**
+	 * O que está errado AGORA, em uma frase — ou `null`. Sai do markup para cá (ACC-04) pelo mesmo
+	 * motivo da ficha do paciente: o rodapé passou a distinguir problema (anunciado, visível em
+	 * qualquer largura) de dica (silenciosa, só no desktop). A ordem é a de antes.
+	 */
+	const problema = $derived(
+		error
+			? error
+			: gradeInvalid
+				? 'Há horários fora do funcionamento da clínica.'
+				: !attendanceOk
+					? 'Defina ao menos um dia de atendimento.'
+					: !telOk && f.tel.trim() !== ''
+						? 'Telefone incompleto — use DDD + número.'
+						: null
+	);
+
 	function fichaPayload() {
 		const clean = Object.fromEntries(
 			Object.entries(f).map(([k, v]) => [k, typeof v === 'string' && v.trim() === '' ? null : v])
@@ -279,7 +297,9 @@
 			<Icon size={17} />
 		</span>
 		<div class="min-w-0 flex-1">
-			<div class="text-[15px] font-bold">{t}</div>
+			<!-- `h2` pelo mesmo motivo da ficha do paciente (ACC-22): a hierarquia já era visual, só
+			     não estava na marcação. As classes mandam, então o visual não muda. -->
+			<h2 class="text-[15px] font-bold">{t}</h2>
 			<div class="text-[11.5px] text-faint">{sub}</div>
 		</div>
 		<span class="shrink-0 font-mono text-[10.5px] {filled ? 'text-teal-text' : 'text-faint'}">{filled}/{total}</span>
@@ -313,8 +333,8 @@
 			<ChevronLeft size={18} />
 		</a>
 		<span
-			class="grid size-[42px] shrink-0 place-items-center rounded-full text-[15px] font-bold text-white"
-			style="background:{profColor(corIndice)}"
+			class="grid size-[42px] shrink-0 place-items-center rounded-full text-[15px] font-bold"
+			style={avatarStyle(corIndice)}
 		>
 			{f.nome.trim() ? initials(f.nome) : '?'}
 		</span>
@@ -671,7 +691,7 @@
 								aria-label="Cor {ci}"
 								aria-pressed={corIndice === ci}
 								class="grid size-9 place-items-center rounded-full ring-2 ring-offset-2 ring-offset-surface {corIndice === ci ? 'ring-ink' : 'ring-transparent'}"
-								style="background:{profColor(ci)}"
+								style={avatarStyle(ci)}
 							>
 								{#if corIndice === ci}<Check size={16} color="white" />{/if}
 							</button>
@@ -697,23 +717,21 @@
 
 	<!-- Rodapé fixo -->
 	<footer class="flex shrink-0 items-center gap-3 border-t border-edge bg-surface px-4 py-3 md:px-6">
-		<span class="hidden flex-1 items-center gap-1.5 text-[12px] md:flex {gradeInvalid || !attendanceOk || error ? 'text-danger' : 'text-faint'}">
-			{#if error}
-				<TriangleAlert size={14} /> {error}
-			{:else if gradeInvalid}
-				<TriangleAlert size={14} /> Há horários fora do funcionamento da clínica.
-			{:else if !attendanceOk}
-				<TriangleAlert size={14} /> Defina ao menos um dia de atendimento.
-			{:else if !telOk && f.tel.trim() !== ''}
-				<TriangleAlert size={14} /> Telefone incompleto — use DDD + número.
-			{:else}
-				<!-- D6: o mínimo deixou de ser só o nome. A frase antiga ("apenas o nome") passou a
-				     mentir no instante em que a validação entrou, e uma dica que mente é pior que
-				     nenhuma: manda a pessoa clicar em salvar para descobrir o contrário. -->
+		<!-- ACC-04 (doc 83): o par do rodapé da ficha do paciente — problema é `role="alert"` e
+		     visível em qualquer largura; dica segue só no desktop e sem papel. -->
+		{#if problema}
+			<span role="alert" class="flex flex-1 items-center gap-1.5 text-[12px] text-danger">
+				<TriangleAlert size={14} class="shrink-0" /> {problema}
+			</span>
+		{:else}
+			<!-- D6: o mínimo deixou de ser só o nome. A frase antiga ("apenas o nome") passou a
+			     mentir no instante em que a validação entrou, e uma dica que mente é pior que
+			     nenhuma: manda a pessoa clicar em salvar para descobrir o contrário. -->
+			<span class="hidden flex-1 items-center gap-1.5 text-[12px] text-faint md:flex">
 				Nome e telefone são obrigatórios — o resto pode ficar para depois.
-			{/if}
-		</span>
-		<div class="flex-1 md:hidden"></div>
+			</span>
+			<div class="flex-1 md:hidden"></div>
+		{/if}
 		<a
 			href="/profissionais"
 			class="rounded-lg border border-edge bg-surface px-4 py-2 text-[13px] font-semibold text-ink hover:bg-surface-2"

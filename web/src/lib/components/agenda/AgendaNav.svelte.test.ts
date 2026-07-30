@@ -119,4 +119,19 @@ describe('AgendaNav — passo por visão', () => {
 		render(AgendaNav, { props: { ...base, view: 'mes', today: '2020-01-01' } });
 		expect(screen.getByText('junho de 2026')).toBeInTheDocument();
 	});
+
+	// ACC-03 (doc 83, nível A): o único caminho para criar era clicar numa célula vazia — ponteiro.
+	// Este botão é o caminho de teclado, e a sonda mediu que ele não existia.
+	it('oferece "Novo agendamento" quando recebe onNew, e o clique chama', async () => {
+		const onNew = vi.fn();
+		render(AgendaNav, { props: { ...base, onNew } });
+
+		await userEvent.click(screen.getByRole('button', { name: /novo agendamento/i }));
+		expect(onNew).toHaveBeenCalledTimes(1);
+	});
+
+	it('sem onNew não mostra o botão — quem não pode criar não vê a ação', () => {
+		render(AgendaNav, { props: base });
+		expect(screen.queryByRole('button', { name: /novo agendamento/i })).toBeNull();
+	});
 });

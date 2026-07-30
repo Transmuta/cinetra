@@ -10,7 +10,7 @@
 	import AppointmentBlock from './AppointmentBlock.svelte';
 	import OccupancyBar from './OccupancyBar.svelte';
 	import { initials } from '$lib/format';
-	import { avatarColor } from '$lib/avatar';
+	import { avatarColor, avatarStyle } from '$lib/avatar';
 	import { occupancyRate } from '$lib/agenda-views';
 	import {
 		m2t,
@@ -332,7 +332,28 @@
 {#if !visiveis.length}
 	<AgendaEmptyState {onShowAll} />
 {:else}
-	<div class="relative h-full overflow-auto bg-canvas">
+	<!--
+		`tabindex="0"` na área que ROLA (ACC-09, doc 83): a grade de um dia inteiro passa de duas
+		telas e meia (ver o comentário do PPM), e sem um ponto de foco aqui o teclado não a rola —
+		só o ponteiro. Com o foco no container, PageUp/PageDown e as setas rolam.
+
+		O `role="group"` não é decoração: `aria-label` em `<div>` sem papel é **atributo proibido**
+		(o `generic` não aceita nome, e o axe reprova — foi o achado ACC-10 na /relatorios). O papel
+		é o que torna o rótulo legal, e é ele que o leitor de tela anuncia ao entrar aqui.
+
+		A supressão abaixo é um conflito REAL entre dois linters, não preguiça: a regra do Svelte diz
+		que papel não-interativo não leva `tabindex` positivo; a regra `scrollable-region-focusable`
+		do axe exige exatamente esse `tabindex` quando a região rola e não tem conteúdo focável
+		dentro — que é o caso do dia vazio. Entre as duas, a do axe é a que descreve o problema de
+		quem usa o app: sem ponto de foco aqui, o teclado não rola a agenda.
+	-->
+	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+	<div
+		class="relative h-full overflow-auto bg-canvas"
+		tabindex="0"
+		role="group"
+		aria-label="Grade da agenda do dia"
+	>
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
 			bind:this={gridEl}
@@ -372,8 +393,8 @@
 					>
 						<div class="flex items-center gap-2">
 							<span
-								class="grid size-6.5 shrink-0 place-items-center rounded-full text-[10px] font-bold text-white"
-								style="background:{avatarColor(col.prof.cor_indice)}"
+								class="grid size-6.5 shrink-0 place-items-center rounded-full text-[10px] font-bold"
+								style={avatarStyle(col.prof.cor_indice)}
 							>
 								{initials(col.prof.nome)}
 							</span>
@@ -484,7 +505,7 @@
 				     recuo é limitado pela calha: 44 no modo largo, 34 no estreito. Aqui o ":00" não
 				     pode sumir (é o minuto do agora), o selo é que se ajusta. -->
 				<span
-					class="absolute -top-2.25 rounded bg-teal px-1.25 font-mono text-[10px] font-semibold text-white"
+					class="absolute -top-2.25 rounded bg-teal px-1.25 font-mono text-[10px] font-semibold text-on-solid"
 					style="left:{-Math.min(GUTTER, 44)}px"
 				>
 					{m2t(agoraMin)}

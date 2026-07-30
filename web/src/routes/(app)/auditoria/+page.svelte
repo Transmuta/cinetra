@@ -58,9 +58,11 @@
 
 <div class="mx-auto w-full max-w-2xl px-4 py-6 sm:px-6">
 	<header class="mb-4">
-		<h1 class="flex items-center gap-2 text-xl font-semibold text-ink">
+		<!-- `h2` (ACC-22): o `h1` da página é o do topbar, que já diz "Auditoria" — dois `h1` com o
+		     mesmo texto na mesma tela não é hierarquia, é eco. As classes mandam no visual. -->
+		<h2 class="flex items-center gap-2 text-xl font-semibold text-ink">
 			<ScrollText size={19} class="text-teal-text" /> Auditoria
-		</h1>
+		</h2>
 		<p class="mt-0.5 text-sm text-muted">
 			Quem mudou o quê, quem abriu o quê, e quando — o histórico da clínica.
 		</p>

@@ -5,6 +5,7 @@
 	// padding 18px que rola sozinho; rodapé opcional 13px/18px com ações à direita.
 	import type { Snippet } from 'svelte';
 	import X from '@lucide/svelte/icons/x';
+	import { aprisionarTab } from '$lib/dialogo';
 
 	let {
 		title,
@@ -49,6 +50,7 @@
 		role="dialog"
 		aria-modal="true"
 		aria-label={title}
+		onkeydown={(e) => aprisionarTab(e, painel)}
 	>
 		<div class="flex items-center gap-2 border-b border-edge px-4.5 py-3.75">
 			<h2 class="min-w-0 flex-1 truncate text-[15.5px] font-bold">{title}</h2>

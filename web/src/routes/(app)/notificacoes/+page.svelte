@@ -12,14 +12,27 @@
 	import ChevronRight from '@lucide/svelte/icons/chevron-right';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
+	import { toast } from '$lib/toast.svelte';
 	import { relativeTime, notificationHref, type AppNotification } from '$lib/notifications';
-	import type { PageData } from './$types';
+	import type { PageData, ActionData } from './$types';
 
-	let { data }: { data: PageData } = $props();
+	let { data, form }: { data: PageData; form: ActionData } = $props();
 
 	const notifications = $derived(data.notifications);
 	const unread = $derived(data.unread);
 	const onlyUnread = $derived(data.onlyUnread);
+
+	// As três actions sempre responderam `fail(…, { action, error })` — e esta tela era a única do
+	// app que não declarava o `form`, então a mensagem chegava e morria aqui. "Limpar tudo" que
+	// falha fechava o diálogo, deixava a lista igual e não dizia nada: do lado de quem clicou,
+	// idêntico a uma caixa que já estava vazia.
+	//
+	// Só ERRO vira toast: o sucesso já se vê na tela (o realce sai, o contador cai, a lista
+	// esvazia), e anunciar o óbvio seria ruído em cima de cada ✓ da lista.
+	$effect(() => {
+		if (!form || form.ok) return;
+		toast(form.error ?? 'Não foi possível concluir a ação.', 'error');
+	});
 
 	// Paginação (#54): `?page=` na URL, sem empilhar histórico — mesmo gesto da fila e de
 	// Pacientes. Sem rodapé "X–Y de Z": a API não conta o total da caixa de propósito.
@@ -76,7 +89,8 @@
 <div class="mx-auto w-full max-w-2xl px-4 py-6 sm:px-6">
 	<header class="mb-5 flex items-center justify-between gap-4">
 		<div>
-			<h1 class="text-xl font-semibold text-ink">Notificações</h1>
+			<!-- `h2` (ACC-22): o `h1` é o do topbar, que já diz "Notificações". -->
+			<h2 class="text-xl font-semibold text-ink">Notificações</h2>
 			<p class="text-sm text-muted">
 				{#if unread > 0}
 					{unread} não {unread === 1 ? 'lida' : 'lidas'}

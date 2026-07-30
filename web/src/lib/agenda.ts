@@ -862,3 +862,32 @@ export function parseHiddenProfs(raw: string | null | undefined): string[] {
 export function serializeHiddenProfs(ids: string[]): string | null {
 	return ids.length ? ids.join(',') : null;
 }
+
+/**
+ * O preset de "Novo agendamento" quando o gatilho é o BOTÃO, e não o clique numa célula vazia
+ * (ACC-03, doc 83).
+ *
+ * Criar agendamento só existia por ponteiro — clique na célula (um `div onclick`) ou arraste —, e
+ * a sonda de teclado mediu os focáveis do `<main>` da agenda: oito, todos de navegação. Nenhum
+ * criava. O botão precisa de um `preset`, e este é o palpite honesto: o primeiro profissional
+ * **visível** (respeitando o filtro `?profs=`) e o começo do expediente dele no dia.
+ *
+ * `null` quando não há profissional visível — aí não há o que pré-selecionar, e quem chama
+ * esconde o botão em vez de abrir um modal sem coluna.
+ *
+ * A hora de reserva é 08:00 e não "agora": o modal é editável, e um valor dentro do expediente
+ * típico erra menos que um instante que pode cair no meio da noite.
+ */
+export function presetDoBotao(
+	professionals: { id: string }[],
+	hidden: string[],
+	availability: ColumnAvailability[]
+): { professional_id: string; hora: string } | null {
+	const prof = professionals.find((p) => !hidden.includes(p.id));
+	if (!prof) return null;
+
+	const periodos = availability.find((a) => a.professional_id === prof.id)?.periods ?? [];
+	const inicio = periodos.length ? String(periodos[0][0]) : '';
+
+	return { professional_id: prof.id, hora: /^\d{2}:\d{2}/.test(inicio) ? inicio.slice(0, 5) : '08:00' };
+}

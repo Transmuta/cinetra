@@ -1,3 +1,44 @@
+<script module lang="ts">
+	/**
+	 * Falha com mensagem **escrita para a recepção ler**.
+	 *
+	 * O upload tem três passos e o erro de qualquer um deles precisa chegar ao toast, então o
+	 * caminho natural era `throw new Error(msg)` e `catch (e) => toast(e.message)`. Só que aí
+	 * QUALQUER exceção passa a ser tratada como mensagem de tela — e as duas mais fáceis de
+	 * acontecer não são nossas: `res.json()` num corpo que não é JSON (502 com HTML do proxy, 413
+	 * do teto) levanta `SyntaxError: Unexpected token '<'`, e o `fetch` que morre no meio levanta
+	 * `TypeError: Failed to fetch`. As duas iam para o toast, em inglês, verbatim.
+	 *
+	 * Com o marcador o padrão inverte: só o que passou por aqui é exibível, e o desconhecido cai na
+	 * genérica **por construção** — inclusive o erro que alguém introduzir neste bloco amanhã.
+	 */
+	class FalhaVisivel extends Error {}
+
+	/**
+	 * Chamada ao BFF que **nunca levanta** — nem por rede, nem por corpo ilegível.
+	 *
+	 * As quatro operações desta seção (enviar, abrir, remover, renomear) faziam o mesmo par
+	 * `fetch` + `res.json()`, e as duas metades tinham o mesmo furo: o `fetch` que rejeita não
+	 * estava dentro de try nenhum em três delas (rede fora = promise solta e tela muda), e o
+	 * `.json()` só era tolerante em duas — nas outras, um 502 com HTML do proxy virava
+	 * `SyntaxError` no lugar da mensagem da tela.
+	 *
+	 * Aqui as duas falhas colapsam em `{ ok: false, body: {} }`, e a frase que a pessoa lê é
+	 * sempre a do `??` de quem chamou.
+	 */
+	async function pedir<T>(
+		url: string,
+		init: RequestInit
+	): Promise<{ ok: boolean; body: Partial<T> & { error?: string } }> {
+		try {
+			const res = await fetch(url, init);
+			return { ok: res.ok, body: await res.json().catch(() => ({})) };
+		} catch {
+			return { ok: false, body: {} };
+		}
+	}
+</script>
+
 <script lang="ts">
 	// "Anexos e documentos" da ficha do paciente (doc 51) — o cartão que o protótipo desenhava
 	// ([`:962`]) e que a v1 tinha deixado de fora com o prontuário.
@@ -23,6 +64,7 @@
 	import LoaderCircle from '@lucide/svelte/icons/loader-circle';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import { toast } from '$lib/toast.svelte';
+	import { reportar } from '$lib/report';
 	import {
 		fmtBytes,
 		fmtData,
@@ -30,7 +72,8 @@
 		rotuloTipo,
 		acceptAttr,
 		type Attachment,
-		type AttachmentLimits
+		type AttachmentLimits,
+		type UploadTicket
 	} from '$lib/attachments';
 
 	let {
@@ -102,29 +145,41 @@
 
 		try {
 			// 1. a API cria a linha pendente e assina o PUT (tipo e tamanho vão DENTRO da assinatura)
-			const abertura = await fetch(`/pacientes/${patientId}/anexos`, {
-				method: 'POST',
-				headers: JSON_HEADER,
-				body: JSON.stringify({ nome: f.name, content_type: f.type, bytes: f.size })
-			});
-			const inicio = await abertura.json();
-			if (!abertura.ok) throw new Error(inicio?.error ?? 'Não foi possível iniciar o envio.');
+			const inicio = await pedir<{ attachment: Attachment; upload: UploadTicket }>(
+				`/pacientes/${patientId}/anexos`,
+				{
+					method: 'POST',
+					headers: JSON_HEADER,
+					body: JSON.stringify({ nome: f.name, content_type: f.type, bytes: f.size })
+				}
+			);
+			// A checagem de FORMA anda junto com a de status de propósito: um 201 com corpo torto
+			// levava um `undefined.url` para o toast ("Cannot read properties of undefined"), que é
+			// mensagem de sistema tanto quanto a do parser.
+			if (!inicio.ok || !inicio.body.upload || !inicio.body.attachment) {
+				throw new FalhaVisivel(inicio.body.error ?? 'Não foi possível iniciar o envio.');
+			}
 
 			// 2. os bytes vão direto ao bucket
-			await subir(inicio.upload.url, inicio.upload.headers, f);
+			await subir(inicio.body.upload.url, inicio.body.upload.headers, f);
 
 			// 3. a API confere o que chegou (tamanho real + magic bytes) e libera
-			const fecha = await fetch(`/pacientes/${patientId}/anexos/${inicio.attachment.id}`, {
+			const fim = await pedir(`/pacientes/${patientId}/anexos/${inicio.body.attachment.id}`, {
 				method: 'POST',
 				headers: JSON_HEADER
 			});
-			const fim = await fecha.json();
-			if (!fecha.ok) throw new Error(fim?.error ?? 'O arquivo enviado não passou na verificação.');
+			if (!fim.ok) {
+				throw new FalhaVisivel(fim.body.error ?? 'O arquivo enviado não passou na verificação.');
+			}
 
 			toast('Anexo adicionado');
 			onChanged();
 		} catch (e) {
-			toast(e instanceof Error ? e.message : 'Falha ao enviar o arquivo.', 'error');
+			// Só mensagem nossa vai para a tela. O resto é bug — e bug **não desaparece**: vai para o
+			// log do servidor pelo `reportar` (doc 62 §7.2), com stack e agrupamento, em vez de ser
+			// lido em inglês pela recepção e esquecido.
+			if (!(e instanceof FalhaVisivel)) reportar('anexos:upload', e);
+			toast(e instanceof FalhaVisivel ? e.message : 'Falha ao enviar o arquivo.', 'error');
 		} finally {
 			enviando = null;
 			if (input) input.value = '';
@@ -152,8 +207,8 @@
 			xhr.onload = () =>
 				xhr.status >= 200 && xhr.status < 300
 					? resolve()
-					: reject(new Error('O storage recusou o arquivo.'));
-			xhr.onerror = () => reject(new Error('Falha de rede ao enviar o arquivo.'));
+					: reject(new FalhaVisivel('O storage recusou o arquivo.'));
+			xhr.onerror = () => reject(new FalhaVisivel('Falha de rede ao enviar o arquivo.'));
 			xhr.send(f);
 		});
 	}
@@ -161,13 +216,12 @@
 	// Abrir passa pelo BFF para pegar uma URL nova a cada clique: a assinatura dura minutos, e a
 	// emissão é o que fica na trilha LGPD. Guardar a URL no cliente quebraria as duas coisas.
 	async function abrir(a: Attachment) {
-		const res = await fetch(`/pacientes/${patientId}/anexos/${a.id}?acao=download`, {
-			method: 'POST',
-			headers: JSON_HEADER
-		});
-		const body = await res.json();
+		const { ok, body } = await pedir<{ url: string }>(
+			`/pacientes/${patientId}/anexos/${a.id}?acao=download`,
+			{ method: 'POST', headers: JSON_HEADER }
+		);
 
-		if (!res.ok || !body.url) return toast(body?.error ?? 'Não foi possível abrir.', 'error');
+		if (!ok || !body.url) return toast(body.error ?? 'Não foi possível abrir.', 'error');
 		window.open(body.url, '_blank', 'noopener,noreferrer');
 	}
 
@@ -176,14 +230,11 @@
 		if (!alvo) return;
 		removendo = null;
 
-		const res = await fetch(`/pacientes/${patientId}/anexos/${alvo.id}`, {
+		const { ok, body } = await pedir(`/pacientes/${patientId}/anexos/${alvo.id}`, {
 			method: 'DELETE',
 			headers: JSON_HEADER
 		});
-		if (!res.ok) {
-			const body = await res.json().catch(() => ({}));
-			return toast(body?.error ?? 'Não foi possível remover.', 'error');
-		}
+		if (!ok) return toast(body.error ?? 'Não foi possível remover.', 'error');
 
 		toast('Anexo removido');
 		onChanged();
@@ -197,16 +248,13 @@
 
 		renomeando = null;
 
-		const res = await fetch(`/pacientes/${patientId}/anexos/${alvo.id}`, {
+		const { ok, body } = await pedir(`/pacientes/${patientId}/anexos/${alvo.id}`, {
 			method: 'PATCH',
 			headers: JSON_HEADER,
 			body: JSON.stringify({ nome })
 		});
 
-		if (!res.ok) {
-			const body = await res.json().catch(() => ({}));
-			return toast(body?.error ?? 'Não foi possível renomear.', 'error');
-		}
+		if (!ok) return toast(body.error ?? 'Não foi possível renomear.', 'error');
 
 		toast('Anexo renomeado');
 		onChanged();
@@ -251,8 +299,14 @@
 			</p>
 		{:else}
 			<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+			<!--
+				`focus-within:*` é o par obrigatório do `sr-only` no input (ACC-01): o input fica
+				invisível mas focável, então é a ZONA que precisa mostrar o foco — sem isso a pessoa
+				tabula até aqui e nada acende na tela (2.4.7). O visual é o mesmo do arraste, que já
+				significa "solte aqui".
+			-->
 			<label
-				class="mb-2.5 flex cursor-pointer flex-col items-center gap-1.5 rounded-[10px] border-[1.5px] border-dashed p-[18px] transition-colors {arrastando
+				class="mb-2.5 flex cursor-pointer flex-col items-center gap-1.5 rounded-[10px] border-[1.5px] border-dashed p-[18px] transition-colors focus-within:border-teal focus-within:bg-teal-subtle focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-teal {arrastando
 					? 'border-teal bg-teal-subtle'
 					: 'border-edge-strong bg-surface'}"
 				ondragover={(e) => {
@@ -268,11 +322,18 @@
 					receber(e.dataTransfer?.files);
 				}}
 			>
+				<!--
+					`sr-only`, e NÃO `hidden` (ACC-01, doc 83): `display:none` tira o elemento da ordem
+					de tabulação inteira, e como a `<label>` também não é focável, não havia **nenhum**
+					caminho de teclado para anexar — nível A. `sr-only` esconde da vista mantendo o
+					input focável e com nome acessível (o texto da label). O clique na zona continua
+					funcionando igual.
+				-->
 				<input
 					bind:this={input}
 					type="file"
 					accept={acceptAttr(tipos)}
-					class="hidden"
+					class="sr-only"
 					onchange={(e) => receber((e.currentTarget as HTMLInputElement).files)}
 				/>
 				<Upload size={20} class="text-teal-text" />

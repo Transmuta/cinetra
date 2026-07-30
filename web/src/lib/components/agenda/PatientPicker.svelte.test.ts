@@ -106,4 +106,75 @@ describe('PatientPicker', () => {
 		await vi.advanceTimersByTimeAsync(400);
 		expect(screen.queryByText('Maria Silva')).not.toBeInTheDocument();
 	});
+
+	// ACC-21 (doc 83): o componente já dizia `role="combobox"` e apontava `aria-controls` para uma
+	// `<ul>` comum — sem `role="listbox"`, sem `option`, sem `aria-activedescendant` e **sem nenhum
+	// `onkeydown`**. Ou seja: prometia um padrão que não cumpria, e seta para baixo não navegava.
+	describe('padrão ARIA de combobox (ACC-21)', () => {
+		const dois = [maria, { ...maria, id: 'p2', nome: 'Mario Souza' }];
+
+		async function abrirLista(over: Parameters<typeof setup>[0] = {}) {
+			const r = setup({ search: vi.fn().mockResolvedValue({ patients: dois, total: 2 }), ...over });
+			await user().type(screen.getByRole('combobox'), 'mar');
+			await vi.advanceTimersByTimeAsync(400);
+			await screen.findByText('Maria Silva');
+			return r;
+		}
+
+		it('a lista é um listbox de options', async () => {
+			await abrirLista();
+			expect(screen.getByRole('listbox')).toBeInTheDocument();
+			expect(screen.getAllByRole('option')).toHaveLength(2);
+		});
+
+		it('as setas movem o destaque e o input aponta para ele (aria-activedescendant)', async () => {
+			await abrirLista();
+			const input = screen.getByRole('combobox');
+			expect(input).not.toHaveAttribute('aria-activedescendant');
+
+			await user().keyboard('{ArrowDown}');
+			const [primeira, segunda] = screen.getAllByRole('option');
+			expect(primeira).toHaveAttribute('aria-selected', 'true');
+			expect(input).toHaveAttribute('aria-activedescendant', primeira.id);
+
+			await user().keyboard('{ArrowDown}');
+			expect(segunda).toHaveAttribute('aria-selected', 'true');
+			expect(input).toHaveAttribute('aria-activedescendant', segunda.id);
+
+			// Circula: da última volta para a primeira.
+			await user().keyboard('{ArrowDown}');
+			expect(screen.getAllByRole('option')[0]).toHaveAttribute('aria-selected', 'true');
+
+			// E para cima, da primeira vai para a última.
+			await user().keyboard('{ArrowUp}');
+			expect(screen.getAllByRole('option')[1]).toHaveAttribute('aria-selected', 'true');
+		});
+
+		it('Enter escolhe o destacado', async () => {
+			const { onPick } = await abrirLista();
+			await user().keyboard('{ArrowDown}{ArrowDown}');
+			await user().keyboard('{Enter}');
+			expect(onPick).toHaveBeenCalledWith(dois[1]);
+		});
+
+		it('Enter sem destaque não escolhe ninguém', async () => {
+			const { onPick } = await abrirLista();
+			await user().keyboard('{Enter}');
+			expect(onPick).not.toHaveBeenCalled();
+		});
+
+		it('Escape fecha a lista sem deixar o Esc subir para o modal', async () => {
+			await abrirLista();
+			const subiu = vi.fn();
+			window.addEventListener('keydown', subiu);
+
+			await user().keyboard('{Escape}');
+			expect(screen.queryByRole('listbox')).toBeNull();
+			// O shell do Modal escuta Esc na JANELA: sem parar a propagação, um Esc fecharia a lista
+			// e o modal de uma vez.
+			expect(subiu).not.toHaveBeenCalled();
+
+			window.removeEventListener('keydown', subiu);
+		});
+	});
 });

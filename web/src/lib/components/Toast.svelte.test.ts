@@ -10,22 +10,35 @@ import { toast, dismissToast } from '$lib/toast.svelte';
 beforeEach(() => dismissToast());
 afterEach(() => dismissToast());
 
+/** A pílula visível dentro da região — é ela que aparece e desaparece. */
+const pilula = (regiao: HTMLElement) => regiao.firstElementChild as HTMLElement | null;
+
 describe('Toast', () => {
-	it('não renderiza nada sem toast ativo', () => {
-		const { queryByRole } = render(Toast);
-		expect(queryByRole('status')).toBeNull();
+	// ACC-05 (doc 83, WCAG 4.1.3): a região tem de existir VAZIA antes da mensagem. Enquanto o
+	// `{#if}` embrulhava o próprio `role="status"`, região e conteúdo nasciam no mesmo instante —
+	// e leitor de tela tipicamente não anuncia isso. Como o toast é o feedback de salvar/excluir
+	// de todo o app, o efeito era quase nenhuma confirmação audível.
+	it('mantém a região de status montada e VAZIA sem toast ativo', () => {
+		const { getByRole } = render(Toast);
+		const regiao = getByRole('status');
+		expect(regiao).toBeInTheDocument();
+		expect(regiao).toHaveTextContent('');
+		expect(pilula(regiao)).toBeNull();
 	});
 
 	it('mostra a mensagem quando toast() é chamado e some no dismiss', () => {
-		const { queryByRole, getByRole } = render(Toast);
+		const { getByRole } = render(Toast);
+		const regiao = getByRole('status');
 
 		toast('Convite enviado.');
 		flushSync();
-		expect(getByRole('status')).toHaveTextContent('Convite enviado.');
+		expect(regiao).toHaveTextContent('Convite enviado.');
 
 		dismissToast();
 		flushSync();
-		expect(queryByRole('status')).toBeNull();
+		// A região continua ali — só o conteúdo sai.
+		expect(regiao).toBeInTheDocument();
+		expect(pilula(regiao)).toBeNull();
 	});
 
 	it('usa o visual invertido do protótipo (primary/on-primary) com o check teal', () => {
@@ -34,7 +47,7 @@ describe('Toast', () => {
 		toast('Acesso removido.');
 		flushSync();
 
-		const pill = getByRole('status');
+		const pill = pilula(getByRole('status'))!;
 		expect(pill.className).toContain('bg-primary');
 		expect(pill.className).toContain('text-on-primary');
 		expect(pill.querySelector('.text-teal')).not.toBeNull();
@@ -46,7 +59,7 @@ describe('Toast', () => {
 		toast('Horário da clínica salvo', 'success');
 		flushSync();
 
-		const pill = getByRole('status');
+		const pill = pilula(getByRole('status'))!;
 		expect(pill.querySelector('.text-teal')).not.toBeNull();
 		expect(pill.querySelector('.text-danger')).toBeNull();
 	});
@@ -59,7 +72,7 @@ describe('Toast', () => {
 		toast('Dados inválidos. Verifique os campos.', 'error');
 		flushSync();
 
-		const pill = getByRole('status');
+		const pill = pilula(getByRole('status'))!;
 		expect(pill).toHaveTextContent('Dados inválidos. Verifique os campos.');
 		expect(pill.querySelector('.text-teal')).toBeNull();
 		expect(pill.querySelector('.text-danger')).not.toBeNull();

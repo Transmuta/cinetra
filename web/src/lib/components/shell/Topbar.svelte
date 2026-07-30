@@ -9,8 +9,19 @@
 	let {
 		pathname,
 		me,
-		onMenu
-	}: { pathname: string; me: Me; onMenu?: () => void } = $props();
+		onMenu,
+		menuAberto = false
+	}: {
+		pathname: string;
+		me: Me;
+		onMenu?: () => void;
+		/**
+		 * A gaveta está aberta? (ACC-08) Serve ao `aria-expanded`: sem ele o hambúrguer é um botão
+		 * sem estado, e quem usa leitor de tela não sabe se abriu. Quem guarda o estado é o layout,
+		 * que também é quem fecha a gaveta ao navegar.
+		 */
+		menuAberto?: boolean;
+	} = $props();
 
 	const section = $derived(sectionOf(pathname));
 	const title = $derived(section ? SECTION_TITLES[section] : 'Cinetra');
@@ -21,7 +32,9 @@
 	<button
 		type="button"
 		onclick={onMenu}
-		aria-label="Abrir menu"
+		aria-label={menuAberto ? 'Fechar menu' : 'Abrir menu'}
+		aria-expanded={menuAberto}
+		aria-controls="menu-navegacao"
 		class="grid size-9 shrink-0 place-items-center rounded-md text-muted hover:bg-surface-2 lg:hidden"
 	>
 		<Menu size={20} />

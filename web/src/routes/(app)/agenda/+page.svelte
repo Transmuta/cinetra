@@ -2,10 +2,10 @@
 	// Agenda (doc 25, Entregas 1 e 2). Quatro visões: Dia e Lista leem blocos do dia; Semana e
 	// Mês leem contagens. Remarcar, arrastar e mudar status são a Entrega 4.
 	import { untrack } from 'svelte';
-	import { goto, invalidate, invalidateAll } from '$app/navigation';
 	import { deserialize } from '$app/forms';
 	import { page as pageState } from '$app/state';
 	import { reportar } from '$lib/report';
+	import { criarAnunciante } from '$lib/anuncio.svelte';
 	import AgendaNav from '$lib/components/agenda/AgendaNav.svelte';
 	import AgendaLegend from '$lib/components/agenda/AgendaLegend.svelte';
 	import DayGrid from '$lib/components/agenda/DayGrid.svelte';
@@ -22,6 +22,7 @@
 		canCreateAppointment,
 		canCreateEncaixe,
 		patientNameMap,
+		presetDoBotao,
 		toUtcIso,
 		type SearchResult,
 		type Appointment,
@@ -66,6 +67,8 @@
 	let realtime = $state<RealtimeConfig | null>(null);
 	// F5 — os nomes de quem MAIS está vendo este dia (já sem o próprio usuário).
 	let viewers = $state<string[]>([]);
+	// ACC-06 (doc 83): a grade muda sozinha por WebSocket e nada anunciava isso.
+	const anunciante = criarAnunciante();
 
 	const appointments = $derived(live?.appointments ?? data.appointments);
 	const patients = $derived(live?.patients ?? data.patients);
@@ -149,6 +152,12 @@
 			topics,
 			{
 				onAppointment: (evento) => {
+					// ACC-06 (doc 83): a grade se reescrevia em silêncio. Uma frase genérica, e não o
+					// detalhe do bloco, porque o anúncio serve para dizer "olhe de novo" — quem quiser o
+					// detalhe navega até ele. O `criarAnunciante` junta a rajada (um remarcar dispara
+					// dois eventos), então dez pushes não viram dez falas.
+					anunciante.anunciar('A agenda deste dia mudou.');
+
 					// Semana assina tópicos de DIA (granularidade por dia), mas renderiza contagem:
 					// o bloco não dá para remendar numa barra, então vira refetch — o mesmo caminho
 					// que o sinal do Mês toma. Sem isto a barra da Semana ficava congelada (o bloco
@@ -225,6 +234,13 @@
 	);
 
 	let modal = $state<{ professional_id: string; hora: string } | null>(null);
+
+	// ACC-03 (doc 83): o preset do botão "Novo agendamento" — a regra é pura e testada em
+	// `$lib/agenda`. `null` (todos os profissionais ocultos) tira o botão da barra: não há coluna
+	// para pré-selecionar, e um modal sem coluna só empurraria o erro para o submit.
+	const presetBotao = $derived(
+		presetDoBotao(data.professionals, data.hidden ?? [], data.availability ?? [])
+	);
 
 	// `?paciente=<id>` — chegou do "Agendar" da ficha (doc 51 §L2). Abre o modal já com o paciente
 	// escolhido; profissional e hora ficam em branco, como no protótipo, que também abria a partir
@@ -464,6 +480,12 @@
 	});
 </script>
 
+<svelte:head><title>Agenda · Cinetra</title></svelte:head>
+
+<!-- Anúncio das mudanças que chegam por WebSocket (ACC-06). Invisível: a mudança já está desenhada
+     na grade — a região existe para que ela também chegue a quem não a vê. -->
+<p class="sr-only" role="status" aria-live="polite">{anunciante.texto()}</p>
+
 <div class="flex h-full flex-col">
 	<AgendaNav
 		date={data.date}
@@ -472,6 +494,7 @@
 		{viewers}
 		onDate={(d) => navigate({ date: d })}
 		onView={(v) => navigate({ view: v === 'dia' ? null : v })}
+		onNew={podeCriar && presetBotao ? () => (modal = presetBotao) : undefined}
 	/>
 
 	<!-- A legenda só vale onde o card existe: Dia e Lista consomem o `STATUS_META`; Semana e

@@ -47,7 +47,7 @@
 		type Entry,
 		type PriorityFilter
 	} from '$lib/waitlist';
-	import { avatarColor } from '$lib/avatar';
+	import { avatarColor, avatarStyle } from '$lib/avatar';
 	import type { Papel } from '$lib/session';
 
 	let {
@@ -226,7 +226,13 @@
 	}
 </script>
 
-<aside class="flex w-64 shrink-0 flex-col border-r border-edge bg-surface">
+<!-- ACC-24 (doc 83): o `aside` é um landmark `complementary`, e sem rótulo ele é anunciado como
+     "complementar" e nada mais — havia dois landmarks de navegação na tela, um deles anônimo. O
+     rótulo acompanha a seção, que é o que este painel de fato contextualiza. -->
+<aside
+	aria-label={title ? `Painel de ${title}` : 'Painel da seção'}
+	class="flex w-64 shrink-0 flex-col border-r border-edge bg-surface"
+>
 	<!-- Topo: identidade da clínica (o símbolo Cinetra vive no rail). Quando há nome, ele ocupa
 	     o lugar da marca; CNPJ e endereço entram como subtítulo. Sem nome (borda), cai na marca. -->
 	<div class="px-4 pb-1 pt-4">
@@ -331,11 +337,13 @@
 							? 'text-faint'
 							: 'font-medium text-ink'}"
 					>
+						<!-- O ✓ herda `currentColor`, então quem decide a cor dele é o `avatarStyle`: branco
+						     cravado desaparecia sobre as cores claras da paleta (o âmbar dava 2,25:1). -->
 						<span
 							class="grid size-4 shrink-0 place-items-center rounded border {oculto
 								? 'border-edge-strong'
-								: 'border-transparent text-white'}"
-							style={oculto ? '' : `background:${avatarColor(prof.cor_indice)}`}
+								: 'border-transparent'}"
+							style={oculto ? '' : avatarStyle(prof.cor_indice)}
 						>
 							{#if !oculto}<Check size={11} />{/if}
 						</span>
@@ -577,7 +585,7 @@
 						? 'bg-surface-2 font-semibold text-ink'
 						: 'font-medium text-muted hover:bg-surface-2'}"
 				>
-					<span class="grid size-4 shrink-0 place-items-center rounded-full text-white" style="background:{avatarColor(prof.cor_indice)}">
+					<span class="grid size-4 shrink-0 place-items-center rounded-full" style={avatarStyle(prof.cor_indice)}>
 						<User size={10} />
 					</span>
 					<span class="flex-1 truncate">{professionalName(relProfs, prof.id)}</span>

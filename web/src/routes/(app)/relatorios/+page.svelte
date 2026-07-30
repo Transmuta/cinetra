@@ -5,7 +5,8 @@
 	import CircleX from '@lucide/svelte/icons/circle-x';
 	import Gauge from '@lucide/svelte/icons/gauge';
 	import Info from '@lucide/svelte/icons/info';
-	import { avatarColor } from '$lib/avatar';
+	import Modal from '$lib/components/Modal.svelte';
+	import { avatarColor, avatarStyle } from '$lib/avatar';
 	import { todayInZone } from '$lib/agenda';
 	import {
 		PERIOD_LABELS,
@@ -59,6 +60,12 @@
 			.toUpperCase();
 	}
 
+	// ACC-10 (doc 83): a fórmula chegava por `title=` — hover de mouse, que no celular não
+	// existe. Quem abre o relatório no telefone é justamente quem cobra o número. O clique no
+	// ícone guarda aqui o KPI escolhido e o `Modal` (foco, Esc e clique-fora já resolvidos)
+	// mostra a conta; `null` é "nenhum aberto".
+	let explicando = $state<{ label: string; formula: string } | null>(null);
+
 	const statusRows = $derived([
 		{ label: 'Concluídos', n: t.concluidos, color: 'var(--color-success)' },
 		{ label: 'Agendados', n: t.futuros, color: 'var(--color-info)' },
@@ -66,6 +73,8 @@
 		{ label: 'Cancelados', n: t.cancelados, color: 'var(--color-faint)' }
 	]);
 </script>
+
+<svelte:head><title>Relatórios · Cinetra</title></svelte:head>
 
 <div class="w-full p-4 md:px-[18px] md:py-4">
 	<!-- Cabeçalho: período, intervalo, profissional e o pico do período. -->
@@ -99,7 +108,9 @@
 			     adivinháveis — a taxa de falta NÃO divide pelo total, e a ocupação é grampeada em
 			     100%. Sem a fórmula à mão, a primeira reação de quem gerencia é contestar o
 			     número; com ela, a conversa passa a ser sobre a operação. A fórmula sai daqui
-			     igual à do servidor (`summary_totais/5`), e é por isso que ela é literal. -->
+			     igual à do servidor (`summary_totais/5`), e é por isso que ela é literal.
+			     O `title` continua servindo o hover do mouse; o botão ao lado é o caminho que
+			     funciona no toque, no Tab e no leitor de tela (ACC-10). -->
 			<div
 				title={formula}
 				class="min-w-[150px] flex-[1_1_150px] rounded-xl border border-edge bg-surface px-[15px] py-3.5"
@@ -107,9 +118,17 @@
 				<div class="mb-[7px] flex items-center gap-[7px] text-[11.5px] text-muted">
 					<span style="color:{color}"><Icon size={14} /></span>
 					{label}
-					<span class="ml-auto text-faint" aria-label="Como este número é calculado: {formula}">
+					<!-- 24px de alvo (WCAG 2.5.8) sem crescer a linha: a margem negativa devolve o
+					     espaço que o quadrado tomaria. -->
+					<button
+						type="button"
+						onclick={() => (explicando = { label, formula })}
+						aria-haspopup="dialog"
+						aria-label="Como {label} é calculado"
+						class="-my-1 -mr-1 ml-auto grid size-6 place-items-center rounded-md text-faint hover:bg-surface-2 hover:text-muted"
+					>
 						<Info size={12} />
-					</span>
+					</button>
 				</div>
 				<div class="font-mono text-[23px] font-semibold tabular-nums" style="color:{color}">
 					{val}
@@ -163,9 +182,10 @@
 	<!-- Volume: por dia (janela) ou por profissional (dia único) -->
 	<div class="mb-3.5 overflow-hidden rounded-xl border border-edge bg-surface">
 		<div class="flex items-center justify-between gap-2.5 border-b border-edge px-4 py-[13px]">
-			<span class="text-[14px] font-semibold">
+			<!-- `h2` como os outros títulos de cartão (ACC-22): a hierarquia já era visual. -->
+			<h2 class="text-[14px] font-semibold">
 				{daily ? 'Volume por dia' : 'Volume por profissional'}
-			</span>
+			</h2>
 			{#if daily}
 				<span class="text-[11.5px] text-faint">{t.atendimentos} atendimentos</span>
 			{/if}
@@ -217,8 +237,8 @@
 						{@const prof = professionalById(profs, pp.professional_id)}
 						<div class="flex items-center gap-2.5">
 							<span
-								class="grid size-[26px] shrink-0 place-items-center rounded-full text-[10px] font-semibold text-white"
-								style="background:{avatarColor(prof?.cor_indice ?? 1)}"
+								class="grid size-[26px] shrink-0 place-items-center rounded-full text-[10px] font-semibold"
+								style={avatarStyle(prof?.cor_indice ?? 1)}
 							>
 								{initials(prof?.nome ?? '—')}
 							</span>
@@ -244,9 +264,9 @@
 	<!-- Por tipo | Composição por status -->
 	<div class="mb-3.5 grid gap-3.5 md:grid-cols-2">
 		<div class="overflow-hidden rounded-xl border border-edge bg-surface">
-			<div class="border-b border-edge px-4 py-[13px] text-[14px] font-semibold">
+			<h2 class="border-b border-edge px-4 py-[13px] text-[14px] font-semibold">
 				Por tipo de atendimento
-			</div>
+			</h2>
 			<div class="px-4 py-3.5">
 				{#if report.por_tipo.length}
 					<div class="flex flex-col gap-3">
@@ -283,9 +303,9 @@
 		</div>
 
 		<div class="overflow-hidden rounded-xl border border-edge bg-surface">
-			<div class="border-b border-edge px-4 py-[13px] text-[14px] font-semibold">
+			<h2 class="border-b border-edge px-4 py-[13px] text-[14px] font-semibold">
 				Composição por status
-			</div>
+			</h2>
 			<div class="px-4 py-3.5">
 				<div class="flex flex-col gap-3">
 					{#each statusRows as row (row.label)}
@@ -307,9 +327,9 @@
 
 	<!-- Desempenho por profissional -->
 	<div class="overflow-hidden rounded-xl border border-edge bg-surface">
-		<div class="border-b border-edge px-4 py-[13px] text-[14px] font-semibold">
+		<h2 class="border-b border-edge px-4 py-[13px] text-[14px] font-semibold">
 			Desempenho por profissional
-		</div>
+		</h2>
 		<div>
 			<div
 				class="hidden grid-cols-[1.8fr_0.9fr_0.8fr_1.1fr] gap-2.5 px-4 pb-2 pt-3 text-[11px] font-semibold text-faint sm:grid"
@@ -326,8 +346,8 @@
 				>
 					<span class="flex min-w-0 items-center gap-2.5">
 						<span
-							class="grid size-7 shrink-0 place-items-center rounded-full text-[10px] font-semibold text-white"
-							style="background:{avatarColor(prof?.cor_indice ?? 1)}"
+							class="grid size-7 shrink-0 place-items-center rounded-full text-[10px] font-semibold"
+							style={avatarStyle(prof?.cor_indice ?? 1)}
 						>
 							{initials(prof?.nome ?? '—')}
 						</span>
@@ -370,3 +390,9 @@
 		</div>
 	</div>
 </div>
+
+{#if explicando}
+	<Modal title="Como calculamos: {explicando.label}" onClose={() => (explicando = null)}>
+		<p class="text-[13.5px] leading-relaxed text-ink">{explicando.formula}</p>
+	</Modal>
+{/if}
