@@ -13,8 +13,10 @@ Sondas: `psql` no `db` como `postgres` (dono) e como `cinetra_app` (NOBYPASSRLS)
 container da API **rodando como `cinetra_app`** — que é o role do servidor real —, `mix test`, e
 mutação deliberada de arquivo de configuração.
 
-**Onde parou:** rodada 5, com dois achados confirmados e consertados. A rodada 2 pagou: um dos
-dois só apareceu no ângulo adversarial (mutar a regra e cobrar vermelho), não na checklist.
+**Onde parou:** rodada 5, com dois achados confirmados e consertados (§2–3) — e, depois, um
+terceiro conserto que nasceu de *escrever a indicação* de dois itens de handoff e perceber que
+eram a mesma decisão (§4). A rodada 2 pagou: um dos dois achados só apareceu no ângulo
+adversarial (mutar a regra e cobrar vermelho), não na checklist.
 
 ---
 
@@ -41,7 +43,7 @@ dois só apareceu no ângulo adversarial (mutar a regra e cobrar vermelho), não
 | Secrets em código | REFUTADO | senha default do role de métricas saiu (`:?` no compose); grep no diff não achou literal |
 | Headers de segurança | NÃO SE APLICA | HSTS/CSP inalterados no `hooks.server.ts` |
 | DoS / dependência vulnerável | NÃO SE APLICA | `mix.exs` só mudou um comentário; sem mudança em `package.json` |
-| Chave do rate limit forjável sob a topologia nova | **HANDOFF (H1)** | ver §4 |
+| Chave do rate limit forjável sob a topologia nova | CONFIRMADO (latente) → **corrigido**, ver §4 | `grep` em `api/config/*.exs`: `trusted_client_ip_headers` não era setado em ambiente nenhum, e o BFF já confiava em `CF-Connecting-IP` |
 
 ### Performance
 
@@ -153,7 +155,7 @@ recorte da presença `:cancelada`.
 
 ### C2 — a asserção passa a olhar a chave YAML dentro do serviço `api`
 
-`servico_api/1` recorta as linhas do serviço e cobra `^\s+NOME:` — um comentário nunca casa, e o
+`servico/2` recorta as linhas do serviço e cobra `^\s+NOME:` — um comentário nunca casa, e o
 recorte impede que a env migrar para o `web` conte como se estivesse aqui. Ganhou também a guarda
 contra o recorte virar vazio, no mesmo espírito do `assert length(nomes) >= 5` que já existia.
 
@@ -180,72 +182,109 @@ Código novo é código não-auditado. O que a superfície acende:
 
 ---
 
-## 4. O que ficou para você
+## 4. O H1 e o H2 eram a mesma decisão, escrita em dois arquivos
 
-Três, todos de **decisão de deploy** — a correção não é código, é postura de infraestrutura, e
-nenhuma é sondável a partir daqui.
+Estavam separados nesta lista como dois itens de handoff. Ao escrever a indicação ficou claro que
+são **uma pergunta só** — *qual header a edge garante?* — respondida em dois lugares distantes:
+a lista do `ApiWeb.ClientIp` (API) e o `ADDRESS_HEADER` do adapter-node (BFF). E as duas respostas
+**discordavam**: o BFF confiando em `CF-Connecting-IP`, a lista da API vazia, caindo no
+`x-forwarded-for`. Separar essa resposta em dois lugares foi também a causa B do
+[doc 68](68-bate-volta-rate-limit-global.md).
 
-### H1 — `trusted_client_ip_headers` não entrou junto com o Cloudflare
+Por isso não entrou a linha crua que o [`docs/87`](87-servidor-hostinger-riscos-e-cuidados.md)
+pedia. Entrou **uma variável de stack alimentando os dois lados**:
 
-**O que é.** `ApiWeb.ClientIp` teve o default trocado para `[]` (certo: o `["fly-client-ip"]`
-antigo sobreviveu à saída da Fly e virou forjável). A queda é para `x-forwarded-for`, e
-`forwarded/2` pega o **primeiro** da cadeia. O
-[`docs/87`](87-servidor-hostinger-riscos-e-cuidados.md) (linha 269) pede
-`config :api, trusted_client_ip_headers: ["cf-connecting-ip"]` **junto** com a troca de edge; o
-[`docs/84`](84-rename-movimento-para-cinetra.md) (linha 105) já anotou que ele não é configurado
-em ambiente nenhum. Continua não sendo.
-
-**A sonda.** `grep` em `api/config/*.exs`: a chave não aparece. E o router mostra que os dois
-limitadores por IP vivem em `/api/*` e no scope `/` do reply/OAuth — **nenhum deles alcançável de
-fora**, porque o Traefik só roteia `/socket` e `/webhooks` para a API. No caminho real
-(browser → CF → Traefik → BFF → API) quem escreve o header é o BFF, com `headers.set` sobre o
-`getClientAddress()`, e é honesto.
-
-**Por que não foi corrigido.** Não é exploitável hoje, e a linha de config é uma decisão de
-topologia que precisa entrar no mesmo passo do provisionamento — mudá-la agora, sem o servidor
-de pé, cria a assimetria inversa. É armadilha para o dia em que alguém rotear um terceiro
-`PathPrefix` para a API.
-
-**Qual seria a correção.** A linha do docs/87 no `runtime.exs`, condicionada ao ambiente, no
-commit que provisiona a Hostinger.
-
-### H2 — `ADDRESS_HEADER=CF-Connecting-IP` faz o BFF **levantar** se o header faltar
-
-**O que é.** O `compose.dokploy.yml` passou o BFF de `X-Forwarded-For` para `CF-Connecting-IP`.
-O `getClientAddress()` do adapter-node **lança** quando o header configurado está ausente:
-
-```js
-if (!(address_header in req.headers)) {
-  throw new Error(`Address header was specified with ${env_prefix}ADDRESS_HEADER=${address_header} but is absent from request`);
-}
+```yaml
+# compose.dokploy.yml
+  api:  { TRUSTED_CLIENT_IP_HEADER: "${CLIENT_IP_HEADER:-}" }
+  web:  { ADDRESS_HEADER: "${CLIENT_IP_HEADER:-X-Forwarded-For}" }
 ```
-(`web/.svelte-kit/adapter-node/entries/handler.js:115-119`)
 
-Ele é chamado por `headersDeContexto`, que está em **toda** chamada do BFF à API. Logo: qualquer
-requisição que chegue à origem fora do Cloudflare responde 500 em toda página que fale com a API.
+O `runtime.exs` traduz a env em `config :api, trusted_client_ip_headers: [...]`, com `trim` +
+`downcase` (o `get_req_header/2` do Plug só casa header minúsculo) e sob `config_env() != :test`,
+pela razão que o bloco de traces do mesmo arquivo já tinha aprendido: senão uma variável solta no
+shell de quem roda a suíte decide a cadeia de confiança.
 
-**Por que não foi corrigido.** É a postura desejada para produção (a origem só deve ser alcançada
-via CF), e trocar por um fallback tolerante *reintroduziria* o furo do H1 pelo outro lado. O que
-precisa de decisão é: **HML também está laranja no Cloudflare?** Se estiver em DNS-only, ela
-nasce 100% quebrada. O healthcheck do Traefik não é afetado — ele bate em `/health`, que não
-toca a API.
+**O default deixou de ser risco.** Sem a variável, os dois lados caem em `x-forwarded-for` — e aí
+o H2 some, porque o `getClientAddress()` só levanta quando o header **configurado** falta. O XFF
+também não é forjável nesse caminho: o adapter-node conta da **direita**
+(`addresses[length - 1]`, `XFF_DEPTH=1`) e quem escreve a última posição é o Traefik. É a mesma
+configuração do `compose.bff-test.yml`.
 
-**Qual seria a correção.** Confirmar o proxy nos dois hosts antes do primeiro deploy; se HML
-ficar cinza, ela precisa de `ADDRESS_HEADER: X-Forwarded-For` próprio.
+### O que fica para o painel do Dokploy
 
-### H3 — o Grafana em `obs.cinetra.com.br` depende de proteção que não mora no repositório
+`CLIENT_IP_HEADER=CF-Connecting-IP` nos **dois** stacks. Não é mais uma escolha em aberto: com o
+firewall da origem fechado nas faixas do Cloudflare (feito), um host em DNS-only resolve para o IP
+da origem e bate no firewall — não abre. Ou seja, tudo tem que estar laranja, e aí o header da CF
+é a resposta consistente.
 
-**O que é.** `deploy/observability/compose.obs.yml` ganhou `traefik.enable=true` +
-`Host(${GRAFANA_HOST})` + `tls=true`, sem `middlewares`. O bind em `127.0.0.1` (achado A2 do doc 86)
-está certo e o `verificar.sh` §13 o cobra — mas o roteamento novo publica o login do Grafana no
-domínio, e o que o protege é o **Cloudflare Access**, configurado fora do repositório. Uma
-requisição direta ao IP da origem com `Host: obs.cinetra.com.br` chega ao Traefik e passa ao lado
-do Access.
+### Teste vermelho primeiro, nas duas pontas
 
-**Por que não foi corrigido.** É a mesma decisão do H2 (a origem só pode aceitar as faixas do
-Cloudflare) e ela é de firewall, não de compose.
+O teste fecha o laço inteiro, porque cada metade é invisível da outra: passar a env no compose não
+faz nada se o `runtime.exs` não a lê, e ler no `runtime.exs` não faz nada se o compose não passa.
 
-**Qual seria a correção.** Fechar a 443 da origem para fora das faixas da CF no hPanel — que o
-docs/87 já prevê — e, como cinto, um middleware `ipAllowList` do Traefik no router
-`cinetra-obs`. Vale lembrar o que está atrás dessa porta: o datasource do banco enxerga o
-agregado de **todas** as clínicas, porque as views `metrics_*` rodam com os direitos do dono.
+```
+1) o compose passaria a env para um runtime.exs que não a lê — ligação pela metade
+```
+
+E depois, mutando de volta o hardcode (a regressão realista):
+
+```
+code:  assert valor_de(servico(compose, "web"), "ADDRESS_HEADER") =~ @fonte_do_ip
+left:  " \"CF-Connecting-IP\""
+right: "CLIENT_IP_HEADER"
+```
+
+Re-sonda na app rodando, que é o que o teste de compose **não** alcança:
+
+```
+sem a env                              → trusted: nil          (cai no x-forwarded-for)
+TRUSTED_CLIENT_IP_HEADER="  CF-Connecting-IP  " → trusted: ["cf-connecting-ip"]
+```
+
+---
+
+## 5. O que ainda é seu — o H3, e duas armadilhas que o firewall trouxe
+
+**As faixas da CF no firewall do hPanel já estão postas**, então a camada que de fato fecha o
+acesso à origem está de pé — vale para o app e para o `obs.*` juntos. O que sobra:
+
+### O cinto do H3: Authenticated Origin Pulls, não `ipAllowList`
+
+A primeira indicação deste bate-volta foi um `ipAllowList` no router `cinetra-obs`. **Está
+retirada**, por dois motivos:
+
+* seria uma **segunda cópia** da lista de faixas da CF, no repositório, ao lado da do hPanel — duas
+  fontes da mesma verdade que precisam mudar juntas quando o Cloudflare mexe nos blocos;
+* o `ipAllowList` olha o IP da conexão, e com publicação de porta em container isso pode chegar
+  reescrito pelo SNAT do daemon. O cinto passaria a bloquear tudo, ou nada, e só medindo se sabe.
+
+O [`docs/59:166`](59-deploy-dokploy-oci.md#L166) já nomeia a alternativa certa: **Authenticated
+Origin Pulls** (mTLS Cloudflare↔origem). O Cloudflare apresenta um certificado de cliente que só
+ele tem; quem bater no IP da origem com `Host: obs.cinetra.com.br` não completa o handshake. Sem
+lista de IP, então sem cópia e sem deriva. Custa um arquivo de configuração dinâmica do Traefik
+(`tls.options` com `clientAuth` e a CA de origin-pull da CF), e vale para o app inteiro.
+
+O Cloudflare Access continua sendo a camada de **identidade** — e é ela que responde ao IP
+dinâmico de quem administra, que nenhuma regra de rede consegue enderençar. O que ele guarda não é
+um painel: é o datasource que enxerga o agregado de **todas** as clínicas, porque as views
+`metrics_*` rodam com os direitos do dono e ignoram RLS por construção.
+
+### A1 — as faixas do Cloudflare mudam
+
+Raramente, mas mudam. Quando a CF acrescenta um bloco e o hPanel não tem, uma fatia dos visitantes
+leva connection-refused: intermitente, sem nenhuma linha de log do nosso lado, e com toda a cara
+de problema do usuário. Precisa de um lembrete de conferência em algum lugar que seja lido — é o
+custo recorrente que a opção de firewall traz e a de mTLS não.
+
+### A2 — o WAF pode barrar os webhooks, e o sintoma é o pesadelo já escrito
+
+`POST /webhooks/resend` e `/webhooks/zernio` agora atravessam o Cloudflare, e vêm de **servidor**,
+não de browser — exatamente o perfil que o Bot Fight Mode bloqueia. O sintoma é o que o
+[`compose.dokploy.yml`](../compose.dokploy.yml) já descreve para o caso do segredo ausente: a
+timeline congela em `enviado` para sempre, o Resend reentrega por horas, e nada em lugar nenhum
+diz por quê.
+
+Precisa de uma regra de exceção (skip WAF/bots em `PathPrefix(/webhooks)`) **antes** do primeiro
+envio real, e de uma entrega de teste conferida logo depois. É a mais barata de fazer e a mais
+cara de descobrir tarde.

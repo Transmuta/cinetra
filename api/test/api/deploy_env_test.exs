@@ -48,8 +48,12 @@ defmodule Api.DeployEnvTest do
 
   @familias ~w(RESEND_ MAIL_ ZERNIO_ WHATSAPP_)
 
+  # A variável do stack que responde "qual header a edge garante?". Uma só, porque a resposta é
+  # uma só — ver o teste abaixo.
+  @fonte_do_ip "CLIENT_IP_HEADER"
+
   test "o serviço `api` do compose de produção recebe toda env de comunicação do runtime.exs" do
-    servico = servico_api(File.read!(caminho_do_compose()))
+    servico = servico(File.read!(caminho_do_compose()), "api")
 
     for env <- envs_de_comunicacao() do
       assert Enum.any?(servico, &Regex.match?(~r/^\s+#{Regex.escape(env)}:/, &1)),
@@ -63,7 +67,42 @@ defmodule Api.DeployEnvTest do
     end
   end
 
-  # As linhas do serviço `api`, do cabeçalho dele até o próximo serviço no mesmo recuo.
+  @doc false
+  # "Qual header de proxy merece confiança?" é UMA decisão, e ela é respondida em dois arquivos
+  # muito distantes: a lista do `ApiWeb.ClientIp` (API) e o `ADDRESS_HEADER` do adapter-node (BFF).
+  #
+  # Elas já discordaram uma vez, e o custo foi medido: o BFF passou a confiar em `CF-Connecting-IP`
+  # e a lista da API ficou vazia, caindo no `x-forwarded-for` — que o Cloudflare **acrescenta** em
+  # vez de sobrescrever, e cujo primeiro elemento é escrito pelo cliente. Separar a resposta em dois
+  # lugares foi também a causa B do bate-volta doc 68.
+  #
+  # Então o teste não cobra um valor: cobra que os dois lados **derivem da mesma variável do
+  # stack**. Assim a topologia é declarada uma vez, no painel do Dokploy, e não há como um ambiente
+  # ter um lado configurado e o outro não.
+  #
+  # A terceira asserção fecha o laço pelo outro lado: passar a env no compose não faz nada se o
+  # `runtime.exs` não a ler — e essa metade da ligação é invisível em qualquer inspeção do compose.
+  test "o header de IP do cliente sai da MESMA variável nos dois serviços — e o runtime.exs a lê" do
+    compose = File.read!(caminho_do_compose())
+
+    assert "TRUSTED_CLIENT_IP_HEADER" in envs_lidas_pelo_runtime(),
+           "o compose passaria a env para um runtime.exs que não a lê — ligação pela metade"
+
+    assert valor_de(servico(compose, "api"), "TRUSTED_CLIENT_IP_HEADER") =~ @fonte_do_ip
+    assert valor_de(servico(compose, "web"), "ADDRESS_HEADER") =~ @fonte_do_ip
+  end
+
+  # O lado direito de `NOME: <valor>` dentro de um serviço.
+  defp valor_de(linhas, chave) do
+    linhas
+    |> Enum.find(&Regex.match?(~r/^\s+#{Regex.escape(chave)}:/, &1))
+    |> case do
+      nil -> flunk("`#{chave}` não aparece no serviço")
+      linha -> linha |> String.split(":", parts: 2) |> List.last()
+    end
+  end
+
+  # As linhas de um serviço, do cabeçalho dele até o próximo serviço no mesmo recuo.
   #
   # A asserção precisa ser sobre uma **chave YAML dentro deste serviço**, não sobre o texto do
   # arquivo. Medido: com `assert compose =~ env` bastava o nome aparecer em qualquer lugar, e o
@@ -71,12 +110,12 @@ defmodule Api.DeployEnvTest do
   # apagar as linhas de `environment:` (exatamente a regressão que este teste existe para pegar)
   # deixava o teste VERDE. Um comentário nunca casa `^\s+NOME:`, e o recorte por serviço impede
   # que a env passar a viver no `web` conte como se estivesse aqui.
-  defp servico_api(compose) do
+  defp servico(compose, nome) do
     linhas = String.split(compose, "\n")
 
     inicio =
-      Enum.find_index(linhas, &(&1 == "  api:")) ||
-        flunk("o serviço `api` não foi encontrado em compose.dokploy.yml")
+      Enum.find_index(linhas, &(&1 == "  #{nome}:")) ||
+        flunk("o serviço `#{nome}` não foi encontrado em compose.dokploy.yml")
 
     bloco =
       linhas
@@ -86,7 +125,7 @@ defmodule Api.DeployEnvTest do
     # Guarda contra o recorte virar vacuidade do mesmo jeito que a asserção antiga: um bloco vazio
     # (o formato do compose mudou) faria todo `Enum.any?` acima falhar por acidente, ou passar por
     # acidente se a asserção um dia inverter.
-    assert length(bloco) > 20, "o recorte do serviço `api` devolveu #{length(bloco)} linhas"
+    assert length(bloco) > 10, "o recorte do serviço `#{nome}` devolveu #{length(bloco)} linhas"
 
     bloco
   end
@@ -98,14 +137,19 @@ defmodule Api.DeployEnvTest do
       flunk("compose.dokploy.yml não encontrado em nenhum de: #{Enum.join(@compose, ", ")}")
   end
 
-  # Todo `System.get_env("X")` do runtime.exs cujo nome começa por uma das famílias de comunicação.
+  # Todo `System.get_env("X")` do runtime.exs.
+  defp envs_lidas_pelo_runtime do
+    ~r/System\.get_env\("([A-Z0-9_]+)"/
+    |> Regex.scan(File.read!(@runtime))
+    |> Enum.map(fn [_todo, nome] -> nome end)
+    |> Enum.uniq()
+  end
+
+  # As do recorte de comunicação, que é o alcance do bug que originou o primeiro teste.
   defp envs_de_comunicacao do
     nomes =
-      ~r/System\.get_env\("([A-Z0-9_]+)"/
-      |> Regex.scan(File.read!(@runtime))
-      |> Enum.map(fn [_todo, nome] -> nome end)
+      envs_lidas_pelo_runtime()
       |> Enum.filter(fn nome -> Enum.any?(@familias, &String.starts_with?(nome, &1)) end)
-      |> Enum.uniq()
 
     # Guarda contra o teste virar vacuidade: se a regex parar de casar (o `runtime.exs` muda de
     # forma), a lista fica vazia e o `for` acima passa sem verificar nada.

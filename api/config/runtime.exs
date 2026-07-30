@@ -182,6 +182,35 @@ if config_env() != :test and otlp_endpoint not in [nil, ""] do
     otlp_endpoint: otlp_endpoint
 end
 
+# ---- Qual header de proxy merece confiança (bate-volta doc 90, H1) -----------------------------
+#
+# `ApiWeb.ClientIp` tem default vazio de propósito: nenhum header de vendor é confiável até que o
+# deploy declare que a edge o **sobrescreve**. Esta é essa declaração.
+#
+# A env vem da MESMA variável do stack que alimenta o `ADDRESS_HEADER` do BFF
+# (`CLIENT_IP_HEADER`, ver compose.dokploy.yml), e isso não é economia de digitação: a pergunta
+# "qual header a edge garante?" é UMA, e enquanto ela teve duas respostas em dois arquivos, elas
+# discordaram — o BFF confiando em `CF-Connecting-IP` e a lista daqui vazia, caindo no
+# `x-forwarded-for`. A simetria está presa por `Api.DeployEnvTest`.
+#
+# **Por que o `x-forwarded-for` não basta atrás do Cloudflare**, mesmo com o firewall da origem já
+# fechado nas faixas dele: o firewall prova que a requisição *passou* pela edge, não que a cadeia
+# é honesta. O Cloudflare **acrescenta** ao XFF que o cliente mandou em vez de descartá-lo, e o
+# `ClientIp` lê o primeiro elemento — que é, portanto, escrito pelo cliente. O `CF-Connecting-IP`
+# é o oposto: sobrescrito a cada requisição.
+#
+# Vazia (o default do compose) = topologia sem edge conhecida, e aí o `x-forwarded-for` é o que o
+# Traefik de fato garante no último hop.
+# `config_env() != :test` pela mesma razão que o bloco de traces algumas linhas acima o exige: sem
+# ele, uma variável solta no shell de quem roda a suíte passaria a decidir a cadeia de confiança, e
+# os testes do default de `ApiWeb.ClientIp` diriam coisas diferentes em máquinas diferentes.
+trusted_ip_header =
+  System.get_env("TRUSTED_CLIENT_IP_HEADER", "") |> String.trim() |> String.downcase()
+
+if config_env() != :test and trusted_ip_header != "" do
+  config :api, trusted_client_ip_headers: [trusted_ip_header]
+end
+
 if config_env() == :prod do
   # The secret key base is used to sign/encrypt cookies and other secrets.
   # A default value is used in config/dev.exs and config/test.exs but you

@@ -155,6 +155,13 @@ services:
       R2_BUCKET: ${R2_BUCKET}
       R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID}
       R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY}
+      # O header de proxy em que as chaves de rate limit por IP confiam (doc 90, H1).
+      #
+      # MESMA variável do `ADDRESS_HEADER` do web, algumas dezenas de linhas abaixo — a pergunta
+      # "qual header a edge garante?" é uma só, e enquanto ela teve duas respostas em dois lugares
+      # elas discordaram. Vazia = sem edge declarada, e aí os dois lados caem no `x-forwarded-for`,
+      # que é o que o Traefik garante sozinho. `Api.DeployEnvTest` prende a simetria.
+      TRUSTED_CLIENT_IP_HEADER: ${CLIENT_IP_HEADER:-}
       # Comunicação com o paciente (doc 52 / doc 65). Faltavam AQUI enquanto o cabeçalho deste
       # arquivo já roteava `/webhooks` para a API — e as duas ausências são silenciosas:
       #
@@ -248,7 +255,20 @@ services:
       API_URL: "http://api-${STACK}:4000"       # BFF -> API do PRÓPRIO stack (alias único; `api` puro colide na dokploy-network entre stacks)
       API_PUBLIC_ORIGIN: "https://${WEB_HOST}"  # socket wss no mesmo domínio
       ORIGIN: "https://${WEB_HOST}"             # CSRF, URLs absolutas, decide o HSTS
-      ADDRESS_HEADER: "CF-Connecting-IP"        # atrás do Cloudflare: IP real do cliente (docs/59 §5.1)
+      # IP real do cliente, para as chaves de rate limit da API (o BFF o repassa em
+      # `x-forwarded-for`). MESMA variável do `TRUSTED_CLIENT_IP_HEADER` do serviço `api` acima —
+      # ver o comentário de lá, e `Api.DeployEnvTest`, que prende a simetria.
+      #
+      # Atrás do Cloudflare: `CLIENT_IP_HEADER=CF-Connecting-IP` (docs/59 §5.1). O default NÃO é
+      # esse, e a razão é que o `getClientAddress()` do adapter-node **levanta** quando o header
+      # configurado falta na requisição — com um vendor hardcoded, qualquer requisição que chegue
+      # à origem fora daquela edge vira 500 em toda página que fale com a API. O
+      # `x-forwarded-for` do default não tem esse risco e também não é forjável: o adapter conta
+      # da DIREITA (`XFF_DEPTH=1`) e quem escreve a última posição é o Traefik.
+      #
+      # Se um dia mexer no `XFF_DEPTH`: ele levanta quando a profundidade pedida é maior que a
+      # cadeia recebida. O 1 é o certo aqui.
+      ADDRESS_HEADER: ${CLIENT_IP_HEADER:-X-Forwarded-For}
       # Traces (doc 76). Vazio = o `otel.mjs` não constrói o SDK e o processo fica idêntico.
       # Porta 4318 (OTLP/HTTP) contra 4317 (gRPC) da API: cada SDK usa o protocolo batido na sua
       # comunidade, e o Alloy escuta os dois. O `--import ./otel.mjs` já está no Dockerfile.prod.
