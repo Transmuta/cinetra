@@ -397,15 +397,24 @@ defp send_link(_strategy, _identity, _nome, nil, false, _context, _opts), do: :o
 silencia o envio para "e-mail sem conta" quando `register? == false` — que é exatamente o caso de
 quem já pediu cadastro e ainda não confirmou. O login (`/entrar`) manda `register: false`.
 
+**A cláusula está certa** — não é ela o defeito. Ela impede duas coisas legítimas: que digitar um
+e-mail no login vire cadastro silencioso, e que o login sirva para enumerar quem tem conta. O
+problema é que **"cadastro pendente" e "nunca existiu" são indistinguíveis** para o sistema, e o
+primeiro fica sem saída.
+
 O efeito para a pessoa: ela se cadastra, perde o e-mail, vai em *"Já tem conta? Entrar"*, digita o
-endereço, lê "verifique seu e-mail" — e nada chega, para sempre. A saída existe (voltar em
-`/criar-conta`), mas nada na tela a indica.
+endereço, lê "verifique seu e-mail" — e nada chega, por quantas vezes tentar.
+
+A saída **existe e foi medida**: o mesmo endereço que ficou em 1 e-mail depois de três pedidos por
+`/entrar` recebeu o segundo na hora com um pedido de `/criar-conta` (`register: true`). Ou seja, o
+conserto pode ser só de texto — mas hoje **nada na tela indica esse caminho**, e a pessoa tem toda
+razão de achar que já tem conta.
 
 > **Não confundir com o convite**, que foi verificado e **funciona**: `invite_member_by_email` cria
 > o `User` na hora, então "Reenviar convite" acha alguém e manda o segundo e-mail (2 na caixa). O
 > buraco é só o do auto-cadastro pendente.
 
-### A-12 · Pedir um link novo **não invalida o anterior** — **decisão**
+### A-12 · Pedir um link novo **não invalida o anterior** — **DECIDIDO: fica como está**
 
 O §1 do roteiro diz: *"Link velho (peça dois; use o primeiro) → **o mais recente vale; o consumido
 não**"*. Medido com uma conta confirmada: dois pedidos geram **dois tokens distintos**, dois
@@ -413,9 +422,18 @@ e-mails, e **os dois autenticam** (302 nos dois). Só o link **consumido** é in
 401, A-10 acima).
 
 Não é bug de implementação — é o modelo de allowlist por `jti`, em que cada token vale por si até
-ser usado ou expirar. Mas contraria o esperado escrito no roteiro, e tem um ângulo de segurança
-pequeno: cada reenvio deixa mais uma chave viva na caixa de e-mail da pessoa. Decidir qual das duas
-muda: o texto do §1, ou a emissão (revogar os anteriores ao emitir).
+ser usado ou expirar.
+
+**Decisão de 2026-07-30: fica como está** — *"uma hora expira"*. O raciocínio a favor é forte e
+vale registrar, porque a intuição puxa para o outro lado: revogar os anteriores **quebraria o caso
+mais comum do mundo real**, que é a pessoa pedir outro link e clicar no **primeiro** e-mail. O
+controle do "chave viva sobrando" passa a ser a **expiração**, não a revogação — e o link
+consumido continua morrendo na hora (401, medido).
+
+**Consequência prática:** quem muda é o **roteiro**. O §1 do doc 82 diz *"o mais recente vale; o
+consumido não"* — a primeira metade está errada e precisa virar *"os links emitidos valem até
+expirar; só o consumido é recusado"*. Enquanto não mudar, quem rodar o roteiro anota desvio onde há
+decisão.
 
 ### A-13 · A regra nova quebrou o helper de e2e — **corrigido nesta rodada**
 
@@ -524,9 +542,11 @@ ambiente:
 
 ## 8. Para a conversa com a Andreza
 
-1. **A-8**: o §4 do roteiro está desatualizado — duplicado **barra** desde o doc 89. Não é bug, é
-   política nova; mas se a Andreza rodar o roteiro como está escrito, vai anotar desvio onde o
-   comportamento é o desejado. Reescrever antes da re-homologação.
+1. **O roteiro tem três trechos desatualizados, e é o item mais barato da lista** — reescrever
+   **antes** da re-homologação, senão ela anota desvio onde o comportamento é o desejado:
+   - **§4** (A-8): duplicado **barra** desde o doc 89, não "avisa";
+   - **§2 e §12** (A-3): a lista da Equipe abre para todo membro; o que some são as **ações**;
+   - **§1** (A-12): os links emitidos valem até expirar — só o **consumido** é recusado.
 2. **A-1**: Relatórios não conta as faltas de uma turma. Cai bem no item que ela mesma vai testar
    ("os números batem"). Levar já com a pergunta: *contar presença ou bloco?*
 3. **A-3** muda o roteiro, não o código — mas é decisão dela/de produto se recepção deve ver

@@ -139,7 +139,25 @@
 			menuAberto={drawerOpen}
 			onMenu={() => (drawerOpen = !drawerOpen)}
 		/>
-		<main id="conteudo" tabindex="-1" class="flex-1 overflow-auto focus:outline-none">
+		<!--
+			`relative` não é decoração: é o que impede o SEGUNDO scroll.
+
+			O shell é `h-dvh overflow-hidden` e quem rola é este `<main>` — mas um descendente
+			`position: absolute` sem ancestral posicionado tem o DOCUMENTO como bloco container, e
+			então é colocado na coordenada de documento correspondente à sua posição estática lá no
+			fim do conteúdo rolado. Ou seja: ele estica o documento e faz nascer uma barra de rolagem
+			que leva rail, sidebar e topbar para fora da tela.
+
+			Quem faz isso não é código de página, é o `.sr-only` do Tailwind (`position: absolute`),
+			que a auditoria usa uma vez POR LINHA (a data por extenso ao lado da hora). Medido em
+			`/auditoria`, viewport de 420px: documento com 1110px de altura. Com `relative` aqui, o
+			bloco container passa a ser o próprio `main`, o texto oculto rola junto com a sua linha —
+			que é o certo — e o documento volta a caber na tela.
+
+			Fixado por `e2e/scroll-shell.spec.ts`. O teste é e2e porque jsdom não faz layout: em
+			Vitest `scrollHeight` é sempre 0 e o bug passaria verde.
+		-->
+		<main id="conteudo" tabindex="-1" class="relative flex-1 overflow-auto focus:outline-none">
 			{@render children()}
 		</main>
 	</div>

@@ -14,3 +14,4 @@
 
 # Cache do Vite/Vitest. Mesmo caso: `node_modules/` só é ignorado dentro de `web/`.
 /node_modules/
+cinetra-prod-age.key
