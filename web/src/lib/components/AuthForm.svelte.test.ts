@@ -24,6 +24,31 @@ describe('AuthForm', () => {
 		expect(queryByRole('button')).toBeNull();
 	});
 
+	// A-11 (doc 88): o beco de quem se cadastrou e nunca abriu o link. Para essa pessoa o login
+	// não envia nada — o `User` só nasce no consumo, e a cláusula anti-enumeração silencia o
+	// envio. A tela neutra precisa apontar a saída, e a frase é fixa (não depende do e-mail),
+	// que é o que a mantém compatível com o ADR-015.
+	it('estado neutro do LOGIN: aponta o cadastro para quem ainda não abriu o link', () => {
+		const { getByRole, getByText } = render(AuthForm, {
+			props: { ...baseProps, form: { sent: true, email: 'ana@x.com' } }
+		});
+
+		expect(getByText(/Criou a conta agora e o link não chegou/)).toBeInTheDocument();
+		expect(getByRole('link', { name: /Peça outro em Criar conta/ })).toHaveAttribute(
+			'href',
+			'/criar-conta'
+		);
+	});
+
+	// No CADASTRO a mesma dica seria circular ("peça de novo onde você já está").
+	it('estado neutro do CADASTRO: não repete a dica de ir ao cadastro', () => {
+		const { queryByText } = render(AuthForm, {
+			props: { ...baseProps, collectName: true, form: { sent: true, email: 'ana@x.com' } }
+		});
+
+		expect(queryByText(/Criou a conta agora e o link não chegou/)).toBeNull();
+	});
+
 	it('estado inicial (form null): campo de e-mail, botão de envio e link do Google', () => {
 		const { getByLabelText, getByRole } = render(AuthForm, {
 			props: { ...baseProps, form: null }
