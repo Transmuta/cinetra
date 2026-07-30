@@ -207,8 +207,21 @@ defmodule Api.Accounts.User do
     uuid_v7_primary_key :id
 
     attribute :nome, :string, allow_nil?: false, public?: true
-    # case-insensitive; identidade de login.
-    attribute :email, :ci_string, allow_nil?: false, public?: true
+
+    # Case-insensitive **e** guardado em minúsculas. As duas coisas são diferentes, e só a
+    # primeira vinha de graça: `:ci_string` (citext) faz `Ana@Example.com` e `ana@example.com`
+    # COMPARAREM iguais — o login e a identity `unique_email` sempre estiveram certos —, mas a
+    # coluna guardava a caixa que a pessoa digitou, e ela aparece em tudo que lê o valor cru: a
+    # lista da equipe, o destinatário do e-mail, a trilha de auditoria.
+    #
+    # `casing: :lower` descarta a caixa no **cast do tipo**, e é por isso que ele mora aqui e não
+    # numa change: pega os três caminhos que criam usuário (magic link, convite por e-mail e
+    # Google) sem que nenhum deles precise lembrar da regra. É a mesma decisão de
+    # `Api.Changes.Canonicalizar` para a ficha do paciente e do profissional (doc 89).
+    attribute :email, :ci_string,
+      allow_nil?: false,
+      public?: true,
+      constraints: [casing: :lower]
 
     timestamps()
   end

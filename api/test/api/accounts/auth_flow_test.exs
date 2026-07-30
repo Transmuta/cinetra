@@ -28,6 +28,53 @@ defmodule Api.Accounts.AuthFlowTest do
     assert email.text_body =~ "/auth/callback?token="
   end
 
+  # O e-mail é a identidade de login, e `:ci_string` já o compara sem diferenciar caixa — mas
+  # guardar `Ana@Example.com` deixa a caixa VISÍVEL em tudo que lê a coluna crua: a tela de equipe,
+  # o destinatário do e-mail, a trilha de auditoria. A regra é uma só, e vale para os três caminhos
+  # que criam usuário — magic link, convite e Google (`casing: :lower` no atributo pega os três,
+  # porque o cast é do tipo, não da ação).
+  describe "e-mail do usuário é guardado em minúsculas" do
+    test "pelo cadastro por magic link" do
+      addr = email_unico("Caixa")
+      misto = String.upcase(addr)
+
+      token = request_and_capture_token(misto)
+      {:ok, user} = Accounts.sign_in_with_magic_link(token)
+
+      assert to_string(user.email) == String.downcase(addr)
+    end
+
+    test "pelo registro direto (o caminho das fábricas e do convite aceito)" do
+      addr = email_unico("Caixa")
+
+      user = Accounts.register_user!("Dona", String.upcase(addr), authorize?: false)
+
+      assert to_string(user.email) == String.downcase(addr)
+    end
+
+    test "pelo convite por e-mail — quem é convidado com CAIXA ALTA entra minúsculo" do
+      owner = Accounts.register_user!("Dono", email_unico("caixa"), authorize?: false)
+
+      clinic =
+        Accounts.onboard_clinic!("Clínica #{System.unique_integer([:positive])}", %{},
+          actor: owner
+        )
+
+      addr = email_unico("Convidada")
+
+      {:ok, membership} =
+        Accounts.invite_member_by_email(
+          String.upcase(addr),
+          %{papel: :recepcao, clinic_id: clinic.id},
+          authorize?: false
+        )
+
+      convidada = Accounts.get_user!(membership.user_id, authorize?: false)
+
+      assert to_string(convidada.email) == String.downcase(addr)
+    end
+  end
+
   # O buraco que originou esta fatia: o formulário de LOGIN (register?: false, o default)
   # não pode gerar link nem criar conta para um e-mail que ainda não existe — senão o
   # "entrar" vira um cadastro silencioso e dá para enumerar quem tem conta.
