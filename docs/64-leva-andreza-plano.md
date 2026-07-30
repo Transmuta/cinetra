@@ -227,7 +227,7 @@ O bloco "antes do piloto" fechado em 2026-07-28, na ordem da [§6](#6-ordem-suge
 
 | Frente | Peças |
 | --- | --- |
-| `AN-05` | A fórmula de cada um dos 5 KPIs no `title` do cartão + ícone de ajuda com `aria-label` ([`relatorios/+page.svelte`](../web/src/routes/(app)/relatorios/+page.svelte)). Copiadas **literalmente** de `summary_totais/5` |
+| `AN-05` | A fórmula de cada um dos 5 KPIs no `title` do cartão + ícone de ajuda ([`relatorios/+page.svelte`](../web/src/routes/(app)/relatorios/+page.svelte)). Copiadas **literalmente** de `summary_totais/5`. **Corrigido em 2026-07-29**: o ícone era `<span>` com `aria-label` (atributo proibido) e a explicação só existia no hover — no celular não havia caminho nenhum. Virou botão que abre o `Modal` (ACC-10, [doc 83 §4](83-acessibilidade-analise-completa.md)) |
 | `AN-04` | [`Api.Validations.TelObrigatorio`](../api/lib/api/validations/tel_obrigatorio.ex) — módulo **compartilhado** entre `Patient` e `Professional`; `telefoneValido/1` em [`telefone.ts`](../web/src/lib/telefone.ts) espelhando `Dispatch.normalizar/2`; asterisco, guard de salvar e rodapé nos dois formulários |
 | `AN-03` | `Attendance.motivo` (por participante) + `Appointment.reschedule_reason` (do bloco) + migration + `ConfirmDialog` da falta, no molde do cancelar |
 | `AN-07` | `Appointment.veio_da_fila`/`dias_na_fila`, carimbados em `Waitlist.convert/3` **antes** do `dequeue` + migration |

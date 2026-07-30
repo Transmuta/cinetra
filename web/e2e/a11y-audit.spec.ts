@@ -3,14 +3,14 @@ import AxeBuilder from '@axe-core/playwright';
 import fs from 'node:fs';
 
 /**
- * AN-08 (doc 64, D8): a AUDITORIA de acessibilidade — não o gate. Varre páginas com o axe-core
- * e despeja as violações em `a11y-report.json`, sem falhar: o D8 manda auditar → consertar →
- * só então ligar o gate no CI, já verde. Quando virar gate, a asserção passa a ser
- * `expect(violations).toEqual([])` por página.
+ * O gate de acessibilidade das páginas **públicas** — landing, autenticação e documentos legais.
  *
- * As páginas AUTENTICADAS entram quando a caixa de dev estiver recebendo (com `RESEND_API_KEY`
- * no ambiente o mailer real assume e o magic link não aparece em `/dev/mailbox`) — a varredura
- * desta rodada cobre as públicas; as internas foram auditadas por inspeção (doc 76).
+ * Nasceu como auditoria no AN-08 (doc 64, D8: auditar → consertar → só então barrar, já verde).
+ * As duas primeiras etapas estão feitas: os achados de contraste daquela rodada foram consertados
+ * e a varredura está em zero, então agora ela **barra**.
+ *
+ * As telas autenticadas têm gate próprio em `a11y-interno.spec.ts` (elas precisam de sessão, e o
+ * caminho é o magic link da caixa de dev).
  */
 
 const PAGINAS = ['/', '/entrar', '/criar-conta', '/privacidade', '/termos'];
@@ -53,5 +53,11 @@ test('varredura axe nas páginas públicas', async ({ page }) => {
 
 	fs.writeFileSync('a11y-report.json', JSON.stringify(achados, null, 1));
 	console.log(`axe: ${achados.length} violações — ver a11y-report.json`);
-	expect(true).toBe(true);
+
+	// Regra + página + alvo na mensagem, para a falha dizer onde olhar (o relatório completo fica
+	// no JSON). Baixar o gate não é opção — ver `.claude/rules/testes.md`.
+	expect(
+		achados.map((a) => `${a.id} @ ${a.pagina} (${a.nodes}×) — ${a.alvo[0] ?? '?'}`),
+		'violações de acessibilidade nas páginas públicas'
+	).toEqual([]);
 });

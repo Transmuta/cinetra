@@ -50,6 +50,22 @@ de servidor do BFF — repasse de cookie, re-emissão de sessão, resposta neutr
   toggle), `AuthForm` (estado neutro vs formulário vs erro — com `$app/forms`/`$app/state`
   mockados), `Logo` e `GoogleIcon`.
 
+### Tripwires de design system — o teste que lê a fonte
+
+Duas exceções ao "teste exercita código": estes **leem a definição** e a medem. Existem porque a
+paleta passou por duas rodadas de calibragem visual com pares em 2,03:1 sem nada acusar
+([doc 83](83-acessibilidade-analise-completa.md), [ADR-019](00-decisoes.md#adr-019--cor-semântica-é-dois-tokens-fundo-fixo-e-texto-por-tema)):
+
+- [`styles/contraste.test.ts`](../web/src/lib/styles/contraste.test.ts) — abre o `app.css`, extrai
+  os tokens dos dois temas e mede: texto nas 3 superfícies **e** na tinta de 14% da própria cor,
+  fundo sólido + `on-solid`, e o anel de foco em toda superfície (inclusive o rail escuro). Lê o CSS
+  em vez de repetir os hex de propósito — um teste com os valores à mão concorda com o CSS até o dia
+  em que divergem. Também confere a **regra** `:focus-visible`, porque a primeira versão media só os
+  tokens e passava verde com o anel invisível no tema claro.
+- [`contraste.test.ts`](../web/src/lib/contraste.test.ts) — as paletas categóricas (avatar, tipo,
+  prioridade), que vêm de lista e são contrato com o servidor: para toda cor, `textoSobre()` tem de
+  alcançar 4,5. Cor nova que não sirva a nenhum dos dois textos reprova aqui, que é o momento certo.
+
 ### E2E (Playwright) — só o crítico
 
 O critério de entrada **não é cobrir rota**: é cobrir uma **classe de bug que só o browser
@@ -68,6 +84,8 @@ reafirma regra é custo puro. As classes que sobram, e o cenário que guarda cad
 | [`isolamento`](../web/e2e/isolamento.spec.ts) | Vazamento entre clínicas pelo caminho HTTP inteiro, com o role `cinetra_app` (NOBYPASSRLS) — o `mix test` conecta como superusuário e é cego a isso. |
 | [`recepcao`](../web/e2e/recepcao.spec.ts) | RBAC afirmado em três lugares (policy, controller, gating de UX) **concordando**, com contraste owner × recepção na mesma tela. |
 | [`console`](../web/e2e/console.spec.ts) | Varredura do shell: erro de console/CSP em qualquer tela, e `<a>` para endpoint `+server` sem `data-sveltekit-reload` (404 no roteador de cliente). |
+| [`a11y-audit`](../web/e2e/a11y-audit.spec.ts) · [`a11y-interno`](../web/e2e/a11y-interno.spec.ts) | **Gate de acessibilidade** (axe-core, WCAG 2.0/2.1 A+AA): 5 páginas públicas e 21 telas/estados internos, diálogos e mobile inclusos. Contraste e regra de ARIA só existem **pintados**, e a `a11y-interno` mede com dado semeado porque tela vazia não tem linha para reprovar. Ver [doc 83](83-acessibilidade-analise-completa.md) §9. |
+| [`a11y-teclado`](../web/e2e/a11y-teclado.spec.ts) · [`a11y-anexos`](../web/e2e/a11y-anexos.spec.ts) | **Sondas** (relatam, não barram): quantos Tabs até o conteúdo, se o foco escapa do diálogo, reflow a 320/640px, e se o input de arquivo está na ordem de tabulação. É o que o axe não vê — e o que uma regressão dessas quebra primeiro é o teste de unidade do componente. |
 
 **O andaime** ([`e2e/fixtures.ts`](../web/e2e/fixtures.ts)): a fixture `clinica` dá a cada teste
 uma clínica própria — dono autenticado por magic link **de verdade**, e o cenário (profissional,

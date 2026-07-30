@@ -36,5 +36,9 @@ vite.config.ts.timestamp-*
 # NUNCA no diretório servido (ver scripts/mover-sourcemaps.mjs).
 sourcemaps/
 
-# relatório da varredura axe (AN-08) — artefato de auditoria, o conteúdo vai para docs/
+# relatórios das varreduras/sondas de a11y (AN-08 e doc 83) — artefato de auditoria, o
+# conteúdo vai para docs/
 /a11y-report.json
+/a11y-report-interno.json
+/a11y-teclado.json
+/a11y-anexos.json
