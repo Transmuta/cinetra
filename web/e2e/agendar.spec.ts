@@ -37,7 +37,10 @@ test.describe('Agendar pela grade', () => {
 		// Busca com ≥2 caracteres e debounce de 300ms (PatientPicker): o resultado é assíncrono, e é
 		// o `expect` que espera por ele.
 		await modal.getByRole('combobox', { name: 'Buscar paciente' }).fill('Marina');
-		await modal.getByRole('button', { name: /Marina Prado/ }).click();
+		// `option`, não `button`: a lista do `PatientPicker` é um listbox ARIA 1.2 (cada resultado é
+		// um `<li role="option">`). Enquanto o build do preview estava velho, este teste passava
+		// procurando `button` — verde contra um app que não existia mais.
+		await modal.getByRole('option', { name: /Marina Prado/ }).click();
 
 		await modal.getByLabel('Tipo').selectOption({ label: `${clinica.tipo.nome} (50min)` });
 		await modal.getByLabel('Hora').fill('09:00');

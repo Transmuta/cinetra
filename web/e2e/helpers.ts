@@ -26,6 +26,20 @@ export function emailUnico(prefixo = 'e2e'): string {
 }
 
 /**
+ * Um celular brasileiro **único por chamada** — o par do `emailUnico`, e pelo mesmo motivo.
+ *
+ * Desde o doc 89 (`identity :tel_unico`), telefone preenchido é único por clínica nos dois
+ * cadastros de pessoa. O número fixo que estas funções usavam (`11987654321`) fazia a **segunda**
+ * ficha da mesma clínica morrer em 422 — "este telefone já está em outra ficha da clínica" —, e o
+ * teste acusava a regra errada: o cenário nem chegava a existir.
+ */
+export function telUnico(): string {
+	return `119${Math.floor(Math.random() * 1e8)
+		.toString()
+		.padStart(8, '0')}`;
+}
+
+/**
  * A API está de pé com as rotas de dev?
  *
  * Os e2e autenticados precisam de API + banco + a caixa de e-mail de dev — a stack do
@@ -192,7 +206,7 @@ export async function criarProfissional(api: APIRequestContext, nome: string): P
 	// cadastros, e sem ele o `montarClinica` morre em 422 antes da primeira asserção.
 	const body = await post<{ professional: Ref }>(api, '/api/professionals', {
 		nome,
-		tel: '11987654321'
+		tel: telUnico()
 	});
 	return body.professional;
 }
@@ -203,7 +217,7 @@ export async function criarPaciente(api: APIRequestContext, nome: string): Promi
 	// derrubando todo cenário autenticado, não só os que olham para paciente.
 	const body = await post<{ patient: Ref }>(api, '/api/patients', {
 		nome,
-		tel: '11987654321'
+		tel: telUnico()
 	});
 	return body.patient;
 }
