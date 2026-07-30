@@ -780,12 +780,18 @@ defmodule Api.Scheduling do
       filter_profs = summary_filter_professionals(scope, escopo, breakdown)
       prof_ids = Enum.map(breakdown, & &1.id)
 
+      # As PRESENÇAS vêm junto (A-1, doc 88). O desfecho do bloco é o rollup delas — "alguma
+      # concluída ⇒ bloco concluído" —, então contar `appointment.status` apaga a falta de quem
+      # não veio numa turma: 1 presente + 1 falta virava "1 concluído, 0 faltas". Quem o relatório
+      # conta é gente atendida, não bloco; para atendimento individual os dois números coincidem,
+      # e é por isso que o desvio ficou invisível até o QA guiado.
       appointments =
         list_appointments!(janela_de, janela_ate,
           scope: scope,
           query: [
             filter: summary_filter(escopo),
-            select: [:starts_at, :ends_at, :status, :professional_id, :appointment_type_id]
+            select: [:starts_at, :ends_at, :status, :professional_id, :appointment_type_id],
+            load: [:attendances]
           ]
         )
 
@@ -858,12 +864,14 @@ defmodule Api.Scheduling do
       Enum.group_by(ativos, &Api.Scheduling.LocalTime.to_local_date(&1.starts_at, timezone))
 
     Enum.map(dates, fn date ->
-      list = Map.get(by_date, date, [])
+      # Mesma unidade do cartão (presença, não bloco): senão o gráfico "Volume por dia" somaria
+      # 12 embaixo de um KPI que diz 19, e o número volta a ser incontestável por falta de conta.
+      presencas = by_date |> Map.get(date, []) |> summary_presencas()
 
       %{
         date: date,
-        total: length(list),
-        concluidos: Enum.count(list, &(&1.status == :concluido))
+        total: length(presencas),
+        concluidos: Enum.count(presencas, &(&1.status == :concluida))
       }
     end)
   end
@@ -884,18 +892,29 @@ defmodule Api.Scheduling do
     end)
   end
 
+  # As presenças dos blocos ATIVOS (não-cancelados), que é o recorte que o relatório sempre usou —
+  # trocando só a unidade, de bloco para pessoa. A presença `:cancelada` sai junto: é o participante
+  # que saiu da turma, e ele não foi atendido nem faltou.
+  defp summary_presencas(ativos) do
+    ativos
+    |> Enum.flat_map(&(&1.attendances || []))
+    |> Enum.reject(&(&1.status == :cancelada))
+  end
+
   defp summary_totais(appointments, ativos, ocupado, capacidade_dia, dias) do
-    concluidos = Enum.count(appointments, &(&1.status == :concluido))
-    faltas = Enum.count(appointments, &(&1.status == :faltou))
+    presencas = summary_presencas(ativos)
+    concluidos = Enum.count(presencas, &(&1.status == :concluida))
+    faltas = Enum.count(presencas, &(&1.status == :faltou))
     capacidade = Enum.sum(capacidade_dia)
 
     %{
-      atendimentos: length(ativos),
+      atendimentos: length(presencas),
       concluidos: concluidos,
       faltas: faltas,
+      # `cancelados` segue contando BLOCOS, e de propósito: o cartão se chama "Cancelamentos" e
+      # conta o evento de cancelar, que é da fase de agendamento — não um desfecho de presença.
       cancelados: Enum.count(appointments, &(&1.status == :cancelado)),
-      futuros:
-        Enum.count(appointments, &(&1.status in [:agendado, :confirmado, :em_atendimento])),
+      futuros: Enum.count(presencas, &(&1.status == :prevista)),
       taxa_falta: taxa_falta(concluidos, faltas),
       ocupacao: ocupacao_pct(ocupado, capacidade),
       ocupado_minutos: ocupado,
@@ -917,13 +936,18 @@ defmodule Api.Scheduling do
 
     professionals
     |> Enum.map(fn prof ->
-      ativos = by_prof |> Map.get(prof.id, []) |> Enum.reject(&(&1.status == :cancelado))
-      concluidos = Enum.count(ativos, &(&1.status == :concluido))
-      faltas = Enum.count(ativos, &(&1.status == :faltou))
+      presencas =
+        by_prof
+        |> Map.get(prof.id, [])
+        |> Enum.reject(&(&1.status == :cancelado))
+        |> summary_presencas()
+
+      concluidos = Enum.count(presencas, &(&1.status == :concluida))
+      faltas = Enum.count(presencas, &(&1.status == :faltou))
 
       %{
         professional_id: prof.id,
-        total: length(ativos),
+        total: length(presencas),
         concluidos: concluidos,
         faltas: faltas,
         taxa_falta: taxa_falta(concluidos, faltas)
