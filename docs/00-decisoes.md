@@ -305,6 +305,29 @@ Dark mode continua por `data-theme` (`@custom-variant dark`), não por `class` n
 
 ---
 
+## ADR-019 — Cor semântica é DOIS tokens: fundo fixo e texto por tema
+
+**Status:** Aceita (2026-07-29) · **Motivada por:** [doc 83](83-acessibilidade-analise-completa.md) (ACC-12 a ACC-19) · **Substitui a prática de:** [ADR-010](#adr-010--tailwind-v4-com-o-design-system-do-protótipo-como-fonte)
+
+**Contexto.** `--mv-success`, `--mv-warning`, `--mv-danger` e `--mv-info` nasceram compartilhadas entre os temas (hex verbatim do protótipo) e servindo a **dois papéis**: fundo de badge/chip e cor de texto de aviso. Medido no doc 83: como texto no tema claro elas chegavam a **2,03:1** (`warning`, 23 usos) e como fundo com texto branco a **2,03–3,91:1**. Uma cor não resolve os dois — o que contrasta com branco não contrasta com quase-preto, e escurecê-la para servir de texto apagaria as badges.
+
+**Decisão.**
+
+- **`--mv-<sem>-solid`** é o **fundo** (badge, chip, botão sólido). Fixo nos dois temas — badge é badge — e o texto sobre ele é `--mv-on-solid`, escuro e também fixo. O precedente é a badge ENCAIXE, consertada assim no AN-08.
+- **`--mv-<sem>`** é **texto/ícone** (`text-danger` e parentes), e muda **por tema**.
+- **Exceção deliberada:** `--mv-danger-solid` escureceu (`#e5484d` → `#d83b40`) para **manter o texto branco**. Botão destrutivo com texto escuro sobre vermelho claro perde a força de aviso.
+- O par espelha o que o teal já era (`--mv-teal-solid` + `--mv-teal-text`): não é padrão novo, é o padrão existente estendido às outras quatro.
+- **Paleta categórica** (avatar, tipo de atendimento, prioridade) **não** entra nesse modelo: ela vem de lista e é contrato com o `one_of` do servidor (débito **D-3**), então o hex não muda. Ali a cor do texto é **escolhida por cor de fundo** (`textoSobre()` em `web/src/lib/contraste.ts`), porque 5 das 7 cores de avatar reprovam com branco e nenhuma cor única serve às sete.
+
+**Consequências.**
+
+- Os ~91 usos de `text-<sem>` **não mudaram**; quem passou a precisar de sufixo foram os ~5 fundos sólidos (`bg-warning` → `bg-warning-solid`). Usar um pelo outro **reprova no teste**, não em produção.
+- Valor de token novo tem de passar em **duas** famílias de fundo: as superfícies e a **própria tinta** (`bg-<sem>/10..14`), onde o fundo já está tingido da cor do texto. Foi a tinta que empurrou os valores finais além do mínimo óbvio — ver doc 83 §11.2.
+- A trava é `web/src/lib/styles/contraste.test.ts`, que **lê o `app.css`** em vez de repetir os hex: um teste com os valores à mão concorda com o CSS até o dia em que divergem.
+- Mexer nessas cores deixou de ser escolha estética livre. O piso é WCAG AA (4,5 para texto, 3 para indicador de foco), e baixar o gate é decisão humana explícita — a mesma regra do gate de cobertura.
+
+---
+
 ## ADR-013 — Prontuário clínico (LGPD Art. 11) é v2; a v1 tem apenas a ficha do paciente
 
 **Status:** Aceita (2026-07-10) · **Restringe:** [ADR-007](#adr-007--dado-de-saúde-é-tratado-como-categoria-especial-da-lgpd) · **Reconcilia:** decisão de produto **D16**

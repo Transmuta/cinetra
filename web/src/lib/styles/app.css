@@ -36,11 +36,22 @@
 	--mv-shadow-toast: 0 8px 24px rgba(8, 10, 12, 0.3);
 	--mv-shadow-modal: 0 24px 60px rgba(8, 10, 12, 0.4);
 
-	/* Semânticas compartilhadas claro/escuro (:311) */
-	--mv-success: #2da160;
-	--mv-warning: #f5a623;
-	--mv-danger: #e5484d;
-	--mv-info: #2b7fff;
+	/* ── Semânticas: FUNDO (badge, chip, botão sólido) ──
+	   Iguais nos dois temas, e é de propósito: badge é badge — a de ENCAIXE é âmbar no claro e
+	   no escuro. Como o fundo não muda, o texto sobre ele também não pode mudar: vai em
+	   `--mv-on-solid`, fixo (a regra de família do doc 83 §5, cujo precedente é o próprio
+	   ENCAIXE). A exceção é `danger`, escurecido justamente para MANTER o texto branco — botão
+	   destrutivo com texto escuro sobre vermelho claro perde a força de aviso.
+
+	   Não confunda com `--mv-success` e parentes logo abaixo, que são as versões de TEXTO e
+	   mudam com o tema. Usar o token de fundo como texto (ou vice-versa) reprova o
+	   `contraste.test.ts`. */
+	--mv-success-solid: #2da160; /* + on-solid: 5,31 */
+	--mv-warning-solid: #f5a623; /* + on-solid: 8,63 */
+	--mv-danger-solid: #d83b40; /* era #e5484d — branco só dava 3,91; agora 4,55 */
+	--mv-info-solid: #2b7fff; /* + on-solid: 4,65 */
+	/* Texto/ícone sobre fundo semântico sólido. Fixo nos dois temas porque o fundo é fixo. */
+	--mv-on-solid: #161a1e;
 
 	/* Teal — cor de marca / foco. solid/hover iguais nos dois temas (:303) */
 	--mv-teal-solid: #0fb5a6;
@@ -62,14 +73,34 @@
 	--mv-bd: #cdd3d9; /* borda densa  */
 	--mv-text: #161a1e;
 	--mv-muted: #5c6670;
-	--mv-faint: #8a929b;
+	/* era #8a929b (3,15 sobre branco, 2,96 sobre surface2) — o token mais usado do app para
+	   metadado de 11–12px, e sozinho 86% de todo o contraste reprovado no doc 83. O valor é o
+	   MÍNIMO que passa 4,5, de propósito: `muted` está em 5,49 e a faixa utilizável é estreita,
+	   então cada ponto a mais aproxima os dois cinzas e apaga a hierarquia. */
+	--mv-faint: #6b737c;
 	--mv-primary: #16181c;
 	--mv-primary-hover: #2a2e34;
 	--mv-on-primary: #ffffff;
-	--mv-teal-text: #0a7e73;
+	--mv-teal-text: #067a6f; /* era #0a7e73 — 4,46 sobre o próprio chip; agora 4,71 */
 	--mv-teal-subtle: #e5f7f4;
 	--mv-teal-border: #7fdacd;
 	--mv-card-shadow: var(--mv-shadow-card);
+
+	/* Semânticas como TEXTO/ÍCONE (`text-danger`, `text-warning`…) — por tema, e não
+	   compartilhadas, porque **uma cor que contrasta com branco não contrasta com quase-preto**.
+	   Era o furo silencioso: as mesmas quatro cores serviam de fundo e de texto, e como texto no
+	   claro chegavam a 2,03 (`warning`, 23 usos). Medido no doc 83.
+
+	   Os valores passam 4,5 em DUAS famílias de fundo, e é a segunda que os empurrou mais escuro
+	   que o mínimo óbvio: além das superfícies (branco/surface2/canvas), eles precisam passar
+	   sobre a PRÓPRIA tinta — o app pinta callout e chip com `bg-<sem>/10..14` e põe `text-<sem>`
+	   em cima, e ali o fundo já está tingido da cor do texto. O primeiro conserto desta paleta
+	   mediu só as superfícies, e o chip ENCAIXE da legenda sobrou em 4,19.
+	   `contraste.test.ts` fixa os dois casos. Números: tinta 14% / superfície. */
+	--mv-success: #037736; /* 4,64 / 5,68 */
+	--mv-warning: #a15200; /* era 2,03 sobre branco — o pior par do app. Agora 4,63 / 5,64 */
+	--mv-danger: #c3262b; /* 4,63 / 5,78 */
+	--mv-info: #0b5fdf; /* 4,61 / 5,65 */
 
 	/* Wordmark do logo (paths escuros do Cinetra) — slate no claro, quase-branco no escuro. */
 	--mv-wordmark: #212a37;
@@ -90,7 +121,7 @@
 	--mv-bd: #313640;
 	--mv-text: #eceef0;
 	--mv-muted: #9aa3ac;
-	--mv-faint: #6b747d;
+	--mv-faint: #7e8790; /* era #6b747d — 3,48 sobre surface2; agora 4,53 */
 	--mv-primary: #eceef0;
 	--mv-primary-hover: #ffffff;
 	--mv-on-primary: #16181c;
@@ -98,6 +129,14 @@
 	--mv-teal-subtle: rgba(15, 181, 166, 0.16);
 	--mv-teal-border: rgba(127, 218, 205, 0.45);
 	--mv-card-shadow: none; /* sombra do card só no claro (:1683) */
+
+	/* Semânticas como texto — ver o bloco claro. Aqui `success` e `warning` ficam nos valores
+	   originais: sobre fundo quase-preto eles já passavam (5,40 e 8,77). Só o vermelho e o azul
+	   precisaram clarear. */
+	--mv-success: #2da160;
+	--mv-warning: #f5a623;
+	--mv-danger: #f5585d; /* clareado além do mínimo pela tinta: 4,61 / 5,45 */
+	--mv-info: #3c90ff; /* 4,64 / 5,61 */
 
 	--mv-wordmark: #eceef0;
 	--mv-shadow-lg: 0 30px 80px rgba(0, 0, 0, 0.6);
@@ -116,7 +155,7 @@
 		--mv-bd: #313640;
 		--mv-text: #eceef0;
 		--mv-muted: #9aa3ac;
-		--mv-faint: #6b747d;
+		--mv-faint: #7e8790;
 		--mv-primary: #eceef0;
 		--mv-primary-hover: #ffffff;
 		--mv-on-primary: #16181c;
@@ -124,6 +163,12 @@
 		--mv-teal-subtle: rgba(15, 181, 166, 0.16);
 		--mv-teal-border: rgba(127, 218, 205, 0.45);
 		--mv-card-shadow: none;
+		/* As semânticas de TEXTO também entram aqui: sem elas, quem não escolheu tema e está no
+		   escuro do SO herdaria as do bloco claro (marrom sobre quase-preto). */
+		--mv-success: #2da160;
+		--mv-warning: #f5a623;
+		--mv-danger: #f5585d;
+		--mv-info: #3c90ff;
 		--mv-wordmark: #eceef0;
 		--mv-shadow-lg: 0 30px 80px rgba(0, 0, 0, 0.6);
 		--mv-rail: #08090a;
@@ -184,10 +229,19 @@
 	--color-rail: var(--mv-rail);
 	--color-rail-item: var(--mv-rail-item);
 
+	/* Semânticas de TEXTO (por tema) → text-danger, text-warning, border-danger/30, bg-danger/10… */
 	--color-success: var(--mv-success);
 	--color-warning: var(--mv-warning);
 	--color-danger: var(--mv-danger);
 	--color-info: var(--mv-info);
+
+	/* Semânticas de FUNDO (fixas) → bg-warning-solid + text-on-solid. Um badge usa este par;
+	   `bg-warning` (sem `-solid`) pintaria o marrom do texto e o badge sumiria. */
+	--color-success-solid: var(--mv-success-solid);
+	--color-warning-solid: var(--mv-warning-solid);
+	--color-danger-solid: var(--mv-danger-solid);
+	--color-info-solid: var(--mv-info-solid);
+	--color-on-solid: var(--mv-on-solid);
 }
 
 /* As animações do protótipo viram tokens --animate-* → animate-* */
@@ -248,9 +302,20 @@
 		background: transparent;
 	}
 
+	/* Anel de foco DUPLO (1.4.11, piso 3:1).
+
+	   O teal sozinho media 2,41–2,57 sobre as superfícies do tema claro: quem navega por teclado
+	   quase não via onde estava. Trocar o teal por uma cor escura não resolve — o **rail é escuro
+	   nos dois temas**, e ali o escuro é que desapareceria. Nenhuma cor única serve.
+
+	   Daí os dois anéis: o `box-shadow` preenche o 1px que o `outline-offset` abre, na cor do
+	   texto do tema. Em cada superfície pelo menos um dos dois contrasta — sobre `surface`
+	   claro o companheiro dá 17,49; sobre o rail, o teal dá 6,92. O contrato está fixado em
+	   `contraste.test.ts`, que também confere se esta regra continua citando os dois. */
 	:where(input, select, button, textarea, [tabindex]):focus-visible {
 		outline: 2px solid var(--mv-teal-solid);
 		outline-offset: 1px;
+		box-shadow: 0 0 0 1px var(--mv-text);
 	}
 
 	/* O Tailwind v4 tirou do preflight o `cursor: pointer` que o v3 punha em `button`, então

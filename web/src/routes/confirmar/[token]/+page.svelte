@@ -84,7 +84,7 @@
 						name="resposta"
 						value="confirmou"
 						size={17}
-						class="flex items-center justify-center gap-2 rounded-lg bg-teal px-4 py-3 text-[14px] font-bold text-white hover:opacity-90 disabled:opacity-60"
+						class="flex items-center justify-center gap-2 rounded-lg bg-teal px-4 py-3 text-[14px] font-bold text-on-solid hover:opacity-90 disabled:opacity-60"
 					>
 						<Check size={17} /> Confirmar presença
 					</SubmitButton>

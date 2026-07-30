@@ -329,6 +329,12 @@ e todo hex tem linha de proveniência no protótipo.
   --mv-warning: #F5A623;
   --mv-danger:  #E5484D;
   --mv-info:    #2B7FFF;
+  /* ⚠️ ESTES QUATRO NÃO SÃO MAIS ASSIM. Desde a [ADR-019](00-decisoes.md#adr-019--cor-semântica-é-dois-tokens-fundo-fixo-e-texto-por-tema)
+     (2026-07-29) cada semântica é um PAR: `--mv-<sem>-solid` é o fundo (fixo, com
+     `--mv-on-solid` por cima) e `--mv-<sem>` é o texto, que muda POR TEMA. O bloco acima é o
+     protótipo, mantido como proveniência; a paleta viva é o `web/src/lib/styles/app.css`, e
+     `contraste.test.ts` a mede. Motivo: como texto no tema claro, o âmbar dava 2,03:1
+     ([doc 83](83-acessibilidade-analise-completa.md) §11.3). */
 
   /* Teal — cor de marca / foco. solid/hover iguais nos dois temas (:303) */
   --mv-teal-solid: #0FB5A6;

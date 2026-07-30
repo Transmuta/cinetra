@@ -114,7 +114,7 @@
 
 					{#if row.appt.encaixe}
 						<!-- AN-08: texto escuro fixo sobre o âmbar (2,0:1 com branco; 8,6:1 assim). -->
-						<span class="shrink-0 rounded bg-warning px-1.5 py-px text-[10px] font-bold text-[#161a1e]">
+						<span class="shrink-0 rounded bg-warning-solid px-1.5 py-px text-[10px] font-bold text-on-solid">
 							Encaixe
 						</span>
 					{/if}

@@ -11,6 +11,6 @@
 		? 'text-warning'
 		: 'text-muted'}"
 >
-	<span class="size-1.5 rounded-full {pending ? 'bg-warning' : 'bg-teal'}"></span>
+	<span class="size-1.5 rounded-full {pending ? 'bg-warning-solid' : 'bg-teal'}"></span>
 	{pending ? 'Convite pendente' : 'Ativo'}
 </span>

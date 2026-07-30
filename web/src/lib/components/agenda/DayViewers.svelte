@@ -8,7 +8,7 @@
 	//
 	// Só aparece com alguém: uma tela vazia não ganha um espaço reservado para o nada.
 	import { initials } from '$lib/format';
-	import { avatarColor } from '$lib/avatar';
+	import { avatarColor, avatarStyle } from '$lib/avatar';
 
 	let { nomes = [], max = 3 }: { nomes?: string[]; max?: number } = $props();
 
@@ -35,8 +35,8 @@
 	<div class="flex items-center" title={rotulo} aria-label={rotulo}>
 		{#each visiveis as nome (nome)}
 			<span
-				class="-ml-1.5 grid size-[22px] place-items-center rounded-full border-2 border-surface text-[9.5px] font-bold text-white first:ml-0"
-				style="background:{corDoNome(nome)}"
+				class="-ml-1.5 grid size-[22px] place-items-center rounded-full border-2 border-surface text-[9.5px] font-bold first:ml-0"
+				style={avatarStyle(corDoNome(nome))}
 			>
 				{initials(nome)}
 			</span>

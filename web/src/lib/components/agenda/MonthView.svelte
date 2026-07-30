@@ -74,7 +74,7 @@
 			>
 				<span
 					class="grid size-[26px] place-items-center rounded-full font-mono text-[13px] font-semibold tabular-nums {cell.isToday
-						? 'bg-teal text-white'
+						? 'bg-teal text-on-solid'
 						: cell.inMonth
 							? 'text-ink'
 							: 'text-faint'}"

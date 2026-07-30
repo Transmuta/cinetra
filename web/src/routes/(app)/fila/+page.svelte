@@ -24,7 +24,7 @@
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import { toast } from '$lib/toast.svelte';
 	import { initials } from '$lib/format';
-	import { avatarColor } from '$lib/avatar';
+	import { avatarColor, avatarStyle } from '$lib/avatar';
 	import { stripTitle } from '$lib/patients';
 	import {
 		canManageWaitlist,
@@ -320,11 +320,11 @@
 						? ' · vaga que abriu'
 						: ''}"
 					class="{matchChip} {item.slot.freed
-						? 'border-teal bg-teal text-white'
+						? 'border-teal bg-teal text-on-solid'
 						: 'border-teal-border bg-teal-subtle text-teal-text'}"
 				>
 					<span
-						class="size-1.5 shrink-0 rounded-full {item.slot.freed ? 'bg-white' : 'bg-teal'}"
+						class="size-1.5 shrink-0 rounded-full {item.slot.freed ? 'bg-on-solid' : 'bg-teal'}"
 					></span>
 					<!-- O que encolhe é o RÓTULO da regra ("Seg/Ter/Qua…"); a data e a hora ficam
 					     inteiras, porque são a informação que faz a pessoa clicar. -->
@@ -399,8 +399,8 @@
 			>
 				<span class="flex min-w-0 items-center gap-2.5">
 					<span
-						class="grid size-7 shrink-0 place-items-center rounded-full text-[10px] font-bold text-white"
-						style="background:{entryColor(entry)}"
+						class="grid size-7 shrink-0 place-items-center rounded-full text-[10px] font-bold"
+						style={avatarStyle(entryColor(entry))}
 					>
 						{initials(entry.patient.nome)}
 					</span>
@@ -472,8 +472,8 @@
 			>
 				<div class="flex items-center gap-2.5">
 					<span
-						class="grid size-8.5 shrink-0 place-items-center rounded-full text-[11px] font-bold text-white"
-						style="background:{entryColor(entry)}"
+						class="grid size-8.5 shrink-0 place-items-center rounded-full text-[11px] font-bold"
+						style={avatarStyle(entryColor(entry))}
 					>
 						{initials(entry.patient.nome)}
 					</span>

@@ -458,7 +458,7 @@
 					     AN-08: texto escuro FIXO sobre o âmbar (que é igual nos dois temas) — branco
 					     ficava a 2,0:1 (o axe reprova); #161a1e dá 8,6:1. `text-ink` não serve: inverte
 					     no escuro. -->
-					<span class="rounded bg-warning px-1.5 py-0.5 text-[10px] font-bold text-[#161a1e]">ENCAIXE</span>
+					<span class="rounded bg-warning-solid px-1.5 py-0.5 text-[10px] font-bold text-on-solid">ENCAIXE</span>
 				{/if}
 			</div>
 		{/if}

@@ -85,7 +85,10 @@ export interface PriorityMeta {
 }
 
 export const PRIORITY_META: Record<Priority, PriorityMeta> = {
-	urgente: { label: 'Urgente', color: '#E5484D' },
+	// Era `#E5484D`, o único hex do app em que **nenhuma** cor de texto passava 4,5:1 (branco
+	// 3,91; escuro 4,47 — ver `contraste.test.ts`). Este é o mesmo vermelho de
+	// `--mv-danger-solid`, então a pílula de urgência e o botão destrutivo agora falam a mesma cor.
+	urgente: { label: 'Urgente', color: '#D83B40' },
 	alta: { label: 'Alta', color: '#F5A623' },
 	normal: { label: 'Normal', color: '#2B7FFF' },
 	baixa: { label: 'Baixa', color: '#AEB6BE' }

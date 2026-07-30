@@ -1,3 +1,5 @@
+import { textoSobre } from './contraste';
+
 // Paleta categórica dos avatares da agenda (Cinetra). Índice 1-based; o protótipo faz
 // `(ci-1) % 7` (`profColor` :315 / `patientColor` :316). É um **token de design compartilhado**
 // entre profissional e paciente — mora aqui, num módulo neutro, para não duplicar a lista nem
@@ -9,4 +11,22 @@ export const AVATAR_PALETTE = ['#0FB5A6', '#0072B2', '#009E73', '#CC79A7', '#7A5
 export function avatarColor(corIndice: number): string {
 	const n = AVATAR_PALETTE.length;
 	return AVATAR_PALETTE[(((corIndice - 1) % n) + n) % n];
+}
+
+/**
+ * O `style` de um avatar com iniciais: fundo **e** cor do texto, juntos.
+ *
+ * Devolve os dois de propósito. Antes cada tela punha `style="background:…"` na marcação e
+ * `text-white` na classe, e as duas metades ficavam livres para discordar — que era o defeito:
+ * **5 das 7 cores desta paleta reprovam com texto branco** (`#E69F00` fica em 2,25:1), e nenhuma
+ * cor de texto única serve para as sete. Escurecer a paleta não é opção: ela é contrato com o
+ * `one_of` do servidor (débito D-3). Ver `contraste.ts` e o doc 83.
+ *
+ * Aceita hex (a cor já resolvida) ou índice. Valor que não seja hex — `var(--color-muted)`, por
+ * exemplo — passa direto sem cor de texto: ali quem manda é a classe do elemento.
+ */
+export function avatarStyle(cor: number | string): string {
+	const fundo = typeof cor === 'number' ? avatarColor(cor) : cor;
+	if (!/^#[0-9a-f]{6}$/i.test(fundo.trim())) return `background:${fundo}`;
+	return `background:${fundo};color:${textoSobre(fundo)}`;
 }

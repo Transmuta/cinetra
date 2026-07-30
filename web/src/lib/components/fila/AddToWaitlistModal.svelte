@@ -17,7 +17,7 @@
 	import ConflictErrorBox from '$lib/components/agenda/ConflictErrorBox.svelte';
 	import PeriodEditor from '$lib/components/scheduling/PeriodEditor.svelte';
 	import { initials } from '$lib/format';
-	import { avatarColor } from '$lib/avatar';
+	import { avatarColor, avatarStyle } from '$lib/avatar';
 	import { stripTitle } from '$lib/patients';
 	import { TIME_WINDOW_LABEL, type Entry, type Priority, type Professional, type Rule, type TimeWindow } from '$lib/waitlist';
 	import type { AgendaPatient, SearchResult } from '$lib/agenda';
@@ -140,8 +140,8 @@
 				<!-- Edição: o paciente é a CHAVE do item (upsert por paciente) — não muda aqui. -->
 				<div class="flex items-center gap-2.5 rounded-md border border-edge bg-surface-2 px-3 py-2">
 					<span
-						class="grid size-7 shrink-0 place-items-center rounded-full text-[10px] font-bold text-white"
-						style="background:{patientColor}"
+						class="grid size-7 shrink-0 place-items-center rounded-full text-[10px] font-bold"
+						style={avatarStyle(patientColor)}
 					>
 						{initials(entry.patient.nome)}
 					</span>
@@ -182,8 +182,8 @@
 								: 'border-edge bg-surface text-ink hover:bg-surface-2'}"
 						>
 							<span
-								class="grid size-5 place-items-center rounded-full text-[9px] font-bold text-white"
-								style="background:{avatarColor(p.cor_indice)}"
+								class="grid size-5 place-items-center rounded-full text-[9px] font-bold"
+								style={avatarStyle(p.cor_indice)}
 							>
 								{initials(p.nome)}
 							</span>

@@ -567,9 +567,9 @@
 			type="button"
 			onclick={salvar}
 			disabled={!podeSalvar}
-			class="inline-flex items-center gap-1.5 rounded-md px-3.5 py-2 text-[13px] font-semibold text-on-primary disabled:cursor-not-allowed disabled:opacity-60 {forcarSave
-				? 'bg-warning'
-				: 'bg-primary'}"
+			class="inline-flex items-center gap-1.5 rounded-md px-3.5 py-2 text-[13px] font-semibold disabled:cursor-not-allowed disabled:opacity-60 {forcarSave
+				? 'bg-warning-solid text-on-solid'
+				: 'bg-primary text-on-primary'}"
 		>
 			{#if saving}<Loader size={14} class="animate-spin" />{:else if !forcarSave}<Check size={14} />{/if}
 			{salvarLabel}

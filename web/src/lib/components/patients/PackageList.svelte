@@ -134,7 +134,10 @@
 	// Tom do chip por estado (o `statusChip` decide o rótulo e o ícone; aqui só a pintura).
 	const CHIP: Record<string, string> = {
 		teal: 'bg-teal-subtle text-teal-text',
-		warning: 'bg-warning/14 text-[#9a6a05]',
+		// Era o hex cru `#9a6a05` — um conserto de contraste feito à mão, fora da paleta e
+		// invisível para o tripwire. Agora é o próprio token de texto do âmbar, que passa nos dois
+		// temas (doc 83 §5).
+		warning: 'bg-warning/14 text-warning',
 		faint: 'bg-surface2 text-faint',
 		danger: 'bg-danger/10 text-danger'
 	};

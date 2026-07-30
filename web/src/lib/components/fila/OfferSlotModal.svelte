@@ -16,7 +16,7 @@
 	import ConflictErrorBox from '$lib/components/agenda/ConflictErrorBox.svelte';
 	import PriorityBadge from './PriorityBadge.svelte';
 	import { initials } from '$lib/format';
-	import { avatarColor } from '$lib/avatar';
+	import { avatarColor, avatarStyle } from '$lib/avatar';
 	import { stripTitle } from '$lib/patients';
 	import { m2t, toUtcIso, canCreateEncaixe } from '$lib/agenda';
 	import { ruleLabel, slotDateLabel, TIME_WINDOW_LABEL, type Entry, type Professional, type Slot } from '$lib/waitlist';
@@ -147,8 +147,8 @@
 	<!-- Cabeçalho do paciente: avatar (cor do 1º preferido) + nome + resumo + prioridade. -->
 	<div class="mb-3.5 flex items-center gap-3 border-b border-edge pb-3">
 		<span
-			class="grid size-9 shrink-0 place-items-center rounded-full text-[12px] font-bold text-white"
-			style="background:{avatarColor(profCor(entry.professional_ids[0] ?? ''))}"
+			class="grid size-9 shrink-0 place-items-center rounded-full text-[12px] font-bold"
+			style={avatarStyle(profCor(entry.professional_ids[0] ?? ''))}
 		>
 			{initials(entry.patient.nome)}
 		</span>
@@ -218,14 +218,16 @@
 								onclick={() => (selected = slot)}
 								title={`Oferecer ${slotDateLabel(slot)} às ${m2t(slot.start)}${slot.freed ? ' · vaga que abriu' : ''}`}
 								class="inline-flex items-center gap-2 rounded-[9px] border px-3 py-2 text-[12.5px] {slot.freed
-									? 'border-teal bg-teal text-white'
+									? 'border-teal bg-teal text-on-solid'
 									: 'border-teal-border bg-teal-subtle text-teal-text'}"
 							>
 								<span class="font-mono text-[13px] font-bold">{m2t(slot.start)}</span>
-								<span class="inline-flex items-center gap-1.5 {slot.freed ? 'text-white/90' : 'text-muted'}">
+								<!-- O chip da vaga que abriu é teal SÓLIDO, e sobre ele o texto é escuro (`on-solid`);
+								     este trecho secundário acompanha com opacidade, em vez do branco que havia. -->
+								<span class="inline-flex items-center gap-1.5 {slot.freed ? 'text-on-solid/80' : 'text-muted'}">
 									<span
-										class="grid size-4 place-items-center rounded-full text-[8px] font-bold text-white"
-										style="background:{avatarColor(profCor(slot.professional_id))}"
+										class="grid size-4 place-items-center rounded-full text-[8px] font-bold"
+										style={avatarStyle(profCor(slot.professional_id))}
 									>
 										{initials(profName(slot.professional_id))}
 									</span>

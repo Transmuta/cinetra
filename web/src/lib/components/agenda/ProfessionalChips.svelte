@@ -5,7 +5,7 @@
 	// Divergência do protótipo: o chip mostra o PRIMEIRO nome, não o segundo token
 	// (`pr.nome.split(' ')[1]`, :1716) — que quebra em quem tem nome composto, em quem tem
 	// nome só, e mostra "Paula" para "Ana Paula Lima".
-	import { avatarColor } from '$lib/avatar';
+	import { avatarColor, avatarStyle } from '$lib/avatar';
 	import type { AgendaProfessional } from '$lib/agenda';
 
 	let {
@@ -39,7 +39,7 @@
 		>
 			<span
 				class="size-[18px] rounded-full"
-				style="background:{avatarColor(prof.cor_indice)}"
+				style={avatarStyle(prof.cor_indice)}
 				aria-hidden="true"
 			></span>
 			{primeiroNome(prof)}

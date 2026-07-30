@@ -80,7 +80,7 @@
 			<span class="truncate text-[13.5px] font-semibold">{t.nome}</span>
 			{#if t.grupo}
 				<span
-					class="shrink-0 rounded-[4px] bg-info px-1.5 py-px text-[10.5px] font-bold text-white"
+					class="shrink-0 rounded-[4px] bg-info-solid px-1.5 py-px text-[10.5px] font-bold text-on-solid"
 				>
 					grupo · cap {t.capacidade}
 				</span>

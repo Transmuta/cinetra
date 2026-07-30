@@ -46,7 +46,11 @@ describe('PRIORITY_ORDER / priorityRank', () => {
 	});
 
 	it('todo nível tem cor e rótulo (protótipo prioMeta)', () => {
-		expect(PRIORITY_META.urgente).toEqual({ label: 'Urgente', color: '#E5484D' });
+		// `urgente` DIVERGE do protótipo de propósito, e não se restaura: no `#E5484D` de lá
+		// **nenhuma** cor de texto alcançava 4,5:1 (branco 3,91; escuro 4,47), então a pílula era
+		// ilegível de qualquer jeito. `#D83B40` é o mesmo vermelho de `--mv-danger-solid`. Quem
+		// guarda a regra é `contraste.test.ts`; este teste só fixa o valor acordado (doc 83 §5).
+		expect(PRIORITY_META.urgente).toEqual({ label: 'Urgente', color: '#D83B40' });
 		expect(PRIORITY_META.baixa.color).toBe('#AEB6BE');
 	});
 });

@@ -6,6 +6,7 @@
 	import Stethoscope from '@lucide/svelte/icons/stethoscope';
 	import Phone from '@lucide/svelte/icons/phone';
 	import { initials } from '$lib/format';
+	import { avatarStyle } from '$lib/avatar';
 	import { formatarTelefone } from '$lib/telefone';
 	import {
 		canManageProfessionals,
@@ -91,8 +92,8 @@
 			>
 				<span class="flex min-w-0 items-center gap-2.5">
 					<span
-						class="grid size-7 shrink-0 place-items-center rounded-full text-[10px] font-bold text-white"
-						style="background:{profColor(p.cor_indice)}"
+						class="grid size-7 shrink-0 place-items-center rounded-full text-[10px] font-bold"
+						style={avatarStyle(p.cor_indice)}
 					>
 						{initials(p.nome)}
 					</span>
@@ -129,8 +130,8 @@
 			>
 				<div class="flex items-center gap-2.5">
 					<span
-						class="grid size-8.5 shrink-0 place-items-center rounded-full text-[11px] font-bold text-white"
-						style="background:{profColor(p.cor_indice)}"
+						class="grid size-8.5 shrink-0 place-items-center rounded-full text-[11px] font-bold"
+						style={avatarStyle(p.cor_indice)}
 					>
 						{initials(p.nome)}
 					</span>

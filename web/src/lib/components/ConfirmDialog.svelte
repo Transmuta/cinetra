@@ -51,7 +51,7 @@
 			onclick={onConfirm}
 			disabled={submitting}
 			aria-busy={submitting}
-			class="inline-flex items-center gap-1.5 rounded-md bg-danger px-4 py-2.25 text-[13.5px] font-bold text-white hover:opacity-90 disabled:opacity-60"
+			class="inline-flex items-center gap-1.5 rounded-md bg-danger-solid px-4 py-2.25 text-[13.5px] font-bold text-white hover:opacity-90 disabled:opacity-60"
 		>
 			{#if submitting}<Loader size={14} class="animate-spin" />{/if}
 			{confirmLabel}
