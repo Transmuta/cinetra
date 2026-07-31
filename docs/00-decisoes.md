@@ -328,6 +328,32 @@ Dark mode continua por `data-theme` (`@custom-variant dark`), não por `class` n
 
 ---
 
+## ADR-022 — Dimensão também é token, e o token é nomeado pelo PAPEL
+
+**Status:** Aceita (2026-07-30) · **Motivada por:** [doc 93](93-auditoria-design-system-web.md) (§M-1, §M-2, §M-6) · **Estende:** [ADR-010](#adr-010--tailwind-v4-com-o-design-system-do-protótipo-como-fonte)
+
+**Contexto.** A camada de **cor** já era exemplar: token por papel, trocado por `[data-theme]`, travado por `contraste.test.ts`. A camada de **dimensão** não existia. Medido: **22 tamanhos de fonte em 643 usos** (261 deles em meio-pixel), **13 raios efetivos em 378 usos** (com `rounded-md` e `rounded-lg` valendo o mesmo 8px, e 184 usos escolhendo entre dois nomes idênticos), e quatro `z-index` soltos cuja ordem valia por convenção oral.
+
+Não foi descuido: o design veio de um protótipo HTML com valores em px e a fidelidade foi corretamente priorizada. O custo apareceu depois — `12px` e `12.5px` são indistinguíveis na tela e carregavam papéis diferentes em arquivos diferentes, sem nada dizer qual era qual. Quem escrevia o próximo componente não tinha como acertar: só copiar do vizinho.
+
+E **nenhum dos seis gates do projeto olhava para isso**. Os 1.014 utilitários de valor arbitrário passavam por todos sem tocar em nenhum, porque cada um é sintaticamente válido e individualmente legítimo.
+
+**Decisão.**
+
+- **Fonte:** sete degraus nomeados pelo papel — `micro`, `meta`, `rotulo`, `corpo`, `leitura`, `titulo`, `destaque`. O de 14px chama-se `leitura`, e não `base`, para não haver um nome com dois significados (o `text-base` do Tailwind é 16px).
+- **Raio:** quatro — `micro`, `controle`, `cartao`, `full`. Os nomes de TAMANHO do Tailwind (`sm`/`md`/`lg`/`xl`) deixaram de ser sobrescritos: com a escala por papel, mantê-los redefinidos deixaria dois vocabulários vivos para a mesma coisa.
+- **Camadas:** `z-cobertura` < `z-painel` < `z-toast` < `z-atalho`, por `@utility` — porque **`z-index` não é namespace temável no Tailwind v4** (medido: `--z-index-*` no `@theme` não gera classe nenhuma). Empilhamento local dentro de um componente continua sendo número cru: ali o contexto é outro.
+- **Sem `line-height` nos degraus de fonte**, de propósito: os 643 usos substituídos eram `text-[Npx]`, que não define entrelinha, e acoplar uma moveria o layout do app inteiro por um motivo que não é o desta decisão.
+
+**Consequências.**
+
+- A trava é `web/src/lib/styles/dimensao.test.ts` (valor arbitrário e nome do Tailwind não voltam) e `camadas.test.ts` (a ordem, e que todo `z-<nome>` usado existe). O segundo é obrigatório e não zelo: **utilitário inexistente some em silêncio** — não é erro de build nem de `svelte-check`, o elemento só cai para `z-index: auto`.
+- Junto entrou `cor-crua.test.ts`, que fecha o furo simétrico na camada de cor: o `contraste.test.ts` mede pares de TOKEN, então cor escrita à mão é invisível para ele por construção.
+- A normalização mexeu em pixels: alguns textos mudaram 0,5–1px e alguns cantos 2px. Foi escolha consciente ao adotar a escala — preservar cada valor teria organizado sem resolver a proliferação.
+- A família de marca (landing, telas de entrada) segue isenta: ela é o protótipo em hex, com regras próprias.
+
+---
+
 ## ADR-021 — O teal sai do app: o acento de UI é o sage da marca, e a família se chama `accent`
 
 **Status:** Aceita (2026-07-30) · **Completa:** [ADR-020](#adr-020--o-botão-primário-é-o-sage-da-marca-com-texto-branco-abaixo-do-piso-de-contraste) · **Débito que ela cria:** [D-18](50-debitos-tecnicos.md)

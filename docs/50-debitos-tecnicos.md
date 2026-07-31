@@ -540,3 +540,45 @@ sobre branco — algo como `#6f9a8e`, que é o próprio `accent-solid` escurecid
 efeito colateral é que a borda passa a ter quase o mesmo tom do sólido, e o chip fica mais pesado
 visualmente; vale checar no browser antes de fechar. Rodar `node scripts/contraste-tokens.mjs` para
 confirmar — a linha `accent_border / surface` sai da lista de reprovas.
+
+---
+
+## D-19 · A faixa 768–1023px não foi medida — sem sidebar E com tabela de desktop
+
+**O que é.** O cromo do app colapsa em `lg:` (`+layout.svelte`: `hidden lg:flex` / `lg:hidden`),
+mas as quatro listas de dados — `/pacientes`, `/profissionais`, `/fila`,
+`/configuracoes/equipe` — trocam de grade para cartão em `md:`. Entre 768px e 1023px, então, a
+tela fica **sem sidebar e com a tabela ainda em modo desktop**.
+
+**Por que virou débito.** Levantado no doc 93 §B-12 e **não medido** na execução (doc 97 §6): a
+distribuição geral é 82 `md:`, 16 `sm:` e 4 `lg:`, ou seja, o `lg:` do shell é a exceção e não a
+regra. Não sei dizer se o resultado quebra — sei que ninguém olhou. É uma sonda de cinco minutos
+no browser em 800px, e ela decide entre "não é nada" e "alinhar o breakpoint do shell com o das
+listas".
+
+**O que o paga.** Abrir as quatro listas em 800px. Se a coluna estourar, a escolha é alinhar o
+shell em `md:` (o cromo some mais cedo) ou as listas em `lg:` (o cartão entra mais cedo) — e a
+segunda é mais provável, porque a tabela é que precisa de largura.
+
+---
+
+## D-20 · Não há tripwire de token órfão
+
+**O que é.** Os três instrumentos que entraram na execução dos docs 93/94 (`cor-crua.test.ts`,
+`camadas.test.ts`, `dimensao.test.ts`) cobrem cor crua, camadas e dimensão. Falta o simétrico:
+**token definido em `@theme` e usado por ninguém**.
+
+**Por que importa.** Foi exatamente essa a classe do achado §M-7, e o caso caro dela é instrutivo:
+`--shadow-card` era a única sombra que respondia ao tema, desenhada de propósito, e **nenhum dos
+133 cartões a aplicava**. A intenção de design evaporou em silêncio e o token continuou ali
+dizendo que ela existia.
+
+**Por que não foi escrito.** Alguns tokens são usados **dinamicamente** e um scanner ingênuo os
+acusaria: `ListView.svelte` monta `var(--color-{row.meta.tone})` em tempo de execução, e o mesmo
+vale para os tons do `PackageList`. O teste precisa de uma lista de isenção com justificativa por
+item — desenho, não varredura — e por isso ficou de fora.
+
+**Cuidado ao escrever.** Um token órfão **nem sempre é para remover**: `--color-accent-hover` e
+`--color-success-solid` não têm uso hoje e **ficaram**, porque são membros de famílias que o
+`contraste.test.ts` mede por inteiro. Removê-los quebrou aquele teste na primeira tentativa. O
+tripwire tem de distinguir "sobra" de "membro de família", ou vai empurrar para remoções erradas.
