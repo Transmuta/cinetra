@@ -36,6 +36,13 @@
 	--mv-shadow-toast: 0 8px 24px rgba(8, 10, 12, 0.3);
 	--mv-shadow-modal: 0 24px 60px rgba(8, 10, 12, 0.4);
 
+	/* Véu atrás de modal, drawer e gaveta mobile. Igual nos dois temas — ele escurece o que está
+	   ATRÁS, e o que está atrás já mudou de cor com o tema. Existe como token porque estava
+	   escrito de três formas e em dois valores (`rgba(8,10,12,0.42)` no Modal e no Drawer,
+	   `bg-black/40` no layout e no modal artesanal de anexos), e a divergência era o sintoma que
+	   denunciava um diálogo escrito fora do padrão (doc 93 §B-6/§A-3). */
+	--mv-overlay: rgba(8, 10, 12, 0.42);
+
 	/* ── Semânticas: FUNDO (badge, chip, botão sólido) ──
 	   Iguais nos dois temas, e é de propósito: badge é badge — a de ENCAIXE é âmbar no claro e
 	   no escuro. Como o fundo não muda, o texto sobre ele também não pode mudar: vai em
@@ -97,6 +104,12 @@
 :root,
 :root[data-theme='light'],
 [data-theme='light'] {
+	/* A metade da troca de tema que os tokens NÃO fazem. `--mv-*` pinta tudo que é nosso; o que
+	   sobra é o que o browser desenha no shadow-DOM da UA — ícone do `<input type="date">`, painel
+	   do `<select>`, barra de rolagem, realce de autofill. Sem esta linha o browser assume
+	   documento claro e pinta ícone PRETO sobre a superfície escura: #000 sobre #16181c = 1,15:1,
+	   fotografado em Chromium (doc 93 §A-1). Trava em `tema-escopo.test.ts`. */
+	color-scheme: light;
 	--mv-canvas: #fbfcfd;
 	--mv-surface: #ffffff;
 	--mv-surface2: #f6f8f9;
@@ -168,6 +181,7 @@
 
 /* ---- Tema escuro (theme() com d=true) ---- */
 :root[data-theme='dark'] {
+	color-scheme: dark; /* ver a nota no bloco claro */
 	--mv-canvas: #0c0d0e;
 	--mv-surface: #16181c;
 	--mv-surface2: #1c1f24;
@@ -203,6 +217,7 @@
 /* Respeita o SO quando não há escolha explícita de tema. */
 @media (prefers-color-scheme: dark) {
 	:root:not([data-theme]) {
+		color-scheme: dark; /* ver a nota no bloco claro */
 		--mv-canvas: #0c0d0e;
 		--mv-surface: #16181c;
 		--mv-surface2: #1c1f24;
@@ -251,6 +266,9 @@
 	--shadow-accent: var(--mv-shadow-accent);
 	--shadow-toast: var(--mv-shadow-toast);
 	--shadow-modal: var(--mv-shadow-modal);
+
+	/* véu de diálogo → bg-overlay */
+	--color-overlay: var(--mv-overlay);
 
 	/* superfícies → bg-canvas, bg-surface, bg-surface-2 */
 	--color-canvas: var(--mv-canvas);

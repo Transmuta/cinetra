@@ -63,6 +63,7 @@
 	import Paperclip from '@lucide/svelte/icons/paperclip';
 	import LoaderCircle from '@lucide/svelte/icons/loader-circle';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
+	import Modal from '$lib/components/Modal.svelte';
 	import { toast } from '$lib/toast.svelte';
 	import { reportar } from '$lib/report';
 	import {
@@ -404,39 +405,43 @@
 	{/if}
 </section>
 
+<!--
+	Era o único diálogo do app escrito à mão: overlay e raio próprios, e nenhuma das quatro
+	garantias que o `Modal` dá (role, Esc, Tab aprisionado, foco devolvido) — cinco linhas acima
+	de um `ConfirmDialog` correto. Doc 93 §A-3.
+
+	O rodapé mora fora do `<form>` (é um snippet do `Modal`), então o "Salvar" alcança o submit
+	pelo atributo `form=` em vez de por aninhamento.
+-->
 {#if renomeando}
-	<div class="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4">
-		<form
-			onsubmit={salvarNome}
-			class="w-full max-w-sm rounded-[14px] border border-edge bg-surface p-5 shadow-lg"
-		>
-			<h2 class="mb-3 text-[15px] font-bold">Renomear anexo</h2>
-			<!-- svelte-ignore a11y_autofocus -->
+	<Modal title="Renomear anexo" onClose={() => (renomeando = null)}>
+		<form id="form-renomear-anexo" onsubmit={salvarNome}>
 			<input
 				bind:value={novoNome}
-				autofocus
 				maxlength="200"
 				aria-label="Nome do anexo"
-				class="mb-4 w-full rounded-lg border border-edge bg-surface-2 px-3 py-2 text-[13.5px] outline-none focus:border-accent"
+				class="w-full rounded-lg border border-edge bg-surface-2 px-3 py-2 text-[13.5px] outline-none focus:border-accent"
 			/>
-			<div class="flex justify-end gap-2">
-				<button
-					type="button"
-					onclick={() => (renomeando = null)}
-					class="rounded-lg border border-edge px-3.5 py-2 text-[13px] font-semibold text-muted hover:bg-surface-2"
-				>
-					Cancelar
-				</button>
-				<button
-					type="submit"
-					disabled={!novoNome.trim()}
-					class="rounded-lg bg-primary px-3.5 py-2 text-[13px] font-semibold text-on-primary disabled:opacity-50"
-				>
-					Salvar
-				</button>
-			</div>
 		</form>
-	</div>
+
+		{#snippet footer()}
+			<button
+				type="button"
+				onclick={() => (renomeando = null)}
+				class="rounded-lg border border-edge px-3.5 py-2 text-[13px] font-semibold text-muted hover:bg-surface-2"
+			>
+				Cancelar
+			</button>
+			<button
+				type="submit"
+				form="form-renomear-anexo"
+				disabled={!novoNome.trim()}
+				class="rounded-lg bg-primary px-3.5 py-2 text-[13px] font-semibold text-on-primary hover:bg-primary-hover disabled:opacity-50"
+			>
+				Salvar
+			</button>
+		{/snippet}
+	</Modal>
 {/if}
 
 {#if removendo}

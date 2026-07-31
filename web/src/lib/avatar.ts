@@ -21,6 +21,16 @@ import { textoSobre } from './contraste';
 // (57% vs 31%), e é isso que o olho usa. Mediu-se em vez de supor.
 export const AVATAR_PALETTE = ['#7FA59A', '#0072B2', '#009E73', '#CC79A7', '#7A52CC', '#D55E00', '#E69F00'];
 
+/**
+ * O slot do **usuário logado** (avatar do menu e da tela de perfil).
+ *
+ * Diferente de profissional e paciente, a conta não tem `cor_indice` no servidor — o avatar dela
+ * sempre foi o azul da posição 2. O valor mora aqui, e não cravado como `bg-[#0072B2]` nas duas
+ * telas, porque era exatamente assim que ele ficava para trás quando a paleta mudasse: era o
+ * único avatar do app cuja cor de texto não passava pelo `textoSobre` (doc 93 §M-8).
+ */
+export const COR_DO_USUARIO_LOGADO = 2;
+
 // Cor do avatar para um índice 1-based, com wrap (tolera 0/negativos como o protótipo).
 export function avatarColor(corIndice: number): string {
 	const n = AVATAR_PALETTE.length;

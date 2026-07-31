@@ -444,7 +444,7 @@ confiáveis. Meia hora, mais uma decisão explícita sobre quantos hops confiar.
 
 ---
 
-## D-17 · O botão primário está 2,71:1 — exceção de contraste aceita
+## D-17 · O branco sobre o sage está 2,71:1 — exceção de contraste aceita
 
 **O que é.** Desde a [ADR-020](00-decisoes.md) `--mv-primary` é o sage da marca (`#7fa59a`) com
 `--mv-on-primary: #ffffff`. O par mede **2,71:1**, abaixo do 4,5 de texto (WCAG 1.4.3) e abaixo até
@@ -477,10 +477,25 @@ que o gate mediu. Quem for pagar este débito não deve tomar a lista do axe com
 **2,26:1** — migrou para o par `teal-text`/`teal-subtle`. E o ícone do Toast, que sumia a 1,06:1,
 passou a `text-on-primary`. Ambos estão descritos na ADR-020.
 
+**O mesmo 2,71 no hover de `bg-accent`** (acrescentado em 2026-07-30, doc 93 §A-2). Dois botões
+trocam para `hover:bg-accent` + `hover:text-white`:
+[`notificacoes/+page.svelte:198`](../web/src/routes/(app)/notificacoes/+page.svelte) ("marcar como
+lida") e [`AppointmentDrawer.svelte:809`](../web/src/lib/components/agenda/AppointmentDrawer.svelte).
+Como `--mv-accent-solid` é o **mesmo** `#7fa59a` do `primary`, o número é o mesmo 2,71 — e a decisão
+é a mesma da ADR-020, então entra aqui em vez de virar débito novo.
+
+O estado **normal** desses dois passa com folga (`text-accent-text` sobre `bg-accent-subtle`,
+5,30:1); é só o hover que reprova. Ele escapava por dois motivos independentes, e nenhum era
+descuido: o axe varre o estado renderizado (ninguém está com o mouse sobre o botão durante a
+varredura) e o filtro de isenção casava só `bg-primary`. Ou seja, o dia em que o axe passasse a
+medir hover, a violação chegaria **sem isenção** e derrubaria o build sem dar à pessoa que caísse
+ali o contexto deste débito. Se a saída 1 abaixo for escolhida, `--mv-accent-solid` precisa
+escurecer junto — senão o hover fica reprovando sozinho.
+
 **A isenção no gate do axe.** `e2e/a11y-interno.spec.ts` tinha 7 nós de `color-contrast` reprovando
-em 5 telas, e o gate exige zero. A função `semExcecaoDoPrimario` filtra **só** os nós cujo HTML casa
-`bg-primary`; a regra `color-contrast` continua ativa em todo o resto. É a única isenção do arquivo
-e some quando este débito for pago.
+em 5 telas, e o gate exige zero. A função `semExcecaoDoSage` filtra **só** os nós cujo HTML casa
+`bg-primary` ou `bg-accent`; a regra `color-contrast` continua ativa em todo o resto. É a única
+isenção do arquivo e some quando este débito for pago.
 
 **O que o paga.** Duas saídas, e as duas já estão medidas:
 

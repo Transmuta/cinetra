@@ -19,7 +19,15 @@
 	import { avatarColor, avatarStyle } from '$lib/avatar';
 	import { stripTitle } from '$lib/patients';
 	import { m2t, toUtcIso, canCreateEncaixe } from '$lib/agenda';
-	import { ruleLabel, slotDateLabel, TIME_WINDOW_LABEL, type Entry, type Professional, type Slot } from '$lib/waitlist';
+	import {
+		ruleLabel,
+		slotDateLabel,
+		TIME_WINDOW_LABEL,
+		type Entry,
+		type Professional,
+		type Slot,
+		type SlotsResponse
+	} from '$lib/waitlist';
 	import type { AppointmentType } from '$lib/appointment-types';
 	import type { Papel } from '$lib/session';
 	import { envio as criarEnvio } from '$lib/forms.svelte';
@@ -78,7 +86,7 @@
 		let alive = true;
 		fetch(`/fila/${encodeURIComponent(entry.id)}/slots`)
 			.then((r) => (r.ok ? r.json() : { slots: [] }))
-			.then((d: { slots?: Slot[] }) => {
+			.then((d: Partial<SlotsResponse>) => {
 				if (!alive) return;
 				slots = d.slots ?? [];
 				loading = false;

@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { fetchAllSlots } from '$lib/server/waitlist';
-import { PAGE_SIZE } from '$lib/waitlist';
+import { PAGE_SIZE, type SlotsByEntryResponse } from '$lib/waitlist';
 
 // As vagas de TODA a fila numa passada (`GET /api/waitlist/slots`, o motor em lote). A lista o
 // consome por `fetch` DEPOIS de renderizar, para pintar o estado "tem vaga" em cada linha sem
@@ -21,5 +21,5 @@ export const GET: RequestHandler = async (event) => {
 		...(prio ? { prio } : {})
 	});
 
-	return json({ slots_by_entry: r.data?.slots_by_entry ?? {} });
+	return json({ slots_by_entry: r.data?.slots_by_entry ?? {} } satisfies SlotsByEntryResponse);
 };

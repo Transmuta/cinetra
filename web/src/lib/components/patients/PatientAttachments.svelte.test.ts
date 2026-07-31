@@ -216,6 +216,51 @@ describe('PatientAttachments — renomear', () => {
 
 		expect(screen.getByRole('button', { name: 'Salvar' })).toBeDisabled();
 	});
+
+	/**
+	 * Este era o único diálogo do app escrito à mão (doc 93 §A-3): sem `role="dialog"`, sem Esc,
+	 * sem Tab aprisionado e sem devolver o foco ao gatilho — cinco linhas acima de um
+	 * `ConfirmDialog` usado corretamente no mesmo arquivo.
+	 *
+	 * Não foi desconhecimento do padrão: foi um caso que passou por fora dele. O gate de a11y não
+	 * pegou porque a varredura do axe abre outros dois diálogos, nunca este. Por isso a trava é
+	 * aqui, no comportamento, e não numa varredura de rota.
+	 */
+	describe('as garantias de diálogo', () => {
+		async function abrir() {
+			const r = montar({ attachments: [anexo()] });
+			const gatilho = screen.getByRole('button', { name: /renomear laudo\.pdf/i });
+			await userEvent.click(gatilho);
+			return { ...r, gatilho };
+		}
+
+		it('é um diálogo modal para a tecnologia assistiva', async () => {
+			await abrir();
+
+			const dialogo = screen.getByRole('dialog');
+			expect(dialogo).toHaveAttribute('aria-modal', 'true');
+			expect(dialogo).toHaveAccessibleName(/renomear anexo/i);
+		});
+
+		it('Escape fecha', async () => {
+			await abrir();
+			expect(screen.getByLabelText('Nome do anexo')).toBeInTheDocument();
+
+			await userEvent.keyboard('{Escape}');
+
+			expect(screen.queryByLabelText('Nome do anexo')).not.toBeInTheDocument();
+		});
+
+		it('o foco entra no diálogo ao abrir e VOLTA para o gatilho ao fechar', async () => {
+			const { gatilho } = await abrir();
+
+			expect(screen.getByRole('dialog').contains(document.activeElement)).toBe(true);
+
+			await userEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
+
+			expect(document.activeElement).toBe(gatilho);
+		});
+	});
 });
 
 // O que a pessoa na recepção NÃO pode ler: mensagem de sistema. O upload lia `e.message` de

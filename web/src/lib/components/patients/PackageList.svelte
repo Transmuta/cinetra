@@ -329,7 +329,7 @@
 				</span>
 				<span
 					class="text-[12px] {chip.tone === 'warning' && pkg.status === 'ativo'
-						? 'font-semibold text-[#9a6a05]'
+						? 'font-semibold text-warning'
 						: 'text-muted'}"
 				>
 					{restantes === 0 ? 'pacote completo' : `${restantes} restantes`}

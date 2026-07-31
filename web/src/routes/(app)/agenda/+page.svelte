@@ -16,7 +16,7 @@
 	import NewAppointmentModal from '$lib/components/agenda/NewAppointmentModal.svelte';
 	import AppointmentDrawer from '$lib/components/agenda/AppointmentDrawer.svelte';
 	import type { MessageParticipant, MessagesData } from '$lib/messages';
-	import type { Entry } from '$lib/waitlist';
+	import type { CandidatesResponse, Entry } from '$lib/waitlist';
 	import RescheduleModal from '$lib/components/agenda/RescheduleModal.svelte';
 	import { toast } from '$lib/toast.svelte';
 	import {
@@ -441,7 +441,7 @@
 		const qs = new URLSearchParams({ professional_id: prof, starts_at: starts, ends_at: ends });
 		fetch(`/agenda/candidatos?${qs}`)
 			.then((r) => (r.ok ? r.json() : { candidates: [] }))
-			.then((body: { candidates?: Entry[] }) => {
+			.then((body: Partial<CandidatesResponse>) => {
 				if (vivo && selectedId === id) candidatos = body.candidates ?? [];
 			})
 			.catch(() => {

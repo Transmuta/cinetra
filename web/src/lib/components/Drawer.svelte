@@ -51,7 +51,7 @@
 <svelte:window onkeydown={aoTeclar} />
 
 <div
-	class="fixed inset-0 z-40 bg-[rgba(8,10,12,0.42)]"
+	class="fixed inset-0 z-40 bg-overlay"
 	role="presentation"
 	onclick={(e) => e.target === e.currentTarget && onClose()}
 >

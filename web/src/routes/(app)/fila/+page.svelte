@@ -32,6 +32,7 @@
 		slotDateLabel,
 		type Entry,
 		type Slot,
+		type SlotsByEntryResponse
 	} from '$lib/waitlist';
 	import { m2t, type SearchResult } from '$lib/agenda';
 	import Radio from '@lucide/svelte/icons/radio';
@@ -127,7 +128,7 @@
 				(data.prio === 'todas' ? '' : `&prio=${data.prio}`)
 		)
 			.then((r) => (r.ok ? r.json() : { slots_by_entry: {} }))
-			.then((d: { slots_by_entry?: Record<string, Slot[]> }) => {
+			.then((d: Partial<SlotsByEntryResponse>) => {
 				if (vivo) slotsByEntry = d.slots_by_entry ?? {};
 			})
 			// Engolir é certo para a TELA (a fila funciona sem os chips de vaga), mas não pode ser

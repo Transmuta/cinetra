@@ -7,6 +7,7 @@
 	import Info from '@lucide/svelte/icons/info';
 	import Modal from '$lib/components/Modal.svelte';
 	import { avatarColor, avatarStyle } from '$lib/avatar';
+	import { initials } from '$lib/format';
 	import { todayInZone } from '$lib/agenda';
 	import {
 		PERIOD_LABELS,
@@ -48,17 +49,6 @@
 	// A soma das quatro faixas de status — o denominador da "Composição por status" (pode diferir
 	// de `atendimentos`, que exclui cancelados).
 	const totStatus = $derived(t.concluidos + t.futuros + t.faltas + t.cancelados || 1);
-
-	function initials(nome: string): string {
-		return nome
-			.replace(/^Dr[a]?\.\s*/, '')
-			.split(' ')
-			.filter(Boolean)
-			.slice(0, 2)
-			.map((p) => p[0])
-			.join('')
-			.toUpperCase();
-	}
 
 	// ACC-10 (doc 83): a fórmula chegava por `title=` — hover de mouse, que no celular não
 	// existe. Quem abre o relatório no telefone é justamente quem cobra o número. O clique no

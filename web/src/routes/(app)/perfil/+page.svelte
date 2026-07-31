@@ -8,6 +8,7 @@
 	import Check from '@lucide/svelte/icons/check';
 	import LogOut from '@lucide/svelte/icons/log-out';
 	import { initials } from '$lib/format';
+	import { COR_DO_USUARIO_LOGADO, avatarStyle } from '$lib/avatar';
 	import { ROLE_META } from '$lib/members';
 	import { toast } from '$lib/toast.svelte';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
@@ -57,7 +58,8 @@
 <div class="mx-auto w-full max-w-[760px] px-4 py-6 sm:px-6">
 	<header class="mb-5 flex items-center gap-3.5">
 		<div
-			class="grid size-12 shrink-0 place-items-center rounded-full bg-[#0072B2] text-[16px] font-bold text-white"
+			class="grid size-12 shrink-0 place-items-center rounded-full text-[16px] font-bold"
+			style={avatarStyle(COR_DO_USUARIO_LOGADO)}
 		>
 			{avatarInitials}
 		</div>

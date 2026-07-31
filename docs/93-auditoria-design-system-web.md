@@ -1,4 +1,4 @@
-# 92 — Auditoria de consistência do design system do `web/`
+# 93 — Auditoria de consistência do design system do `web/`
 
 **Data:** 2026-07-30 · **Escopo:** `web/src/` inteiro — 96 arquivos `.svelte` (16.878 linhas), os
 dois arquivos de token (`app.css` 396, `cinetra.css` 495), os 24 specs de `e2e/` e os 76

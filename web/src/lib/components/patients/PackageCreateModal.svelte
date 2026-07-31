@@ -35,6 +35,7 @@
 		PACKAGE_MAX_TOTAL,
 		issueLabel,
 		hasHardBlock,
+		type PackagePreviewResponse,
 		type PreviewResult,
 		type PreviewOccurrence
 	} from '$lib/packages';
@@ -182,7 +183,7 @@
 				body: payload
 			})
 				.then((r) => (r.ok ? r.json() : { preview: null }))
-				.then((d: { preview: PreviewResult | null }) => {
+				.then((d: PackagePreviewResponse) => {
 					if (!alive) return;
 					preview = d.preview;
 					previewErro = d.preview === null;

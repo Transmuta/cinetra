@@ -61,6 +61,19 @@ export interface PreviewResult {
 	pode_salvar: boolean;
 }
 
+/**
+ * O corpo dos endpoints internos que o BROWSER chama por `fetch`. Moram aqui, e não no
+ * `+server.ts`, porque precisam ser importáveis dos **dois** lados — ver a nota gêmea em
+ * `waitlist.ts` e o doc 94 §4.5.
+ */
+export interface PackageSessionsResponse {
+	sessions: PackageSession[];
+}
+
+export interface PackagePreviewResponse {
+	preview: PreviewResult | null;
+}
+
 // Rótulo humano do status, para o chip da ficha.
 const STATUS_LABEL: Record<PackageStatus, string> = {
 	ativo: 'Ativo',

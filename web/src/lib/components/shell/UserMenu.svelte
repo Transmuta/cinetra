@@ -5,6 +5,7 @@
 	import Check from '@lucide/svelte/icons/check';
 	import Building2 from '@lucide/svelte/icons/building-2';
 	import { initials } from '$lib/format';
+	import { COR_DO_USUARIO_LOGADO, avatarStyle } from '$lib/avatar';
 	import { ROLE_META } from '$lib/members';
 	import type { Me } from '$lib/session';
 
@@ -46,7 +47,8 @@
 		aria-haspopup="menu"
 		aria-expanded={open}
 		title={me.user.nome}
-		class="grid size-[34px] place-items-center rounded-full bg-[#0072B2] text-[12px] font-bold text-white"
+		class="grid size-[34px] place-items-center rounded-full text-[12px] font-bold"
+		style={avatarStyle(COR_DO_USUARIO_LOGADO)}
 	>
 		{avatarInitials}
 	</button>

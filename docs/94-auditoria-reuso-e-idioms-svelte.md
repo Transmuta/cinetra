@@ -1,14 +1,14 @@
-# 93 — Reúso de componentes, idioms de Svelte 5 e manutenibilidade do `web/`
+# 94 — Reúso de componentes, idioms de Svelte 5 e manutenibilidade do `web/`
 
 **Data:** 2026-07-30 · **Escopo:** `web/src/` — 65 componentes em `lib/components/`, 29 rotas
 `.svelte`, 41 módulos em `lib/*.ts`, 23 em `lib/server/*.ts`, os 32 `$effect` do repositório ·
 **Natureza:** só análise. **Nada foi mudado.**
 
-**Relação com o [doc 92](92-auditoria-design-system-web.md).** Aquele mediu a **superfície** — cor,
+**Relação com o [doc 93](93-auditoria-design-system-web.md).** Aquele mediu a **superfície** — cor,
 raio, tamanho, contraste, tokens. Este mede a **estrutura** — quem chama quem, se o código diz o
 que quer dizer em Svelte 5, e onde a base vai doer para mexer daqui a seis meses. Há três pontos de
-contato, e eles são referenciados, não repetidos: o `Button` de um uso só (92 §M-5), as 15 grafias
-de botão primário (92 §M-4) e os dois conjuntos de token de campo (92 §M-3). Aqui eles reaparecem
+contato, e eles são referenciados, não repetidos: o `Button` de um uso só (93 §M-5), as 15 grafias
+de botão primário (93 §M-4) e os dois conjuntos de token de campo (93 §M-3). Aqui eles reaparecem
 só como consequência estrutural.
 
 **Método.** O mesmo: contagem, não impressão. As contagens de call-site usam correspondência
@@ -75,7 +75,7 @@ browser: **16 `fetch` do cliente, nenhum tipado contra o `+server.ts` que respon
 Os quatro do topo são **os primitivos que funcionaram**, e vale entender por quê: cada um resolve
 uma coisa que **doía em todo lugar** (o estado "em voo", o rótulo associado ao input, a casca do
 diálogo, a confirmação destrutiva) e **não impõe visual**. `SubmitButton:5` diz isso explicitamente
-— "a classe do chamador passa inteira". É o oposto do `Button` (92 §M-5), que impõe `w-full` e por
+— "a classe do chamador passa inteira". É o oposto do `Button` (93 §M-5), que impõe `w-full` e por
 isso serve a uma tela só.
 
 Os **39 restantes têm um call-site**. Isso **não** é dead code — é o resultado esperado de uma
@@ -105,7 +105,7 @@ diferentes; não há órfão.
 | `audit/FieldDiff` | 50 | ok — recursivo por natureza (diff aninhado) |
 | `agenda/DayViewers` | 53 | ok — presença em tempo real, lógica própria |
 | `Toast` | 54 | ok — singleton do shell, pareado com `toast.svelte.ts` |
-| `Button` | 51 | **problema** — ver 92 §M-5 |
+| `Button` | 51 | **problema** — ver 93 §M-5 |
 
 Ou seja: dos 39 single-use, **três** merecem ação, e dois deles pela mesma razão (§2.4).
 
@@ -155,7 +155,7 @@ if (cepReq !== d) return;                    if (cepReq !== digits) return;
 `document.getElementById(\`sec-${id}\`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })`.
 
 **O que isso custou já.** Os dois `inputCls` também são idênticos — e são justamente os que
-divergem do `CONTROL_CLASS` do `Field` (92 §M-3). A divergência entrou **duas vezes** porque o
+divergem do `CONTROL_CLASS` do `Field` (93 §M-3). A divergência entrou **duas vezes** porque o
 arquivo foi copiado antes de o `Field` existir, e depois ninguém tinha um lugar só para consertar.
 
 **Extração proposta (a maior do doc).** Três peças, todas em `lib/`:
@@ -239,14 +239,14 @@ pacientes; falta o de profissionais.
 ### 2.4 Padrões estruturais sem componente
 
 Estes não são "código duplicado" no sentido do §2.3 — são **papéis visuais repetidos** que nunca
-viraram componente. Os números de grafia estão no doc 92; aqui vai a leitura de arquitetura.
+viraram componente. Os números de grafia estão no doc 93; aqui vai a leitura de arquitetura.
 
 | Papel | Componentes existentes | Reimplementações inline | Extração proposta |
 | --- | --- | --- | --- |
-| **Badge/pílula** | `RoleBadge`, `StatusBadge`, `PriorityBadge` — 3 componentes, **3 geometrias diferentes, base zero compartilhada** | 23 strings inline (92 §B-4) | `Badge` com `{ tone, size, icon?, children }` — absorve os 3 e ~15 dos 23 inline |
-| **Estado vazio** | `AgendaEmptyState` (4 usos) | 15 lugares (92 §B-3), sendo 4 só em `pacientes:200-206` | `EstadoVazio` com `{ icone, titulo, descricao?, acao?: Snippet }` — **~16 call-sites** |
+| **Badge/pílula** | `RoleBadge`, `StatusBadge`, `PriorityBadge` — 3 componentes, **3 geometrias diferentes, base zero compartilhada** | 23 strings inline (93 §B-4) | `Badge` com `{ tone, size, icon?, children }` — absorve os 3 e ~15 dos 23 inline |
+| **Estado vazio** | `AgendaEmptyState` (4 usos) | 15 lugares (93 §B-3), sendo 4 só em `pacientes:200-206` | `EstadoVazio` com `{ icone, titulo, descricao?, acao?: Snippet }` — **~16 call-sites** |
 | **Rodapé de paginação** | nenhum | 4 (D-2) | `Paginacao` — 4 call-sites |
-| **Botão** | `Button` (1 uso, inutilizável) | 129 `<button>` crus | ver 92 §M-5 |
+| **Botão** | `Button` (1 uso, inutilizável) | 129 `<button>` crus | ver 93 §M-5 |
 | **Tabela responsiva** (grade `md:` + cartão abaixo) | nenhum | 4: `pacientes:88`, `profissionais:43`, `fila:270`, `equipe:139` — cada um com o seu `const COLS` e o par `hidden md:grid` / `md:hidden` | provavelmente **não** vale componente: as colunas divergem demais. Vale extrair só o `COLS`/cabeçalho num snippet local |
 | **Skeleton / carregando** | **nenhum** | ver §4.6 — o app não tem skeleton em lugar nenhum | — |
 
@@ -552,7 +552,7 @@ dentro de `.svelte` são estes blocos concretos:
 | `search(q)` | `agenda:516`, `fila:108` | `lib/patient-search-client.ts` (D-4) |
 | mapa `id → nome` de profissional | `pacientes:77`, `pacientes/[id]:80` | `lib/professionals.ts`, ao lado de `professionalName` |
 | `toastText(action)` | `equipe:54`, `tipos:51` | some com `reagirAoForm` (§3.2) |
-| `quando(iso)` × 5 | ver 92 §B-1 | `lib/format.ts` |
+| `quando(iso)` × 5 | ver 93 §B-1 | `lib/format.ts` |
 | `CHIP` / `COR` / `ESTADO` (mapas de tom por estado) | `PackageList:135`, `OccupancyBar:16`, `PackageSessionsModal:74` | ficam — são apresentação, e o dado que os alimenta já vem de `lib` |
 
 O efeito colateral de tudo isso não é estético: **o gate de cobertura de 80% inclui `src/lib/**` e
@@ -703,7 +703,7 @@ resolve os dois vãos de uma vez.
 Menções honrosas do outro lado: `AppointmentDrawer` com 67 `it` para 881 linhas de código é a
 melhor cobertura de componente do repo, e é o maior arquivo — a ordem certa.
 
-**Sete componentes sem teste** (92 §B-10): `Seo`, `AgendaEmptyState`, `ConflictErrorBox`,
+**Sete componentes sem teste** (93 §B-10): `Seo`, `AgendaEmptyState`, `ConflictErrorBox`,
 `EncaixeCheckbox`, `OccupancyBar`, `FlowArt`, `StatusBadge`. Três deles (`AgendaEmptyState` 4 usos,
 `ConflictErrorBox` 5, `EncaixeCheckbox` 3) são **reusados**, o que os torna os mais caros da lista.
 
@@ -723,7 +723,7 @@ melhor cobertura de componente do repo, e é o maior arquivo — a ordem certa.
    roteiro pronto dos casos.
 7. **`EstadoVazio` (§2.4)** — ~16 call-sites, o maior alcance por linha escrita depois do item 1.
 8. **`Badge` (§2.4)** — funde `RoleBadge`/`StatusBadge`/`PriorityBadge` e ~15 inline. **Depende de
-   ter escala de tamanho** (92 §M-1/M-2), senão congela as grafias atuais em código.
+   ter escala de tamanho** (93 §M-1/M-2), senão congela as grafias atuais em código.
 9. **D-1 (§2.3) — o `FichaShell` e as duas extrações de lógica.** A maior e a mais valiosa: ~290
    linhas unificadas, duas funções puras entram no gate de cobertura, e o vão do item 6 fecha por
    construção. Fazer **depois** de 1–5, que são baratos e reduzem o ruído do diff.
@@ -749,4 +749,4 @@ melhor cobertura de componente do repo, e é o maior arquivo — a ordem certa.
 - **`$state.raw` em `slotsByEntry` (§3.3)** é hipótese, não medição: não perfilei o custo de proxy.
 - **O `routes/+page.svelte` (785 linhas de código, o 2º maior)** ficou de fora do ranking de quebra
   por ser a landing — superfície de marketing, gerada a partir do protótipo, com regras próprias
-  (92 §2.1).
+  (93 §2.1).

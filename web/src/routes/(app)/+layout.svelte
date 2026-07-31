@@ -179,7 +179,7 @@
 		<button
 			type="button"
 			aria-label="Fechar menu"
-			class="absolute inset-0 bg-black/40"
+			class="absolute inset-0 bg-overlay"
 			onclick={() => (drawerOpen = false)}
 		></button>
 		<!-- `role="dialog"` + `aria-modal` como nos shells `Modal`/`Drawer`: é a mesma coisa que

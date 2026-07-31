@@ -11,14 +11,10 @@
 	import Loader from '@lucide/svelte/icons/loader-circle';
 	import Modal from '$lib/components/Modal.svelte';
 	import { appointmentHref, zonedParts, m2t } from '$lib/agenda';
-	import type { Package as Pkg } from '$lib/packages';
-
-	type Sessao = {
-		attendance_id: string;
-		appointment_id: string;
-		starts_at: string;
-		estado: 'concluida' | 'falta' | 'segurada' | 'proxima' | 'agendada';
-	};
+	// O tipo da resposta vem do MESMO módulo que o `+server.ts` usa para respondê-la. Estava
+	// redeclarado aqui, campo por campo (doc 94 §4.5) — e um valor novo em `estado` compilaria dos
+	// dois lados enquanto o `switch` caía no default calado.
+	import type { Package as Pkg, PackageSession, PackageSessionsResponse } from '$lib/packages';
 
 	let {
 		pkg,
@@ -35,7 +31,7 @@
 		onClose: () => void;
 	} = $props();
 
-	let sessoes = $state<Sessao[] | null>(null);
+	let sessoes = $state<PackageSession[] | null>(null);
 	let erro = $state(false);
 
 	$effect(() => {
@@ -44,7 +40,7 @@
 			`/pacientes/${encodeURIComponent(patientId)}/pacotes/${encodeURIComponent(pkg.id)}/sessoes`
 		)
 			.then((r) => (r.ok ? r.json() : Promise.reject(new Error('falhou'))))
-			.then((d: { sessions: Sessao[] }) => {
+			.then((d: PackageSessionsResponse) => {
 				if (alive) sessoes = d.sessions;
 			})
 			.catch(() => {

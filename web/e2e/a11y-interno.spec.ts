@@ -18,7 +18,7 @@ import { criarAgendamento, instanteUtc } from './helpers';
  * (`.claude/rules/testes.md`): mudar o mínimo é decisão humana explícita, não atalho para verde.
  *
  * Existe hoje **uma** isenção, e ela é justamente uma dessas decisões explícitas: o contraste do
- * botão primário (ADR-020 / débito D-17). Está isolada em `semExcecaoDoPrimario` logo abaixo, com
+ * branco sobre o sage (ADR-020 / débito D-17). Está isolada em `semExcecaoDoSage` logo abaixo, com
  * o escopo e o prazo de validade escritos ali. Nenhuma outra isenção deve existir neste arquivo.
  *
  * Duas coisas que uma varredura de página estática não veria e esta cobre:
@@ -60,11 +60,19 @@ async function esperarAnimacao(page: Page): Promise<void> {
 }
 
 /**
- * A ÚNICA isenção do gate: o contraste do botão primário, aceito pela ADR-020 (débito D-17).
+ * A ÚNICA isenção do gate: o **branco sobre o sage da marca**, aceito pela ADR-020 (débito D-17).
  *
- * `--mv-primary` é o sage da marca com texto branco — 2,71:1, reprova de 1.4.3 que é **decisão
- * humana registrada**, não descuido. Sem isto o gate ficaria vermelho para sempre em 7 nós de 5
- * telas, e um gate cronicamente vermelho é um gate que ninguém lê.
+ * `--mv-primary` e `--mv-accent-solid` são o mesmo `#7fa59a`, e branco sobre ele mede 2,71:1 —
+ * reprova de 1.4.3 que é **decisão humana registrada**, não descuido. Sem isto o gate ficaria
+ * vermelho para sempre em 7 nós de 5 telas, e um gate cronicamente vermelho é um gate que
+ * ninguém lê.
+ *
+ * `bg-accent` entrou no padrão em 2026-07-30 (doc 93 §A-2). Ele já estava no app em dois botões
+ * que trocam para `hover:bg-accent` + `hover:text-white`, com o **mesmo 2,71** — mas escapava
+ * duas vezes: o axe varre o estado renderizado e ninguém está com o mouse sobre o botão durante
+ * a varredura, e o filtro antigo casava só `bg-primary`. Ou seja, o dia em que o axe medisse
+ * hover, a violação chegaria **sem isenção** e derrubaria o build sem dar à pessoa o contexto do
+ * D-17. Estender aqui é registrar a mesma decisão uma vez só, no lugar onde ela é lida.
  *
  * O filtro é deliberadamente estreito, e vale reparar no que ele NÃO faz:
  *
@@ -78,9 +86,9 @@ async function esperarAnimacao(page: Page): Promise<void> {
  * Quando o D-17 for pago (escurecer o sage ou voltar ao texto escuro), **apague esta função** e
  * a chamada abaixo — o gate volta a ser integral.
  */
-function semExcecaoDoPrimario<T extends { html: string }>(nodes: T[], regra: string): T[] {
+function semExcecaoDoSage<T extends { html: string }>(nodes: T[], regra: string): T[] {
 	if (regra !== 'color-contrast') return nodes;
-	return nodes.filter((n) => !/\bbg-primary(-hover)?\b/.test(n.html));
+	return nodes.filter((n) => !/\bbg-(primary|accent)(-hover)?\b/.test(n.html));
 }
 
 async function varrer(page: Page, tela: string): Promise<void> {
@@ -89,8 +97,8 @@ async function varrer(page: Page, tela: string): Promise<void> {
 		.analyze();
 
 	for (const bruta of results.violations) {
-		const nodes = semExcecaoDoPrimario(bruta.nodes, bruta.id);
-		// Violação que só existia por causa do botão primário sai inteira.
+		const nodes = semExcecaoDoSage(bruta.nodes, bruta.id);
+		// Violação que só existia por causa do sage da marca sai inteira.
 		if (nodes.length === 0) continue;
 		const v = { ...bruta, nodes };
 
@@ -163,6 +171,26 @@ test('varredura axe nas telas internas', async ({ page, clinica }) => {
 		await esperarAnimacao(page);
 		await varrer(page, 'Modal de tipo de atendimento');
 		await page.keyboard.press('Escape');
+	}
+
+	// O diálogo de renomear anexo. Ele era o único diálogo artesanal do app (doc 93 §A-3) e
+	// justamente por nunca ser aberto aqui é que passou: a varredura abre o Drawer e o Modal de
+	// tipo, e o gate não tinha como enxergar o resto.
+	//
+	// A guarda é honesta, não decorativa: só há botão de renomear se o paciente semeado tiver
+	// anexo, e semear anexo depende do storage. Quando não houver, o pulo é DITO — guarda
+	// silenciosa é o que faz um gate parecer que cobriu o que não cobriu.
+	await page.setViewportSize({ width: 1280, height: 800 });
+	await page.goto(`/pacientes/${clinica.paciente.id}`);
+	const renomear = page.getByRole('button', { name: /^renomear /i });
+	if (await renomear.count()) {
+		await renomear.first().click();
+		await expect(page.getByRole('dialog')).toBeVisible();
+		await esperarAnimacao(page);
+		await varrer(page, 'Modal de renomear anexo');
+		await page.keyboard.press('Escape');
+	} else {
+		console.log('axe interno: SEM anexo semeado — o diálogo de renomear não foi varrido');
 	}
 
 	// A gaveta de navegação mobile — o rail vira `Drawer` abaixo de `md`, e é outro DOM.
