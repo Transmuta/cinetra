@@ -12,6 +12,7 @@ import {
 	buildDays,
 	hasAttendingDay,
 	weekToHoursRows,
+	professionalNameMap,
 	CONTRACT_LABELS,
 	type Professional,
 	type HoursRow
@@ -216,5 +217,30 @@ describe('hasAttendingDay (horário obrigatório)', () => {
 	it('não seguindo: precisa de ao menos um dia com períodos', () => {
 		expect(hasAttendingDay(false, { 1: null, 2: null }, CLINIC)).toBe(false);
 		expect(hasAttendingDay(false, { 1: [['09:00', '10:00']] }, CLINIC)).toBe(true);
+	});
+});
+
+/**
+ * O simétrico de `patientNameMap`, que já existia em `agenda.ts`. Este faltava, e por isso a
+ * linha estava escrita à mão em `/pacientes` e em `/pacientes/[id]` — com o mesmo cast nas duas
+ * (doc 94 §D-5).
+ */
+describe('professionalNameMap', () => {
+	it('indexa por id', () => {
+		expect(
+			professionalNameMap([
+				{ id: 'p1', nome: 'Marina Lopes' },
+				{ id: 'p2', nome: 'Ana Silva' }
+			])
+		).toEqual({ p1: 'Marina Lopes', p2: 'Ana Silva' });
+	});
+
+	it('lista vazia devolve mapa vazio', () => {
+		expect(professionalNameMap([])).toEqual({});
+	});
+
+	// A tela chama isto com `data.professionals`, que é opcional no `load` de algumas rotas.
+	it('tolera ausência — a coluna fica sem nome, não quebra a tela', () => {
+		expect(professionalNameMap(undefined)).toEqual({});
 	});
 });

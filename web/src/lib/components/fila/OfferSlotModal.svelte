@@ -8,6 +8,7 @@
 	import { enhance } from '$app/forms';
 	import Sparkles from '@lucide/svelte/icons/sparkles';
 	import CalendarClock from '@lucide/svelte/icons/calendar-clock';
+	import EstadoVazio from '$lib/components/EstadoVazio.svelte';
 	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
 	import Modal from '$lib/components/Modal.svelte';
 	import SubmitButton from '$lib/components/SubmitButton.svelte';
@@ -251,16 +252,16 @@
 			{/each}
 		</div>
 	{:else}
-		<div class="px-4 py-7 text-center text-faint">
-			<CalendarClock size={26} class="mx-auto" />
-			<div class="mt-2.5 text-[13.5px] font-semibold text-muted">
-				Nenhuma vaga compatível nos próximos 14 dias
-			</div>
-			<div class="mx-auto mt-0.75 max-w-[340px] text-[12.5px]">
+		<EstadoVazio
+			icone={CalendarClock}
+			titulo="Nenhuma vaga compatível nos próximos 14 dias"
+			variante="inline"
+		>
+			{#snippet descricao()}
 				A disponibilidade do paciente não coincide com horários livres. Reveja a disponibilidade ou
 				agende manualmente pela Agenda.
-			</div>
-		</div>
+			{/snippet}
+		</EstadoVazio>
 	{/if}
 
 	{#snippet footer()}

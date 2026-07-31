@@ -1,15 +1,15 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import SubmitButton from '$lib/components/SubmitButton.svelte';
-	import { envio, envioPorItem } from '$lib/forms.svelte';
+	import { envio, envioPorItem, reagirAoForm } from '$lib/forms.svelte';
 	import { goto, invalidate } from '$app/navigation';
 	import { page as pageState } from '$app/state';
 	import { navigateQuery } from '$lib/querystring';
 	import BellOff from '@lucide/svelte/icons/bell-off';
 	import Check from '@lucide/svelte/icons/check';
 	import CheckCheck from '@lucide/svelte/icons/check-check';
-	import ChevronLeft from '@lucide/svelte/icons/chevron-left';
-	import ChevronRight from '@lucide/svelte/icons/chevron-right';
+	import Paginacao from '$lib/components/Paginacao.svelte';
+	import EstadoVazio from '$lib/components/EstadoVazio.svelte';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import { toast } from '$lib/toast.svelte';
@@ -29,10 +29,10 @@
 	//
 	// Só ERRO vira toast: o sucesso já se vê na tela (o realce sai, o contador cai, a lista
 	// esvazia), e anunciar o óbvio seria ruído em cima de cada ✓ da lista.
-	$effect(() => {
-		if (!form || form.ok) return;
-		toast(form.error ?? 'Não foi possível concluir a ação.', 'error');
-	});
+	reagirAoForm(
+		() => form,
+		{ erro: (f) => toast(f.error ?? 'Não foi possível concluir a ação.', 'error') }
+	);
 
 	// Paginação (#54): `?page=` na URL, sem empilhar histórico — mesmo gesto da fila e de
 	// Pacientes. Sem rodapé "X–Y de Z": a API não conta o total da caixa de propósito.
@@ -51,9 +51,6 @@
 	// e o form escondido é o que ele dispara (molde do "sair de todos os dispositivos").
 	let confirmingClear = $state(false);
 	let clearForm: HTMLFormElement;
-
-	const navBtn =
-		'inline-flex items-center gap-1 rounded-lg border border-edge bg-surface px-2.5 py-1.5 text-[12.5px] font-semibold text-ink hover:bg-surface-2 disabled:opacity-40 disabled:hover:bg-surface';
 
 	// Marcar lida ao abrir: submete a action e, se a notificação tem destino, navega para lá.
 	// Sem destino, só revalida (a linha perde o realce e o badge cai).
@@ -127,16 +124,13 @@
 	</header>
 
 	{#if notifications.length === 0}
-		<div
-			class="flex flex-col items-center justify-center rounded-xl border border-edge bg-surface py-16 text-center"
+		<!-- O vazio diz QUAL vazio: "Nenhuma notificação" com o filtro ligado faria quem tem a
+		     caixa cheia de lidas achar que perdeu tudo. -->
+		<EstadoVazio
+			icone={BellOff}
+			titulo={onlyUnread ? 'Nenhuma não lida' : 'Nenhuma notificação'}
 		>
-			<BellOff size={28} class="text-faint" />
-			<!-- O vazio diz QUAL vazio: "Nenhuma notificação" com o filtro ligado faria quem tem a
-			     caixa cheia de lidas achar que perdeu tudo. -->
-			<p class="mt-3 text-sm font-medium text-ink">
-				{onlyUnread ? 'Nenhuma não lida' : 'Nenhuma notificação'}
-			</p>
-			<p class="mt-1 text-sm text-muted">
+			{#snippet descricao()}
 				{#if onlyUnread}
 					<!-- "Todas" é o item da SIDEBAR, à esquerda — não uma aba. Dizer "aba" aqui mandava
 					     a pessoa procurar um controle que não existe mais nesta tela. -->
@@ -144,8 +138,8 @@
 				{:else}
 					Avisamos aqui quando algo mudar na sua agenda, na fila ou na equipe.
 				{/if}
-			</p>
-		</div>
+			{/snippet}
+		</EstadoVazio>
 	{:else}
 		<ul class="overflow-hidden rounded-xl border border-edge bg-surface">
 			{#each notifications as n (n.id)}
@@ -205,26 +199,9 @@
 			{/each}
 		</ul>
 
-		{#if data.pageInfo.more || data.current > 1}
-			<div class="mt-4 flex items-center justify-end gap-2">
-				<button
-					type="button"
-					class={navBtn}
-					disabled={data.current === 1}
-					onclick={() => goPage(data.current - 1)}
-				>
-					<ChevronLeft size={14} /> Anterior
-				</button>
-				<button
-					type="button"
-					class={navBtn}
-					disabled={!data.pageInfo.more}
-					onclick={() => goPage(data.current + 1)}
-				>
-					Próxima <ChevronRight size={14} />
-				</button>
-			</div>
-		{/if}
+		<!-- Sem rótulo "X–Y de Z": a API do sino não conta o total de propósito (contar obriga a
+		     ler o recorte inteiro), e o `rotulo={null}` diz isso em voz alta. -->
+		<Paginacao current={data.current} pageInfo={data.pageInfo} onPage={goPage} />
 	{/if}
 
 	<!-- Disparado pela confirmação. `use:enhance` padrão: o invalidateAll recarrega o layout, e é

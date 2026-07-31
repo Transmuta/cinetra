@@ -31,6 +31,7 @@
 	import SubmitButton from '$lib/components/SubmitButton.svelte';
 	import { envio, envioPorItem } from '$lib/forms.svelte';
 	import { zonedParts, m2t } from '$lib/agenda';
+	import { diaMes, quandoComAno } from '$lib/data-hora';
 	import {
 		activeCount,
 		gradeLabel,
@@ -116,20 +117,7 @@
 		return tipoDe(pkg)?.cor ?? pkg.cor;
 	}
 
-	// "20/07" — a data de início do pacote, curta.
-	function diaMes(iso: string): string {
-		const [, mes, dia] = iso.split('-');
-		return `${dia}/${mes}`;
-	}
-
-	// "Qui 30/07/26 · 08:00" no fuso da clínica (mesma conversão de `PatientUpcoming`).
-	const DOW_CURTO = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
-	function quando(iso: string): string {
-		const { date, minutes } = zonedParts(iso, timezone);
-		const [ano, mes, dia] = date.split('-');
-		const dow = DOW_CURTO[new Date(`${date}T12:00:00Z`).getUTCDay()];
-		return `${dow} ${dia}/${mes}/${ano.slice(2)} · ${m2t(minutes)}`;
-	}
+	const quando = (iso: string) => quandoComAno(iso, timezone);
 
 	// Tom do chip por estado (o `statusChip` decide o rótulo e o ícone; aqui só a pintura).
 	const CHIP: Record<string, string> = {

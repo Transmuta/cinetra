@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import SubmitButton from '$lib/components/SubmitButton.svelte';
-	import { envioPorItem } from '$lib/forms.svelte';
+	import { envioPorItem, reagirAoForm } from '$lib/forms.svelte';
 	import Plus from '@lucide/svelte/icons/plus';
 	import Pencil from '@lucide/svelte/icons/pencil';
 	import Archive from '@lucide/svelte/icons/archive';
@@ -41,12 +41,15 @@
 	// Resultado de ação vira toast (protótipo :1030): sucesso sempre; erro só nas ações
 	// disparadas fora de modal (arquivar/restaurar) — erro de salvamento aparece dentro do
 	// próprio modal (modalError acima).
-	$effect(() => {
-		if (!form) return;
-		if (form.ok) toast(toastText(form.action));
-		else if (form.error && (form.action === 'archive' || form.action === 'restore'))
-			toast(form.error, 'error');
-	});
+	reagirAoForm(
+		() => form,
+		{
+			sucesso: (f) => toast(toastText(f.action)),
+			erro: (f) => {
+				if (f.error && (f.action === 'archive' || f.action === 'restore')) toast(f.error, 'error');
+			}
+		}
+	);
 
 	function toastText(action?: string): string {
 		// "Tipo de atendimento salvo" é verbatim do protótipo (:1210). Arquivar/restaurar não

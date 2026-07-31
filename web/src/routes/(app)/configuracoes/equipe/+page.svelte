@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import SubmitButton from '$lib/components/SubmitButton.svelte';
-	import { envio, envioPorItem } from '$lib/forms.svelte';
+	import { envio, envioPorItem, reagirAoForm } from '$lib/forms.svelte';
 	import UserPlus from '@lucide/svelte/icons/user-plus';
 	import Pencil from '@lucide/svelte/icons/pencil';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
@@ -44,12 +44,15 @@
 	// Resultado de ação vira toast (protótipo :1030): sucesso sempre; erro só nas ações
 	// disparadas fora de modal (revoke/resend) — erro de convite/edição aparece dentro
 	// do próprio modal (modalError acima).
-	$effect(() => {
-		if (!form) return;
-		if (form.ok) toast(toastText(form.action));
-		else if (form.error && (form.action === 'revoke' || form.action === 'resend'))
-			toast(form.error, 'error');
-	});
+	reagirAoForm(
+		() => form,
+		{
+			sucesso: (f) => toast(toastText(f.action)),
+			erro: (f) => {
+				if (f.error && (f.action === 'revoke' || f.action === 'resend')) toast(f.error, 'error');
+			}
+		}
+	);
 
 	function toastText(action?: string): string {
 		if (action === 'invite') return 'Convite enviado.';

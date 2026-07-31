@@ -29,8 +29,8 @@
 	import Loader from '@lucide/svelte/icons/loader-circle';
 	import Modal from '$lib/components/Modal.svelte';
 	import Field, { CONTROL_CLASS, CONTROL_PX } from '$lib/components/Field.svelte';
+	import { DOW_LABELS, diaMes, diaSemana } from '$lib/data-hora';
 	import {
-		DOW_LABELS,
 		NEW_PACKAGE_DEFAULTS,
 		PACKAGE_MAX_TOTAL,
 		issueLabel,
@@ -269,16 +269,8 @@
 		}
 	}
 
-	// "27/07" — o chip da prévia. UTC no parse para não recuar um dia a oeste.
-	function curto(data: string): string {
-		const [, mes, dia] = data.split('-');
-		return `${dia}/${mes}`;
-	}
-
-	const DOW_UTC = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
-	function diaSemana(data: string): string {
-		return DOW_UTC[new Date(`${data}T12:00:00Z`).getUTCDay()];
-	}
+	// "27/07" — o chip da prévia.
+	const curto = diaMes;
 
 	// O chip diz a data; o resto (dia da semana, hora, problema) vai no `title` — repetir o mesmo
 	// "08:00" em vinte linhas era ruído, não informação.

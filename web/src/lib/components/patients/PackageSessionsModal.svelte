@@ -10,7 +10,8 @@
 	// ficha já faz seis em paralelo no `load`.
 	import Loader from '@lucide/svelte/icons/loader-circle';
 	import Modal from '$lib/components/Modal.svelte';
-	import { appointmentHref, zonedParts, m2t } from '$lib/agenda';
+	import { appointmentHref, zonedParts } from '$lib/agenda';
+	import { quandoCurto } from '$lib/data-hora';
 	// O tipo da resposta vem do MESMO módulo que o `+server.ts` usa para respondê-la. Estava
 	// redeclarado aqui, campo por campo (doc 94 §4.5) — e um valor novo em `estado` compilaria dos
 	// dois lados enquanto o `switch` caía no default calado.
@@ -70,13 +71,7 @@
 		falta: { label: 'Falta', classe: 'border-transparent bg-danger-solid', estilo: '' }
 	};
 
-	const DOW = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
-	function quando(iso: string): string {
-		const { date, minutes } = zonedParts(iso, timezone);
-		const [, mes, dia] = date.split('-');
-		const dow = DOW[new Date(`${date}T12:00:00Z`).getUTCDay()];
-		return `${dow} ${dia}/${mes} · ${m2t(minutes)}`;
-	}
+	const quando = (iso: string) => quandoCurto(iso, timezone);
 </script>
 
 <Modal title="Sessões do pacote" {onClose} maxWidth="max-w-[480px]">

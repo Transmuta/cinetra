@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import SubmitButton from '$lib/components/SubmitButton.svelte';
-	import { envioPorItem } from '$lib/forms.svelte';
+	import { envioPorItem, reagirAoForm } from '$lib/forms.svelte';
 	import Clock from '@lucide/svelte/icons/clock';
 	import CalendarOff from '@lucide/svelte/icons/calendar-off';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
@@ -20,11 +20,15 @@
 	// Erro do "Adicionar" vai para dentro do formulário; erro do excluir vira toast.
 	const formError = $derived(form && !form.ok && form.action === 'add' ? (form.error ?? null) : null);
 
-	$effect(() => {
-		if (!form) return;
-		if (form.ok) toast(form.action === 'delete' ? 'Exceção removida' : 'Exceção adicionada');
-		else if (form.error && form.action === 'delete') toast(form.error, 'error');
-	});
+	reagirAoForm(
+		() => form,
+		{
+			sucesso: (f) => toast(f.action === 'delete' ? 'Exceção removida' : 'Exceção adicionada'),
+			erro: (f) => {
+				if (f.error && f.action === 'delete') toast(f.error, 'error');
+			}
+		}
+	);
 </script>
 
 <svelte:head><title>Exceções · Cinetra</title></svelte:head>

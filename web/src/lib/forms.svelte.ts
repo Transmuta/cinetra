@@ -93,6 +93,54 @@ export function envio(opts: OpcoesEnvio = {}) {
 	};
 }
 
+/** O mínimo que toda tela lê do `form` de uma action. */
+export interface ResultadoDeAction {
+	ok?: boolean;
+	action?: string;
+	error?: string;
+	[k: string]: unknown;
+}
+
+/**
+ * Reagir ao `form` de uma action — fechar o modal, dar o toast, navegar.
+ *
+ * Estava escrito **sete vezes, em sete formatos** (doc 94 §3.2), e a diferença que importava não
+ * era o formato: era que **só duas das sete tinham a guarda de identidade**. As outras cinco não
+ * estão quebradas — os efeitos delas não leem estado que escrevem, então não há ciclo — mas nada
+ * no código dizia isso, e a próxima leitura reativa acrescentada a qualquer uma reabria o crash
+ * sem aviso.
+ *
+ * A guarda tem história medida, e ela é a razão de `ultimo` ser um `let` simples e **nunca**
+ * `$state`: como `$state`, a atribuição embrulhava o objeto num PROXY, então `form === ultimo`
+ * era falsa para sempre — o efeito lia e escrevia o mesmo estado, estourava
+ * `effect_update_depth_exceeded` e derrubava a reatividade da tela inteira. O modal ficava
+ * aberto, o `goto` não valia, e só um F5 tirava dali.
+ *
+ * O segundo papel dela é o trivial e igualmente necessário: um `form` já tratado não deve
+ * retoastar a cada rerender.
+ *
+ * `ler` é uma função, e não o valor: o `form` é uma prop que muda, e passá-lo por valor
+ * congelaria a leitura no primeiro render.
+ */
+export function reagirAoForm<F extends ResultadoDeAction | null | undefined>(
+	ler: () => F,
+	handlers: {
+		sucesso?: (form: NonNullable<F>) => void;
+		erro?: (form: NonNullable<F>) => void;
+	}
+): void {
+	let ultimo: unknown = null;
+
+	$effect(() => {
+		const form = ler();
+		if (!form || form === ultimo) return;
+		ultimo = form;
+
+		if (form.ok) handlers.sucesso?.(form);
+		else handlers.erro?.(form);
+	});
+}
+
 /**
  * O mesmo, para N forms iguais numa lista — uma linha por item (arquivar um tipo, pausar um
  * pacote, marcar uma notificação como lida).

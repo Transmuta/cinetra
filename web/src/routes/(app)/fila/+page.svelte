@@ -9,11 +9,8 @@
 	import { page as pageState } from '$app/state';
 	import { navigateQuery, type QueryPatch } from '$lib/querystring';
 	import { reportar } from '$lib/report';
-	import {
-		connectWaitlist,
-		type RealtimeConfig,
-		type WaitlistConnection
-	} from '$lib/realtime';
+	import { connectWaitlist, type WaitlistConnection } from '$lib/realtime';
+	import { usarTokenRealtime } from '$lib/realtime-token.svelte';
 	import Plus from '@lucide/svelte/icons/plus';
 	import Pencil from '@lucide/svelte/icons/pencil';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
@@ -22,7 +19,9 @@
 	import OfferSlotModal from '$lib/components/fila/OfferSlotModal.svelte';
 	import PriorityBadge from '$lib/components/fila/PriorityBadge.svelte';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
+	import Paginacao from '$lib/components/Paginacao.svelte';
 	import { toast } from '$lib/toast.svelte';
+	import { reagirAoForm } from '$lib/forms.svelte';
 	import { initials } from '$lib/format';
 	import { avatarColor, avatarStyle } from '$lib/avatar';
 	import { stripTitle } from '$lib/patients';
@@ -34,7 +33,8 @@
 		type Slot,
 		type SlotsByEntryResponse
 	} from '$lib/waitlist';
-	import { m2t, type SearchResult } from '$lib/agenda';
+	import { m2t } from '$lib/agenda';
+	import { buscarPacientes } from '$lib/patient-search-client';
 	import Radio from '@lucide/svelte/icons/radio';
 	import { pageLabel } from '$lib/pagination';
 	import ChevronLeft from '@lucide/svelte/icons/chevron-left';
@@ -102,14 +102,7 @@
 		navigate({ page: n > 1 ? String(n) : null });
 	}
 
-	const navBtn =
-		'inline-flex items-center gap-1 rounded-lg border border-edge bg-surface px-2.5 py-1.5 text-[12.5px] font-semibold text-ink hover:bg-surface-2 disabled:opacity-40 disabled:hover:bg-surface';
-
-	async function search(q: string): Promise<SearchResult> {
-		const res = await fetch(`/fila/pacientes?q=${encodeURIComponent(q)}`);
-		if (!res.ok) return { patients: [], total: 0 };
-		return (await res.json()) as SearchResult;
-	}
+	const search = (q: string) => buscarPacientes('/fila/pacientes', q);
 
 	// ---- Vagas (camada "quem cabe" / motor find_slots em lote) ------------------------------
 	// A lista carrega SEM as vagas (o load não chama o motor); logo após, um GET em lote
@@ -148,23 +141,10 @@
 	// O sinal `waitlist_changed` do canal recarrega a lista — a fila não é recortada por papel,
 	// então não há bloco para remendar (é o mesmo desenho do sinal do Mês). O token vem do BFF,
 	// uma vez por aba; sem ele a fila continua funcionando, só não atualiza sozinha.
-	let realtime = $state<RealtimeConfig | null>(null);
-
-	$effect(() => {
-		let vivo = true;
-		fetch('/api/realtime/token')
-			.then((r) => (r.ok ? r.json() : null))
-			.then((cfg) => {
-				if (vivo && cfg?.token) realtime = cfg as RealtimeConfig;
-			})
-			// Falha aqui mata o TEMPO REAL da tela, e antes era invisível: sem token o socket nunca
-			// abre, a fila para de atualizar sozinha e não há console, log nem aviso em lugar
-			// nenhum. O usuário só vê uma tela que envelhece calada (doc 62 §7.2).
-			.catch((e) => reportar('realtime:token', e));
-		return () => {
-			vivo = false;
-		};
-	});
+	// Sem token a fila continua funcionando, só não atualiza sozinha — e a falha é reportada, não
+	// engolida: o usuário só veria uma tela que envelhece calada (doc 62 §7.2).
+	const token = usarTokenRealtime();
+	const realtime = $derived(token.cfg);
 
 	// Coalescida: uma rajada (recepção mexendo em vários itens) vira UMA recarga. A leitura da
 	// fila é barata, mas recarregar a cada evento de uma rajada é churn à toa.
@@ -246,26 +226,21 @@
 		converter: 'Agendamento criado'
 	};
 
-	// Marcador "último form já tratado" — NÃO é `$state`, e a agenda já aprendeu isso (o mesmo
-	// comentário mora em `agenda/+page.svelte`). Como `$state`, a atribuição embrulhava o objeto
-	// num PROXY, então a guarda `form === ultimoForm` era falsa para sempre: o efeito lia e
-	// escrevia o mesmo estado, estourava `effect_update_depth_exceeded` e derrubava a reatividade
-	// da tela inteira — o modal ficava aberto, o `goto` não valia e só um F5 (ou insistir no
-	// clique) tirava dali. Um `let` simples quebra o ciclo; o efeito só precisa depender de `form`.
-	let ultimoForm: unknown = null;
-	$effect(() => {
-		if (!form || form === ultimoForm) return;
-		ultimoForm = form;
-		const action = form.action as string;
-
-		if (form.ok) {
-			if (action === 'enqueue') navigate({ novo: null });
-			if (action === 'atualizar') editing = null;
-			if (action === 'converter') offering = null;
-			toast(SUCESSO[action] ?? 'Feito');
+	// Erros de enqueue/atualizar/converter ficam DENTRO dos modais (ConflictErrorBox) — por isso
+	// não há `erro` aqui. A guarda de "resultado novo" mora no `reagirAoForm`, com o crash que a
+	// originou escrito lá.
+	reagirAoForm(
+		() => form,
+		{
+			sucesso: (f) => {
+				const action = f.action as string;
+				if (action === 'enqueue') navigate({ novo: null });
+				if (action === 'atualizar') editing = null;
+				if (action === 'converter') offering = null;
+				toast(SUCESSO[action] ?? 'Feito');
+			}
 		}
-		// Erros de enqueue/atualizar/converter ficam DENTRO dos modais (ConflictErrorBox).
-	});
+	);
 
 	const COLS =
 		'md:grid-cols-[minmax(160px,1.7fr)_100px_minmax(200px,2fr)_minmax(90px,0.9fr)_64px_148px]';
@@ -532,32 +507,13 @@
 		{/if}
 	</div>
 
-	<!-- Rodapé de paginação (F6): mesmo desenho e mesmos helpers da lista de Pacientes. Só
-	     aparece quando há mais de uma página — a fila curta continua parecendo o que era. -->
-	{#if data.pageInfo.more || data.current > 1}
-		<div class="mt-3 flex items-center gap-3 px-1">
-			<span class="font-mono text-[11.5px] text-faint">
-				{pageLabel(data.pageInfo, list.length)}
-			</span>
-			<div class="flex-1"></div>
-			<button
-				type="button"
-				class={navBtn}
-				disabled={data.current === 1}
-				onclick={() => goPage(data.current - 1)}
-			>
-				<ChevronLeft size={14} /> Anterior
-			</button>
-			<button
-				type="button"
-				class={navBtn}
-				disabled={!data.pageInfo.more}
-				onclick={() => goPage(data.current + 1)}
-			>
-				Próxima <ChevronRight size={14} />
-			</button>
-		</div>
-	{/if}
+	<Paginacao
+		current={data.current}
+		pageInfo={data.pageInfo}
+		onPage={goPage}
+		rotulo={pageLabel(data.pageInfo, list.length)}
+		class="px-1"
+	/>
 </div>
 
 {#if showAdd}

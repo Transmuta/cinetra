@@ -2,6 +2,7 @@
 // tenant/RBAC aqui — isso vive no escopo da API.
 
 import { TYPE_COLORS } from './appointment-types';
+import { DOW_LABELS } from './data-hora';
 
 export type PackageStatus = 'ativo' | 'pausado' | 'cancelado' | 'concluido';
 
@@ -101,8 +102,10 @@ export function issueLabel(issue: OccurrenceIssue): string {
 	return ISSUE_LABEL[issue] ?? '';
 }
 
-// Dias da semana na convenção do projeto (0=domingo). Rótulos curtos para a grade.
-export const DOW_LABELS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+// Dias da semana na convenção do projeto (0=domingo). A lista mora em `data-hora` — ela não é do
+// domínio de pacotes, e enquanto morou aqui virou três cópias com três nomes em três componentes
+// (doc 93 §B-2). Reexportada porque a grade do pacote é o maior consumidor dela.
+export { DOW_LABELS };
 
 // Paleta de cores do pacote (o `cor` do cartão). O backend só exige `allow_nil? false` — a lista
 // fechada existe para o modal oferecer só tons legíveis, e é **a mesma dos tipos de atendimento**:

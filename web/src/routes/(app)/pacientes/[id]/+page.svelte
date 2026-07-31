@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import SubmitButton from '$lib/components/SubmitButton.svelte';
-	import { envio } from '$lib/forms.svelte';
+	import { envio, reagirAoForm } from '$lib/forms.svelte';
 	import { invalidateAll } from '$app/navigation';
 	import ChevronLeft from '@lucide/svelte/icons/chevron-left';
 	import Pencil from '@lucide/svelte/icons/pencil';
@@ -21,6 +21,7 @@
 	import { avatarStyle } from '$lib/avatar';
 	import { toast } from '$lib/toast.svelte';
 	import { patientColor, convLabel, idade, prefNomes, canManagePatients } from '$lib/patients';
+	import { professionalNameMap } from '$lib/professionals';
 	import { canManageAttachments } from '$lib/attachments';
 	import PackageList from '$lib/components/patients/PackageList.svelte';
 
@@ -50,21 +51,25 @@
 	let vendoSessoes = $state<Pkg | null>(null);
 
 	// A grade fecha no sucesso; o erro mantém o modal aberto, com a mensagem do servidor.
-	$effect(() => {
-		if (form?.ok) ajustandoGrade = null;
-	});
-
-	// Falha de action vira toast — MENOS a da grade, que tem modal aberto e mostra a mensagem lá
-	// dentro (repetir seria a mesma frase duas vezes, uma delas por cima do que a pessoa digitou).
 	//
+	// O toast de erro vale para tudo MENOS a grade, que tem modal aberto e mostra a mensagem lá
+	// dentro (repetir seria a mesma frase duas vezes, uma delas por cima do que a pessoa digitou).
 	// Este era o buraco: `form.error` só estava ligado ao modal da grade, e ele só existe enquanto
 	// está aberto. Arquivar o paciente sem permissão, ou o 422 do arquivar-pacote ("ainda há sessão
 	// futura" — que o próprio servidor documenta como "o erro vai para a tela"), paravam o giro do
 	// botão e não diziam mais nada.
-	$effect(() => {
-		if (!form || form.ok || form.action === 'grade') return;
-		toast(form.error ?? 'Não foi possível concluir a ação.', 'error');
-	});
+	//
+	// Eram DOIS efeitos separados, e nenhum tinha guarda de identidade — agora é um só.
+	reagirAoForm(
+		() => form,
+		{
+			sucesso: () => (ajustandoGrade = null),
+			erro: (f) => {
+				if (f.action === 'grade') return;
+				toast(f.error ?? 'Não foi possível concluir a ação.', 'error');
+			}
+		}
+	);
 
 	// O título do modal da trilha é o do TIPO — a mesma identidade que o cartão usa.
 	const tituloDoPacote = $derived((pkg: Pkg) =>
@@ -76,9 +81,7 @@
 	// Anexos têm recorte PRÓPRIO de papel (owner·admin·recepção, doc 51): o `profissional` não vê
 	// a seção. É a única parte da ficha que não segue o "todo membro visualiza" do D16.
 	const canAttach = $derived(canManageAttachments(data.me.papel));
-	const nomePorId = $derived(
-		Object.fromEntries(data.professionals.map((x) => [x.id, x.nome])) as Record<string, string>
-	);
+	const nomePorId = $derived(professionalNameMap(data.professionals));
 	const prefs = $derived(prefNomes(p, nomePorId));
 	const idadeVal = $derived(idade(p.nascimento));
 	const endereco = $derived(

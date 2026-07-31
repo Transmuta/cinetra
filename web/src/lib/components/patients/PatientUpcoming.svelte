@@ -7,7 +7,8 @@
 	// o telefone na mão, e a ficha não a respondia em lugar nenhum.
 	import CalendarClock from '@lucide/svelte/icons/calendar-clock';
 	import Package from '@lucide/svelte/icons/package';
-	import { appointmentHref, zonedParts, m2t } from '$lib/agenda';
+	import { appointmentHref, zonedParts } from '$lib/agenda';
+	import { quandoSemDia } from '$lib/data-hora';
 	import type { HistorySession } from '$lib/server/patients';
 
 	let {
@@ -23,11 +24,7 @@
 		patientId: string;
 	} = $props();
 
-	function quando(iso: string): string {
-		const { date, minutes } = zonedParts(iso, timezone);
-		const [ano, mes, dia] = date.split('-');
-		return `${dia}/${mes}/${ano} · ${m2t(minutes)}`;
-	}
+	const quando = (iso: string) => quandoSemDia(iso, timezone);
 
 	// O bloco daquela sessão, com o dia ao lado (doc 85).
 	const linkDaSessao = (s: HistorySession) =>

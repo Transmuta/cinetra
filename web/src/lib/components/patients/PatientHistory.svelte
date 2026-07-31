@@ -7,7 +7,8 @@
 	// contaria uma sessão que ele não fez. O selo, portanto, sai do status da presença.
 	import History from '@lucide/svelte/icons/history';
 	import Package from '@lucide/svelte/icons/package';
-	import { appointmentHref, attendanceSelo, zonedParts, m2t } from '$lib/agenda';
+	import { appointmentHref, attendanceSelo, zonedParts } from '$lib/agenda';
+	import { quandoSemDia } from '$lib/data-hora';
 	import type { HistorySession } from '$lib/server/patients';
 
 	let {
@@ -21,11 +22,7 @@
 		timezone?: string;
 	} = $props();
 
-	function quando(iso: string): string {
-		const { date, minutes } = zonedParts(iso, timezone);
-		const [ano, mes, dia] = date.split('-');
-		return `${dia}/${mes}/${ano} · ${m2t(minutes)}`;
-	}
+	const quando = (iso: string) => quandoSemDia(iso, timezone);
 
 	const selo = (s: HistorySession) => attendanceSelo(s.status, s.falta_justificada);
 

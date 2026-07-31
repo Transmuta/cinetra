@@ -113,6 +113,20 @@ export function especialidadeLabel(p: Professional): string {
 	return p.sub ?? '—';
 }
 
+/**
+ * id → nome, para a tela resolver quem é o profissional preferido do paciente.
+ *
+ * O simétrico de `patientNameMap` (`agenda.ts:160`), que já existia. Este faltava, e por isso a
+ * linha estava escrita à mão em duas telas — inclusive com o mesmo cast (doc 94 §D-5). Aceita a
+ * forma mínima (`{ id, nome }`) porque quem chama é o `load` da tela de pacientes, cujo
+ * `professionals` é o resumo da lista, não a ficha inteira.
+ */
+export function professionalNameMap(
+	professionals: { id: string; nome: string }[] | undefined
+): Record<string, string> {
+	return Object.fromEntries((professionals ?? []).map((p) => [p.id, p.nome]));
+}
+
 // ---- Busca (nome, exibição, CREFITO, especialidade; CPF/telefone por dígitos) ----
 
 const digits = (s: string | null): string => (s ?? '').replace(/\D/g, '');

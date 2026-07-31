@@ -6,8 +6,7 @@
 	import UserPlus from '@lucide/svelte/icons/user-plus';
 	import Phone from '@lucide/svelte/icons/phone';
 	import Stethoscope from '@lucide/svelte/icons/stethoscope';
-	import ChevronLeft from '@lucide/svelte/icons/chevron-left';
-	import ChevronRight from '@lucide/svelte/icons/chevron-right';
+	import Paginacao from '$lib/components/Paginacao.svelte';
 	import { initials } from '$lib/format';
 	import { avatarStyle } from '$lib/avatar';
 	import { formatarTelefone } from '$lib/telefone';
@@ -21,6 +20,7 @@
 		pageLabel,
 		type Patient
 	} from '$lib/patients';
+	import { professionalNameMap } from '$lib/professionals';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -73,9 +73,7 @@
 		navigate({ page: n > 1 ? String(n) : null });
 	}
 
-	const nomePorId = $derived(
-		Object.fromEntries(data.professionals.map((p) => [p.id, p.nome])) as Record<string, string>
-	);
+	const nomePorId = $derived(professionalNameMap(data.professionals));
 
 	// Nome do profissional preferido para a coluna (1º + "+N"), sem o "Dr./Dra.".
 	function prefLabel(p: Patient): string {
@@ -87,8 +85,6 @@
 
 	const COLS = 'md:grid-cols-[2.1fr_1.2fr_1.3fr_1fr]';
 	const tagPill = 'rounded bg-surface-2 px-[7px] py-px text-[10.5px] text-muted border border-edge';
-	const navBtn =
-		'inline-flex items-center gap-1 rounded-lg border border-edge bg-surface px-2.5 py-1.5 text-[12.5px] font-semibold text-ink hover:bg-surface-2 disabled:opacity-40 disabled:hover:bg-surface';
 </script>
 
 <svelte:head><title>Pacientes · Cinetra</title></svelte:head>
@@ -209,19 +205,10 @@
 		{/if}
 	</div>
 
-	<!-- Rodapé de paginação: só aparece quando há mais de uma página. -->
-	{#if data.pageInfo.more || data.current > 1}
-		<div class="mt-3 flex items-center gap-3">
-			<span class="font-mono text-[11.5px] text-faint">
-				{pageLabel(data.pageInfo, data.patients.length)}
-			</span>
-			<div class="flex-1"></div>
-			<button type="button" class={navBtn} disabled={data.current === 1} onclick={() => goPage(data.current - 1)}>
-				<ChevronLeft size={14} /> Anterior
-			</button>
-			<button type="button" class={navBtn} disabled={!data.pageInfo.more} onclick={() => goPage(data.current + 1)}>
-				Próxima <ChevronRight size={14} />
-			</button>
-		</div>
-	{/if}
+	<Paginacao
+		current={data.current}
+		pageInfo={data.pageInfo}
+		onPage={goPage}
+		rotulo={pageLabel(data.pageInfo, data.patients.length)}
+	/>
 </div>

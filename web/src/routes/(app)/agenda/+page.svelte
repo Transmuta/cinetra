@@ -19,23 +19,20 @@
 	import type { CandidatesResponse, Entry } from '$lib/waitlist';
 	import RescheduleModal from '$lib/components/agenda/RescheduleModal.svelte';
 	import { toast } from '$lib/toast.svelte';
+	import { reagirAoForm } from '$lib/forms.svelte';
 	import {
 		canCreateAppointment,
 		canCreateEncaixe,
 		patientNameMap,
 		presetDoBotao,
 		toUtcIso,
-		type SearchResult,
 		type Appointment,
 		type AgendaPatient
 	} from '$lib/agenda';
+	import { buscarPacientes } from '$lib/patient-search-client';
 	import type { ActionResult } from '@sveltejs/kit';
-	import {
-		agendaTopics,
-		connectAgenda,
-		type AgendaMode,
-		type RealtimeConfig
-	} from '$lib/realtime';
+	import { agendaTopics, connectAgenda, type AgendaMode } from '$lib/realtime';
+	import { usarTokenRealtime } from '$lib/realtime-token.svelte';
 	import { applyToDay, mergePatients } from '$lib/agenda-live';
 	import { viewRendersCounts } from '$lib/agenda-views';
 	import ProfessionalChips from '$lib/components/agenda/ProfessionalChips.svelte';
@@ -80,7 +77,11 @@
 	// patch, e ele é jogado fora a cada dado novo do servidor: o REST é a fonte de verdade e o
 	// evento é otimização sobre ele (09 §7.5), nunca o contrário.
 	let live = $state<{ appointments: Appointment[]; patients: AgendaPatient[] } | null>(null);
-	let realtime = $state<RealtimeConfig | null>(null);
+	// Sem token a agenda continua funcionando, só não atualiza sozinha — e a falha é reportada, não
+	// engolida: dois atendentes vendo estados diferentes da mesma agenda é o que o tempo real
+	// existe para evitar (doc 62 §7.2).
+	const token = usarTokenRealtime();
+	const realtime = $derived(token.cfg);
 	// F5 — os nomes de quem MAIS está vendo este dia (já sem o próprio usuário).
 	let viewers = $state<string[]>([]);
 	// ACC-06 (doc 83): a grade muda sozinha por WebSocket e nada anunciava isso.
@@ -94,28 +95,6 @@
 		data.appointments;
 		data.patients;
 		live = null;
-	});
-
-	// O token do socket, uma vez por aba. Vem do BFF (o cookie de sessão é HttpOnly) junto da
-	// origem pública da API — o WebSocket é a exceção ao ADR-005 e fala direto com o Phoenix.
-	// Sem token a agenda continua funcionando, só não atualiza sozinha.
-	$effect(() => {
-		let vivo = true;
-
-		fetch('/api/realtime/token')
-			.then((r) => (r.ok ? r.json() : null))
-			.then((cfg) => {
-				if (vivo && cfg?.token) realtime = cfg as RealtimeConfig;
-			})
-			// Falha aqui mata o TEMPO REAL da agenda, e antes era invisível: sem token o socket
-			// nunca abre, a agenda para de atualizar sozinha e não há console, log nem aviso em
-			// lugar nenhum. Dois atendentes passam a ver estados diferentes da mesma agenda —
-			// exatamente o que o tempo real existe para evitar (doc 62 §7.2).
-			.catch((e) => reportar('realtime:token', e));
-
-		return () => {
-			vivo = false;
-		};
 	});
 
 	// Recarrega a janela visível. Semana e Mês vivem de contagem agregada, que não dá para
@@ -512,11 +491,7 @@
 		}
 	}
 
-	async function search(q: string): Promise<SearchResult> {
-		const res = await fetch(`/agenda/pacientes?q=${encodeURIComponent(q)}`);
-		if (!res.ok) return { patients: [], total: 0 };
-		return (await res.json()) as SearchResult;
-	}
+	const search = (q: string) => buscarPacientes('/agenda/pacientes', q);
 
 	// Resultado das actions. O erro NÃO fecha o modal: é lá dentro que mora a saída ("marcar
 	// como encaixe"), e fechar jogaria fora o que a pessoa já preencheu. No sucesso, uma
@@ -534,31 +509,29 @@
 		agendar_fila: 'Agendado da fila'
 	};
 
-	// Marcador "último form já tratado" — NÃO é `$state`: o efeito só depende de `form`. Como
-	// `$state`, o efeito LIA e ESCREVIA `ultimoForm` (a guarda + a atribuição), e essa
-	// autodependência estourava `effect_update_depth_exceeded` ao criar/remarcar — a modal
-	// travava aberta e a tela inteira parava até um F5. Um `let` simples quebra o ciclo.
-	let ultimoForm: unknown = null;
-	$effect(() => {
-		// Só reage a um resultado NOVO (o mesmo objeto não deve retoastar em rerender).
-		if (!form || form === ultimoForm) return;
-		ultimoForm = form;
-
-		if (form.ok) {
-			if (form.action === 'criar') modal = null;
-			if (form.action === 'remarcar') {
-				remarcando = false;
-				dragConflito = null;
-			}
-			// `mensagem` ganha do rótulo fixo: o envio de confirmação sabe coisas que a tabela
-			// acima não pode saber — para quantos saiu, e por que o resto ficou de fora.
-			toast(String(form.mensagem ?? SUCESSO[form.action as string] ?? 'Feito'));
-		} else if (form.action !== 'criar' && form.action !== 'remarcar') {
+	// A guarda de "resultado novo" mora no `reagirAoForm` — inclusive a razão de ela ser um `let`
+	// e não um `$state`, que aqui custou um `effect_update_depth_exceeded` com a modal travada.
+	reagirAoForm(
+		() => form,
+		{
+			sucesso: (f) => {
+				if (f.action === 'criar') modal = null;
+				if (f.action === 'remarcar') {
+					remarcando = false;
+					dragConflito = null;
+				}
+				// `mensagem` ganha do rótulo fixo: o envio de confirmação sabe coisas que a tabela
+				// acima não pode saber — para quantos saiu, e por que o resto ficou de fora.
+				toast(String(f.mensagem ?? SUCESSO[f.action as string] ?? 'Feito'));
+			},
 			// Erros de criar/remarcar aparecem DENTRO do modal (com a saída de encaixe). As demais
 			// mutações não têm modal aberto — o erro (ex.: 409 "recarregue") vira toast.
-			toast(String(form.error ?? 'Não foi possível concluir a ação.'));
+			erro: (f) => {
+				if (f.action === 'criar' || f.action === 'remarcar') return;
+				toast(String(f.error ?? 'Não foi possível concluir a ação.'));
+			}
 		}
-	});
+	);
 </script>
 
 <svelte:head><title>Agenda · Cinetra</title></svelte:head>

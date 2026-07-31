@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { page as pageState } from '$app/state';
 	import { navigateQuery } from '$lib/querystring';
-	import ChevronLeft from '@lucide/svelte/icons/chevron-left';
-	import ChevronRight from '@lucide/svelte/icons/chevron-right';
+	import Paginacao from '$lib/components/Paginacao.svelte';
+	import EstadoVazio from '$lib/components/EstadoVazio.svelte';
 	import ScrollText from '@lucide/svelte/icons/scroll-text';
 	import SearchX from '@lucide/svelte/icons/search-x';
 	import X from '@lucide/svelte/icons/x';
@@ -50,8 +50,6 @@
 		navigate({ resource: null, periodo: null, acao: null, autor: null, record_id: null, page: null });
 	}
 
-	const navBtn =
-		'inline-flex items-center gap-1 rounded-lg border border-edge bg-surface px-2.5 py-1.5 text-[12.5px] font-semibold text-ink hover:bg-surface-2 disabled:opacity-40 disabled:hover:bg-surface';
 </script>
 
 <svelte:head><title>Auditoria · Cinetra</title></svelte:head>
@@ -111,40 +109,34 @@
 	{:else}
 		<!-- O vazio diz QUAL vazio: "nenhuma alteração registrada" com um filtro ligado faria quem
 		     tem a trilha cheia achar que a clínica não fez nada (lição da caixa, doc 53). -->
-		<div
-			class="flex flex-col items-center justify-center rounded-xl border border-edge bg-surface py-16 text-center"
+		<EstadoVazio
+			icone={SearchX}
+			titulo={chips.length
+				? 'Nenhuma alteração com esses filtros'
+				: 'Nenhuma alteração registrada'}
 		>
-			<SearchX size={28} class="text-faint" />
-			<p class="mt-3 text-sm font-medium text-ink">
-				{chips.length ? 'Nenhuma alteração com esses filtros' : 'Nenhuma alteração registrada'}
-			</p>
-			<p class="mt-1 text-sm text-muted">
+			{#snippet descricao()}
 				{#if chips.length}
 					Tente ampliar o período ou
-					<button type="button" onclick={clearAll} class="font-medium text-accent-text hover:underline">
+					<button
+						type="button"
+						onclick={clearAll}
+						class="font-medium text-accent-text hover:underline"
+					>
 						limpar os filtros
 					</button>.
 				{:else}
-					Toda mudança, todo acesso a ficha e toda tentativa negada aparecem aqui, com quem fez
-					e quando.
+					Toda mudança, todo acesso a ficha e toda tentativa negada aparecem aqui, com quem fez e
+					quando.
 				{/if}
-			</p>
-		</div>
+			{/snippet}
+		</EstadoVazio>
 	{/if}
 
-	<!-- Paginação: só quando há mais de uma página. -->
-	{#if data.pageInfo.more || data.current > 1}
-		<div class="mt-4 flex items-center gap-3">
-			<span class="font-mono text-[11.5px] text-faint">
-				{auditPageLabel(data.pageInfo, data.entries.length, data.current)}
-			</span>
-			<div class="flex-1"></div>
-			<button type="button" class={navBtn} disabled={data.current === 1} onclick={() => goPage(data.current - 1)}>
-				<ChevronLeft size={14} /> Anterior
-			</button>
-			<button type="button" class={navBtn} disabled={!data.pageInfo.more} onclick={() => goPage(data.current + 1)}>
-				Próxima <ChevronRight size={14} />
-			</button>
-		</div>
-	{/if}
+	<Paginacao
+		current={data.current}
+		pageInfo={data.pageInfo}
+		onPage={goPage}
+		rotulo={auditPageLabel(data.pageInfo, data.entries.length, data.current)}
+	/>
 </div>

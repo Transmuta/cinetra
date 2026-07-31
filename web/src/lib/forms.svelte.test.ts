@@ -1,6 +1,13 @@
 import { describe, it, expect, vi } from 'vitest';
+import { flushSync } from 'svelte';
 import type { ActionResult, SubmitFunction } from '@sveltejs/kit';
-import { envio, envioPorItem, ERRO_DE_REDE } from './forms.svelte';
+import {
+	envio,
+	envioPorItem,
+	reagirAoForm,
+	ERRO_DE_REDE,
+	type ResultadoDeAction
+} from './forms.svelte';
 
 // O `use:enhance` chama a `SubmitFunction` com o contexto do submit e, quando a resposta volta,
 // o callback que ela devolveu. Estes dois helpers rodam esse ciclo à mão — é o que permite
@@ -198,5 +205,118 @@ describe('envioPorItem — a rede caiu no meio do POST', () => {
 		expect(chamouUpdate).toBe(false);
 		expect(linha.erroRede).toBe(ERRO_DE_REDE);
 		expect(linha.algumEmVoo).toBe(false);
+	});
+});
+
+/**
+ * A guarda de identidade é o valor real deste helper: **cinco das sete telas não a tinham**
+ * (doc 94 §3.2), e sem ela um `form` já tratado retoasta a cada rerender — ou, se o handler
+ * escrever estado que o efeito lê, estoura `effect_update_depth_exceeded` e derruba a tela.
+ */
+describe('reagirAoForm', () => {
+	/** Roda `fn` dentro de um escopo de efeito e devolve o `flush` + o descarte. */
+	function comEfeitos(fn: () => void) {
+		const descartar = $effect.root(fn);
+		flushSync();
+		return descartar;
+	}
+
+	it('chama `sucesso` quando ok, `erro` quando não', () => {
+		let form = $state<ResultadoDeAction | null>(null);
+		const sucesso = vi.fn();
+		const erro = vi.fn();
+
+		const descartar = comEfeitos(() => reagirAoForm(() => form, { sucesso, erro }));
+
+		form = { ok: true, action: 'criar' };
+		flushSync();
+		expect(sucesso).toHaveBeenCalledWith({ ok: true, action: 'criar' });
+		expect(erro).not.toHaveBeenCalled();
+
+		form = { ok: false, action: 'criar', error: 'não deu' };
+		flushSync();
+		expect(erro).toHaveBeenCalledWith({ ok: false, action: 'criar', error: 'não deu' });
+
+		descartar();
+	});
+
+	it('sem `form` não chama nada — o efeito roda no mount de toda tela', () => {
+		const sucesso = vi.fn();
+		const erro = vi.fn();
+
+		const descartar = comEfeitos(() => reagirAoForm(() => null, { sucesso, erro }));
+
+		expect(sucesso).not.toHaveBeenCalled();
+		expect(erro).not.toHaveBeenCalled();
+
+		descartar();
+	});
+
+	/** O caso que a guarda existe para cobrir: o MESMO objeto não é um resultado novo. */
+	it('o mesmo resultado não é tratado duas vezes', () => {
+		const mesmo: ResultadoDeAction = { ok: true, action: 'criar' };
+		let gatilho = $state(0);
+		const sucesso = vi.fn();
+
+		const descartar = comEfeitos(() =>
+			reagirAoForm(
+				() => {
+					gatilho; // dependência extra: força o efeito a rodar de novo
+					return mesmo;
+				},
+				{ sucesso }
+			)
+		);
+
+		expect(sucesso).toHaveBeenCalledTimes(1);
+
+		gatilho = 1;
+		flushSync();
+		gatilho = 2;
+		flushSync();
+
+		expect(sucesso).toHaveBeenCalledTimes(1);
+
+		descartar();
+	});
+
+	it('mas um resultado NOVO com o mesmo conteúdo é tratado', () => {
+		let form = $state<ResultadoDeAction | null>({ ok: true, action: 'criar' });
+		const sucesso = vi.fn();
+
+		const descartar = comEfeitos(() => reagirAoForm(() => form, { sucesso }));
+		expect(sucesso).toHaveBeenCalledTimes(1);
+
+		form = { ok: true, action: 'criar' };
+		flushSync();
+		expect(sucesso).toHaveBeenCalledTimes(2);
+
+		descartar();
+	});
+
+	/**
+	 * O crash medido: o handler escreve num `$state` que a própria tela lê. Com a guarda como
+	 * `$state`, isto era `effect_update_depth_exceeded`.
+	 */
+	it('handler que escreve estado não realimenta o efeito', () => {
+		let form = $state<ResultadoDeAction | null>(null);
+		let modalAberto = $state(true);
+		// Lido por closure, e não direto: `expect(modalAberto)` capturaria o valor do primeiro
+		// render e o compilador avisa (`state_referenced_locally`) — com razão.
+		const aberto = () => modalAberto;
+
+		const descartar = comEfeitos(() =>
+			reagirAoForm(() => form, {
+				sucesso: () => {
+					modalAberto = false;
+				}
+			})
+		);
+
+		form = { ok: true, action: 'criar' };
+		expect(() => flushSync()).not.toThrow();
+		expect(aberto()).toBe(false);
+
+		descartar();
 	});
 });
