@@ -31,7 +31,7 @@
 		<button
 			type="button"
 			onclick={onShowAll}
-			class="rounded-lg bg-primary px-3.5 py-2 text-[13px] font-semibold text-on-primary hover:bg-primary-hover"
+			class="rounded-controle bg-primary px-3.5 py-2 text-corpo font-semibold text-on-primary hover:bg-primary-hover"
 		>
 			Mostrar todos
 		</button>

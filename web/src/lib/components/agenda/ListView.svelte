@@ -90,7 +90,7 @@
 					onclick={() => onSelect(row.appt.id)}
 					class="flex w-full items-center gap-3 px-4 py-2.75 text-left hover:bg-surface-2"
 				>
-					<span class="w-[46px] shrink-0 font-mono text-[11.5px] font-semibold tabular-nums">
+					<span class="w-[46px] shrink-0 font-mono text-meta font-semibold tabular-nums">
 						{row.hora}
 					</span>
 
@@ -102,18 +102,18 @@
 
 					<span class="min-w-0 flex-1">
 						<span
-							class="block truncate text-[13.5px] font-semibold {row.meta.strike
+							class="block truncate text-corpo font-semibold {row.meta.strike
 								? 'text-faint line-through'
 								: 'text-ink'}"
 						>
 							{row.titulo}
 						</span>
-						<span class="block truncate text-[12px] text-muted">{row.subtitulo}</span>
+						<span class="block truncate text-rotulo text-muted">{row.subtitulo}</span>
 					</span>
 
 					{#if row.appt.encaixe}
 						<!-- AN-08: texto escuro fixo sobre o âmbar (2,0:1 com branco; 8,6:1 assim). -->
-						<span class="shrink-0 rounded bg-warning-solid px-1.5 py-px text-[10px] font-bold text-on-solid">
+						<span class="shrink-0 rounded-micro bg-warning-solid px-1.5 py-px text-micro font-bold text-on-solid">
 							Encaixe
 						</span>
 					{/if}
@@ -123,7 +123,7 @@
 					     do acento, cujo sólido não tem contraste sobre 14% dele mesmo) e cai no próprio
 					     token quando não existe — a mesma expressão do badge do cartão. -->
 					<span
-						class="shrink-0 rounded-full px-1.5 py-px text-[10.5px] font-semibold"
+						class="shrink-0 rounded-full px-1.5 py-px text-micro font-semibold"
 						style="background:color-mix(in srgb, var(--color-{row.meta.tone}) 14%, transparent);
 						       color:var(--color-{row.meta.tone}-text, var(--color-{row.meta.tone}))"
 					>

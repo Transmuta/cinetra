@@ -34,9 +34,9 @@
 <svelte:head><title>Exceções · Cinetra</title></svelte:head>
 
 <div class="mx-auto max-w-[760px] px-4 py-4 md:px-6">
-	<section class="mb-3 rounded-[10px] border border-edge bg-surface p-4">
-		<h2 class="mb-1 text-[14px] font-semibold">Exceções da agenda</h2>
-		<p class="mb-3 text-[12px] text-muted">
+	<section class="mb-3 rounded-cartao border border-edge bg-surface p-4">
+		<h2 class="mb-1 text-leitura font-semibold">Exceções da agenda</h2>
+		<p class="mb-3 text-rotulo text-muted">
 			Datas específicas que fogem ao horário normal: feche o dia inteiro ou defina um horário só
 			para aquele dia.
 		</p>
@@ -46,7 +46,7 @@
 		{/if}
 
 		{#if data.exceptions.length === 0}
-			<p class="border-t border-edge py-3 text-[12.5px] text-muted">
+			<p class="border-t border-edge py-3 text-rotulo text-muted">
 				Nenhuma exceção cadastrada.
 			</p>
 		{/if}
@@ -60,13 +60,13 @@
 					<CalendarOff size={16} class="shrink-0 text-danger" />
 				{/if}
 
-				<span class="w-[92px] shrink-0 font-mono text-[11.5px]">{formatDate(exc.data)}</span>
+				<span class="w-[92px] shrink-0 font-mono text-meta">{formatDate(exc.data)}</span>
 
 				<div class="min-w-0 flex-1">
 					{#if exc.nome}
-						<div class="truncate text-[13.5px] font-medium">{exc.nome}</div>
+						<div class="truncate text-corpo font-medium">{exc.nome}</div>
 					{/if}
-					<div class="font-mono text-[10.5px] {isHorario ? 'text-accent-text' : 'text-danger'}">
+					<div class="font-mono text-micro {isHorario ? 'text-accent-text' : 'text-danger'}">
 						{isHorario ? formatPeriods(exc.periods) : 'Fechado o dia inteiro'}
 					</div>
 				</div>
@@ -79,7 +79,7 @@
 							trocaConteudo
 							title="Remover exceção"
 							ariaLabel="Remover exceção"
-							class="grid size-7.5 shrink-0 place-items-center rounded-[7px] border border-edge bg-surface text-danger hover:bg-surface-2 disabled:opacity-60"
+							class="grid size-7.5 shrink-0 place-items-center rounded-controle border border-edge bg-surface text-danger hover:bg-surface-2 disabled:opacity-60"
 						>
 							<Trash2 size={14} />
 						</SubmitButton>

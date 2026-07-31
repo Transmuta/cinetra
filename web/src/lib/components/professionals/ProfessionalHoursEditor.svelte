@@ -54,7 +54,7 @@
 	}
 </script>
 
-<div class="overflow-hidden rounded-lg border border-edge">
+<div class="overflow-hidden rounded-controle border border-edge">
 	{#each WEEKDAYS as { dow, label } (dow)}
 		{@const clinic = clinicDay(dow)}
 		{@const clinicOpen = clinic.length > 0}
@@ -73,12 +73,12 @@
 					label={label}
 					onchange={() => toggle(dow, !on)}
 				/>
-				<span class="text-[12.5px] font-semibold {clinicOpen ? '' : 'text-faint'}">{label}</span>
+				<span class="text-rotulo font-semibold {clinicOpen ? '' : 'text-faint'}">{label}</span>
 			</div>
 
 			<div class="min-w-0 flex-1">
 				{#if !clinicOpen}
-					<span class="text-[12px] leading-[30px] text-faint">Clínica fechada</span>
+					<span class="text-rotulo leading-[30px] text-faint">Clínica fechada</span>
 				{:else if on}
 					<PeriodEditor
 						periods={day as Period[]}
@@ -86,11 +86,11 @@
 						max={clinic[clinic.length - 1][1]}
 						onchange={(p) => setDay(dow, p)}
 					/>
-					<p class="mt-1 font-mono text-[10.5px] {err ? 'text-danger' : 'text-faint'}">
+					<p class="mt-1 font-mono text-micro {err ? 'text-danger' : 'text-faint'}">
 						{err ?? `Clínica: ${formatPeriods(clinic)}`}
 					</p>
 				{:else}
-					<span class="text-[12px] leading-[30px] text-faint">Não atende</span>
+					<span class="text-rotulo leading-[30px] text-faint">Não atende</span>
 				{/if}
 			</div>
 		</div>

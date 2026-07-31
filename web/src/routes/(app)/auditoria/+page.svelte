@@ -58,16 +58,16 @@
 	<header class="mb-4">
 		<!-- `h2` (ACC-22): o `h1` da página é o do topbar, que já diz "Auditoria" — dois `h1` com o
 		     mesmo texto na mesma tela não é hierarquia, é eco. As classes mandam no visual. -->
-		<h2 class="flex items-center gap-2 text-xl font-semibold text-ink">
+		<h2 class="flex items-center gap-2 text-destaque leading-7 font-semibold text-ink">
 			<ScrollText size={19} class="text-accent-text" /> Auditoria
 		</h2>
-		<p class="mt-0.5 text-sm text-muted">
+		<p class="mt-0.5 text-leitura leading-5 text-muted">
 			Quem mudou o quê, quem abriu o quê, e quando — o histórico da clínica.
 		</p>
 	</header>
 
 	{#if chips.length}
-		<div class="mb-3 flex flex-wrap items-center gap-2 text-[12.5px]">
+		<div class="mb-3 flex flex-wrap items-center gap-2 text-rotulo">
 			{#each chips as chip (chip.key)}
 				<span
 					class="inline-flex items-center gap-1.5 rounded-full border border-edge bg-surface-2 px-2.5 py-1 text-muted"
@@ -95,10 +95,10 @@
 		<div class="flex flex-col gap-4">
 			{#each groups as group (group.day)}
 				<section>
-					<h2 class="mb-1.5 px-1 text-[11px] font-bold uppercase tracking-[.06em] text-faint">
+					<h2 class="mb-1.5 px-1 text-meta font-bold uppercase tracking-[.06em] text-faint">
 						{group.heading}
 					</h2>
-					<div class="divide-y divide-edge overflow-hidden rounded-xl border border-edge bg-surface">
+					<div class="divide-y divide-edge overflow-hidden rounded-cartao border border-edge bg-surface">
 						{#each group.entries as entry (entry.id)}
 							<AuditEntry {entry} {timezone} />
 						{/each}

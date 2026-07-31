@@ -13,8 +13,8 @@
 
 	const cls = $derived(
 		variant === 'rail'
-			? 'grid size-10 place-items-center rounded-lg text-white/60 transition-colors hover:bg-rail-item/60 hover:text-white'
-			: 'grid size-9 place-items-center rounded-md border border-edge bg-surface text-muted hover:bg-surface-2'
+			? 'grid size-10 place-items-center rounded-controle text-white/60 transition-colors hover:bg-rail-item/60 hover:text-white'
+			: 'grid size-9 place-items-center rounded-controle border border-edge bg-surface text-muted hover:bg-surface-2'
 	);
 	const iconSize = $derived(variant === 'rail' ? 18 : 16);
 

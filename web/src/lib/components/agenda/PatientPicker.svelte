@@ -133,10 +133,10 @@
 		<div class="mb-1.5 flex flex-wrap gap-1.5">
 			{#each selected as p (p.id)}
 				<span
-					class="inline-flex items-center gap-1.5 rounded-full border border-edge bg-surface-2 py-0.5 pl-0.5 pr-2 text-[12.5px]"
+					class="inline-flex items-center gap-1.5 rounded-full border border-edge bg-surface-2 py-0.5 pl-0.5 pr-2 text-rotulo"
 				>
 					<span
-						class="grid size-5 place-items-center rounded-full text-[9px] font-bold"
+						class="grid size-5 place-items-center rounded-full text-micro font-bold"
 						style={avatarStyle(p.cor_indice ?? 1)}
 					>
 						{initials(p.nome)}
@@ -196,7 +196,7 @@
 			id="patient-picker-results"
 			role="listbox"
 			aria-label="Pacientes encontrados"
-			class="mt-1 max-h-52 overflow-auto rounded-md border border-edge bg-surface shadow-pop"
+			class="mt-1 max-h-52 overflow-auto rounded-controle border border-edge bg-surface shadow-pop"
 		>
 			{#each results as p, i (p.id)}
 				<!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -205,28 +205,28 @@
 					role="option"
 					aria-selected={i === ativo}
 					onclick={() => pick(p)}
-					class="flex w-full cursor-pointer items-center gap-2 px-2.5 py-1.5 text-left text-[13px] {i ===
+					class="flex w-full cursor-pointer items-center gap-2 px-2.5 py-1.5 text-left text-corpo {i ===
 					ativo
 						? 'bg-surface-2'
 						: 'hover:bg-surface-2'}"
 				>
 					<span
-						class="grid size-6 shrink-0 place-items-center rounded-full text-[9.5px] font-bold"
+						class="grid size-6 shrink-0 place-items-center rounded-full text-micro font-bold"
 						style={avatarStyle(p.cor_indice ?? 1)}
 					>
 						{initials(p.nome)}
 					</span>
 					<span class="min-w-0 flex-1 truncate">{p.nome}</span>
-					{#if p.tel}<span class="font-mono text-[11px] text-faint">{formatarTelefone(p.tel)}</span>{/if}
+					{#if p.tel}<span class="font-mono text-meta text-faint">{formatarTelefone(p.tel)}</span>{/if}
 				</li>
 			{/each}
 		</ul>
 		{#if sobrando}
-			<div class="mt-1 text-[11.5px] text-faint">
+			<div class="mt-1 text-meta text-faint">
 				Mostrando {results.length} de {total} — refine a busca
 			</div>
 		{/if}
 	{:else if searched}
-		<div class="mt-1 text-[12px] text-faint">Nenhum paciente encontrado.</div>
+		<div class="mt-1 text-rotulo text-faint">Nenhum paciente encontrado.</div>
 	{/if}
 </div>

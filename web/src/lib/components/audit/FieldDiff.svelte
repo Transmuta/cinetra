@@ -27,11 +27,11 @@
 		{#each diff as row (row.field)}
 			{@const antes = formatValue(resource, row.field, row.from, timezone)}
 			{@const depois = formatValue(resource, row.field, row.to, timezone)}
-			<li class="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[12px] leading-tight">
+			<li class="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-rotulo leading-tight">
 				<span class="text-faint">{fieldLabel(row.field)}:</span>
 				{#if row.redacted}
 					<span class="font-medium text-muted">alterado</span>
-					<span class="text-[11px] text-faint">(valor não registrado)</span>
+					<span class="text-meta text-faint">(valor não registrado)</span>
 				{:else}
 				<!-- `<del>`/`<ins>` e não dois `<span>`: o riscado e a seta são pistas VISUAIS, e um
 				     leitor de tela lia "14:00 15:30" sem dizer qual é qual. Com a semântica certa,

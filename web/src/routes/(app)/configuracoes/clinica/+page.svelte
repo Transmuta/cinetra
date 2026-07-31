@@ -1,7 +1,8 @@
 <script lang="ts">
+	import Button from '$lib/components/Button.svelte';
+	import { CONTROL_CLASS, CONTROL_PX, CONTROL_H } from '$lib/components/Field.svelte';
 	import { untrack } from 'svelte';
 	import { enhance } from '$app/forms';
-	import SubmitButton from '$lib/components/SubmitButton.svelte';
 	import { envio } from '$lib/forms.svelte';
 	import Circle from '@lucide/svelte/icons/circle';
 	import { maskCnpj, normalizeCnpj, isValidCnpj } from '$lib/cnpj';
@@ -53,18 +54,17 @@
 		toast('Alterações descartadas');
 	}
 
-	const inputCls =
-		'h-[38px] w-full rounded-lg border border-edge bg-surface px-2.5 text-[13.5px] text-ink';
+	const inputCls = `${CONTROL_CLASS} ${CONTROL_PX} ${CONTROL_H} w-full`;
 </script>
 
 <svelte:head><title>Clínica · Cinetra</title></svelte:head>
 
 <div class="mx-auto max-w-[760px] px-4 py-4 md:px-6">
-	<section class="mb-3 rounded-[10px] border border-edge bg-surface p-4">
+	<section class="mb-3 rounded-cartao border border-edge bg-surface p-4">
 		{#if canManage}
 			<form method="POST" action="?/save" use:enhance={save.submit} class="space-y-4">
 				<div>
-					<label for="nome" class="mb-1 block text-[12px] font-medium text-muted">
+					<label for="nome" class="mb-1 block text-rotulo font-medium text-muted">
 						Nome da clínica <span class="text-danger">*</span>
 					</label>
 					<input
@@ -78,7 +78,7 @@
 				</div>
 
 				<div>
-					<label for="cnpj" class="mb-1 block text-[12px] font-medium text-muted">CNPJ</label>
+					<label for="cnpj" class="mb-1 block text-rotulo font-medium text-muted">CNPJ</label>
 					<input
 						id="cnpj"
 						name="cnpj"
@@ -91,12 +91,12 @@
 						class="{inputCls} font-mono {cnpjInvalido ? 'border-danger' : ''}"
 					/>
 					{#if cnpjInvalido}
-						<p class="mt-1 text-[12px] text-danger">CNPJ inválido.</p>
+						<p class="mt-1 text-rotulo text-danger">CNPJ inválido.</p>
 					{/if}
 				</div>
 
 				<div>
-					<label for="endereco" class="mb-1 block text-[12px] font-medium text-muted">Endereço</label>
+					<label for="endereco" class="mb-1 block text-rotulo font-medium text-muted">Endereço</label>
 					<input
 						id="endereco"
 						name="endereco"
@@ -109,7 +109,7 @@
 
 				<div class="flex items-center gap-2.5 border-t border-edge pt-3.5">
 					<div
-						class="flex flex-1 items-center gap-1.5 text-[12px] {cnpjInvalido
+						class="flex flex-1 items-center gap-1.5 text-rotulo {cnpjInvalido
 							? 'font-semibold text-danger'
 							: dirty
 								? 'font-semibold text-warning'
@@ -128,25 +128,24 @@
 						<button
 							type="button"
 							onclick={discard}
-							class="rounded-lg border border-edge bg-surface px-3.5 py-2 text-[13px] font-semibold text-muted hover:bg-surface-2"
+							class="rounded-controle border border-edge bg-surface px-3.5 py-2 text-corpo font-semibold text-muted hover:bg-surface-2"
 						>
 							Descartar
 						</button>
 					{/if}
 
-					<SubmitButton
+					<Button type="submit"
 						emVoo={save.emVoo}
 						disabled={!podeSalvar}
-						class="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-[13px] font-semibold text-on-primary hover:bg-primary-hover disabled:opacity-60"
 					>
 						Salvar
-					</SubmitButton>
+					</Button>
 				</div>
 			</form>
 		{:else}
 			<!-- Leitura para não-gestores: a ficha sem os controles de edição. -->
-			<h2 class="mb-3 text-[14px] font-semibold">Dados da clínica</h2>
-			<dl class="space-y-2.5 text-[13px]">
+			<h2 class="mb-3 text-leitura font-semibold">Dados da clínica</h2>
+			<dl class="space-y-2.5 text-corpo">
 				<div class="flex gap-3">
 					<dt class="w-[90px] shrink-0 text-muted">Nome</dt>
 					<dd class="font-medium">{data.clinic.nome}</dd>

@@ -37,11 +37,11 @@
 	role="status"
 	aria-live="polite"
 	aria-atomic="true"
-	class="pointer-events-none fixed inset-x-0 bottom-5.5 z-60 flex justify-center px-4"
+	class="pointer-events-none fixed inset-x-0 bottom-5.5 z-toast flex justify-center px-4"
 >
 	{#if active}
 		<div
-			class="flex animate-fade items-center gap-2 rounded-[10px] bg-primary px-4 py-2.5 text-[13px] font-semibold text-on-primary shadow-toast"
+			class="flex animate-fade items-center gap-2 rounded-cartao bg-primary px-4 py-2.5 text-corpo font-semibold text-on-primary shadow-toast"
 		>
 			{#if active.variant === 'error'}
 				<CircleAlert size={15} class="shrink-0 text-on-primary" />

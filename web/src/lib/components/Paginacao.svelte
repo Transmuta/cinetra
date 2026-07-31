@@ -33,14 +33,14 @@
 	const primeira = $derived(current === 1);
 
 	const navBtn =
-		'inline-flex items-center gap-1 rounded-lg border border-edge bg-surface px-2.5 py-1.5 text-[12.5px] font-semibold text-ink hover:bg-surface-2 disabled:opacity-40 disabled:hover:bg-surface';
+		'inline-flex items-center gap-1 rounded-controle border border-edge bg-surface px-2.5 py-1.5 text-rotulo font-semibold text-ink hover:bg-surface-2 disabled:opacity-40 disabled:hover:bg-surface';
 </script>
 
 <!-- Só aparece quando há mais de uma página: uma lista curta não ganha cromo. -->
 {#if pageInfo.more || current > 1}
 	<nav class="mt-4 flex items-center gap-3 {extra}" aria-label="Paginação">
 		{#if rotulo}
-			<span class="font-mono text-[11.5px] text-faint">{rotulo}</span>
+			<span class="font-mono text-meta text-faint">{rotulo}</span>
 		{/if}
 		<div class="flex-1"></div>
 		<button type="button" class={navBtn} disabled={primeira} onclick={() => onPage(current - 1)}>

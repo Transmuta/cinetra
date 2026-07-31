@@ -12,9 +12,9 @@
 </script>
 
 {#if podeEncaixe}
-	<label class="flex cursor-pointer items-center gap-2 py-1 text-[13px]">
+	<label class="flex cursor-pointer items-center gap-2 py-1 text-corpo">
 		<input type="checkbox" name="encaixe" bind:checked class="size-4 accent-primary" />
 		Encaixe
-		<span class="text-[12px] text-faint">(ignora conflito de horário)</span>
+		<span class="text-rotulo text-faint">(ignora conflito de horário)</span>
 	</label>
 {/if}

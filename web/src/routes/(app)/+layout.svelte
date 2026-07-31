@@ -109,7 +109,7 @@
 -->
 <a
 	href="#conteudo"
-	class="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-70 focus:rounded-md focus:bg-surface focus:px-3 focus:py-2 focus:text-[13px] focus:font-semibold focus:text-ink focus:shadow-pop"
+	class="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-atalho focus:rounded-controle focus:bg-surface focus:px-3 focus:py-2 focus:text-corpo focus:font-semibold focus:text-ink focus:shadow-pop"
 >
 	Pular para o conteúdo
 </a>
@@ -163,7 +163,7 @@
 
 <!-- Mobile (<lg): gaveta com rail + sidebar sobre um backdrop. -->
 {#if drawerOpen}
-	<div class="fixed inset-0 z-40 flex lg:hidden">
+	<div class="fixed inset-0 z-cobertura flex lg:hidden">
 		<button
 			type="button"
 			aria-label="Fechar menu"

@@ -1,4 +1,6 @@
 <script lang="ts">
+	import Button from '$lib/components/Button.svelte';
+	import { CONTROL_CLASS, CONTROL_PX, CONTROL_H } from '$lib/components/Field.svelte';
 	// Ficha do paciente, fiel a `renderPacienteForm` (:2010): painel de altura cheia com
 	// cabeçalho (avatar + barra de progresso X/Y), coluna "SEÇÕES" com contador por seção,
 	// cartões de seção com chip de ícone + subtítulo + contagem, e rodapé fixo. São 8 seções
@@ -6,7 +8,6 @@
 	// `?/save`, que o `+page.server` orquestra.
 	import { untrack, onDestroy } from 'svelte';
 	import { enhance } from '$app/forms';
-	import SubmitButton from '$lib/components/SubmitButton.svelte';
 	import { ERRO_DE_REDE } from '$lib/forms.svelte';
 	import type { SubmitFunction } from '@sveltejs/kit';
 	import ChevronLeft from '@lucide/svelte/icons/chevron-left';
@@ -359,11 +360,11 @@
 		document.getElementById(`sec-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 	}
 
-	const inputCls = 'h-[38px] w-full rounded-lg border border-edge bg-surface px-2.5 text-[13.5px] text-ink';
+	const inputCls = `${CONTROL_CLASS} ${CONTROL_PX} ${CONTROL_H} w-full`;
 </script>
 
 {#snippet label(text: string, required = false)}
-	<span class="mb-1 block text-[12px] font-medium text-muted"
+	<span class="mb-1 block text-rotulo font-medium text-muted"
 		>{text}{#if required}<span class="text-danger"> *</span>{/if}</span
 	>
 {/snippet}
@@ -371,7 +372,7 @@
 {#snippet cardHead(icon: typeof User, t: string, sub: string, filled: number, total: number)}
 	{@const Icon = icon}
 	<div class="mb-4 flex items-center gap-3">
-		<span class="grid size-[34px] shrink-0 place-items-center rounded-[9px] bg-accent-subtle text-accent-text">
+		<span class="grid size-[34px] shrink-0 place-items-center rounded-controle bg-accent-subtle text-accent-text">
 			<Icon size={17} />
 		</span>
 		<div class="min-w-0 flex-1">
@@ -379,10 +380,10 @@
 			     dizê-la na marcação, para navegar a ficha por headings (que é como leitor de tela
 			     varre página). O preflight do Tailwind zera margem e tamanho do `h2`, então as
 			     classes mandam e nada muda na tela. `h2` porque o `h1` é o título da seção, no topbar. -->
-			<h2 class="text-[15px] font-bold">{t}</h2>
-			<div class="text-[11.5px] text-faint">{sub}</div>
+			<h2 class="text-titulo font-bold">{t}</h2>
+			<div class="text-meta text-faint">{sub}</div>
 		</div>
-		<span class="shrink-0 font-mono text-[10.5px] {filled ? 'text-accent-text' : 'text-faint'}">{filled}/{total}</span>
+		<span class="shrink-0 font-mono text-micro {filled ? 'text-accent-text' : 'text-faint'}">{filled}/{total}</span>
 	</div>
 {/snippet}
 
@@ -394,36 +395,36 @@
 		<a
 			href={editing ? `/pacientes/${patient?.id}` : '/pacientes'}
 			title="Voltar"
-			class="grid size-[34px] shrink-0 place-items-center rounded-lg border border-edge bg-surface text-muted hover:bg-surface-2"
+			class="grid size-[34px] shrink-0 place-items-center rounded-controle border border-edge bg-surface text-muted hover:bg-surface-2"
 		>
 			<ChevronLeft size={18} />
 		</a>
 		<span
-			class="grid size-[42px] shrink-0 place-items-center rounded-full text-[15px] font-bold"
+			class="grid size-[42px] shrink-0 place-items-center rounded-full text-titulo font-bold"
 			style={avatarStyle(corIndice)}
 		>
 			{f.nome.trim() ? initials(f.nome) : '?'}
 		</span>
 		<div class="min-w-0 flex-1">
-			<div class="truncate text-[16px] font-bold md:text-[18px]">
+			<div class="truncate text-titulo font-bold md:text-destaque">
 				{f.nome.trim() || (editing ? 'Editar paciente' : 'Novo paciente')}
 			</div>
-			<div class="text-[12px] text-faint">
+			<div class="text-rotulo text-faint">
 				{editing ? 'Editando ficha cadastral' : 'Cadastro de novo paciente'}{idadeVal !== null ? ` · ${idadeVal} anos` : ''}
 			</div>
 		</div>
 		<div class="hidden shrink-0 items-center gap-2.5 md:flex">
-			<div class="h-1.5 w-[120px] overflow-hidden rounded bg-surface-2">
+			<div class="h-1.5 w-[120px] overflow-hidden rounded-micro bg-surface-2">
 				<div class="h-full bg-accent transition-all" style="width:{(totalFilled / totalKeys) * 100}%"></div>
 			</div>
-			<span class="font-mono text-[11px] text-faint">{totalFilled}/{totalKeys}</span>
+			<span class="font-mono text-meta text-faint">{totalFilled}/{totalKeys}</span>
 		</div>
 	</header>
 
 	<div class="flex min-h-0 flex-1">
 		<!-- SEÇÕES (desktop) -->
 		<nav class="hidden w-[236px] shrink-0 overflow-y-auto border-r border-edge bg-surface p-3 md:block">
-			<div class="px-2 pb-2 text-[10.5px] font-bold text-faint">SEÇÕES</div>
+			<div class="px-2 pb-2 text-micro font-bold text-faint">SEÇÕES</div>
 			<div class="flex flex-col gap-0.5">
 				{#each SECTIONS as s (s.id)}
 					{@const on = active === s.id}
@@ -431,7 +432,7 @@
 					<button
 						type="button"
 						onclick={() => goSec(s.id)}
-						class="flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] {on
+						class="flex items-center gap-2.5 rounded-controle px-2.5 py-2 text-left text-corpo {on
 							? 'bg-accent-subtle font-bold text-accent-text'
 							: 'font-medium text-muted hover:bg-surface-2'}"
 					>
@@ -447,7 +448,7 @@
 		<div bind:this={scrollEl} onscroll={onScroll} class="min-h-0 flex-1 overflow-y-auto p-4 md:p-6">
 			<div class="mx-auto max-w-[720px] space-y-3.5 pb-4">
 				<!-- 1. Identificação -->
-				<section id="sec-ident" class="scroll-mt-4 rounded-[14px] border border-edge bg-surface p-5">
+				<section id="sec-ident" class="scroll-mt-4 rounded-cartao border border-edge bg-surface p-5">
 					{@render cardHead(User, SECTIONS[0].t, SECTIONS[0].sub, counts.ident, SECTIONS[0].total)}
 					<label class="mb-3 block">
 						{@render label('Nome completo', true)}
@@ -466,7 +467,7 @@
 							     por que a mensagem vai sair por e-mail — dizer isso aqui evita a pergunta
 							     "mandei confirmação e ele não recebeu" três dias depois. -->
 							{#if f.tel && !recebeWhatsapp(f.tel)}
-								<span class="mt-1 block text-[11.5px] text-muted">
+								<span class="mt-1 block text-meta text-muted">
 									Parece um fixo — este paciente receberá por e-mail, não por WhatsApp.
 								</span>
 							{/if}
@@ -480,7 +481,7 @@
 						<!-- O servidor recusa este save (identity única por clínica), então o aviso diz o
 						     que fazer: se a ficha existe e está ativa, é ela que se edita; se está
 						     arquivada, reativar é o caminho — recadastrar seria recusado igual. -->
-						<div class="mt-3 flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2.5 text-[12.5px] text-ink">
+						<div class="mt-3 flex items-start gap-2 rounded-controle border border-warning/30 bg-warning/10 px-3 py-2.5 text-rotulo text-ink">
 							<UserSearch size={16} class="mt-0.5 shrink-0 text-warning" />
 							<span>
 								<b>{dup.campo} já cadastrado</b>
@@ -529,7 +530,7 @@
 							<button
 								type="button"
 								onclick={() => (showResp = true)}
-								class="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-edge px-3 py-2 text-[12.5px] text-muted hover:bg-surface-2"
+								class="inline-flex items-center gap-1.5 rounded-controle border border-dashed border-edge px-3 py-2 text-rotulo text-muted hover:bg-surface-2"
 							>
 								<Plus size={14} /> Adicionar responsável legal
 							</button>
@@ -538,7 +539,7 @@
 				</section>
 
 				<!-- 2. Endereço & e-mail -->
-				<section id="sec-contato" class="scroll-mt-4 rounded-[14px] border border-edge bg-surface p-5">
+				<section id="sec-contato" class="scroll-mt-4 rounded-cartao border border-edge bg-surface p-5">
 					{@render cardHead(MapPin, SECTIONS[1].t, SECTIONS[1].sub, counts.contato, SECTIONS[1].total)}
 					<label class="mb-3 block">
 						{@render label('E-mail')}
@@ -558,7 +559,7 @@
 					</div>
 					{#if cepStatus}
 						<span
-							class="mt-1 block text-[11.5px] {cepStatus === 'ok'
+							class="mt-1 block text-meta {cepStatus === 'ok'
 								? 'text-accent-text'
 								: cepStatus === 'loading'
 									? 'text-muted'
@@ -598,7 +599,7 @@
 				</section>
 
 				<!-- 3. Emergência -->
-				<section id="sec-emergencia" class="scroll-mt-4 rounded-[14px] border border-edge bg-surface p-5">
+				<section id="sec-emergencia" class="scroll-mt-4 rounded-cartao border border-edge bg-surface p-5">
 					{@render cardHead(Siren, SECTIONS[2].t, SECTIONS[2].sub, counts.emergencia, SECTIONS[2].total)}
 					<div class="grid grid-cols-1 gap-3 md:grid-cols-[1.6fr_1fr_1fr]">
 						<label class="block">
@@ -617,7 +618,7 @@
 				</section>
 
 				<!-- 4. Dados profissionais -->
-				<section id="sec-profissional" class="scroll-mt-4 rounded-[14px] border border-edge bg-surface p-5">
+				<section id="sec-profissional" class="scroll-mt-4 rounded-cartao border border-edge bg-surface p-5">
 					{@render cardHead(Briefcase, SECTIONS[3].t, SECTIONS[3].sub, counts.profissional, SECTIONS[3].total)}
 					<div class="grid grid-cols-1 gap-3 md:grid-cols-2">
 						<label class="block">
@@ -632,7 +633,7 @@
 				</section>
 
 				<!-- 5. Atendimento -->
-				<section id="sec-atendimento" class="scroll-mt-4 rounded-[14px] border border-edge bg-surface p-5">
+				<section id="sec-atendimento" class="scroll-mt-4 rounded-cartao border border-edge bg-surface p-5">
 					{@render cardHead(CreditCard, SECTIONS[4].t, SECTIONS[4].sub, counts.atendimento, SECTIONS[4].total)}
 					{@render label('Tipo de atendimento')}
 					<div class="mb-1.5 flex gap-2">
@@ -640,7 +641,7 @@
 							<button
 								type="button"
 								onclick={() => (atendTipo = val)}
-								class="flex-1 rounded-lg border py-2 text-[12.5px] font-semibold {atendTipo === val
+								class="flex-1 rounded-controle border py-2 text-rotulo font-semibold {atendTipo === val
 									? 'border-transparent bg-primary text-on-primary'
 									: 'border-edge bg-surface text-ink hover:bg-surface-2'}"
 							>
@@ -648,7 +649,7 @@
 							</button>
 						{/each}
 					</div>
-					<p class="mb-3 text-[11.5px] text-faint">
+					<p class="mb-3 text-meta text-faint">
 						Como esta clínica cobra o atendimento — não depende do convênio do paciente.
 					</p>
 					<div class="mb-3 grid grid-cols-1 gap-3 md:grid-cols-[1.7fr_1fr]">
@@ -672,13 +673,13 @@
 				</section>
 
 				<!-- 6. Convênio -->
-				<section id="sec-convenio" class="scroll-mt-4 rounded-[14px] border border-edge bg-surface p-5">
+				<section id="sec-convenio" class="scroll-mt-4 rounded-cartao border border-edge bg-surface p-5">
 					{@render cardHead(BadgeCheck, SECTIONS[5].t, SECTIONS[5].sub, counts.convenio, SECTIONS[5].total)}
-					<p class="mb-3 text-[12.5px] leading-relaxed text-muted">
+					<p class="mb-3 text-rotulo leading-relaxed text-muted">
 						Registre o plano de saúde do paciente <b class="text-ink">mesmo em atendimento particular</b> —
 						fica guardado caso seja preciso encaminhar para outro tratamento coberto pelo convênio.
 					</p>
-					<label class="flex items-center gap-2.5 rounded-lg border border-edge bg-surface-2 px-3 py-2.5 text-[13px]">
+					<label class="flex items-center gap-2.5 rounded-controle border border-edge bg-surface-2 px-3 py-2.5 text-corpo">
 						<input type="checkbox" bind:checked={temConvenio} class="size-4 accent-primary" />
 						<span class="font-semibold">O paciente possui convênio / plano de saúde</span>
 					</label>
@@ -701,7 +702,7 @@
 				</section>
 
 				<!-- 7. Preferências clínicas -->
-				<section id="sec-clinico" class="scroll-mt-4 rounded-[14px] border border-edge bg-surface p-5">
+				<section id="sec-clinico" class="scroll-mt-4 rounded-cartao border border-edge bg-surface p-5">
 					{@render cardHead(Stethoscope, SECTIONS[6].t, SECTIONS[6].sub, counts.clinico, SECTIONS[6].total)}
 					{@render label('Profissional preferido — pode escolher mais de um')}
 					{#if activeProfs.length}
@@ -711,11 +712,11 @@
 								<button
 									type="button"
 									onclick={() => togglePref(p.id)}
-									class="flex items-center gap-1.5 rounded-full border py-1.5 pl-1.5 pr-2.5 text-[12.5px] font-semibold {on
+									class="flex items-center gap-1.5 rounded-full border py-1.5 pl-1.5 pr-2.5 text-rotulo font-semibold {on
 										? 'border-transparent bg-accent-subtle text-accent-text'
 										: 'border-edge bg-surface text-ink hover:bg-surface-2'}"
 								>
-									<span class="grid size-5 place-items-center rounded-full text-[9px] font-bold" style={avatarStyle(p.cor_indice)}>
+									<span class="grid size-5 place-items-center rounded-full text-micro font-bold" style={avatarStyle(p.cor_indice)}>
 										{initials(p.nome)}
 									</span>
 									{stripTitle(p.nome)}{#if on}<Check size={13} />{/if}
@@ -723,15 +724,15 @@
 							{/each}
 						</div>
 					{:else}
-						<p class="mb-4 text-[12px] text-faint">Nenhum profissional cadastrado ainda.</p>
+						<p class="mb-4 text-rotulo text-faint">Nenhum profissional cadastrado ainda.</p>
 					{/if}
 
 					{@render label('Tags / condições clínicas')}
-					<div class="flex min-h-[38px] flex-wrap items-center gap-1.5 rounded-lg border border-edge bg-surface p-1.5">
+					<div class="flex min-h-[38px] flex-wrap items-center gap-1.5 rounded-controle border border-edge bg-surface p-1.5">
 						{#each tags as t (t)}
-							<span class="inline-flex items-center gap-1.5 rounded-md bg-accent-subtle py-0.5 pl-2 pr-1 text-[12px] font-semibold text-accent-text">
+							<span class="inline-flex items-center gap-1.5 rounded-controle bg-accent-subtle py-0.5 pl-2 pr-1 text-rotulo font-semibold text-accent-text">
 								{t}
-								<button type="button" onclick={() => removeTag(t)} aria-label="Remover {t}" class="grid size-4 place-items-center rounded text-accent-text hover:bg-accent/20">
+								<button type="button" onclick={() => removeTag(t)} aria-label="Remover {t}" class="grid size-4 place-items-center rounded-micro text-accent-text hover:bg-accent/20">
 									<X size={12} />
 								</button>
 							</span>
@@ -742,12 +743,12 @@
 							onblur={() => addTag(tagInput)}
 							placeholder={tags.length ? '' : 'Digite e tecle Enter'}
 							aria-label="Adicionar tag"
-							class="h-[26px] min-w-[130px] flex-1 border-none bg-transparent text-[13px] text-ink outline-none"
+							class="h-[26px] min-w-[130px] flex-1 border-none bg-transparent text-corpo text-ink outline-none"
 						/>
 					</div>
 					<div class="mt-2 flex flex-wrap gap-1.5">
 						{#each SUGG.filter((s) => !tags.includes(s)).slice(0, 8) as s (s)}
-							<button type="button" onclick={() => addTag(s)} class="rounded-full border border-dashed border-edge px-2 py-0.5 text-[11.5px] text-muted hover:bg-surface-2">
+							<button type="button" onclick={() => addTag(s)} class="rounded-full border border-dashed border-edge px-2 py-0.5 text-meta text-muted hover:bg-surface-2">
 								+ {s}
 							</button>
 						{/each}
@@ -755,9 +756,9 @@
 				</section>
 
 				<!-- 8. Consentimento -->
-				<section id="sec-consentimento" class="scroll-mt-4 rounded-[14px] border border-edge bg-surface p-5">
+				<section id="sec-consentimento" class="scroll-mt-4 rounded-cartao border border-edge bg-surface p-5">
 					{@render cardHead(ShieldCheck, SECTIONS[7].t, SECTIONS[7].sub, counts.consentimento, SECTIONS[7].total)}
-					<label class="flex items-start gap-2.5 rounded-lg border border-edge bg-surface-2 px-3 py-2.5 text-[12.5px]">
+					<label class="flex items-start gap-2.5 rounded-controle border border-edge bg-surface-2 px-3 py-2.5 text-rotulo">
 						<input type="checkbox" bind:checked={lgpd} class="mt-0.5 size-4 accent-primary" />
 						<span class="text-muted">
 							Autorizo o tratamento dos meus dados pessoais e dados sensíveis de saúde para compor o
@@ -765,7 +766,7 @@
 							<b class="text-ink">LGPD (Lei nº 13.709/2018)</b>.
 						</span>
 					</label>
-					<label class="mt-2.5 flex items-start gap-2.5 rounded-lg border border-edge bg-surface-2 px-3 py-2.5 text-[12.5px]">
+					<label class="mt-2.5 flex items-start gap-2.5 rounded-controle border border-edge bg-surface-2 px-3 py-2.5 text-rotulo">
 						<input type="checkbox" bind:checked={comunicacao} class="mt-0.5 size-4 accent-primary" />
 						<!-- O texto mudou junto com o default (doc 52 §11.2): a caixa deixou de ser
 						     "autorizar" e passou a ser algo que se DESMARCA, então ela precisa dizer o que
@@ -795,29 +796,28 @@
 			cada tecla digitada.
 		-->
 		{#if problema}
-			<span role="alert" class="flex flex-1 items-center gap-1.5 text-[12px] text-danger">
+			<span role="alert" class="flex flex-1 items-center gap-1.5 text-rotulo text-danger">
 				<TriangleAlert size={14} class="shrink-0" /> {problema}
 			</span>
 		{:else}
 			<!-- Era "nenhum campo é obrigatório", e a frase sobreviveu à `TelObrigatorio`: o
 			     asterisco já estava no rótulo do telefone e o rodapé seguia prometendo o
 			     contrário, na mesma tela. -->
-			<span class="hidden flex-1 items-center gap-1.5 text-[12px] text-faint md:flex">
+			<span class="hidden flex-1 items-center gap-1.5 text-rotulo text-faint md:flex">
 				Nome e telefone são obrigatórios — o resto pode ficar para depois.
 			</span>
 			<div class="flex-1 md:hidden"></div>
 		{/if}
 		<a
 			href={editing ? `/pacientes/${patient?.id}` : '/pacientes'}
-			class="rounded-lg border border-edge bg-surface px-4 py-2 text-[13px] font-semibold text-ink hover:bg-surface-2"
+			class="rounded-controle border border-edge bg-surface px-4 py-2 text-corpo font-semibold text-ink hover:bg-surface-2"
 			>Cancelar</a
 		>
-		<SubmitButton
+		<Button type="submit"
 			emVoo={submitting}
 			disabled={!nomeOk || !telOk || !identOk}
-			class="inline-flex items-center gap-1.5 rounded-lg bg-primary px-5 py-2 text-[13px] font-semibold text-on-primary hover:bg-primary-hover disabled:opacity-60"
 		>
 			{editing ? 'Salvar' : 'Cadastrar paciente'}
-		</SubmitButton>
+		</Button>
 	</footer>
 </form>

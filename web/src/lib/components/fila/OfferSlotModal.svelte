@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Button from '$lib/components/Button.svelte';
 	// "Oferecer vaga" (protótipo `modalOferecer` :2621). Ao abrir, busca as vagas compatíveis do
 	// item (o motor `find_slots`, via `/fila/[id]/slots`) e as agrupa por data. Clicar numa vaga
 	// abre o passo de CONVERSÃO pré-preenchido (data/hora/profissional do slot), que submete a
@@ -11,7 +12,6 @@
 	import EstadoVazio from '$lib/components/EstadoVazio.svelte';
 	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
 	import Modal from '$lib/components/Modal.svelte';
-	import SubmitButton from '$lib/components/SubmitButton.svelte';
 	import Field, { CONTROL_CLASS, CONTROL_PX } from '$lib/components/Field.svelte';
 	import EncaixeCheckbox from '$lib/components/agenda/EncaixeCheckbox.svelte';
 	import ConflictErrorBox from '$lib/components/agenda/ConflictErrorBox.svelte';
@@ -156,14 +156,14 @@
 	<!-- Cabeçalho do paciente: avatar (cor do 1º preferido) + nome + resumo + prioridade. -->
 	<div class="mb-3.5 flex items-center gap-3 border-b border-edge pb-3">
 		<span
-			class="grid size-9 shrink-0 place-items-center rounded-full text-[12px] font-bold"
+			class="grid size-9 shrink-0 place-items-center rounded-full text-rotulo font-bold"
 			style={avatarStyle(profCor(entry.professional_ids[0] ?? ''))}
 		>
 			{initials(entry.patient.nome)}
 		</span>
 		<div class="min-w-0 flex-1">
-			<div class="text-[14px] font-semibold">{entry.patient.nome}</div>
-			<div class="truncate text-[11.5px] text-muted">{summary}</div>
+			<div class="text-leitura font-semibold">{entry.patient.nome}</div>
+			<div class="truncate text-meta text-muted">{summary}</div>
 		</div>
 		<PriorityBadge prio={entry.prio} />
 	</div>
@@ -175,11 +175,11 @@
 			<input type="hidden" name="starts_at" value={startsAt} />
 			<input type="hidden" name="professional_id" value={selected.professional_id} />
 
-			<div class="mb-3 flex items-center gap-2.5 rounded-[10px] border border-accent-border bg-accent-subtle px-3 py-2.5 text-accent-text">
+			<div class="mb-3 flex items-center gap-2.5 rounded-cartao border border-accent-border bg-accent-subtle px-3 py-2.5 text-accent-text">
 				<CalendarClock size={16} class="shrink-0" />
-				<span class="text-[12.5px] font-semibold capitalize">{dateHeader(selected.date)}</span>
-				<span class="font-mono text-[13px] font-bold">{m2t(selected.start)}</span>
-				<span class="ml-auto text-[12px]">{profName(selected.professional_id)}</span>
+				<span class="text-rotulo font-semibold capitalize">{dateHeader(selected.date)}</span>
+				<span class="font-mono text-corpo font-bold">{m2t(selected.start)}</span>
+				<span class="ml-auto text-rotulo">{profName(selected.professional_id)}</span>
 			</div>
 
 			<Field label="Tipo de atendimento">
@@ -208,16 +208,16 @@
 			<ConflictErrorBox {erro} {ofereceEncaixe} onEncaixe={() => (encaixe = true)} />
 		</form>
 	{:else if loading}
-		<div class="py-10 text-center text-[13px] text-faint">Buscando horários livres…</div>
+		<div class="py-10 text-center text-corpo text-faint">Buscando horários livres…</div>
 	{:else if dates.length}
-		<div class="mb-3 flex items-center gap-1.75 text-[12.5px] text-muted">
+		<div class="mb-3 flex items-center gap-1.75 text-rotulo text-muted">
 			<Sparkles size={15} class="shrink-0 text-accent-text" />
 			<span>Horários livres que batem com a disponibilidade — clique para agendar.</span>
 		</div>
 		<div class="flex flex-col gap-3">
 			{#each dates as date (date)}
 				<div>
-					<div class="mb-1.75 text-[11px] font-semibold capitalize tracking-[.02em] text-faint">
+					<div class="mb-1.75 text-meta font-semibold capitalize tracking-[.02em] text-faint">
 						{dateHeader(date)}
 					</div>
 					<div class="flex flex-wrap gap-1.75">
@@ -226,16 +226,16 @@
 								type="button"
 								onclick={() => (selected = slot)}
 								title={`Oferecer ${slotDateLabel(slot)} às ${m2t(slot.start)}${slot.freed ? ' · vaga que abriu' : ''}`}
-								class="inline-flex items-center gap-2 rounded-[9px] border px-3 py-2 text-[12.5px] {slot.freed
+								class="inline-flex items-center gap-2 rounded-controle border px-3 py-2 text-rotulo {slot.freed
 									? 'border-accent bg-accent text-on-solid'
 									: 'border-accent-border bg-accent-subtle text-accent-text'}"
 							>
-								<span class="font-mono text-[13px] font-bold">{m2t(slot.start)}</span>
+								<span class="font-mono text-corpo font-bold">{m2t(slot.start)}</span>
 								<!-- O chip da vaga que abriu usa o acento SÓLIDO, e sobre ele o texto é escuro (`on-solid`);
 								     este trecho secundário acompanha com opacidade, em vez do branco que havia. -->
 								<span class="inline-flex items-center gap-1.5 {slot.freed ? 'text-on-solid/80' : 'text-muted'}">
 									<span
-										class="grid size-4 place-items-center rounded-full text-[8px] font-bold"
+										class="grid size-4 place-items-center rounded-full text-micro font-bold"
 										style={avatarStyle(profCor(slot.professional_id))}
 									>
 										{initials(profName(slot.professional_id))}
@@ -243,7 +243,7 @@
 									{profName(slot.professional_id)}
 								</span>
 								{#if slot.freed}
-									<span class="rounded bg-white/25 px-1 py-px text-[8.5px] font-extrabold tracking-[.05em]">ABRIU</span>
+									<span class="rounded-micro bg-white/25 px-1 py-px text-micro font-extrabold tracking-[.05em]">ABRIU</span>
 								{/if}
 							</button>
 						{/each}
@@ -269,23 +269,22 @@
 			<button
 				type="button"
 				onclick={() => (selected = null)}
-				class="inline-flex items-center gap-1.5 rounded-md border border-edge-strong bg-surface px-3.5 py-2 text-[13px] font-semibold hover:bg-surface-2"
+				class="inline-flex items-center gap-1.5 rounded-controle border border-edge-strong bg-surface px-3.5 py-2 text-corpo font-semibold hover:bg-surface-2"
 			>
 				<ArrowLeft size={14} /> Horários
 			</button>
-			<SubmitButton
+			<Button type="submit"
 				emVoo={envio.emVoo}
 				form="fila-converter"
 				disabled={!typeId}
-				class="inline-flex items-center gap-1.5 rounded-md bg-primary px-3.5 py-2 text-[13px] font-semibold text-on-primary disabled:cursor-not-allowed disabled:opacity-60"
 			>
 				Agendar
-			</SubmitButton>
+			</Button>
 		{:else}
 			<button
 				type="button"
 				onclick={onClose}
-				class="rounded-md border border-edge-strong bg-surface px-3.5 py-2 text-[13px] font-semibold hover:bg-surface-2"
+				class="rounded-controle border border-edge-strong bg-surface px-3.5 py-2 text-corpo font-semibold hover:bg-surface-2"
 			>
 				Fechar
 			</button>

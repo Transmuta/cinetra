@@ -389,7 +389,7 @@
 					: (motivoDesabilitado ??
 						'Ninguém deste agendamento pode receber agora — o motivo está em Comunicação')}
 				size={15}
-				class="flex flex-1 items-center justify-center gap-2 rounded-lg border border-edge bg-surface px-3 py-2.5 text-[13px] font-semibold hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-surface"
+				class="flex flex-1 items-center justify-center gap-2 rounded-controle border border-edge bg-surface px-3 py-2.5 text-corpo font-semibold hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-surface"
 			>
 				<Send size={15} /> Enviar confirmação
 			</SubmitButton>
@@ -404,8 +404,8 @@
 				onclick={() => (excluindo = true)}
 				aria-label="Excluir agendamento"
 				title="Excluir — para lançamento feito por engano"
-				class="flex h-10.5 items-center justify-center gap-2 rounded-lg border border-edge text-faint transition-colors hover:border-danger hover:text-danger focus-visible:border-danger focus-visible:text-danger {terminal
-					? 'flex-1 text-[13px] font-semibold'
+				class="flex h-10.5 items-center justify-center gap-2 rounded-controle border border-edge text-faint transition-colors hover:border-danger hover:text-danger focus-visible:border-danger focus-visible:text-danger {terminal
+					? 'flex-1 text-corpo font-semibold'
 					: 'w-11 shrink-0'}"
 			>
 				<Trash2 size={15} />
@@ -433,11 +433,11 @@
 	{#snippet header()}
 		<span class="size-2 shrink-0 rounded-full" style="background:{corDoProfissional}"></span>
 		<div class="min-w-0 flex-1">
-			<div data-testid="drawer-titulo" class="truncate text-[14px] font-bold leading-tight">
+			<div data-testid="drawer-titulo" class="truncate text-leitura font-bold leading-tight">
 				{titulo}
 			</div>
 			{#if legenda}
-				<div data-testid="drawer-legenda" class="mt-0.5 truncate text-[11.5px] text-faint">
+				<div data-testid="drawer-legenda" class="mt-0.5 truncate text-meta text-faint">
 					{legenda}
 				</div>
 			{/if}
@@ -452,13 +452,13 @@
 			onclick={copiarLink}
 			aria-label="Copiar link deste agendamento"
 			title="Copiar link deste agendamento"
-			class="grid size-7.5 shrink-0 place-items-center rounded-md text-muted hover:bg-surface-2"
+			class="grid size-7.5 shrink-0 place-items-center rounded-controle text-muted hover:bg-surface-2"
 		>
 			<Link2 size={16} />
 		</button>
 	{/snippet}
 
-	<div class="space-y-3.5 text-[13px]">
+	<div class="space-y-3.5 text-corpo">
 		<!-- O estado, agora no corpo. O ponto repete o tom do rótulo (é o mesmo par ponto+palavra
 		     do cartão do grid) e o ENCAIXE fica ao lado, porque os dois qualificam a mesma coisa.
 
@@ -482,7 +482,7 @@
 				{#if !terminal}
 					<span
 						data-testid="drawer-status"
-						class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] font-semibold"
+						class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-rotulo font-semibold"
 						style="background:color-mix(in srgb, var(--color-{tomDoStatus}) 14%, transparent);
 						       color:var(--color-{tomDoStatus}-text, var(--color-{tomDoStatus}))"
 					>
@@ -497,7 +497,7 @@
 					     AN-08: texto escuro FIXO sobre o âmbar (que é igual nos dois temas) — branco
 					     ficava a 2,0:1 (o axe reprova); #161a1e dá 8,6:1. `text-ink` não serve: inverte
 					     no escuro. -->
-					<span class="rounded bg-warning-solid px-1.5 py-0.5 text-[10px] font-bold text-on-solid">ENCAIXE</span>
+					<span class="rounded-micro bg-warning-solid px-1.5 py-0.5 text-micro font-bold text-on-solid">ENCAIXE</span>
 				{/if}
 			</div>
 		{/if}
@@ -515,7 +515,7 @@
 				<Clock size={14} class="shrink-0 text-faint" />
 				<span class="w-14 shrink-0 text-faint">Horário</span>
 				<span data-testid="drawer-horario" class="min-w-0 truncate">
-					<span class="text-[12px] text-faint">{dia} ·</span>
+					<span class="text-rotulo text-faint">{dia} ·</span>
 					<span class="font-mono">{faixa}</span>
 				</span>
 			</div>
@@ -540,14 +540,14 @@
 		<!-- Rotulada como os dois motivos logo abaixo (doc 75, achado D): três caixas cinzas
 		     idênticas, e esta era a anônima — quem via não sabia o que estava lendo. -->
 		{#if appt.obs}
-			<div class="rounded-lg bg-surface-2 px-3 py-2 text-[12.5px] text-ink">
+			<div class="rounded-controle bg-surface-2 px-3 py-2 text-rotulo text-ink">
 				<span class="font-semibold">Observação:</span>
 				{appt.obs}
 			</div>
 		{/if}
 
 		{#if appt.status === 'cancelado' && appt.cancel_reason}
-			<div class="rounded-lg bg-surface-2 px-3 py-2 text-[12.5px] text-muted">
+			<div class="rounded-controle bg-surface-2 px-3 py-2 text-rotulo text-muted">
 				<span class="font-semibold">Motivo do cancelamento:</span>
 				{appt.cancel_reason}
 			</div>
@@ -558,7 +558,7 @@
 		     em que ele é a informação nova. Guarda o motivo da ÚLTIMA remarcação; as anteriores
 		     estão na trilha. -->
 		{#if appt.reschedule_reason}
-			<div class="rounded-lg bg-surface-2 px-3 py-2 text-[12.5px] text-muted">
+			<div class="rounded-controle bg-surface-2 px-3 py-2 text-rotulo text-muted">
 				<span class="font-semibold">Motivo da remarcação:</span>
 				{appt.reschedule_reason}
 			</div>
@@ -575,7 +575,7 @@
 			     é a metade inútil da dupla: quem pergunta "por que a clínica perde sessão" precisa
 			     ler, não escrever. Fica por participante, como o campo. -->
 			{#if presenca.status === 'faltou' && presenca.motivo}
-				<div class="mt-1 text-[11.5px] text-muted">
+				<div class="mt-1 text-meta text-muted">
 					<span class="font-semibold">Motivo:</span>
 					{presenca.motivo}
 				</div>
@@ -592,7 +592,7 @@
 							disabled={ac.disabled || presencaEnvio.algumEmVoo}
 							title={ac.title}
 							size={13}
-							class="flex items-center gap-1.5 rounded-lg border border-edge px-2 py-1.5 text-[12px] font-semibold transition-colors hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-55"
+							class="flex items-center gap-1.5 rounded-controle border border-edge px-2 py-1.5 text-rotulo font-semibold transition-colors hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-55"
 						>
 							<Icon size={13} />
 							{ac.label}
@@ -602,7 +602,7 @@
 					{#if presenca.status === 'faltou'}
 						<!-- Justificar é da PRESENÇA, não do bloco: numa turma, a falta de um pode ser
 						     justificada e a do outro não — e é isso que decide o débito de cada pacote. -->
-						<label class="ml-auto flex items-center gap-2 text-[11.5px] text-faint">
+						<label class="ml-auto flex items-center gap-2 text-meta text-faint">
 							<span>Justificada</span>
 							<SwitchToggle
 								checked={presenca.falta_justificada}
@@ -645,7 +645,7 @@
 					title="Pacote {pkg.nome}{pkg.sessao
 						? ` · sessão ${pkg.sessao} de ${pkg.total}`
 						: ''} — ver na ficha"
-					class="flex items-center gap-1.5 text-[12.5px] hover:underline"
+					class="flex items-center gap-1.5 text-rotulo hover:underline"
 				>
 					<Package size={13} class="shrink-0 text-accent-text" />
 					<span class="truncate font-medium">{pkg.nome}</span>
@@ -659,7 +659,7 @@
 					     uma das 10" é o que muda a conversa com o paciente antes da falta. Depois, vira
 					     fato — e ganha ícone, porque aí é consequência, não aviso. -->
 					<div
-						class="mt-0.5 flex items-center gap-1.5 text-[11.5px] {debito.tone === 'danger'
+						class="mt-0.5 flex items-center gap-1.5 text-meta {debito.tone === 'danger'
 							? 'text-danger'
 							: debito.tone === 'success'
 								? 'text-success'
@@ -681,7 +681,7 @@
 			{@const attMeta = attendanceSelo(presenca.status, presenca.falta_justificada)}
 			{#if presenca.status !== 'prevista'}
 				<span
-					class="rounded-full px-2 py-0.5 text-[11px] font-semibold"
+					class="rounded-full px-2 py-0.5 text-meta font-semibold"
 					style="background:{attMeta.tone
 						? `color-mix(in srgb, var(--color-${attMeta.tone}) 14%, transparent)`
 						: 'var(--color-surface-2)'}; color:{attMeta.tone
@@ -713,8 +713,8 @@
 
 		<!-- Paciente(s) -->
 		{#if grupo}
-			<div class="rounded-lg border border-edge">
-				<div class="flex items-center justify-between border-b border-edge px-3 py-2 text-[12px] text-faint">
+			<div class="rounded-controle border border-edge">
+				<div class="flex items-center justify-between border-b border-edge px-3 py-2 text-rotulo text-faint">
 					<span>Pacientes na turma</span>
 					<span class="font-mono">
 						{participantes.length}/{capacidade}
@@ -728,7 +728,7 @@
 							<div class="flex items-center gap-2">
 								<span class="truncate">{p.nome}</span>
 								{#if presenca}{@render selo(presenca)}{/if}
-								{#if p.faltas}<span class="ml-auto text-[11px] text-faint">{plural(p.faltas, 'falta')}</span>{/if}
+								{#if p.faltas}<span class="ml-auto text-meta text-faint">{plural(p.faltas, 'falta')}</span>{/if}
 							</div>
 							{#if presenca}{@render pacoteDaPresenca(presenca, p.id)}{/if}
 							{#if presenca}{@render controlesPresenca(p, presenca)}{/if}
@@ -737,12 +737,12 @@
 				</ul>
 			</div>
 		{:else if soloPaciente}
-			<div class="rounded-lg border border-edge px-3 py-2.5">
+			<div class="rounded-controle border border-edge px-3 py-2.5">
 				<!-- O NOME não se repete aqui: ele é o título do painel desde que o cabeçalho passou a
 				     responder "para quem é esta sessão". Sobra o que o título não diz — contato,
 				     faltas, pacote — e o selo da presença, que sobe para esta linha. Na TURMA o nome
 				     fica, porque ali ele identifica de quem é cada presença, não o bloco. -->
-				<div class="flex items-center gap-2 text-[12px] text-faint">
+				<div class="flex items-center gap-2 text-rotulo text-faint">
 					<!-- O drawer é a tela de onde a recepção LIGA (doc 75, achado E); era um `<span>`
 					     morto. E a contagem de faltas segue a regra da turma: zero não aparece. -->
 					{#if soloPaciente.tel}
@@ -759,7 +759,7 @@
 				{#if presencaSolo}{@render controlesPresenca(soloPaciente, presencaSolo)}{/if}
 				<a
 					href="/pacientes/{soloPaciente.id}"
-					class="mt-2 inline-flex items-center gap-1 text-[12.5px] font-semibold text-accent-text hover:underline"
+					class="mt-2 inline-flex items-center gap-1 text-rotulo font-semibold text-accent-text hover:underline"
 				>
 					Abrir ficha <ArrowRight size={13} />
 				</a>
@@ -770,8 +770,8 @@
 		     existe quando o bloco é cancelado/faltou E a página buscou (`candidatos` ausente =
 		     bloco sem vaga). Agendar converte a entry NA vaga — mesmo slot, tipo e duração. -->
 		{#if vagaAberta && candidatos !== undefined}
-			<div class="rounded-lg border border-edge">
-				<div class="flex items-center gap-1.5 border-b border-edge px-3 py-2 text-[12px] text-faint">
+			<div class="rounded-controle border border-edge">
+				<div class="flex items-center gap-1.5 border-b border-edge px-3 py-2 text-rotulo text-faint">
 					<Sparkles size={13} class="shrink-0 text-accent-text" />
 					<span class="font-semibold text-muted">Quem cabe aqui</span>
 					<a href="/fila" class="ml-auto inline-flex items-center gap-1 font-semibold text-accent-text hover:underline">
@@ -780,9 +780,9 @@
 				</div>
 
 				{#if candidatos === null}
-					<div class="px-3 py-3 text-[12.5px] text-faint">Consultando a fila…</div>
+					<div class="px-3 py-3 text-rotulo text-faint">Consultando a fila…</div>
 				{:else if candidatos.length === 0}
-					<div class="px-3 py-3 text-[12.5px] text-faint">
+					<div class="px-3 py-3 text-rotulo text-faint">
 						Ninguém na fila casa com este horário.
 					</div>
 				{:else}
@@ -791,10 +791,10 @@
 							<li class="flex items-center gap-2 px-3 py-2">
 								<div class="min-w-0 flex-1">
 									<div class="flex items-center gap-2">
-										<span class="truncate text-[13px]">{c.patient.nome}</span>
+										<span class="truncate text-corpo">{c.patient.nome}</span>
 										<PriorityBadge prio={c.prio} />
 									</div>
-									<div class="mt-0.5 text-[11.5px] text-faint">{c.dias_na_fila} dia(s) na fila</div>
+									<div class="mt-0.5 text-meta text-faint">{c.dias_na_fila} dia(s) na fila</div>
 								</div>
 								{#if podeMexer}
 									<SubmitButton
@@ -806,7 +806,7 @@
 											? 'A vaga é de uma falta — o novo agendamento entra como encaixe'
 											: `Agendar ${c.patient.nome} neste horário`}
 										size={13}
-										class="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-accent-border bg-accent-subtle px-2.5 py-1.5 text-[12px] font-semibold text-accent-text transition-colors hover:bg-accent hover:text-white disabled:cursor-not-allowed disabled:opacity-55"
+										class="inline-flex shrink-0 items-center gap-1.5 rounded-controle border border-accent-border bg-accent-subtle px-2.5 py-1.5 text-rotulo font-semibold text-accent-text transition-colors hover:bg-accent hover:text-white disabled:cursor-not-allowed disabled:opacity-55"
 									>
 										Agendar
 									</SubmitButton>
@@ -848,7 +848,7 @@
 
 		{#if erro}
 			<div
-				class="flex items-start gap-2 rounded-lg px-3 py-2.5 text-[12.5px]"
+				class="flex items-start gap-2 rounded-controle px-3 py-2.5 text-rotulo"
 				style="background:color-mix(in srgb, var(--color-danger) 10%, transparent); color:var(--color-danger)"
 			>
 				<TriangleAlert size={16} class="mt-0.5 shrink-0" />
@@ -862,7 +862,7 @@
 				type="button"
 				onclick={onReschedule}
 				disabled={appt.status === 'cancelado'}
-				class="flex w-full items-center justify-center gap-2 rounded-lg border border-edge bg-surface px-3 py-2.5 text-[13px] font-semibold hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-50"
+				class="flex w-full items-center justify-center gap-2 rounded-controle border border-edge bg-surface px-3 py-2.5 text-corpo font-semibold hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-50"
 			>
 				<CalendarClock size={15} /> Remarcar sessão
 			</button>
@@ -886,7 +886,7 @@
 				<button
 					type="button"
 					onclick={() => (cancelando = true)}
-					class="flex w-full items-center justify-center gap-1.5 rounded-lg border border-edge px-2 py-2 text-[12.5px] font-semibold text-muted transition-colors hover:border-danger hover:text-danger focus-visible:border-danger focus-visible:text-danger"
+					class="flex w-full items-center justify-center gap-1.5 rounded-controle border border-edge px-2 py-2 text-rotulo font-semibold text-muted transition-colors hover:border-danger hover:text-danger focus-visible:border-danger focus-visible:text-danger"
 				>
 					<X size={14} /> Cancelar sessão
 				</button>
@@ -942,7 +942,7 @@
 					<SubmitButton
 						emVoo={reabrirEnvio.emVoo}
 						size={15}
-						class="flex w-full items-center justify-center gap-2 rounded-lg border border-edge bg-surface px-3 py-2.5 text-[13px] font-semibold hover:bg-surface-2 disabled:opacity-60"
+						class="flex w-full items-center justify-center gap-2 rounded-controle border border-edge bg-surface px-3 py-2.5 text-corpo font-semibold hover:bg-surface-2 disabled:opacity-60"
 					>
 						<RotateCcw size={15} /> Reabrir agendamento
 					</SubmitButton>
@@ -976,13 +976,13 @@
 		possível, mas as duas ações ficam na trilha.
 
 		<label class="mt-3 block">
-			<span class="mb-1 block text-[12px] font-semibold text-muted">Motivo (opcional)</span>
+			<span class="mb-1 block text-rotulo font-semibold text-muted">Motivo (opcional)</span>
 			<input
 				type="text"
 				bind:value={motivo}
 				maxlength="300"
 				placeholder="Ex.: paciente pediu, imprevisto do profissional…"
-				class="w-full rounded-md border border-edge bg-surface px-2.5 py-2 text-[13px] text-ink placeholder:text-faint focus:border-accent focus:outline-none"
+				class="w-full rounded-controle border border-edge bg-surface px-2.5 py-2 text-corpo text-ink placeholder:text-faint focus:border-accent focus:outline-none"
 			/>
 		</label>
 	</ConfirmDialog>
@@ -1005,13 +1005,13 @@
 		não são afetados. Justificar depois é o que a faz parar de contar.
 
 		<label class="mt-3 block">
-			<span class="mb-1 block text-[12px] font-semibold text-muted">Motivo (opcional)</span>
+			<span class="mb-1 block text-rotulo font-semibold text-muted">Motivo (opcional)</span>
 			<input
 				type="text"
 				bind:value={motivoFalta}
 				maxlength="300"
 				placeholder="Ex.: avisou que estava doente, não avisou…"
-				class="w-full rounded-md border border-edge bg-surface px-2.5 py-2 text-[13px] text-ink placeholder:text-faint focus:border-accent focus:outline-none"
+				class="w-full rounded-controle border border-edge bg-surface px-2.5 py-2 text-corpo text-ink placeholder:text-faint focus:border-accent focus:outline-none"
 			/>
 		</label>
 	</ConfirmDialog>

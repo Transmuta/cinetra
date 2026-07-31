@@ -31,11 +31,11 @@
 
 <main class="mx-auto flex min-h-dvh max-w-md flex-col justify-center px-5 py-10">
 	{#if !resumo}
-		<div class="rounded-xl border border-edge bg-surface p-6 text-center">
-			<h1 class="text-[17px] font-bold">
+		<div class="rounded-cartao border border-edge bg-surface p-6 text-center">
+			<h1 class="text-titulo font-bold">
 				{data.status === 410 ? 'Este link expirou' : 'Não encontramos esta sessão'}
 			</h1>
-			<p class="mt-2 text-[13.5px] text-muted">
+			<p class="mt-2 text-corpo text-muted">
 				{data.status === 410
 					? 'Links de confirmação valem por 30 dias.'
 					: 'O link pode ter sido digitado incompleto.'}
@@ -43,16 +43,16 @@
 			</p>
 		</div>
 	{:else}
-		<div class="rounded-xl border border-edge bg-surface p-6">
-			<p class="text-[12.5px] font-semibold tracking-wide text-accent uppercase">
+		<div class="rounded-cartao border border-edge bg-surface p-6">
+			<p class="text-rotulo font-semibold tracking-wide text-accent uppercase">
 				{resumo.clinica}
 			</p>
 
-			<h1 class="mt-2 text-[19px] font-bold">
+			<h1 class="mt-2 text-destaque font-bold">
 				{resumo.paciente ? `Olá, ${resumo.paciente}!` : 'Olá!'}
 			</h1>
 
-			<p class="mt-1.5 text-[14px] text-muted">
+			<p class="mt-1.5 text-leitura text-muted">
 				Sua sessão está marcada para <strong class="text-ink">{resumo.data}</strong> às
 				<strong class="text-ink">{resumo.hora}</strong>.
 			</p>
@@ -61,7 +61,7 @@
 				<!-- Depois de responder, os botões somem. Deixá-los seria convidar a pessoa a clicar de
 				     novo sem saber se a primeira valeu. -->
 				<div
-					class="mt-5 flex items-start gap-2 rounded-lg bg-success/10 px-4 py-3 text-[13.5px] font-semibold text-success"
+					class="mt-5 flex items-start gap-2 rounded-controle bg-success/10 px-4 py-3 text-corpo font-semibold text-success"
 				>
 					<span class="mt-0.5 shrink-0">
 						{#if resumo.resposta === 'confirmou'}<Check size={16} />{:else}<CalendarClock
@@ -84,7 +84,7 @@
 						name="resposta"
 						value="confirmou"
 						size={17}
-						class="flex items-center justify-center gap-2 rounded-lg bg-accent px-4 py-3 text-[14px] font-bold text-on-solid hover:opacity-90 disabled:opacity-60"
+						class="flex items-center justify-center gap-2 rounded-controle bg-accent px-4 py-3 text-leitura font-bold text-on-solid hover:opacity-90 disabled:opacity-60"
 					>
 						<Check size={17} /> Confirmar presença
 					</SubmitButton>
@@ -95,21 +95,21 @@
 						name="resposta"
 						value="quer_remarcar"
 						size={17}
-						class="flex items-center justify-center gap-2 rounded-lg border border-edge px-4 py-3 text-[14px] font-semibold hover:bg-surface-2 disabled:opacity-60"
+						class="flex items-center justify-center gap-2 rounded-controle border border-edge px-4 py-3 text-leitura font-semibold hover:bg-surface-2 disabled:opacity-60"
 					>
 						<CalendarClock size={17} /> Preciso remarcar
 					</SubmitButton>
 				</form>
 
 				{#if form && 'error' in form && form.error}
-					<p class="mt-3 text-[13px] text-danger">{form.error}</p>
+					<p class="mt-3 text-corpo text-danger">{form.error}</p>
 				{/if}
 			{/if}
 		</div>
 
 		<!-- Deixa explícito que pedir remarcação não remarca nada sozinho (§5): sem isso, alguém
 		     fica esperando um horário novo que ninguém vai mandar automaticamente. -->
-		<p class="mt-4 text-center text-[12px] text-faint">
+		<p class="mt-4 text-center text-rotulo text-faint">
 			Pedir remarcação não escolhe um horário novo — a clínica entra em contato.
 		</p>
 	{/if}

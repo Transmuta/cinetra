@@ -36,7 +36,7 @@
 			type="button"
 			aria-hidden="true"
 			tabindex="-1"
-			class="fixed inset-0 z-40 cursor-default"
+			class="fixed inset-0 z-cobertura cursor-default"
 			onclick={close}
 		></button>
 	{/if}
@@ -47,7 +47,7 @@
 		aria-haspopup="menu"
 		aria-expanded={open}
 		title={me.user.nome}
-		class="grid size-[34px] place-items-center rounded-full text-[12px] font-bold"
+		class="grid size-[34px] place-items-center rounded-full text-rotulo font-bold"
 		style={avatarStyle(COR_DO_USUARIO_LOGADO)}
 	>
 		{avatarInitials}
@@ -55,12 +55,12 @@
 
 	{#if open}
 		<div
-			class="absolute z-50 w-64 overflow-hidden rounded-lg border border-edge bg-surface text-ink shadow-pop {popoverPos}"
+			class="absolute z-painel w-64 overflow-hidden rounded-controle border border-edge bg-surface text-ink shadow-pop {popoverPos}"
 		>
 			<!-- identidade -->
 			<div class="border-b border-edge px-3.5 py-3">
-				<div class="truncate text-[13px] font-semibold">{me.user.nome}</div>
-				<div class="truncate text-[11.5px] text-faint">{me.user.email}</div>
+				<div class="truncate text-corpo font-semibold">{me.user.nome}</div>
+				<div class="truncate text-meta text-faint">{me.user.email}</div>
 			</div>
 
 			<!-- perfil -->
@@ -68,7 +68,7 @@
 				<a
 					href="/perfil"
 					onclick={close}
-					class="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium text-muted hover:bg-surface-2 hover:text-ink"
+					class="flex items-center gap-2.5 rounded-controle px-2.5 py-2 text-corpo font-medium text-muted hover:bg-surface-2 hover:text-ink"
 				>
 					<User size={15} class="text-faint" />
 					Meu perfil
@@ -78,7 +78,7 @@
 			<!-- clínicas: cada uma é um POST para trocar o tenant ativo (CSRF, como o sign-out) -->
 			<div class="border-t border-edge p-1.5">
 				<div
-					class="px-2.5 pb-1 pt-1.5 text-[10.5px] font-bold uppercase tracking-[.06em] text-faint"
+					class="px-2.5 pb-1 pt-1.5 text-micro font-bold uppercase tracking-[.06em] text-faint"
 				>
 					Clínicas
 				</div>
@@ -90,16 +90,16 @@
 							type="submit"
 							disabled={isActive}
 							aria-current={isActive ? 'true' : undefined}
-							class="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[13px] {isActive
+							class="flex w-full items-center gap-2.5 rounded-controle px-2.5 py-2 text-left text-corpo {isActive
 								? 'font-semibold text-ink'
 								: 'font-medium text-muted hover:bg-surface-2 hover:text-ink'}"
 						>
-							<span class="grid size-[22px] shrink-0 place-items-center rounded-md bg-surface-2 text-faint">
+							<span class="grid size-[22px] shrink-0 place-items-center rounded-controle bg-surface-2 text-faint">
 								<Building2 size={13} />
 							</span>
 							<span class="min-w-0 flex-1">
 								<span class="block truncate">{m.clinic_nome ?? 'Clínica'}</span>
-								<span class="block text-[11px] font-normal text-faint">{ROLE_META[m.papel].label}</span>
+								<span class="block text-meta font-normal text-faint">{ROLE_META[m.papel].label}</span>
 							</span>
 							{#if isActive}<Check size={15} class="shrink-0 text-accent-text" />{/if}
 						</button>
@@ -109,9 +109,9 @@
 				<a
 					href="/comecar?nova=1"
 					onclick={close}
-					class="mt-0.5 flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium text-accent-text hover:bg-surface-2"
+					class="mt-0.5 flex items-center gap-2.5 rounded-controle px-2.5 py-2 text-corpo font-medium text-accent-text hover:bg-surface-2"
 				>
-					<span class="grid size-[22px] shrink-0 place-items-center rounded-md bg-accent-subtle">
+					<span class="grid size-[22px] shrink-0 place-items-center rounded-controle bg-accent-subtle">
 						<Plus size={14} />
 					</span>
 					Nova clínica
@@ -123,7 +123,7 @@
 				<form method="POST" action="/auth/sign-out">
 					<button
 						type="submit"
-						class="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[13px] font-medium text-muted hover:bg-surface-2 hover:text-ink"
+						class="flex w-full items-center gap-2.5 rounded-controle px-2.5 py-2 text-left text-corpo font-medium text-muted hover:bg-surface-2 hover:text-ink"
 					>
 						<LogOut size={15} class="text-faint" />
 						Sair

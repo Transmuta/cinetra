@@ -39,26 +39,26 @@
 
 <div
 	data-modal
-	class="fixed inset-0 z-50 grid place-items-center bg-overlay p-5"
+	class="fixed inset-0 z-painel grid place-items-center bg-overlay p-5"
 	role="presentation"
 	onclick={(e) => e.target === e.currentTarget && onClose()}
 >
 	<div
 		bind:this={painel}
 		tabindex="-1"
-		class="flex max-h-[90dvh] w-full {maxWidth} animate-scale flex-col overflow-hidden rounded-[12px] bg-surface shadow-modal focus:outline-none"
+		class="flex max-h-[90dvh] w-full {maxWidth} animate-scale flex-col overflow-hidden rounded-cartao bg-surface shadow-modal focus:outline-none"
 		role="dialog"
 		aria-modal="true"
 		aria-label={title}
 		onkeydown={(e) => aprisionarTab(e, painel)}
 	>
 		<div class="flex items-center gap-2 border-b border-edge px-4.5 py-3.75">
-			<h2 class="min-w-0 flex-1 truncate text-[15.5px] font-bold">{title}</h2>
+			<h2 class="min-w-0 flex-1 truncate text-titulo font-bold">{title}</h2>
 			<button
 				type="button"
 				onclick={onClose}
 				aria-label="Fechar"
-				class="grid size-7.5 shrink-0 place-items-center rounded-[7px] border border-edge bg-surface text-muted hover:bg-surface-2"
+				class="grid size-7.5 shrink-0 place-items-center rounded-controle border border-edge bg-surface text-muted hover:bg-surface-2"
 			>
 				<X size={16} />
 			</button>

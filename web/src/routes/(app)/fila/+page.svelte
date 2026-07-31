@@ -247,13 +247,13 @@
 	// `max-w-full` + `truncate`: o chip nunca é maior que a coluna — o texto vira reticências e o
 	// inteiro fica no `title`. Sem isso ele empurra e cobre a coluna vizinha (doc 38 §5C).
 	const chip =
-		'max-w-full truncate rounded-[5px] border border-edge-strong px-[7px] py-0.5 text-[10.5px] leading-[1.5] text-ink';
+		'max-w-full truncate rounded-micro border border-edge-strong px-[7px] py-0.5 text-micro leading-[1.5] text-ink';
 	// Chip de vaga casada (protótipo :2605): mesmo formato do chip, mas clicável e no acento — sólido
 	// quando a vaga ABRIU (cancelamento/falta), suave quando é uma brecha geral.
 	const matchChip =
-		'inline-flex max-w-full min-w-0 items-center gap-x-[5px] gap-y-1 rounded-[5px] border px-[7px] py-0.5 text-[10.5px] font-semibold leading-[1.5]';
+		'inline-flex max-w-full min-w-0 items-center gap-x-[5px] gap-y-1 rounded-micro border px-[7px] py-0.5 text-micro font-semibold leading-[1.5]';
 	const iconBtn =
-		'grid size-8 place-items-center rounded-md border border-edge bg-surface text-muted hover:bg-surface-2';
+		'grid size-8 place-items-center rounded-controle border border-edge bg-surface text-muted hover:bg-surface-2';
 </script>
 
 <svelte:head><title>Fila de espera · Cinetra</title></svelte:head>
@@ -265,7 +265,7 @@
 	{#if nomes.length}
 		<span
 			title="{nomes.join(', ')} — está com o modal de oferecer aberto agora"
-			class="inline-flex max-w-full min-w-0 items-center gap-1 rounded-full bg-surface-2 px-2 py-px text-[10.5px] font-semibold text-muted"
+			class="inline-flex max-w-full min-w-0 items-center gap-1 rounded-full bg-surface-2 px-2 py-px text-micro font-semibold text-muted"
 		>
 			<Radio size={10} class="shrink-0 text-accent" />
 			<span class="truncate">
@@ -309,13 +309,13 @@
 						{slotDateLabel(item.slot)} {m2t(item.slot.start)}
 					</span>
 					{#if item.slot.freed}
-						<span class="rounded-[3px] bg-white/25 px-1 py-px text-[8.5px] font-extrabold tracking-[.05em]">
+						<span class="rounded-micro bg-white/25 px-1 py-px text-micro font-extrabold tracking-[.05em]">
 							ABRIU
 						</span>
 					{/if}
 				</button>
 			{:else}
-				<span class="text-[10.5px] text-faint italic">· sem vaga compatível</span>
+				<span class="text-micro text-faint italic">· sem vaga compatível</span>
 			{/if}
 		{/each}
 	</div>
@@ -330,7 +330,7 @@
 		title={has
 			? `Próxima vaga: ${slotDateLabel(slots[0])} ${m2t(slots[0].start)}`
 			: 'Sem vaga compatível — oferecer manualmente'}
-		class="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-1.5 text-[12.5px] font-semibold hover:opacity-90 {has
+		class="inline-flex flex-1 items-center justify-center gap-1.5 rounded-controle border px-3 py-1.5 text-rotulo font-semibold hover:opacity-90 {has
 			? 'border-accent-border bg-accent-subtle text-accent-text'
 			: 'border-edge-strong bg-transparent text-muted'}"
 	>
@@ -348,17 +348,17 @@
 				href="/fila?novo=1"
 				title="Adicionar à fila"
 				aria-label="Adicionar à fila"
-				class="grid size-9 shrink-0 place-items-center rounded-lg bg-ink text-canvas hover:opacity-90"
+				class="grid size-9 shrink-0 place-items-center rounded-controle bg-ink text-canvas hover:opacity-90"
 			>
 				<Plus size={17} />
 			</a>
 		</div>
 	{/if}
 
-	<div class="overflow-hidden rounded-[12px] border border-edge bg-surface">
+	<div class="overflow-hidden rounded-cartao border border-edge bg-surface">
 		<!-- Cabeçalho (desktop) -->
 		<div
-			class="hidden gap-4 border-b border-edge px-4 pb-2.5 pt-3 text-[12px] font-medium text-faint md:grid {COLS}"
+			class="hidden gap-4 border-b border-edge px-4 pb-2.5 pt-3 text-rotulo font-medium text-faint md:grid {COLS}"
 		>
 			<span>Paciente</span><span>Prioridade</span><span>Disponibilidade</span>
 			<span>Profissional</span><span class="text-right">Espera</span><span></span>
@@ -375,17 +375,17 @@
 			>
 				<span class="flex min-w-0 items-center gap-2.5">
 					<span
-						class="grid size-7 shrink-0 place-items-center rounded-full text-[10px] font-bold"
+						class="grid size-7 shrink-0 place-items-center rounded-full text-micro font-bold"
 						style={avatarStyle(entryColor(entry))}
 					>
 						{initials(entry.patient.nome)}
 					</span>
 					<span class="min-w-0">
-						<span class="block truncate text-[13px] font-semibold">{entry.patient.nome}</span>
+						<span class="block truncate text-corpo font-semibold">{entry.patient.nome}</span>
 						{#if oferecendo[entry.id]?.length}
 							{@render oferecendoAviso(entry)}
 						{:else if entry.obs}
-							<span class="block truncate text-[11px] text-faint">{entry.obs}</span>
+							<span class="block truncate text-meta text-faint">{entry.obs}</span>
 						{/if}
 					</span>
 				</span>
@@ -394,15 +394,15 @@
 
 				{@render dispCell(entry)}
 
-				<span class="min-w-0 truncate text-[12px] text-muted">{profNames(entry)}</span>
+				<span class="min-w-0 truncate text-rotulo text-muted">{profNames(entry)}</span>
 
 				<span class="text-right">
 					<span
-						class="font-mono text-[14px] font-semibold tabular-nums {entry.dias_na_fila >= 7
+						class="font-mono text-leitura font-semibold tabular-nums {entry.dias_na_fila >= 7
 							? 'text-warning'
 							: 'text-ink'}">{entry.dias_na_fila}</span
 					>
-					<span class="block text-[10px] tracking-[.03em] text-faint">
+					<span class="block text-micro tracking-[.03em] text-faint">
 						dia{entry.dias_na_fila === 1 ? '' : 's'}
 					</span>
 				</span>
@@ -415,7 +415,7 @@
 							title={rowHasVaga
 								? `Próxima vaga: ${slotDateLabel(rowSlots[0])} ${m2t(rowSlots[0].start)}`
 								: 'Sem vaga compatível — oferecer manualmente'}
-							class="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[12px] font-semibold hover:opacity-90 {rowHasVaga
+							class="inline-flex items-center gap-1.5 rounded-controle border px-2.5 py-1.5 text-rotulo font-semibold hover:opacity-90 {rowHasVaga
 								? 'border-accent-border bg-accent-subtle text-accent-text'
 								: 'border-edge-strong bg-transparent text-muted'}"
 						>
@@ -448,14 +448,14 @@
 			>
 				<div class="flex items-center gap-2.5">
 					<span
-						class="grid size-8.5 shrink-0 place-items-center rounded-full text-[11px] font-bold"
+						class="grid size-8.5 shrink-0 place-items-center rounded-full text-meta font-bold"
 						style={avatarStyle(entryColor(entry))}
 					>
 						{initials(entry.patient.nome)}
 					</span>
 					<div class="min-w-0 flex-1">
-						<div class="truncate text-[14px] font-semibold">{entry.patient.nome}</div>
-						<div class="text-[11px] text-faint">
+						<div class="truncate text-leitura font-semibold">{entry.patient.nome}</div>
+						<div class="text-meta text-faint">
 							<span class="font-mono font-semibold {entry.dias_na_fila >= 7 ? 'text-warning' : 'text-muted'}"
 								>{entry.dias_na_fila}</span
 							>
@@ -465,11 +465,11 @@
 					<PriorityBadge prio={entry.prio} />
 				</div>
 
-				{#if entry.obs}<div class="text-[12px] text-muted">{entry.obs}</div>{/if}
+				{#if entry.obs}<div class="text-rotulo text-muted">{entry.obs}</div>{/if}
 
 				{@render dispCell(entry)}
 
-				<div class="flex items-center gap-1.5 text-[12px] text-muted">
+				<div class="flex items-center gap-1.5 text-rotulo text-muted">
 					<Stethoscope size={13} class="shrink-0" />
 					<span class="min-w-0 truncate">{profNames(entry)}</span>
 				</div>
@@ -481,14 +481,14 @@
 							type="button"
 							aria-label="Editar item de {entry.patient.nome}"
 							onclick={() => (editing = entry)}
-							class="grid size-9 place-items-center rounded-lg border border-edge bg-surface text-muted"
+							class="grid size-9 place-items-center rounded-controle border border-edge bg-surface text-muted"
 							><Pencil size={15} /></button
 						>
 						<button
 							type="button"
 							aria-label="Remover {entry.patient.nome} da fila"
 							onclick={() => (removing = entry)}
-							class="grid size-9 place-items-center rounded-lg border border-edge bg-surface text-danger"
+							class="grid size-9 place-items-center rounded-controle border border-edge bg-surface text-danger"
 							><Trash2 size={15} /></button
 						>
 					</div>
@@ -497,7 +497,7 @@
 		{/each}
 
 		{#if !list.length}
-			<div class="px-7 py-7 text-center text-[13px] text-faint">
+			<div class="px-7 py-7 text-center text-corpo text-faint">
 				{#if data.prio !== 'todas'}
 					Nenhum paciente na fila com esta prioridade.
 				{:else}

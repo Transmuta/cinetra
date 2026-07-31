@@ -1,4 +1,6 @@
 <script lang="ts">
+	import Button from '$lib/components/Button.svelte';
+	import { CONTROL_CLASS, CONTROL_PX, CONTROL_H } from '$lib/components/Field.svelte';
 	// O que a clínica manda ao paciente, e quando (doc 52 §7).
 	//
 	// Por clínica, não por profissional: por profissional vira matriz que ninguém mantém.
@@ -7,7 +9,6 @@
 	// nasceu construído e calado de propósito, e é aqui que ele acorda.
 	import { untrack } from 'svelte';
 	import { enhance } from '$app/forms';
-	import SubmitButton from '$lib/components/SubmitButton.svelte';
 	import { envio } from '$lib/forms.svelte';
 	import Circle from '@lucide/svelte/icons/circle';
 	import Info from '@lucide/svelte/icons/info';
@@ -63,21 +64,20 @@
 		}
 	});
 
-	const inputCls =
-		'h-[38px] w-[86px] rounded-lg border border-edge bg-surface px-2.5 text-[13.5px] text-ink';
+	const inputCls = `${CONTROL_CLASS} ${CONTROL_PX} ${CONTROL_H} w-[86px]`;
 </script>
 
 <svelte:head><title>Comunicação · Cinetra</title></svelte:head>
 
 <div class="mx-auto max-w-[760px] px-4 py-4 md:px-6">
-	<section class="mb-3 rounded-[10px] border border-edge bg-surface p-4">
+	<section class="mb-3 rounded-cartao border border-edge bg-surface p-4">
 		{#if canManage}
 			<form method="POST" action="?/save" use:enhance={save.submit} class="space-y-5">
 				<!-- Confirmação na criação -->
 				<div class="flex items-start justify-between gap-4">
 					<div>
-						<p class="text-[13.5px] font-semibold">Confirmar automaticamente</p>
-						<p class="mt-0.5 text-[12.5px] text-muted">
+						<p class="text-corpo font-semibold">Confirmar automaticamente</p>
+						<p class="mt-0.5 text-rotulo text-muted">
 							Ao marcar uma sessão, o paciente recebe a confirmação na hora.
 						</p>
 					</div>
@@ -93,8 +93,8 @@
 				<div class="border-t border-edge pt-5">
 					<div class="flex items-start justify-between gap-4">
 						<div>
-							<p class="text-[13.5px] font-semibold">Lembrar antes da sessão</p>
-							<p class="mt-0.5 text-[12.5px] text-muted">
+							<p class="text-corpo font-semibold">Lembrar antes da sessão</p>
+							<p class="mt-0.5 text-rotulo text-muted">
 								Uma segunda mensagem, algumas horas antes.
 							</p>
 						</div>
@@ -106,7 +106,7 @@
 					</div>
 
 					{#if lembrete}
-						<div class="mt-3 flex items-center gap-2 text-[13px]">
+						<div class="mt-3 flex items-center gap-2 text-corpo">
 							<input
 								id="horas"
 								name="msg_lembrete_horas"
@@ -120,7 +120,7 @@
 							<label for="horas" class="text-muted">horas antes</label>
 						</div>
 						{#if horasInvalidas}
-							<p class="mt-1 text-[12px] text-danger">Escolha entre 1 e 168 horas.</p>
+							<p class="mt-1 text-rotulo text-danger">Escolha entre 1 e 168 horas.</p>
 						{/if}
 					{:else}
 						<!-- Desligado é `null` no servidor, e o campo nem viaja: mandar 0 ligaria o
@@ -133,8 +133,8 @@
 				<div class="border-t border-edge pt-5">
 					<div class="flex items-start justify-between gap-4">
 						<div>
-							<p class="text-[13.5px] font-semibold">Não incomodar</p>
-							<p class="mt-0.5 text-[12.5px] text-muted">
+							<p class="text-corpo font-semibold">Não incomodar</p>
+							<p class="mt-0.5 text-rotulo text-muted">
 								Mensagem que cairia nesse intervalo é <strong>adiada</strong>, não descartada.
 							</p>
 						</div>
@@ -146,7 +146,7 @@
 					</div>
 
 					{#if silencio}
-						<div class="mt-3 flex items-center gap-2 text-[13px]">
+						<div class="mt-3 flex items-center gap-2 text-corpo">
 							<label for="inicio" class="text-muted">das</label>
 							<input
 								id="inicio"
@@ -173,7 +173,7 @@
 				</div>
 
 				<div
-					class="flex items-start gap-2 rounded-lg bg-surface-2 px-3.5 py-3 text-[12.5px] text-muted"
+					class="flex items-start gap-2 rounded-controle bg-surface-2 px-3.5 py-3 text-rotulo text-muted"
 				>
 					<span class="mt-0.5 shrink-0 text-faint"><Info size={14} /></span>
 					<span>
@@ -184,7 +184,7 @@
 
 				<div class="flex items-center gap-2.5 border-t border-edge pt-3.5">
 					<div
-						class="flex flex-1 items-center gap-1.5 text-[12px] {dirty
+						class="flex flex-1 items-center gap-1.5 text-rotulo {dirty
 							? 'font-semibold text-warning'
 							: 'text-faint'}"
 					>
@@ -202,25 +202,24 @@
 								sync();
 								toast('Alterações descartadas');
 							}}
-							class="rounded-lg border border-edge bg-surface px-3.5 py-2 text-[13px] font-semibold text-muted hover:bg-surface-2"
+							class="rounded-controle border border-edge bg-surface px-3.5 py-2 text-corpo font-semibold text-muted hover:bg-surface-2"
 						>
 							Descartar
 						</button>
 					{/if}
 
-					<SubmitButton
+					<Button type="submit"
 						emVoo={save.emVoo}
 						disabled={!dirty || horasInvalidas}
-						class="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-[13px] font-semibold text-on-primary hover:bg-primary-hover disabled:opacity-60"
 					>
 						Salvar
-					</SubmitButton>
+					</Button>
 				</div>
 			</form>
 		{:else}
 			<!-- Leitura para não-gestores: o mesmo conteúdo, sem os controles. -->
-			<h2 class="mb-3 text-[14px] font-semibold">Comunicação com o paciente</h2>
-			<dl class="space-y-2.5 text-[13px]">
+			<h2 class="mb-3 text-leitura font-semibold">Comunicação com o paciente</h2>
+			<dl class="space-y-2.5 text-corpo">
 				<div class="flex gap-3">
 					<dt class="w-[190px] shrink-0 text-muted">Confirmação automática</dt>
 					<dd class="font-medium">{data.clinic.msg_confirmacao_auto ? 'Ligada' : 'Desligada'}</dd>

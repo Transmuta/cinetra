@@ -35,12 +35,12 @@
 		aria-label={menuAberto ? 'Fechar menu' : 'Abrir menu'}
 		aria-expanded={menuAberto}
 		aria-controls="menu-navegacao"
-		class="grid size-9 shrink-0 place-items-center rounded-md text-muted hover:bg-surface-2 lg:hidden"
+		class="grid size-9 shrink-0 place-items-center rounded-controle text-muted hover:bg-surface-2 lg:hidden"
 	>
 		<Menu size={20} />
 	</button>
 
-	<h1 class="min-w-0 flex-1 truncate text-[15px] font-bold">{title}</h1>
+	<h1 class="min-w-0 flex-1 truncate text-titulo font-bold">{title}</h1>
 
 	<UserMenu {me} placement="topbar" />
 </header>

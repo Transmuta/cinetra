@@ -7,7 +7,7 @@
 </script>
 
 <span
-	class="inline-flex items-center gap-1.5 text-[11px] font-semibold {pending
+	class="inline-flex items-center gap-1.5 text-meta font-semibold {pending
 		? 'text-warning'
 		: 'text-muted'}"
 >

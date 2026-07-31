@@ -188,15 +188,15 @@
      quem clicou teria de procurar a seção. -->
 <section
 	id="pacotes"
-	class="scroll-mt-4 rounded-[14px] border bg-surface p-5 {precisaAtencao
+	class="scroll-mt-4 rounded-cartao border bg-surface p-5 {precisaAtencao
 		? 'border-warning/50'
 		: 'border-edge'}"
 >
 	<div class="mb-4 flex items-center gap-2.5">
-		<span class="grid size-[30px] shrink-0 place-items-center rounded-lg bg-accent-subtle text-accent-text">
+		<span class="grid size-[30px] shrink-0 place-items-center rounded-controle bg-accent-subtle text-accent-text">
 			<Package size={15} />
 		</span>
-		<h2 class="flex-1 text-[14px] font-bold">
+		<h2 class="flex-1 text-leitura font-bold">
 			<!-- o espaço é do CSS (`ml-1`), não um caractere: o Svelte come o whitespace na fronteira
 			     do `{#if}` e o rótulo saía colado ("Pacotes· 2 ativos") -->
 			Pacotes{#if ativos > 1}<span class="ml-1 font-semibold text-faint">· {ativos} ativos</span
@@ -206,7 +206,7 @@
 			<button
 				type="button"
 				onclick={() => onNew?.()}
-				class="inline-flex items-center gap-1.5 rounded-[8px] bg-primary px-2.75 py-1.5 text-[12.5px] font-semibold text-on-primary"
+				class="inline-flex items-center gap-1.5 rounded-controle bg-primary px-2.75 py-1.5 text-rotulo font-semibold text-on-primary"
 			>
 				<Plus size={15} /> Novo pacote
 			</button>
@@ -214,11 +214,11 @@
 	</div>
 
 	{#if packages.length === 0}
-		<div class="py-8 text-center text-[13px] text-faint">Nenhum pacote ainda.</div>
+		<div class="py-8 text-center text-corpo text-faint">Nenhum pacote ainda.</div>
 	{:else if atuais.length === 0}
 		<div class="py-6 text-center">
-			<div class="text-[13px] font-semibold text-muted">Sem pacote ativo</div>
-			<div class="mt-0.5 text-[12px] text-faint">Os anteriores estão no histórico abaixo.</div>
+			<div class="text-corpo font-semibold text-muted">Sem pacote ativo</div>
+			<div class="mt-0.5 text-rotulo text-faint">Os anteriores estão no histórico abaixo.</div>
 		</div>
 	{/if}
 
@@ -231,13 +231,13 @@
 			<!-- identidade: quadradinho da cor, código, ícone+nome do tipo, duração, início -->
 			<div class="mb-2.5 flex items-center gap-2">
 				<span
-					class="inline-block size-2.5 shrink-0 rounded-[3px]"
+					class="inline-block size-2.5 shrink-0 rounded-micro"
 					style="background:{corDe(pkg)}"
 				></span>
 				<div class="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
 					<!-- o código curto é a identidade falada ("o PIL-2607 da Maria") -->
 					<span
-						class="shrink-0 rounded-[6px] px-2 py-0.5 font-mono text-[11px] font-bold tracking-[.02em]"
+						class="shrink-0 rounded-controle px-2 py-0.5 font-mono text-meta font-bold tracking-[.02em]"
 						style="background:color-mix(in srgb, {corDe(pkg)} 13%, transparent); color:{corDe(pkg)}"
 					>
 						{packageCode(pkg, tipo)}
@@ -247,15 +247,15 @@
 							{@const Icone = iconComponent(tipo.icon)}
 							<Icone size={14} style="color:{corDe(pkg)}" />
 						{/if}
-						<span class="truncate text-[13.5px] font-bold">{tituloDe(pkg)}</span>
+						<span class="truncate text-corpo font-bold">{tituloDe(pkg)}</span>
 					</span>
-					<span class="text-[11.5px] text-faint">
+					<span class="text-meta text-faint">
 						{#if tipo}· {tipo.duracao_minutos}min{/if}
 						· início {diaMes(pkg.data_inicio)}
 					</span>
 				</div>
 				<span
-					class="inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-bold {CHIP[chip.tone]}"
+					class="inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-0.5 text-meta font-bold {CHIP[chip.tone]}"
 				>
 					{#if chip.icone === 'alerta'}<TriangleAlert size={11} />
 					{:else if chip.icone === 'pausa'}<Pause size={11} />
@@ -270,7 +270,7 @@
 						aria-haspopup="menu"
 						aria-expanded={menuAberto === pkg.id}
 						onclick={() => (menuAberto = menuAberto === pkg.id ? null : pkg.id)}
-						class="-mt-0.5 grid size-7 shrink-0 place-items-center rounded-[7px] border text-muted hover:bg-surface {menuAberto ===
+						class="-mt-0.5 grid size-7 shrink-0 place-items-center rounded-controle border text-muted hover:bg-surface {menuAberto ===
 						pkg.id
 							? 'border-edge bg-surface'
 							: 'border-transparent'}"
@@ -282,7 +282,7 @@
 
 			<!-- a grade: que dias, que horas, com quem -->
 			{#if pkg.grade}
-				<div class="mb-2.5 flex items-center gap-1.5 text-[12px] text-muted">
+				<div class="mb-2.5 flex items-center gap-1.5 text-rotulo text-muted">
 					<CalendarClock size={13} class="shrink-0 text-faint" />
 					<span class="truncate">{gradeLabel(pkg.grade, professionals)}</span>
 				</div>
@@ -303,7 +303,7 @@
 							style={e.estilo(corDe(pkg))}
 						>
 							{#if s.estado === 'falta'}
-								<span class="text-[10px] font-bold leading-none text-white">×</span>
+								<span class="text-micro font-bold leading-none text-white">×</span>
 							{/if}
 						</span>
 					{/each}
@@ -312,11 +312,11 @@
 
 			<!-- o contador: usadas/total grande, restantes ao lado (dois números com papel fixo) -->
 			<div class="flex items-baseline gap-2">
-				<span class="font-mono text-[19px] font-bold leading-none">
-					{pkg.usadas ?? 0}<span class="text-[13px] text-faint">/{pkg.total}</span>
+				<span class="font-mono text-destaque font-bold leading-none">
+					{pkg.usadas ?? 0}<span class="text-corpo text-faint">/{pkg.total}</span>
 				</span>
 				<span
-					class="text-[12px] {chip.tone === 'warning' && pkg.status === 'ativo'
+					class="text-rotulo {chip.tone === 'warning' && pkg.status === 'ativo'
 						? 'font-semibold text-warning'
 						: 'text-muted'}"
 				>
@@ -328,12 +328,12 @@
 			{#if readonly}
 				<!-- pacote encerrado: o contador e a trilha já contam a história -->
 			{:else if pkg.status === 'pausado'}
-				<div class="mt-3 rounded-[10px] border border-edge bg-surface2 p-3">
+				<div class="mt-3 rounded-cartao border border-edge bg-surface2 p-3">
 					<div class="flex items-start gap-2.5">
 						<Pause size={15} class="mt-0.5 shrink-0 text-faint" />
 						<div class="min-w-0">
-							<div class="text-[12.5px] font-semibold">Pausado</div>
-							<p class="mt-0.5 text-[11.5px] text-muted">
+							<div class="text-rotulo font-semibold">Pausado</div>
+							<p class="mt-0.5 text-meta text-muted">
 								Validade estendida enquanto pausado. As {restantes} sessões seguradas estão
 								<strong>fora da agenda</strong> e voltam ao retomar.
 							</p>
@@ -345,7 +345,7 @@
 							<SubmitButton
 								emVoo={pausa.emVoo(pkg.id)}
 								size={13}
-								class="mt-2 flex w-full items-center justify-center gap-1.5 rounded-[8px] border border-edge bg-surface2 py-1.5 text-[12.5px] font-semibold hover:bg-surface disabled:opacity-60"
+								class="mt-2 flex w-full items-center justify-center gap-1.5 rounded-controle border border-edge bg-surface2 py-1.5 text-rotulo font-semibold hover:bg-surface disabled:opacity-60"
 							>
 								<Play size={14} /> Retomar pacote
 							</SubmitButton>
@@ -353,34 +353,34 @@
 					{/if}
 				</div>
 			{:else if restantes === 0}
-				<div class="mt-3 flex items-start gap-2.5 rounded-[10px] bg-warning/12 px-3 py-2.5">
+				<div class="mt-3 flex items-start gap-2.5 rounded-cartao bg-warning/12 px-3 py-2.5">
 					<CircleCheck size={16} class="mt-0.5 shrink-0 text-warning" />
 					<div class="min-w-0">
-						<div class="text-[12.5px] font-semibold">Pacote concluído</div>
-						<p class="mt-0.5 text-[11.5px] text-muted">
+						<div class="text-rotulo font-semibold">Pacote concluído</div>
+						<p class="mt-0.5 text-meta text-muted">
 							Todas as sessões foram consumidas. Arquive no menu, ou some sessões.
 						</p>
 					</div>
 				</div>
 			{:else if pkg.acabando}
-				<div class="mt-3 flex items-start gap-2.5 rounded-[10px] bg-warning/12 px-3 py-2.5">
+				<div class="mt-3 flex items-start gap-2.5 rounded-cartao bg-warning/12 px-3 py-2.5">
 					<TriangleAlert size={16} class="mt-0.5 shrink-0 text-warning" />
 					<div class="min-w-0">
-						<div class="text-[12.5px] font-semibold">Pacote acabando</div>
-						<p class="mt-0.5 text-[11.5px] text-muted">
+						<div class="text-rotulo font-semibold">Pacote acabando</div>
+						<p class="mt-0.5 text-meta text-muted">
 							{restantes === 1 ? 'Falta 1 sessão' : `Faltam ${restantes} sessões`} para concluir.
 						</p>
 					</div>
 				</div>
 			{:else if proxima}
-				<div class="mt-2 flex items-center gap-1.5 text-[12px] text-muted">
+				<div class="mt-2 flex items-center gap-1.5 text-rotulo text-muted">
 					<CalendarClock size={13} class="shrink-0 text-faint" />
 					<span>
 						Próxima: <strong class="font-semibold text-ink">{quando(proxima.starts_at)}</strong>
 					</span>
 				</div>
 			{:else}
-				<div class="mt-2 text-[12px] text-faint">Sem próxima sessão agendada.</div>
+				<div class="mt-2 text-rotulo text-faint">Sem próxima sessão agendada.</div>
 			{/if}
 
 			<!-- menu ⋯: o cartão informa, aqui é onde se executa -->
@@ -389,11 +389,11 @@
 					type="button"
 					aria-hidden="true"
 					tabindex="-1"
-					class="fixed inset-0 z-40 cursor-default"
+					class="fixed inset-0 z-cobertura cursor-default"
 					onclick={() => (menuAberto = null)}
 				></button>
 				<div
-					class="absolute right-2 top-10 z-50 w-56 overflow-hidden rounded-lg border border-edge bg-surface p-1.5 shadow-pop"
+					class="absolute right-2 top-10 z-painel w-56 overflow-hidden rounded-controle border border-edge bg-surface p-1.5 shadow-pop"
 				>
 					{#if pkg.status === 'ativo'}
 						<form method="POST" action="?/pausePackage" use:enhance={pausa.submit(pkg.id)}>
@@ -401,7 +401,7 @@
 							<SubmitButton
 								emVoo={pausa.emVoo(pkg.id)}
 								size={13}
-								class="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[12.5px] font-medium text-muted hover:bg-surface-2 hover:text-ink disabled:opacity-60"
+								class="flex w-full items-center gap-2.5 rounded-controle px-2.5 py-2 text-left text-rotulo font-medium text-muted hover:bg-surface-2 hover:text-ink disabled:opacity-60"
 							>
 								<Pause size={15} class="text-faint" /> Pausar pacote
 							</SubmitButton>
@@ -412,7 +412,7 @@
 							<SubmitButton
 								emVoo={pausa.emVoo(pkg.id)}
 								size={13}
-								class="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[12.5px] font-medium text-muted hover:bg-surface-2 hover:text-ink disabled:opacity-60"
+								class="flex w-full items-center gap-2.5 rounded-controle px-2.5 py-2 text-left text-rotulo font-medium text-muted hover:bg-surface-2 hover:text-ink disabled:opacity-60"
 							>
 								<Play size={15} class="text-faint" /> Retomar pacote
 							</SubmitButton>
@@ -424,7 +424,7 @@
 					{#if pkg.status === 'ativo'}
 						<div class="flex items-center gap-2.5 px-2.5 py-1.5">
 							<Hash size={15} class="shrink-0 text-faint" />
-							<span class="flex-1 text-[12.5px] font-medium text-muted">Sessões</span>
+							<span class="flex-1 text-rotulo font-medium text-muted">Sessões</span>
 							<form method="POST" action="?/removePackageSession" use:enhance={sessao.submit(pkg.id)}>
 								<input type="hidden" name="package_id" value={pkg.id} />
 								<SubmitButton
@@ -432,12 +432,12 @@
 									size={12}
 									ariaLabel="Tirar sessão"
 									trocaConteudo
-									class="grid size-6 place-items-center rounded-[6px] border border-edge hover:bg-surface-2 disabled:opacity-50"
+									class="grid size-6 place-items-center rounded-controle border border-edge hover:bg-surface-2 disabled:opacity-50"
 								>
 									<Minus size={13} />
 								</SubmitButton>
 							</form>
-							<span class="w-5 text-center font-mono text-[12.5px] font-bold">{pkg.total}</span>
+							<span class="w-5 text-center font-mono text-rotulo font-bold">{pkg.total}</span>
 							<form method="POST" action="?/addPackageSession" use:enhance={sessao.submit(pkg.id)}>
 								<input type="hidden" name="package_id" value={pkg.id} />
 								<SubmitButton
@@ -445,7 +445,7 @@
 									size={12}
 									ariaLabel="Somar sessão"
 									trocaConteudo
-									class="grid size-6 place-items-center rounded-[6px] border border-edge hover:bg-surface-2 disabled:opacity-50"
+									class="grid size-6 place-items-center rounded-controle border border-edge hover:bg-surface-2 disabled:opacity-50"
 								>
 									<Plus size={13} />
 								</SubmitButton>
@@ -460,7 +460,7 @@
 								menuAberto = null;
 								onSessions(pkg);
 							}}
-							class="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[12.5px] font-medium text-muted hover:bg-surface-2 hover:text-ink"
+							class="flex w-full items-center gap-2.5 rounded-controle px-2.5 py-2 text-left text-rotulo font-medium text-muted hover:bg-surface-2 hover:text-ink"
 						>
 							<ListChecks size={15} class="text-faint" /> Ver sessões
 						</button>
@@ -473,7 +473,7 @@
 								menuAberto = null;
 								onGrade(pkg);
 							}}
-							class="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[12.5px] font-medium text-muted hover:bg-surface-2 hover:text-ink"
+							class="flex w-full items-center gap-2.5 rounded-controle px-2.5 py-2 text-left text-rotulo font-medium text-muted hover:bg-surface-2 hover:text-ink"
 						>
 							<SlidersHorizontal size={15} class="text-faint" /> Ajustar grade
 						</button>
@@ -485,7 +485,7 @@
 							<SubmitButton
 								emVoo={arquivo.emVoo(pkg.id)}
 								size={13}
-								class="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[12.5px] font-medium text-muted hover:bg-surface-2 hover:text-ink disabled:opacity-60"
+								class="flex w-full items-center gap-2.5 rounded-controle px-2.5 py-2 text-left text-rotulo font-medium text-muted hover:bg-surface-2 hover:text-ink disabled:opacity-60"
 							>
 								<Archive size={15} class="text-faint" /> Arquivar no histórico
 							</SubmitButton>
@@ -500,7 +500,7 @@
 							menuAberto = null;
 							cancelling = pkg;
 						}}
-						class="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[12.5px] font-medium text-danger hover:bg-danger/8"
+						class="flex w-full items-center gap-2.5 rounded-controle px-2.5 py-2 text-left text-rotulo font-medium text-danger hover:bg-danger/8"
 					>
 						<CalendarX2 size={15} /> Cancelar pacote
 					</button>
@@ -530,8 +530,8 @@
 					size={16}
 					class="text-faint transition-transform {histAberto ? '' : '-rotate-90'}"
 				/>
-				<span class="flex-1 text-left text-[12.5px] font-bold">Histórico</span>
-				<span class="font-mono text-[11px] text-faint">{historico.length}</span>
+				<span class="flex-1 text-left text-rotulo font-bold">Histórico</span>
+				<span class="font-mono text-meta text-faint">{historico.length}</span>
 			</button>
 			{#if histAberto}
 				<div class="flex flex-col pb-1 pt-1">

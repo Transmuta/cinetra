@@ -69,12 +69,12 @@
 </script>
 
 <section class="border-t border-edge px-5 py-4">
-	<h3 class="mb-3 text-[11px] font-bold tracking-wide text-faint uppercase">Comunicação</h3>
+	<h3 class="mb-3 text-meta font-bold tracking-wide text-faint uppercase">Comunicação</h3>
 
 	{#if carregando}
-		<p class="text-[12.5px] text-faint">Carregando…</p>
+		<p class="text-rotulo text-faint">Carregando…</p>
 	{:else if participantes.length === 0}
-		<p class="text-[12.5px] text-faint">Nada a mostrar.</p>
+		<p class="text-rotulo text-faint">Nada a mostrar.</p>
 	{:else}
 		<ul class="flex flex-col gap-3.5">
 			{#each participantes as p (p.attendanceId)}
@@ -82,12 +82,12 @@
 					<!-- O nome só aparece quando há mais de um participante: numa sessão individual
 					     ele repetiria o cabeçalho do drawer duas linhas acima. -->
 					{#if participantes.length > 1}
-						<p class="mb-1 text-[12.5px] font-semibold">{p.paciente}</p>
+						<p class="mb-1 text-rotulo font-semibold">{p.paciente}</p>
 					{/if}
 
 					<ul class="flex flex-col gap-1">
 						{#each p.mensagens as m (m.id)}
-							<li class="flex items-start gap-2 text-[12.5px]">
+							<li class="flex items-start gap-2 text-rotulo">
 								<span class="mt-0.5 shrink-0 {corDoStatus(m)}">
 									{#if m.status === 'falhou'}
 										<CircleAlert size={14} />
@@ -128,7 +128,7 @@
 							{#if m.resposta}
 								<!-- A resposta é o que a fatia inteira existe para capturar (§5): destacada,
 								     e não mais uma linha cinza igual às outras. -->
-								<li class="flex items-start gap-2 text-[12.5px] font-semibold text-accent">
+								<li class="flex items-start gap-2 text-rotulo font-semibold text-accent">
 									<span class="mt-0.5 shrink-0"><Star size={14} /></span>
 									<span>
 										{respostaTexto(m)}
@@ -141,7 +141,7 @@
 						{/each}
 
 						{#if p.semEnvio}
-							<li class="flex items-start gap-2 text-[12.5px] text-faint">
+							<li class="flex items-start gap-2 text-rotulo text-faint">
 								<span class="mt-0.5 shrink-0"><Minus size={14} /></span>
 								<span>{semEnvioTexto(p.semEnvio)}</span>
 							</li>
@@ -149,7 +149,7 @@
 							<!-- Nada saiu e nada barra: a linha é o §6 em vigor — sem ela este
 							     participante ficaria com o nome e o vazio abaixo, e vazio na tela lê-se
 							     como "já resolvido". A primeira mensagem sai pelo rodapé, não daqui. -->
-							<li class="flex items-start gap-2 text-[12.5px] text-faint">
+							<li class="flex items-start gap-2 text-rotulo text-faint">
 								<span class="mt-0.5 shrink-0"><Minus size={14} /></span>
 								<span>{SEM_COMUNICACAO}</span>
 							</li>
@@ -160,7 +160,7 @@
 						<button
 							type="button"
 							onclick={() => onReenviar?.(p.patientId)}
-							class="mt-1.5 text-[12px] font-semibold text-accent hover:underline"
+							class="mt-1.5 text-rotulo font-semibold text-accent hover:underline"
 						>
 							Reenviar
 						</button>

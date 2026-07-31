@@ -87,8 +87,8 @@
 	<header class="mb-5 flex items-center justify-between gap-4">
 		<div>
 			<!-- `h2` (ACC-22): o `h1` é o do topbar, que já diz "Notificações". -->
-			<h2 class="text-xl font-semibold text-ink">Notificações</h2>
-			<p class="text-sm text-muted">
+			<h2 class="text-destaque leading-7 font-semibold text-ink">Notificações</h2>
+			<p class="text-leitura leading-5 text-muted">
 				{#if unread > 0}
 					{unread} não {unread === 1 ? 'lida' : 'lidas'}
 				{:else}
@@ -102,7 +102,7 @@
 				<form method="POST" action="?/readAll" use:enhance={lerTodas.submit}>
 					<SubmitButton
 						emVoo={lerTodas.emVoo}
-						class="inline-flex items-center gap-1.5 rounded-lg border border-edge bg-surface px-3 py-1.5 text-sm font-medium text-ink transition-colors hover:bg-surface-2 disabled:opacity-60"
+						class="inline-flex items-center gap-1.5 rounded-controle border border-edge bg-surface px-3 py-1.5 text-leitura leading-5 font-medium text-ink transition-colors hover:bg-surface-2 disabled:opacity-60"
 					>
 						<CheckCheck size={15} />
 						Marcar todas como lidas
@@ -114,7 +114,7 @@
 				<button
 					type="button"
 					onclick={() => (confirmingClear = true)}
-					class="inline-flex items-center gap-1.5 rounded-lg border border-edge bg-surface px-3 py-1.5 text-sm font-medium text-ink transition-colors hover:bg-surface-2 hover:text-danger"
+					class="inline-flex items-center gap-1.5 rounded-controle border border-edge bg-surface px-3 py-1.5 text-leitura leading-5 font-medium text-ink transition-colors hover:bg-surface-2 hover:text-danger"
 				>
 					<Trash2 size={15} />
 					Limpar tudo
@@ -141,7 +141,7 @@
 			{/snippet}
 		</EstadoVazio>
 	{:else}
-		<ul class="overflow-hidden rounded-xl border border-edge bg-surface">
+		<ul class="overflow-hidden rounded-cartao border border-edge bg-surface">
 			{#each notifications as n (n.id)}
 				<!-- Dois forms irmãos para a MESMA action, e não um botão dentro do outro (que é HTML
 				     inválido): o grande abre a notificação, o de check só a marca lida. O realce da
@@ -163,10 +163,10 @@
 							></span>
 							<span class="min-w-0 flex-1">
 								<span class="flex items-baseline justify-between gap-3">
-									<span class="truncate text-sm font-semibold text-ink">{n.title}</span>
-									<span class="shrink-0 text-xs text-faint">{relativeTime(n.inserted_at)}</span>
+									<span class="truncate text-leitura leading-5 font-semibold text-ink">{n.title}</span>
+									<span class="shrink-0 text-rotulo leading-4 text-faint">{relativeTime(n.inserted_at)}</span>
 								</span>
-								<span class="mt-0.5 block text-sm text-muted">{n.body}</span>
+								<span class="mt-0.5 block text-leitura leading-5 text-muted">{n.body}</span>
 							</span>
 						</button>
 					</form>
@@ -189,7 +189,7 @@
 								trocaConteudo
 								title="Marcar como lida"
 								ariaLabel={'Marcar "' + n.title + '" como lida'}
-								class="grid size-8 place-items-center rounded-lg border border-accent-border bg-surface text-accent-text transition-colors hover:border-accent hover:bg-accent hover:text-white disabled:opacity-60"
+								class="grid size-8 place-items-center rounded-controle border border-accent-border bg-surface text-accent-text transition-colors hover:border-accent hover:bg-accent hover:text-white disabled:opacity-60"
 							>
 								<Check size={16} />
 							</SubmitButton>

@@ -1,7 +1,7 @@
 <script lang="ts">
+	import Button from '$lib/components/Button.svelte';
 	import { untrack } from 'svelte';
 	import { enhance } from '$app/forms';
-	import SubmitButton from '$lib/components/SubmitButton.svelte';
 	import { envio as criarEnvio } from '$lib/forms.svelte';
 	import Info from '@lucide/svelte/icons/info';
 	import ShieldCheck from '@lucide/svelte/icons/shield-check';
@@ -60,9 +60,9 @@
 	<form id={formId} method="POST" action={editing ? '?/update' : '?/invite'} use:enhance={envio.submit}>
 		{#if editing}
 			<input type="hidden" name="id" value={member?.id} />
-			<div class="mb-4 rounded-md border border-edge bg-surface-2 px-3 py-2.5">
-				<div class="text-[13.5px] font-semibold">{member?.nome}</div>
-				<div class="font-mono text-[11.5px] text-faint">{member?.email}</div>
+			<div class="mb-4 rounded-controle border border-edge bg-surface-2 px-3 py-2.5">
+				<div class="text-corpo font-semibold">{member?.nome}</div>
+				<div class="font-mono text-meta text-faint">{member?.email}</div>
 			</div>
 		{:else}
 			<Field label="Nome" name="nome" placeholder="Nome completo" />
@@ -75,7 +75,7 @@
 			/>
 		{/if}
 
-		<div class="mb-2 text-[12px] font-semibold text-muted">Papel</div>
+		<div class="mb-2 text-rotulo font-semibold text-muted">Papel</div>
 		<input type="hidden" name="papel" value={papel} />
 		<div class="mb-1 flex flex-col gap-2">
 			{#each INVITABLE_ROLES as role (role)}
@@ -85,15 +85,15 @@
 					type="button"
 					onclick={() => (papel = role)}
 					aria-pressed={on}
-					class="rounded-lg border p-3 text-left transition-colors {on
+					class="rounded-controle border p-3 text-left transition-colors {on
 						? 'border-accent-border bg-accent-subtle'
 						: 'border-edge bg-surface hover:bg-surface-2'}"
 				>
-					<div class="flex items-center gap-2 text-[13px] font-semibold text-ink">
+					<div class="flex items-center gap-2 text-corpo font-semibold text-ink">
 						<span class={on ? 'text-accent-text' : 'text-faint'}><Icon size={15} /></span>
 						{ROLE_META[role].label}
 					</div>
-					<div class="mt-0.5 text-[11.5px] leading-snug text-muted">{ROLE_META[role].desc}</div>
+					<div class="mt-0.5 text-meta leading-snug text-muted">{ROLE_META[role].desc}</div>
 				</button>
 			{/each}
 		</div>
@@ -101,13 +101,13 @@
 		{#if papel === 'profissional'}
 			<div class="mt-3 border-t border-edge pt-3">
 				<label class="block">
-					<span class="mb-[5px] block text-[12px] font-semibold text-muted">
+					<span class="mb-[5px] block text-rotulo font-semibold text-muted">
 						Vincular ao profissional
 					</span>
 					<select
 						name="professional_id"
 						bind:value={professionalId}
-						class="h-[38px] w-full rounded-md border border-edge-strong bg-surface px-[11px] text-[13.5px] text-ink"
+						class="h-[38px] w-full rounded-controle border border-edge-strong bg-surface px-[11px] text-corpo text-ink"
 					>
 						<option value="">Selecione um profissional…</option>
 						{#each professionals as p (p.id)}
@@ -117,7 +117,7 @@
 				</label>
 				{#if !professionalId}
 					<div
-						class="mt-2 flex items-start gap-2 rounded-md bg-warning/10 px-3 py-2.5 text-[12px] text-warning"
+						class="mt-2 flex items-start gap-2 rounded-controle bg-warning/10 px-3 py-2.5 text-rotulo text-warning"
 					>
 						<Info size={14} class="mt-0.5 shrink-0" />
 						O papel Profissional exige um vínculo — escolha qual registro da agenda este acesso representa.
@@ -130,7 +130,7 @@
 		{/if}
 
 		{#if error}
-			<p class="mt-3 text-[12.5px] font-medium text-danger">{error}</p>
+			<p class="mt-3 text-rotulo font-medium text-danger">{error}</p>
 		{/if}
 	</form>
 
@@ -138,17 +138,16 @@
 		<button
 			type="button"
 			onclick={onClose}
-			class="rounded-md border border-edge bg-surface px-4 py-2.25 text-[13.5px] font-semibold text-ink hover:bg-surface-2"
+			class="rounded-controle border border-edge bg-surface px-4 py-2.25 text-corpo font-semibold text-ink hover:bg-surface-2"
 		>
 			Cancelar
 		</button>
-		<SubmitButton
+		<Button type="submit"
 			emVoo={envio.emVoo}
 			form={formId}
 			disabled={papel === 'profissional' && !professionalId}
-			class="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2.25 text-[13.5px] font-semibold text-on-primary hover:bg-primary-hover disabled:opacity-60"
 		>
 			{editing ? 'Salvar' : 'Enviar convite'}
-		</SubmitButton>
+		</Button>
 	{/snippet}
 </Modal>

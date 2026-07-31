@@ -36,17 +36,17 @@
 	} = $props();
 
 	const casca = $derived(
-		variante === 'painel' ? 'rounded-xl border border-edge bg-surface px-6 py-16' : 'p-8'
+		variante === 'painel' ? 'rounded-cartao border border-edge bg-surface px-6 py-16' : 'p-8'
 	);
 </script>
 
 <div class="flex flex-col items-center justify-center gap-2 text-center {casca} {extra}">
 	<Icone size={28} class="text-faint" />
 
-	<p class="text-[13.5px] font-semibold text-ink">{titulo}</p>
+	<p class="text-corpo font-semibold text-ink">{titulo}</p>
 
 	{#if descricao}
-		<p class="max-w-[380px] text-[12.5px] text-muted">{@render descricao()}</p>
+		<p class="max-w-[380px] text-rotulo text-muted">{@render descricao()}</p>
 	{/if}
 
 	{#if acao}

@@ -1,9 +1,9 @@
 <script lang="ts">
+	import Button from '$lib/components/Button.svelte';
 	// "Novo agendamento" (protótipo `modalNovoAgendamento` :1965).
 	import { untrack } from 'svelte';
 	import { enhance } from '$app/forms';
 	import Modal from '$lib/components/Modal.svelte';
-	import SubmitButton from '$lib/components/SubmitButton.svelte';
 	import { envio as criarEnvio } from '$lib/forms.svelte';
 	import Field, { CONTROL_CLASS, CONTROL_PX } from '$lib/components/Field.svelte';
 	import PatientPicker from './PatientPicker.svelte';
@@ -166,17 +166,16 @@
 		<button
 			type="button"
 			onclick={onClose}
-			class="rounded-md border border-edge-strong bg-surface px-3.5 py-2 text-[13px] font-semibold hover:bg-surface-2"
+			class="rounded-controle border border-edge-strong bg-surface px-3.5 py-2 text-corpo font-semibold hover:bg-surface-2"
 		>
 			Cancelar
 		</button>
-		<SubmitButton
+		<Button type="submit"
 			emVoo={envio.emVoo}
 			form="novo-agendamento"
 			disabled={!podeSalvar}
-			class="inline-flex items-center gap-1.5 rounded-md bg-primary px-3.5 py-2 text-[13px] font-semibold text-on-primary disabled:cursor-not-allowed disabled:opacity-60"
 		>
 			Agendar
-		</SubmitButton>
+		</Button>
 	{/snippet}
 </Modal>

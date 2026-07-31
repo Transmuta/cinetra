@@ -32,7 +32,7 @@
 			role="tab"
 			aria-selected={prof.id === selected}
 			onclick={() => onSelect(prof.id)}
-			class="flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[12.5px] font-semibold {prof.id ===
+			class="flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-rotulo font-semibold {prof.id ===
 			selected
 				? 'border-transparent bg-primary text-on-primary'
 				: 'border-edge bg-surface text-ink'}"

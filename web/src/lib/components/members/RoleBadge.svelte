@@ -3,6 +3,7 @@
 	import ShieldCheck from '@lucide/svelte/icons/shield-check';
 	import Stethoscope from '@lucide/svelte/icons/stethoscope';
 	import User from '@lucide/svelte/icons/user';
+	import Badge from '$lib/components/Badge.svelte';
 	import { ROLE_META } from '$lib/members';
 	import type { Papel } from '$lib/session';
 
@@ -15,21 +16,20 @@
 		recepcao: User
 	};
 
-	const STYLE: Record<Papel, string> = {
-		owner: 'bg-accent-subtle text-accent-text',
-		admin: 'bg-accent-subtle text-accent-text',
-		profissional: 'bg-surface-2 text-info',
-		recepcao: 'bg-surface-2 text-muted'
-	};
+	// O papel decide o TOM; a geometria é a do `Badge`, comum a toda pílula do app. O
+	// `profissional` sai do azul e vai para o tom `info` — era a única das quatro que misturava
+	// uma superfície neutra com uma cor semântica de texto.
+	const TOM = {
+		owner: 'accent',
+		admin: 'accent',
+		profissional: 'info',
+		recepcao: 'neutro'
+	} as const;
 
 	const Icon = $derived(ICONS[papel]);
 </script>
 
-<span
-	class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-[3px] text-[11.5px] font-semibold {STYLE[
-		papel
-	]}"
->
+<Badge tone={TOM[papel]}>
 	<Icon size={12} />
 	{ROLE_META[papel].label}
-</span>
+</Badge>

@@ -47,11 +47,12 @@
 		/>
 
 		{#if form?.error}
-			<p class="mb-3 text-[12.5px] text-danger">{form.error}</p>
+			<p class="mb-3 text-rotulo text-danger">{form.error}</p>
 		{/if}
 
 		<div class="mt-[6px]">
-			<Button type="submit" disabled={submitting}>
+			<!-- Largura total é da TELA de auth, não do botão: por isso `w-full` vem por `class`. -->
+			<Button type="submit" emVoo={submitting} class="w-full py-2.75 text-leitura">
 				{submitting ? 'Criando…' : 'Criar clínica'}
 			</Button>
 		</div>

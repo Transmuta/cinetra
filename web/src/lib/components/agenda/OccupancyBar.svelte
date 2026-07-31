@@ -24,12 +24,12 @@
 </script>
 
 <div
-	class="h-1 w-full overflow-hidden rounded-sm bg-surface-2"
+	class="h-1 w-full overflow-hidden rounded-controle bg-surface-2"
 	data-tone={tone}
 	role="meter"
 	aria-valuemin={0}
 	aria-valuenow={Math.round((rate ?? 0) * 100)}
 	aria-label={title ?? 'Ocupação do dia'}
 >
-	<div class="h-full rounded-sm" style="width:{largura}%; background:{COR[tone]}"></div>
+	<div class="h-full rounded-controle" style="width:{largura}%; background:{COR[tone]}"></div>
 </div>

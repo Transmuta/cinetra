@@ -17,24 +17,99 @@
 	--mv-font-sans: 'Hanken Grotesk Variable', 'Hanken Grotesk', system-ui, sans-serif;
 	--mv-font-mono: 'Martian Mono', ui-monospace, monospace;
 
-	/* Raios. Campos/botões = 8px — e o utilitário de fato usado no app para eles é
-	   `rounded-lg` (77 usos: botões, inputs, painéis pequenos), então `--mv-radius-lg`
-	   PRECISA valer 8px, não 14px. Cards não usam `rounded-lg`: cada superfície leva um
-	   raio arbitrário próprio (rounded-[10px] listas, rounded-[12px] fila/modais). Pill = 999px. */
-	--mv-radius-sm: 6px;
-	--mv-radius: 8px;
-	--mv-radius-lg: 8px; /* era 14px — deixava todo botão/campo do app arredondado demais */
+	/* ── Raio, por PAPEL ──
+	   Eram 13 valores efetivos em 378 usos, e quatro deles tinham duas ou três grafias para o
+	   mesmo pixel (doc 93 §M-2). O caso que resume: `rounded-md` e `rounded-lg` renderizavam
+	   **o mesmo 8px**, e 184 usos escolhiam entre dois nomes idênticos sem critério — três
+	   botões do mesmo tamanho saíam com três grafias. Pior era o cartão: `border-edge
+	   bg-surface` + raio aparecia em 133 lugares com 13 grafias, então um cartão de /pacientes
+	   e um de /relatorios não tinham o mesmo canto.
+
+	   A escala nomeia o papel, não o tamanho — a mesma lição que as cores já aplicavam
+	   (`--color-ink`, não `--color-cinza-escuro`). Quem escreve o próximo componente escolhe
+	   entre quatro coisas que significam algo, em vez de copiar o número do vizinho.
+
+	   O que cada degrau absorveu:
+	     micro    ← 3px, 4px, 5px, `rounded` sem sufixo
+	     controle ← 6px, 7px, 8px, 9px, `rounded-sm`, `rounded-md`, `rounded-lg`
+	     cartao   ← 10px, 11px, 12px, 14px, `rounded-xl`, `rounded-2xl`
+	     pill     ← `rounded-full`
+
+	   Os nomes do Tailwind (`sm`/`md`/`lg`/`xl`) deixaram de ser sobrescritos DE PROPÓSITO: com
+	   a escala por papel, mantê-los redefinidos deixaria dois vocabulários vivos para a mesma
+	   coisa. `dimensao.test.ts` barra o retorno deles — e precisa barrar, porque um `rounded-md`
+	   esquecido não quebra nada: ele passa a valer o default do Tailwind, silenciosamente. */
+	--mv-radius-micro: 4px;
+	--mv-radius-controle: 8px;
+	--mv-radius-cartao: 12px;
 	--mv-radius-pill: 999px;
 
-	/* Sombras — sutil no claro; pop de menus/cards flutuantes */
+	/* Sombras — sutil no claro; pop de menus/cards flutuantes.
+
+	   Duas sombras saíram daqui em 2026-07-30 por estarem definidas e **nunca usadas** (doc 93
+	   §M-7): `--shadow-accent` e — a que mais custou — `--shadow-card`.
+
+	   O `--shadow-card` merece a nota porque era a ÚNICA sombra do sistema que respondia ao tema
+	   (valia sombra no claro e `none` no escuro), foi desenhada de propósito, e **nenhum dos 133
+	   cartões do app a aplicava**. A intenção de design evaporou em silêncio e o token continuou
+	   ali dizendo que ela existia — que é a mentira que este arquivo existe para não contar.
+
+	   Foi removida em vez de aplicada porque aplicar é uma decisão de DESENHO com 133 cartões na
+	   mesa, não uma arrumação. Quem quiser a sombra de volta tem o valor aqui e a decisão inteira
+	   para tomar: `0 12px 40px rgba(20, 24, 30, 0.08)` no claro, nada no escuro.
+
+	   `--color-accent-hover` e `--color-success-solid` também não têm uso hoje e **ficaram**. Eles
+	   não são órfãos no sentido que importa: são membros de FAMÍLIAS que o `contraste.test.ts`
+	   mede por inteiro (o par solid/hover do acento; os quatro fundos semânticos + `on-solid`).
+	   Removê-los quebrou aquele teste na primeira tentativa — que é exatamente o trabalho dele. */
 	--mv-shadow-1: 0 1px 1px rgba(20, 24, 30, 0.03);
-	--mv-shadow-card: 0 12px 40px rgba(20, 24, 30, 0.08);
 	--mv-shadow-pop: 0 8px 24px rgba(8, 10, 12, 0.18);
-	/* brilho da marca (quadrado do rail, :1310) — sage desde a ADR-021 */
-	--mv-shadow-accent: 0 2px 8px rgba(127, 165, 154, 0.35);
 	/* toast (:3494) e painel de modal (:1901) — iguais nos dois temas */
 	--mv-shadow-toast: 0 8px 24px rgba(8, 10, 12, 0.3);
 	--mv-shadow-modal: 0 24px 60px rgba(8, 10, 12, 0.4);
+
+	/* ── Tipografia, por PAPEL ──
+	   Eram **22 tamanhos em 643 usos**, 261 deles em meio-pixel (12.5, 11.5, 10.5, 13.5…), contra
+	   11 usos da escala do Tailwind no app inteiro (doc 93 §M-1). Não foi acidente: o design veio
+	   de um protótipo HTML com valores em px e a fidelidade foi (corretamente) priorizada. O custo
+	   apareceu depois — `12px` e `12.5px` são indistinguíveis na tela e carregavam papéis
+	   diferentes em arquivos diferentes, sem nada dizer qual era qual. Quem escrevia o próximo
+	   componente não tinha como acertar: só copiar do vizinho.
+
+	   Nomeados pelo PAPEL, como as cores já eram. O que cada degrau absorveu:
+	     micro    ← 8, 8.5, 9, 9.5, 10, 10.5   (92 usos)
+	     meta     ← 11, 11.5                   (129)
+	     rotulo   ← 12, 12.5                   (212)
+	     corpo    ← 13, 13.5                   (158)
+	     leitura  ← 14                         (28)
+	     titulo   ← 15, 15.5, 16, 17           (14)
+	     destaque ← 18, 19, 20, 23, 24         (10)
+
+	   **Sem `line-height` de propósito.** Os 643 usos que estes degraus substituem eram
+	   `text-[Npx]`, que não define entrelinha — acoplar uma agora moveria o layout do app inteiro
+	   por um motivo que não é o desta mudança. Os 11 usos da escala do Tailwind, que TINHAM
+	   entrelinha, receberam um `leading-*` explícito na migração para não andarem. */
+	--mv-text-micro: 10px;
+	--mv-text-meta: 11px;
+	--mv-text-rotulo: 12px;
+	--mv-text-corpo: 13px;
+	--mv-text-leitura: 14px;
+	--mv-text-titulo: 16px;
+	--mv-text-destaque: 20px;
+
+	/* ── Camadas flutuantes ──
+	   A ordem era **convenção oral**: quatro números soltos espalhados por seis arquivos, e nada
+	   impedia o próximo popover de nascer com `z-50` e ficar por baixo do Toast — ou por cima do
+	   Drawer (doc 93 §M-6). Aqui a regra fica legível no lugar onde ela é decidida.
+
+	   A escala é só para o que FLUTUA sobre a página. Empilhamento local dentro de um componente
+	   (a grade da agenda usa 5–9 entre os próprios elementos) continua sendo número cru de
+	   propósito: ali o contexto de empilhamento é outro, e emprestar um token global daria a
+	   entender uma relação com o Toast que não existe. */
+	--mv-z-cobertura: 40; /* o que cobre a página: véu do drawer, apanhador de clique do popover */
+	--mv-z-painel: 50; /* o que fica POR CIMA da cobertura: painel de modal, painel de popover */
+	--mv-z-toast: 60; /* acima de tudo que flutua — é o retorno de uma ação que já aconteceu */
+	--mv-z-atalho: 70; /* o "pular para o conteúdo": precisa alcançar o teclado antes de tudo */
 
 	/* Véu atrás de modal, drawer e gaveta mobile. Igual nos dois temas — ele escurece o que está
 	   ATRÁS, e o que está atrás já mudou de cor com o tema. Existe como token porque estava
@@ -151,7 +226,6 @@
 	   em 1,64 e isto não é o único indicador do chip: ele também tem fundo tingido e o texto em
 	   `accent-text` a 5,30. Melhorou junto com a troca; consertar de vez é o débito D-18. */
 	--mv-accent-border: #9cc9bc;
-	--mv-card-shadow: var(--mv-shadow-card);
 
 	/* Semânticas como TEXTO/ÍCONE (`text-danger`, `text-warning`…) — por tema, e não
 	   compartilhadas, porque **uma cor que contrasta com branco não contrasta com quase-preto**.
@@ -197,7 +271,6 @@
 	--mv-accent-text: #8ec2b3;
 	--mv-accent-subtle: rgba(127, 165, 154, 0.16);
 	--mv-accent-border: rgba(127, 165, 154, 0.45);
-	--mv-card-shadow: none; /* sombra do card só no claro (:1683) */
 
 	/* Semânticas como texto — ver o bloco claro. Aqui `success` e `warning` ficam nos valores
 	   originais: sobre fundo quase-preto eles já passavam (5,40 e 8,77). Só o vermelho e o azul
@@ -233,7 +306,6 @@
 		--mv-accent-text: #8ec2b3;
 		--mv-accent-subtle: rgba(127, 165, 154, 0.16);
 		--mv-accent-border: rgba(127, 165, 154, 0.45);
-		--mv-card-shadow: none;
 		/* As semânticas de TEXTO também entram aqui: sem elas, quem não escolheu tema e está no
 		   escuro do SO herdaria as do bloco claro (marrom sobre quase-preto). */
 		--mv-success: #2da160;
@@ -253,17 +325,28 @@
 	--font-sans: var(--mv-font-sans);
 	--font-mono: var(--mv-font-mono);
 
-	/* sobrescreve a escala de raio do Tailwind pela do protótipo, de propósito */
-	--radius-sm: var(--mv-radius-sm);
-	--radius-md: var(--mv-radius);
-	--radius-lg: var(--mv-radius-lg);
+	/* Tipografia por papel → text-micro … text-destaque. Os nomes de tamanho do Tailwind
+	   (`text-sm`, `text-xl`) continuam existindo, mas não devem ser usados no app: dois
+	   vocabulários para a mesma coisa é o que esta escala existe para acabar. `dimensao.test.ts`
+	   barra os dois — o nome do Tailwind e o valor arbitrário. */
+	--text-micro: var(--mv-text-micro);
+	--text-meta: var(--mv-text-meta);
+	--text-rotulo: var(--mv-text-rotulo);
+	--text-corpo: var(--mv-text-corpo);
+	--text-leitura: var(--mv-text-leitura);
+	--text-titulo: var(--mv-text-titulo);
+	--text-destaque: var(--mv-text-destaque);
+
+	/* Raio por papel → rounded-micro / rounded-controle / rounded-cartao / rounded-full.
+	   Os nomes de TAMANHO do Tailwind não são sobrescritos — ver a nota na Camada 1. */
+	--radius-micro: var(--mv-radius-micro);
+	--radius-controle: var(--mv-radius-controle);
+	--radius-cartao: var(--mv-radius-cartao);
 	--radius-full: var(--mv-radius-pill);
 
 	--shadow-sm: var(--mv-shadow-1);
-	--shadow-card: var(--mv-card-shadow);
 	--shadow-lg: var(--mv-shadow-lg);
 	--shadow-pop: var(--mv-shadow-pop);
-	--shadow-accent: var(--mv-shadow-accent);
 	--shadow-toast: var(--mv-shadow-toast);
 	--shadow-modal: var(--mv-shadow-modal);
 
@@ -316,6 +399,23 @@
 	--color-danger-solid: var(--mv-danger-solid);
 	--color-info-solid: var(--mv-info-solid);
 	--color-on-solid: var(--mv-on-solid);
+}
+
+/* As camadas viram utilitário por `@utility`, e não por `@theme`, porque **`z-index` não é um
+   namespace temável no Tailwind v4** — medido: `--z-index-modal: 50` no `@theme` não gera classe
+   nenhuma, e o pior é que ela some em silêncio (utilitário desconhecido não é erro de build nem
+   de `svelte-check`, só deixa de existir no CSS). Trava em `camadas.test.ts`. */
+@utility z-cobertura {
+	z-index: var(--mv-z-cobertura);
+}
+@utility z-painel {
+	z-index: var(--mv-z-painel);
+}
+@utility z-toast {
+	z-index: var(--mv-z-toast);
+}
+@utility z-atalho {
+	z-index: var(--mv-z-atalho);
 }
 
 /* As animações do protótipo viram tokens --animate-* → animate-* */

@@ -71,28 +71,28 @@
 			type="button"
 			onclick={() => onPick(card.date)}
 			aria-current={card.isToday ? 'date' : undefined}
-			class="flex flex-col gap-2 rounded-xl border p-3 text-left transition-colors {card.isSelected
+			class="flex flex-col gap-2 rounded-cartao border p-3 text-left transition-colors {card.isSelected
 				? 'border-accent-border bg-accent-subtle'
 				: 'border-edge bg-surface hover:bg-surface-2'}"
 		>
 			<div class="flex items-baseline justify-between gap-1">
-				<span class="text-[11px] font-medium text-faint capitalize">{card.label}</span>
+				<span class="text-meta font-medium text-faint capitalize">{card.label}</span>
 				{#if card.isToday}
-					<span class="text-[10px] font-bold tracking-wide text-accent-text uppercase">hoje</span>
+					<span class="text-micro font-bold tracking-wide text-accent-text uppercase">hoje</span>
 				{/if}
 			</div>
 
-			<div class="font-mono text-[20px] leading-none font-semibold tabular-nums">
+			<div class="font-mono text-destaque leading-none font-semibold tabular-nums">
 				{card.numero}
 			</div>
 
 			{#if card.totals.rate === null}
 				<!-- Fechado ≠ vazio. Um "0 agend." num domingo fechado convida a marcar num dia
 				     em que ninguém atende. -->
-				<div class="text-[12px] font-semibold text-faint">Sem expediente</div>
+				<div class="text-rotulo font-semibold text-faint">Sem expediente</div>
 			{:else}
 				<div
-					class="text-[12px] font-semibold {card.totals.total > 0 ? 'text-accent-text' : 'text-faint'}"
+					class="text-rotulo font-semibold {card.totals.total > 0 ? 'text-accent-text' : 'text-faint'}"
 				>
 					{card.totals.total} agend.
 				</div>
@@ -104,7 +104,7 @@
 			/>
 
 			{#if card.totals.rate !== null}
-				<div class="text-[10.5px] text-muted tabular-nums">
+				<div class="text-micro text-muted tabular-nums">
 					{pct(card.totals.rate)} ocupado
 				</div>
 			{/if}

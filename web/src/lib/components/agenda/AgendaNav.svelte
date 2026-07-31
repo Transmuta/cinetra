@@ -57,7 +57,7 @@
 			type="button"
 			aria-label="{PASSO[view].capitalizado} anterior"
 			onclick={() => onDate(shiftByView(date, view, -1))}
-			class="grid size-8 place-items-center rounded-lg border border-edge bg-surface text-muted hover:bg-surface-2"
+			class="grid size-8 place-items-center rounded-controle border border-edge bg-surface text-muted hover:bg-surface-2"
 		>
 			<ChevronLeft size={16} />
 		</button>
@@ -66,7 +66,7 @@
 			type="button"
 			onclick={() => onDate(today)}
 			aria-current={isToday ? 'date' : undefined}
-			class="h-8 rounded-lg border px-3 text-[12.5px] font-semibold {isToday
+			class="h-8 rounded-controle border px-3 text-rotulo font-semibold {isToday
 				? 'border-accent-border bg-accent-subtle text-accent-text'
 				: 'border-edge bg-surface text-ink hover:bg-surface-2'}"
 		>
@@ -77,13 +77,13 @@
 			type="button"
 			aria-label="Próximo {PASSO[view].curto}"
 			onclick={() => onDate(shiftByView(date, view, 1))}
-			class="grid size-8 place-items-center rounded-lg border border-edge bg-surface text-muted hover:bg-surface-2"
+			class="grid size-8 place-items-center rounded-controle border border-edge bg-surface text-muted hover:bg-surface-2"
 		>
 			<ChevronRight size={16} />
 		</button>
 	</div>
 
-	<div class="min-w-0 flex-1 truncate text-[13.5px] font-semibold first-letter:uppercase">
+	<div class="min-w-0 flex-1 truncate text-corpo font-semibold first-letter:uppercase">
 		{label}
 	</div>
 
@@ -102,19 +102,19 @@
 		<button
 			type="button"
 			onclick={onNew}
-			class="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3 text-[12.5px] font-semibold text-on-primary hover:bg-primary-hover"
+			class="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-controle bg-primary px-3 text-rotulo font-semibold text-on-primary hover:bg-primary-hover"
 		>
 			<Plus size={15} /> Novo agendamento
 		</button>
 	{/if}
 
-	<div class="flex items-center gap-0.5 rounded-lg border border-edge bg-surface-2 p-0.5">
+	<div class="flex items-center gap-0.5 rounded-controle border border-edge bg-surface-2 p-0.5">
 		{#each VIEWS as key (key)}
 			<button
 				type="button"
 				aria-current={key === view ? 'page' : undefined}
 				onclick={() => onView(key)}
-				class="rounded-md px-2.5 py-1 text-[12.5px] font-semibold {key === view
+				class="rounded-controle px-2.5 py-1 text-rotulo font-semibold {key === view
 					? 'bg-surface text-ink shadow-sm'
 					: 'text-muted hover:text-ink'}"
 			>

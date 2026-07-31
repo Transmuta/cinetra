@@ -21,7 +21,7 @@
 
 {#if erro}
 	<div
-		class="mt-2 flex items-start gap-2 rounded-lg px-3 py-2.5 text-[12.5px]"
+		class="mt-2 flex items-start gap-2 rounded-controle px-3 py-2.5 text-rotulo"
 		style="background:color-mix(in srgb, var(--color-danger) 10%, transparent); color:var(--color-danger)"
 	>
 		<TriangleAlert size={16} class="mt-0.5 shrink-0" />
@@ -31,7 +31,7 @@
 				<button
 					type="button"
 					onclick={onEncaixe}
-					class="mt-1.5 rounded-md border border-current px-2 py-1 text-[12px] font-semibold"
+					class="mt-1.5 rounded-controle border border-current px-2 py-1 text-rotulo font-semibold"
 				>
 					Marcar como encaixe
 				</button>

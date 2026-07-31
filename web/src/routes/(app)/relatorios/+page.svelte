@@ -70,15 +70,15 @@
 	<!-- Cabeçalho: período, intervalo, profissional e o pico do período. -->
 	<div class="mb-3.5 flex flex-wrap items-center gap-2">
 		<span
-			class="rounded-full bg-accent-subtle px-2.5 py-1 text-[12.5px] font-semibold text-accent-text"
+			class="rounded-full bg-accent-subtle px-2.5 py-1 text-rotulo font-semibold text-accent-text"
 		>
 			{PERIOD_LABELS[data.period]}
 		</span>
-		<span class="font-mono text-[12.5px] text-muted">{rangeLbl}</span>
-		<span class="text-[12.5px] text-faint">·</span>
-		<span class="text-[12.5px] text-muted">{profNome}</span>
+		<span class="font-mono text-rotulo text-muted">{rangeLbl}</span>
+		<span class="text-rotulo text-faint">·</span>
+		<span class="text-rotulo text-muted">{profNome}</span>
 		{#if t.pico && daily}
-			<span class="ml-auto text-[12px] text-faint">
+			<span class="ml-auto text-rotulo text-faint">
 				Pico: <b class="text-ink">{fmtDayMonth(t.pico.date)}</b> ({t.pico.total})
 			</span>
 		{/if}
@@ -103,9 +103,9 @@
 			     funciona no toque, no Tab e no leitor de tela (ACC-10). -->
 			<div
 				title={formula}
-				class="min-w-[150px] flex-[1_1_150px] rounded-xl border border-edge bg-surface px-[15px] py-3.5"
+				class="min-w-[150px] flex-[1_1_150px] rounded-cartao border border-edge bg-surface px-[15px] py-3.5"
 			>
-				<div class="mb-[7px] flex items-center gap-[7px] text-[11.5px] text-muted">
+				<div class="mb-[7px] flex items-center gap-[7px] text-meta text-muted">
 					<span style="color:{color}"><Icon size={14} /></span>
 					{label}
 					<!-- 24px de alvo (WCAG 2.5.8) sem crescer a linha: a margem negativa devolve o
@@ -115,15 +115,15 @@
 						onclick={() => (explicando = { label, formula })}
 						aria-haspopup="dialog"
 						aria-label="Como {label} é calculado"
-						class="-my-1 -mr-1 ml-auto grid size-6 place-items-center rounded-md text-faint hover:bg-surface-2 hover:text-muted"
+						class="-my-1 -mr-1 ml-auto grid size-6 place-items-center rounded-controle text-faint hover:bg-surface-2 hover:text-muted"
 					>
 						<Info size={12} />
 					</button>
 				</div>
-				<div class="font-mono text-[23px] font-semibold tabular-nums" style="color:{color}">
+				<div class="font-mono text-destaque font-semibold tabular-nums" style="color:{color}">
 					{val}
 				</div>
-				<div class="mt-0.5 text-[11px] text-faint">{sub}</div>
+				<div class="mt-0.5 text-meta text-faint">{sub}</div>
 			</div>
 		{/snippet}
 
@@ -170,14 +170,14 @@
 	</div>
 
 	<!-- Volume: por dia (janela) ou por profissional (dia único) -->
-	<div class="mb-3.5 overflow-hidden rounded-xl border border-edge bg-surface">
+	<div class="mb-3.5 overflow-hidden rounded-cartao border border-edge bg-surface">
 		<div class="flex items-center justify-between gap-2.5 border-b border-edge px-4 py-[13px]">
 			<!-- `h2` como os outros títulos de cartão (ACC-22): a hierarquia já era visual. -->
-			<h2 class="text-[14px] font-semibold">
+			<h2 class="text-leitura font-semibold">
 				{daily ? 'Volume por dia' : 'Volume por profissional'}
 			</h2>
 			{#if daily}
-				<span class="text-[11.5px] text-faint">{t.atendimentos} atendimentos</span>
+				<span class="text-meta text-faint">{t.atendimentos} atendimentos</span>
 			{/if}
 		</div>
 		<div class="px-4 py-3.5">
@@ -193,7 +193,7 @@
 						>
 							<div class="flex w-full flex-1 items-end">
 								<div
-									class="flex w-full items-end overflow-hidden rounded-t bg-surface-2"
+									class="flex w-full items-end overflow-hidden rounded-t-micro bg-surface-2"
 									style="height:{hp}%;min-height:{d.total ? '4px' : '0'};{isToday
 										? 'outline:2px solid var(--color-accent);outline-offset:-1px'
 										: ''}"
@@ -202,7 +202,7 @@
 								</div>
 							</div>
 							<div
-								class="h-3 font-mono text-[9px] {isToday
+								class="h-3 font-mono text-micro {isToday
 									? 'font-bold text-accent-text'
 									: 'text-faint'}"
 							>
@@ -213,12 +213,12 @@
 						</div>
 					{/each}
 				</div>
-				<div class="mt-2.5 flex gap-4 text-[11px] text-muted">
+				<div class="mt-2.5 flex gap-4 text-meta text-muted">
 					<span class="inline-flex items-center gap-[5px]">
-						<span class="size-[9px] rounded-sm bg-accent"></span> Concluídos
+						<span class="size-[9px] rounded-controle bg-accent"></span> Concluídos
 					</span>
 					<span class="inline-flex items-center gap-[5px]">
-						<span class="size-[9px] rounded-sm border border-edge bg-surface-2"></span> Demais
+						<span class="size-[9px] rounded-controle border border-edge bg-surface-2"></span> Demais
 					</span>
 				</div>
 			{:else}
@@ -227,12 +227,12 @@
 						{@const prof = professionalById(profs, pp.professional_id)}
 						<div class="flex items-center gap-2.5">
 							<span
-								class="grid size-[26px] shrink-0 place-items-center rounded-full text-[10px] font-semibold"
+								class="grid size-[26px] shrink-0 place-items-center rounded-full text-micro font-semibold"
 								style={avatarStyle(prof?.cor_indice ?? 1)}
 							>
 								{initials(prof?.nome ?? '—')}
 							</span>
-							<span class="w-[120px] truncate text-[12.5px] font-medium">
+							<span class="w-[120px] truncate text-rotulo font-medium">
 								{professionalName(profs, pp.professional_id)}
 							</span>
 							<div class="h-2.5 flex-1 overflow-hidden rounded-full bg-surface-2">
@@ -243,7 +243,7 @@
 									)}"
 								></div>
 							</div>
-							<span class="w-[26px] text-right font-mono text-[12px] text-muted">{pp.total}</span>
+							<span class="w-[26px] text-right font-mono text-rotulo text-muted">{pp.total}</span>
 						</div>
 					{/each}
 				</div>
@@ -253,8 +253,8 @@
 
 	<!-- Por tipo | Composição por status -->
 	<div class="mb-3.5 grid gap-3.5 md:grid-cols-2">
-		<div class="overflow-hidden rounded-xl border border-edge bg-surface">
-			<h2 class="border-b border-edge px-4 py-[13px] text-[14px] font-semibold">
+		<div class="overflow-hidden rounded-cartao border border-edge bg-surface">
+			<h2 class="border-b border-edge px-4 py-[13px] text-leitura font-semibold">
 				Por tipo de atendimento
 			</h2>
 			<div class="px-4 py-3.5">
@@ -265,18 +265,18 @@
 							<div>
 								<div class="mb-[5px] flex items-center gap-2">
 									<span
-										class="size-[9px] shrink-0 rounded-sm"
+										class="size-[9px] shrink-0 rounded-controle"
 										style="background:{tipo?.cor ?? 'var(--color-faint)'}"
 									></span>
-									<span class="min-w-0 flex-1 truncate text-[12.5px] font-medium">
+									<span class="min-w-0 flex-1 truncate text-rotulo font-medium">
 										{tipo?.nome ?? '—'}
 									</span>
-									<span class="font-mono text-[12px] text-muted">{row.total}</span>
-									<span class="w-[38px] text-right text-[11px] text-faint">
+									<span class="font-mono text-rotulo text-muted">{row.total}</span>
+									<span class="w-[38px] text-right text-meta text-faint">
 										{sharePct(row.total, t.atendimentos)}%
 									</span>
 								</div>
-								<div class="h-[7px] overflow-hidden rounded bg-surface-2">
+								<div class="h-[7px] overflow-hidden rounded-micro bg-surface-2">
 									<div
 										class="h-full opacity-85"
 										style="width:{barPct(row.total, maxTipo)}%;background:{tipo?.cor ??
@@ -287,27 +287,27 @@
 						{/each}
 					</div>
 				{:else}
-					<div class="py-2 text-[13px] text-faint">Sem dados no período.</div>
+					<div class="py-2 text-corpo text-faint">Sem dados no período.</div>
 				{/if}
 			</div>
 		</div>
 
-		<div class="overflow-hidden rounded-xl border border-edge bg-surface">
-			<h2 class="border-b border-edge px-4 py-[13px] text-[14px] font-semibold">
+		<div class="overflow-hidden rounded-cartao border border-edge bg-surface">
+			<h2 class="border-b border-edge px-4 py-[13px] text-leitura font-semibold">
 				Composição por status
 			</h2>
 			<div class="px-4 py-3.5">
 				<div class="flex flex-col gap-3">
 					{#each statusRows as row (row.label)}
 						<div class="flex items-center gap-2.5">
-							<span class="w-24 text-[12.5px] text-muted">{row.label}</span>
+							<span class="w-24 text-rotulo text-muted">{row.label}</span>
 							<div class="h-[9px] flex-1 overflow-hidden rounded-full bg-surface-2">
 								<div
 									class="h-full"
 									style="width:{barPct(row.n, totStatus)}%;background:{row.color}"
 								></div>
 							</div>
-							<span class="w-[34px] text-right font-mono text-[12px] text-ink">{row.n}</span>
+							<span class="w-[34px] text-right font-mono text-rotulo text-ink">{row.n}</span>
 						</div>
 					{/each}
 				</div>
@@ -316,13 +316,13 @@
 	</div>
 
 	<!-- Desempenho por profissional -->
-	<div class="overflow-hidden rounded-xl border border-edge bg-surface">
-		<h2 class="border-b border-edge px-4 py-[13px] text-[14px] font-semibold">
+	<div class="overflow-hidden rounded-cartao border border-edge bg-surface">
+		<h2 class="border-b border-edge px-4 py-[13px] text-leitura font-semibold">
 			Desempenho por profissional
 		</h2>
 		<div>
 			<div
-				class="hidden grid-cols-[1.8fr_0.9fr_0.8fr_1.1fr] gap-2.5 px-4 pb-2 pt-3 text-[11px] font-semibold text-faint sm:grid"
+				class="hidden grid-cols-[1.8fr_0.9fr_0.8fr_1.1fr] gap-2.5 px-4 pb-2 pt-3 text-meta font-semibold text-faint sm:grid"
 			>
 				<span>Profissional</span>
 				<span class="text-right">Volume</span>
@@ -336,27 +336,27 @@
 				>
 					<span class="flex min-w-0 items-center gap-2.5">
 						<span
-							class="grid size-7 shrink-0 place-items-center rounded-full text-[10px] font-semibold"
+							class="grid size-7 shrink-0 place-items-center rounded-full text-micro font-semibold"
 							style={avatarStyle(prof?.cor_indice ?? 1)}
 						>
 							{initials(prof?.nome ?? '—')}
 						</span>
-						<span class="truncate text-[13px] font-semibold">
+						<span class="truncate text-corpo font-semibold">
 							{professionalName(profs, pp.professional_id)}
 						</span>
 					</span>
 					<span
-						class="text-right font-mono text-[13px] font-semibold sm:order-none"
+						class="text-right font-mono text-corpo font-semibold sm:order-none"
 						title="Volume"
 					>
 						{pp.total}
 					</span>
-					<span class="hidden text-right font-mono text-[12.5px] text-muted sm:block">
+					<span class="hidden text-right font-mono text-rotulo text-muted sm:block">
 						{pp.faltas}
 					</span>
 					<span class="hidden text-right sm:block">
 						<span class="inline-flex items-center justify-end gap-1.5">
-							<span class="inline-block h-[7px] w-11 overflow-hidden rounded bg-surface-2">
+							<span class="inline-block h-[7px] w-11 overflow-hidden rounded-micro bg-surface-2">
 								<span
 									class="block h-full"
 									style="width:{pp.taxa_falta}%;background:{pp.taxa_falta > 20
@@ -365,7 +365,7 @@
 								></span>
 							</span>
 							<span
-								class="w-[30px] text-right font-mono text-[12px]"
+								class="w-[30px] text-right font-mono text-rotulo"
 								style="color:{pp.taxa_falta > 20 ? 'var(--color-danger)' : 'var(--color-muted)'}"
 							>
 								{pp.taxa_falta}%
@@ -375,7 +375,7 @@
 				</div>
 			{/each}
 			{#if !report.por_profissional.length}
-				<div class="border-t border-edge px-4 py-4 text-[13px] text-faint">Sem dados no período.</div>
+				<div class="border-t border-edge px-4 py-4 text-corpo text-faint">Sem dados no período.</div>
 			{/if}
 		</div>
 	</div>
@@ -383,6 +383,6 @@
 
 {#if explicando}
 	<Modal title="Como calculamos: {explicando.label}" onClose={() => (explicando = null)}>
-		<p class="text-[13.5px] leading-relaxed text-ink">{explicando.formula}</p>
+		<p class="text-corpo leading-relaxed text-ink">{explicando.formula}</p>
 	</Modal>
 {/if}

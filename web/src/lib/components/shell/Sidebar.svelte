@@ -237,31 +237,31 @@
 	     o lugar da marca; CNPJ e endereço entram como subtítulo. Sem nome (borda), cai na marca. -->
 	<div class="px-4 pb-1 pt-4">
 		{#if clinicName}
-			<div class="text-[17px] font-extrabold leading-tight tracking-tight">{clinicName}</div>
+			<div class="text-titulo font-extrabold leading-tight tracking-tight">{clinicName}</div>
 			{#if clinicCnpj}
-				<div class="mt-1 font-mono text-[11px] text-faint">{maskCnpj(clinicCnpj)}</div>
+				<div class="mt-1 font-mono text-meta text-faint">{maskCnpj(clinicCnpj)}</div>
 			{/if}
 			{#if clinicEndereco}
-				<div class="mt-0.5 flex items-start gap-1.5 text-[12px] text-faint">
+				<div class="mt-0.5 flex items-start gap-1.5 text-rotulo text-faint">
 					<MapPin size={11} class="mt-0.75 shrink-0" />
 					<span>{clinicEndereco}</span>
 				</div>
 			{/if}
 		{:else}
-			<span class="text-[17px] font-extrabold tracking-tight">Cinetra</span>
+			<span class="text-titulo font-extrabold tracking-tight">Cinetra</span>
 		{/if}
 	</div>
 
 	{#if title}
 		<div class="flex items-center gap-1.5 px-4 pb-2 pt-2.5">
-			<span class="text-[11px] font-bold uppercase tracking-[.06em] text-ink">{title}</span>
+			<span class="text-meta font-bold uppercase tracking-[.06em] text-ink">{title}</span>
 			<span class="size-[5px] rounded-full bg-accent"></span>
 		</div>
 	{/if}
 
 	{#if section === 'config'}
 		<nav aria-label="Configurações" class="flex-1 overflow-auto px-3 py-1">
-			<div class="px-2 pb-1.5 pt-3 text-[10.5px] font-bold uppercase tracking-[.06em] text-faint">
+			<div class="px-2 pb-1.5 pt-3 text-micro font-bold uppercase tracking-[.06em] text-faint">
 				Ajustes
 			</div>
 			{#each CONFIG_LINKS as link (link.href)}
@@ -270,7 +270,7 @@
 				<a
 					href={link.href}
 					aria-current={isActive ? 'page' : undefined}
-					class="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13px] {isActive
+					class="flex w-full items-center gap-2.5 rounded-controle px-2.5 py-[7px] text-corpo {isActive
 						? 'bg-surface-2 font-semibold text-ink'
 						: 'font-medium text-muted hover:bg-surface-2'}"
 				>
@@ -286,13 +286,13 @@
 			{#if canManageProf}
 				<a
 					href="/profissionais/novo"
-					class="mb-2 flex items-center justify-center gap-1.5 rounded-lg bg-ink px-3 py-2.5 text-[13px] font-semibold text-canvas hover:opacity-90"
+					class="mb-2 flex items-center justify-center gap-1.5 rounded-controle bg-ink px-3 py-2.5 text-corpo font-semibold text-canvas hover:opacity-90"
 				>
 					<Plus size={15} /> Novo profissional
 				</a>
 			{/if}
 
-			<div class="px-2 pb-1.5 pt-3 text-[10.5px] font-bold uppercase tracking-[.06em] text-faint">
+			<div class="px-2 pb-1.5 pt-3 text-micro font-bold uppercase tracking-[.06em] text-faint">
 				Filtrar
 			</div>
 			{#each PROF_FILTERS as fil (fil.key)}
@@ -300,14 +300,14 @@
 				<a
 					href="/profissionais?status={fil.key}"
 					aria-current={isActive ? 'page' : undefined}
-					class="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13px] {isActive
+					class="flex w-full items-center gap-2.5 rounded-controle px-2.5 py-[7px] text-corpo {isActive
 						? 'bg-surface-2 font-semibold text-ink'
 						: 'font-medium text-muted hover:bg-surface-2'}"
 				>
 					<span class={isActive ? 'text-accent-text' : 'text-faint'}><fil.icon size={15} /></span>
 					<span class="flex-1 truncate">{fil.label}</span>
 					{#if hasProfCounts}
-						<span class="font-mono text-[11px] text-faint">{profCounts[fil.key]}</span>
+						<span class="font-mono text-meta text-faint">{profCounts[fil.key]}</span>
 					{/if}
 				</a>
 			{/each}
@@ -317,7 +317,7 @@
 	{#if section === 'agenda'}
 		<div class="flex-1 overflow-auto px-3 py-1">
 			<div
-				class="flex items-center justify-between px-2 pb-1.5 pt-3 text-[10.5px] font-bold uppercase tracking-[.06em] text-faint"
+				class="flex items-center justify-between px-2 pb-1.5 pt-3 text-micro font-bold uppercase tracking-[.06em] text-faint"
 			>
 				<span>Profissionais</span>
 				{#if agendaHidden.length}
@@ -333,14 +333,14 @@
 					<a
 						href={toggleHref(prof.id)}
 						aria-label="{oculto ? 'Mostrar' : 'Ocultar'} {prof.nome}"
-						class="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13px] hover:bg-surface-2 {oculto
+						class="flex w-full items-center gap-2.5 rounded-controle px-2.5 py-[7px] text-corpo hover:bg-surface-2 {oculto
 							? 'text-faint'
 							: 'font-medium text-ink'}"
 					>
 						<!-- O ✓ herda `currentColor`, então quem decide a cor dele é o `avatarStyle`: branco
 						     cravado desaparecia sobre as cores claras da paleta (o âmbar dava 2,25:1). -->
 						<span
-							class="grid size-4 shrink-0 place-items-center rounded border {oculto
+							class="grid size-4 shrink-0 place-items-center rounded-micro border {oculto
 								? 'border-edge-strong'
 								: 'border-transparent'}"
 							style={oculto ? '' : avatarStyle(prof.cor_indice)}
@@ -351,7 +351,7 @@
 					</a>
 				{/each}
 			{:else}
-				<div class="px-2.5 py-2 text-[12.5px] text-faint">Nenhum profissional cadastrado.</div>
+				<div class="px-2.5 py-2 text-rotulo text-faint">Nenhum profissional cadastrado.</div>
 			{/if}
 		</div>
 	{/if}
@@ -361,13 +361,13 @@
 			{#if canManagePat}
 				<a
 					href="/pacientes/novo"
-					class="mb-2 flex items-center justify-center gap-1.5 rounded-lg bg-ink px-3 py-2.5 text-[13px] font-semibold text-canvas hover:opacity-90"
+					class="mb-2 flex items-center justify-center gap-1.5 rounded-controle bg-ink px-3 py-2.5 text-corpo font-semibold text-canvas hover:opacity-90"
 				>
 					<UserPlus size={15} /> Novo paciente
 				</a>
 			{/if}
 
-			<div class="px-2 pb-1.5 pt-3 text-[10.5px] font-bold uppercase tracking-[.06em] text-faint">
+			<div class="px-2 pb-1.5 pt-3 text-micro font-bold uppercase tracking-[.06em] text-faint">
 				Segmentos
 			</div>
 			{#each PAT_FILTERS as fil (fil.key)}
@@ -375,14 +375,14 @@
 				<a
 					href="/pacientes?filter={fil.key}"
 					aria-current={isActive ? 'page' : undefined}
-					class="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13px] {isActive
+					class="flex w-full items-center gap-2.5 rounded-controle px-2.5 py-[7px] text-corpo {isActive
 						? 'bg-surface-2 font-semibold text-ink'
 						: 'font-medium text-muted hover:bg-surface-2'}"
 				>
 					<span class={isActive ? 'text-accent-text' : 'text-faint'}><fil.icon size={15} /></span>
 					<span class="flex-1 truncate">{fil.label}</span>
 					{#if hasPatCounts}
-						<span class="font-mono text-[11px] text-faint">{patCounts[fil.key]}</span>
+						<span class="font-mono text-meta text-faint">{patCounts[fil.key]}</span>
 					{/if}
 				</a>
 			{/each}
@@ -394,13 +394,13 @@
 			{#if canManageFila}
 				<a
 					href="/fila?novo=1"
-					class="mb-2 flex items-center justify-center gap-1.5 rounded-lg bg-ink px-3 py-2.5 text-[13px] font-semibold text-canvas hover:opacity-90"
+					class="mb-2 flex items-center justify-center gap-1.5 rounded-controle bg-ink px-3 py-2.5 text-corpo font-semibold text-canvas hover:opacity-90"
 				>
 					<Plus size={15} /> Adicionar à fila
 				</a>
 			{/if}
 
-			<div class="px-2 pb-1.5 pt-3 text-[10.5px] font-bold uppercase tracking-[.06em] text-faint">
+			<div class="px-2 pb-1.5 pt-3 text-micro font-bold uppercase tracking-[.06em] text-faint">
 				Prioridade
 			</div>
 			{#each FILA_FILTERS as fil (fil.key)}
@@ -408,7 +408,7 @@
 				<a
 					href={filaHref(fil.key)}
 					aria-current={isActive ? 'page' : undefined}
-					class="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13px] {isActive
+					class="flex w-full items-center gap-2.5 rounded-controle px-2.5 py-[7px] text-corpo {isActive
 						? 'bg-surface-2 font-semibold text-ink'
 						: 'font-medium text-muted hover:bg-surface-2'}"
 				>
@@ -421,7 +421,7 @@
 						</span>
 					{/if}
 					<span class="flex-1 truncate">{fil.label}</span>
-					<span class="font-mono text-[11px] text-faint">{filaCounts[fil.key]}</span>
+					<span class="font-mono text-meta text-faint">{filaCounts[fil.key]}</span>
 				</a>
 			{/each}
 		</div>
@@ -429,14 +429,14 @@
 
 	{#if section === 'notificacoes'}
 		<div class="flex-1 overflow-auto px-3 py-1">
-			<div class="px-2 pb-1.5 pt-3 text-[10.5px] font-bold uppercase tracking-[.06em] text-faint">
+			<div class="px-2 pb-1.5 pt-3 text-micro font-bold uppercase tracking-[.06em] text-faint">
 				Filtrar
 			</div>
 
 			<a
 				href={notificationsHref(false)}
 				aria-current={!notifOnlyUnread ? 'page' : undefined}
-				class="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13px] {!notifOnlyUnread
+				class="flex w-full items-center gap-2.5 rounded-controle px-2.5 py-[7px] text-corpo {!notifOnlyUnread
 					? 'bg-surface-2 font-semibold text-ink'
 					: 'font-medium text-muted hover:bg-surface-2'}"
 			>
@@ -447,14 +447,14 @@
 			<a
 				href={notificationsHref(true)}
 				aria-current={notifOnlyUnread ? 'page' : undefined}
-				class="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13px] {notifOnlyUnread
+				class="flex w-full items-center gap-2.5 rounded-controle px-2.5 py-[7px] text-corpo {notifOnlyUnread
 					? 'bg-surface-2 font-semibold text-ink'
 					: 'font-medium text-muted hover:bg-surface-2'}"
 			>
 				<span class={notifOnlyUnread ? 'text-accent-text' : 'text-faint'}><BellDot size={15} /></span>
 				<span class="flex-1 truncate">Não lidas</span>
 				{#if notifUnread > 0}
-					<span class="font-mono text-[11px] text-faint">{notifUnread}</span>
+					<span class="font-mono text-meta text-faint">{notifUnread}</span>
 				{/if}
 			</a>
 		</div>
@@ -469,7 +469,7 @@
 				<a
 					{href}
 					aria-current={isActive ? 'page' : undefined}
-					class="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13px] {isActive
+					class="flex w-full items-center gap-2.5 rounded-controle px-2.5 py-[7px] text-corpo {isActive
 						? 'bg-surface-2 font-semibold text-ink'
 						: 'font-medium text-muted hover:bg-surface-2'}"
 				>
@@ -489,7 +489,7 @@
 			<!-- Ordem dos eixos: PERÍODO e AUTOR primeiro. "quando" e "quem" são as duas perguntas
 			     com que se chega na trilha ("o que houve esta semana", "o que fulano fez"); o
 			     recorte por registro e por ação é refinamento de quem já está olhando. -->
-			<div class="px-2 pb-1.5 pt-3 text-[10.5px] font-bold uppercase tracking-[.06em] text-faint">
+			<div class="px-2 pb-1.5 pt-3 text-micro font-bold uppercase tracking-[.06em] text-faint">
 				Período
 			</div>
 			{#each PERIOD_OPTIONS as per (per.key)}
@@ -502,7 +502,7 @@
 			{/each}
 
 			{#if audAutores.length}
-				<div class="px-2 pb-1.5 pt-3 text-[10.5px] font-bold uppercase tracking-[.06em] text-faint">
+				<div class="px-2 pb-1.5 pt-3 text-micro font-bold uppercase tracking-[.06em] text-faint">
 					Autor
 				</div>
 				{@render filtro(audHref({ autor: null }), 'Todos', !audAutor, Users)}
@@ -511,7 +511,7 @@
 				{/each}
 			{/if}
 
-			<div class="px-2 pb-1.5 pt-3 text-[10.5px] font-bold uppercase tracking-[.06em] text-faint">
+			<div class="px-2 pb-1.5 pt-3 text-micro font-bold uppercase tracking-[.06em] text-faint">
 				Registro
 			</div>
 			<!-- "Tudo" é o DEFAULT e vem primeiro: com doze recursos auditados, a pergunta que o
@@ -533,7 +533,7 @@
 				)}
 			{/each}
 
-			<div class="px-2 pb-1.5 pt-3 text-[10.5px] font-bold uppercase tracking-[.06em] text-faint">
+			<div class="px-2 pb-1.5 pt-3 text-micro font-bold uppercase tracking-[.06em] text-faint">
 				Ação
 			</div>
 			{@render filtro(audHref({ acao: null }), 'Todas', !audAction, SlidersHorizontal)}
@@ -545,7 +545,7 @@
 
 	{#if section === 'relatorios'}
 		<div class="flex-1 overflow-auto px-3 py-1">
-			<div class="px-2 pb-1.5 pt-3 text-[10.5px] font-bold uppercase tracking-[.06em] text-faint">
+			<div class="px-2 pb-1.5 pt-3 text-micro font-bold uppercase tracking-[.06em] text-faint">
 				Período
 			</div>
 			{#each REL_PERIODS as per (per.key)}
@@ -553,7 +553,7 @@
 				<a
 					href={relHref({ period: per.key })}
 					aria-current={isActive ? 'page' : undefined}
-					class="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13px] {isActive
+					class="flex w-full items-center gap-2.5 rounded-controle px-2.5 py-[7px] text-corpo {isActive
 						? 'bg-surface-2 font-semibold text-ink'
 						: 'font-medium text-muted hover:bg-surface-2'}"
 				>
@@ -562,13 +562,13 @@
 				</a>
 			{/each}
 
-			<div class="px-2 pb-1.5 pt-3 text-[10.5px] font-bold uppercase tracking-[.06em] text-faint">
+			<div class="px-2 pb-1.5 pt-3 text-micro font-bold uppercase tracking-[.06em] text-faint">
 				Profissional
 			</div>
 			<a
 				href={relHref({ prof: 'todos' })}
 				aria-current={relProf === 'todos' ? 'page' : undefined}
-				class="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13px] {relProf ===
+				class="flex w-full items-center gap-2.5 rounded-controle px-2.5 py-[7px] text-corpo {relProf ===
 				'todos'
 					? 'bg-surface-2 font-semibold text-ink'
 					: 'font-medium text-muted hover:bg-surface-2'}"
@@ -581,7 +581,7 @@
 				<a
 					href={relHref({ prof: prof.id })}
 					aria-current={isActive ? 'page' : undefined}
-					class="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13px] {isActive
+					class="flex w-full items-center gap-2.5 rounded-controle px-2.5 py-[7px] text-corpo {isActive
 						? 'bg-surface-2 font-semibold text-ink'
 						: 'font-medium text-muted hover:bg-surface-2'}"
 				>

@@ -1,9 +1,9 @@
 <script lang="ts">
+	import Button from '$lib/components/Button.svelte';
 	// Modal de tipo de atendimento, fiel ao modalTipo do protótipo (:2388): 480px, nome +
 	// grid [duração | cor], paleta de ícones, checkbox de grupo e capacidade condicional.
 	import { untrack } from 'svelte';
 	import { enhance } from '$app/forms';
-	import SubmitButton from '$lib/components/SubmitButton.svelte';
 	import { envio as criarEnvio } from '$lib/forms.svelte';
 	import Field from '$lib/components/Field.svelte';
 	import Modal from '$lib/components/Modal.svelte';
@@ -92,7 +92,7 @@
 							aria-label="Cor {col}"
 							aria-pressed={cor === col}
 							style="background:{col}"
-							class="size-7 rounded-[7px] border-[3px] {cor === col
+							class="size-7 rounded-controle border-[3px] {cor === col
 								? 'border-ink'
 								: 'border-transparent'}"
 						></button>
@@ -112,7 +112,7 @@
 						onclick={() => (icon = ic)}
 						aria-label="Ícone {ic}"
 						aria-pressed={on}
-						class="grid size-8.5 place-items-center rounded-[7px] border {on
+						class="grid size-8.5 place-items-center rounded-controle border {on
 							? 'border-accent-border bg-accent-subtle text-accent-text'
 							: 'border-edge bg-surface text-muted hover:bg-surface-2'}"
 					>
@@ -123,7 +123,7 @@
 		</Field>
 		<input type="hidden" name="icon" value={icon} />
 
-		<label class="mb-2.5 flex cursor-pointer items-center gap-2 text-[13px]">
+		<label class="mb-2.5 flex cursor-pointer items-center gap-2 text-corpo">
 			<input type="checkbox" bind:checked={grupo} class="size-4 accent-primary" />
 			Atendimento em grupo
 		</label>
@@ -143,7 +143,7 @@
 		{/if}
 
 		{#if error}
-			<p class="mt-3 text-[12.5px] font-medium text-danger">{error}</p>
+			<p class="mt-3 text-rotulo font-medium text-danger">{error}</p>
 		{/if}
 	</form>
 
@@ -151,17 +151,16 @@
 		<button
 			type="button"
 			onclick={onClose}
-			class="rounded-md border border-edge bg-surface px-4 py-2.25 text-[13.5px] font-semibold text-ink hover:bg-surface-2"
+			class="rounded-controle border border-edge bg-surface px-4 py-2.25 text-corpo font-semibold text-ink hover:bg-surface-2"
 		>
 			Cancelar
 		</button>
-		<SubmitButton
+		<Button type="submit"
 			emVoo={envio.emVoo}
 			form={formId}
 			disabled={nome.trim() === ''}
-			class="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2.25 text-[13.5px] font-semibold text-on-primary hover:bg-primary-hover disabled:opacity-60"
 		>
 			Salvar
-		</SubmitButton>
+		</Button>
 	{/snippet}
 </Modal>

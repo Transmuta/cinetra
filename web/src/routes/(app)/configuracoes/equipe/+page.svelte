@@ -89,7 +89,7 @@
 				trocaConteudo
 				title="Reenviar convite"
 				ariaLabel="Reenviar convite para {m.email}"
-				class="grid size-8 place-items-center rounded-md border border-edge bg-surface text-muted hover:bg-surface-2 disabled:opacity-60"
+				class="grid size-8 place-items-center rounded-controle border border-edge bg-surface text-muted hover:bg-surface-2 disabled:opacity-60"
 			>
 				<Send size={14} />
 			</SubmitButton>
@@ -99,7 +99,7 @@
 		type="button"
 		title="Editar"
 		onclick={() => (modal = { mode: 'edit', member: m })}
-		class="grid size-8 place-items-center rounded-md border border-edge bg-surface text-muted hover:bg-surface-2"
+		class="grid size-8 place-items-center rounded-controle border border-edge bg-surface text-muted hover:bg-surface-2"
 	>
 		<Pencil size={14} />
 	</button>
@@ -107,7 +107,7 @@
 		type="button"
 		title="Remover acesso"
 		onclick={() => (revoking = m)}
-		class="grid size-8 place-items-center rounded-md border border-edge bg-surface text-danger hover:bg-surface-2"
+		class="grid size-8 place-items-center rounded-controle border border-edge bg-surface text-danger hover:bg-surface-2"
 	>
 		<Trash2 size={14} />
 	</button>
@@ -115,11 +115,11 @@
 
 <div class="mx-auto max-w-[920px] px-4 py-4 md:px-6">
 	<!-- Membros da organização -->
-	<section class="mb-3 rounded-lg border border-edge bg-surface p-4">
+	<section class="mb-3 rounded-controle border border-edge bg-surface p-4">
 		<div class="mb-3.5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
 			<div class="min-w-0">
-				<h2 class="text-[14px] font-semibold">Membros da organização</h2>
-				<p class="mt-0.5 text-[12.5px] text-muted">
+				<h2 class="text-leitura font-semibold">Membros da organização</h2>
+				<p class="mt-0.5 text-rotulo text-muted">
 					Quem tem login e acesso ao sistema. Cada acesso tem um papel e, se for profissional, um
 					vínculo com a agenda.
 				</p>
@@ -128,7 +128,7 @@
 				<button
 					type="button"
 					onclick={() => (modal = { mode: 'invite', member: null })}
-					class="flex w-full items-center justify-center gap-1.5 rounded-md bg-primary px-3.5 py-2 text-[13px] font-semibold text-on-primary hover:bg-primary-hover sm:w-auto sm:shrink-0"
+					class="flex w-full items-center justify-center gap-1.5 rounded-controle bg-primary px-3.5 py-2 text-corpo font-semibold text-on-primary hover:bg-primary-hover sm:w-auto sm:shrink-0"
 				>
 					<UserPlus size={15} /> Convidar membro
 				</button>
@@ -139,7 +139,7 @@
 		     (sem botões) e as linhas (2 ou 3 botões) resolveriam os `fr` sobre larguras diferentes
 		     e as colunas sairiam do lugar. Padding horizontal igual ao das linhas. -->
 		<div
-			class="hidden grid-cols-[minmax(0,2fr)_minmax(0,1.3fr)_minmax(0,1.3fr)_112px] gap-2.5 px-1 pb-2 text-[11.5px] font-semibold text-faint md:grid"
+			class="hidden grid-cols-[minmax(0,2fr)_minmax(0,1.3fr)_minmax(0,1.3fr)_112px] gap-2.5 px-1 pb-2 text-meta font-semibold text-faint md:grid"
 		>
 			<span>Membro</span><span>Papel</span><span>Vínculo</span><span></span>
 		</div>
@@ -155,13 +155,13 @@
 				<div class="flex items-center gap-2.5">
 					<span class="flex min-w-0 flex-1 items-center gap-2.5">
 						<span
-							class="grid size-8 shrink-0 place-items-center rounded-full bg-surface-2 text-[11px] font-bold text-muted"
+							class="grid size-8 shrink-0 place-items-center rounded-full bg-surface-2 text-meta font-bold text-muted"
 						>
 							{initials(m.nome)}
 						</span>
 						<span class="min-w-0">
-							<span class="block truncate text-[13.5px] font-semibold">{m.nome}</span>
-							<span class="block truncate font-mono text-[11.5px] text-faint">{m.email}</span>
+							<span class="block truncate text-corpo font-semibold">{m.nome}</span>
+							<span class="block truncate font-mono text-meta text-faint">{m.email}</span>
 						</span>
 					</span>
 					{#if canManageRow}
@@ -181,7 +181,7 @@
 
 				<!-- vínculo (no mobile, oculto quando não há vínculo a mostrar) -->
 				<span
-					class="min-w-0 items-center gap-1.5 text-[12.5px] text-muted {m.papel === 'profissional'
+					class="min-w-0 items-center gap-1.5 text-rotulo text-muted {m.papel === 'profissional'
 						? 'flex'
 						: 'hidden md:flex'}"
 				>
@@ -211,23 +211,23 @@
 
 	<!-- Profissionais sem acesso (conceder acesso é gestão → só owner/admin) -->
 	{#if canManage && semAcesso.length}
-		<section class="rounded-lg border border-edge bg-surface p-4">
+		<section class="rounded-controle border border-edge bg-surface p-4">
 			<div class="mb-1 flex items-center gap-2">
 				<KeyRound size={15} class="text-faint" />
-				<h2 class="text-[14px] font-semibold">Profissionais sem acesso</h2>
+				<h2 class="text-leitura font-semibold">Profissionais sem acesso</h2>
 			</div>
-			<p class="mb-3 text-[12.5px] text-muted">
+			<p class="mb-3 text-rotulo text-muted">
 				Trabalham na clínica mas não fazem login. Conceda acesso quando precisarem gerenciar a
 				própria agenda.
 			</p>
 			{#each semAcesso as p (p.id)}
 				<div class="flex items-center gap-2.5 border-t border-edge py-2.5">
 					<span
-						class="grid size-7 shrink-0 place-items-center rounded-full bg-surface-2 text-[10px] font-bold text-muted"
+						class="grid size-7 shrink-0 place-items-center rounded-full bg-surface-2 text-micro font-bold text-muted"
 					>
 						{initials(p.nome)}
 					</span>
-					<div class="min-w-0 flex-1 truncate text-[13px] font-semibold">{p.nome}</div>
+					<div class="min-w-0 flex-1 truncate text-corpo font-semibold">{p.nome}</div>
 					<button
 						type="button"
 						onclick={() =>
@@ -242,7 +242,7 @@
 									professional_id: p.id
 								}
 							})}
-						class="flex shrink-0 items-center gap-1.5 rounded-md border border-edge bg-surface px-2.5 py-1.5 text-[12px] font-semibold text-accent-text hover:bg-surface-2"
+						class="flex shrink-0 items-center gap-1.5 rounded-controle border border-edge bg-surface px-2.5 py-1.5 text-rotulo font-semibold text-accent-text hover:bg-surface-2"
 					>
 						<UserPlus size={13} /> Conceder acesso
 					</button>

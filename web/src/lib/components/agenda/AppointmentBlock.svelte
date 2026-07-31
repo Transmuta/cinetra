@@ -186,7 +186,7 @@
 	       transition:opacity .15s;
 	       border-width:{conflict || action ? 1.5 : 1}px; border-left-width:3px;
 	       z-index:{conflict ? 3 : 2};"
-	class="absolute flex flex-col gap-0.5 overflow-hidden rounded-lg border border-solid px-1.5 py-1 text-left"
+	class="absolute flex flex-col gap-0.5 overflow-hidden rounded-controle border border-solid px-1.5 py-1 text-left"
 >
 	<div class="flex items-center gap-1.25">
 		<!-- Ponto e hora na cor do STATUS (Figura 2, regra 2). O ponto do profissional saiu
@@ -197,7 +197,7 @@
 			data-testid="status-dot"
 		></span>
 		<span
-			class="font-mono text-[10.5px] font-semibold tabular-nums"
+			class="font-mono text-micro font-semibold tabular-nums"
 			style="color:{corDoTom(sinal.tone)}">{startLabel}</span
 		>
 
@@ -225,7 +225,7 @@
 			>
 				<Icone size={11} />
 				{#if r.label}
-					<span class="text-[9px] font-bold tabular-nums">{r.label}</span>
+					<span class="text-micro font-bold tabular-nums">{r.label}</span>
 				{/if}
 			</span>
 		{/each}
@@ -235,13 +235,13 @@
 			     de 41px e aqui há ~20 — o que acontecia era o flex encolher a linha do nome para 9px
 			     e cortar o texto no meio, em silêncio. Numa linha só, cabe. O status vive no ponto,
 			     e o resto no `aria-label`. -->
-			<span class="truncate text-[10.5px] {sinal.strike ? 'text-faint line-through' : 'text-ink'}">
+			<span class="truncate text-micro {sinal.strike ? 'text-faint line-through' : 'text-ink'}">
 				{titulo}
 			</span>
 		{:else}
 			<span
 				data-testid="status-badge"
-				class="ml-auto truncate rounded px-1 py-px text-[9px] font-bold"
+				class="ml-auto truncate rounded-micro px-1 py-px text-micro font-bold"
 				style="color:{badge.tone
 					? `var(--color-${badge.tone}-text, var(--color-${badge.tone}))`
 					: 'var(--color-muted)'};
@@ -254,7 +254,7 @@
 
 	{#if linhas > 1}
 		<div
-			class="truncate text-[12px] font-semibold {sinal.strike
+			class="truncate text-rotulo font-semibold {sinal.strike
 				? 'text-faint line-through'
 				: 'text-ink'}"
 		>
@@ -264,7 +264,7 @@
 
 	{#if linhas > 2}
 		<div class="flex items-center gap-1">
-			<span class="min-w-0 flex-1 truncate text-[10px] text-faint">
+			<span class="min-w-0 flex-1 truncate text-micro text-faint">
 				{#if grupo}
 					{patientNames.slice(0, 3).join(', ')}{appt.patient_ids.length > 3
 						? ` +${appt.patient_ids.length - 3}`
@@ -287,7 +287,7 @@
 				<span
 					data-testid="package-badge"
 					title={pacote.title}
-					class="flex shrink-0 items-center gap-0.5 rounded bg-accent-subtle px-1 py-px text-[9.5px] font-bold text-accent-text"
+					class="flex shrink-0 items-center gap-0.5 rounded-micro bg-accent-subtle px-1 py-px text-micro font-bold text-accent-text"
 				>
 					<Package size={9} />
 					{pacote.label ?? ''}
@@ -301,6 +301,6 @@
 		     empurrar esta linha para o rodapé a desgrudava das outras três — na tela ela parecia
 		     legenda do bloco de baixo. As quatro linhas ficam juntas no topo, e a folga fica onde
 		     folga deve ficar: no fim. Só a imagem mostrou isso; a escada passava verde. -->
-		<div class="truncate text-[10px] font-medium text-muted">{vagas}</div>
+		<div class="truncate text-micro font-medium text-muted">{vagas}</div>
 	{/if}
 </button>

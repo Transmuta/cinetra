@@ -75,26 +75,26 @@
 </script>
 
 <Modal title="Sessões do pacote" {onClose} maxWidth="max-w-[480px]">
-	<div class="mb-3 flex items-center gap-2.5 rounded-[11px] border border-edge bg-surface2 px-3 py-2.5">
-		<span class="inline-block size-2.5 shrink-0 rounded-[3px]" style="background:{pkg.cor}"></span>
+	<div class="mb-3 flex items-center gap-2.5 rounded-cartao border border-edge bg-surface2 px-3 py-2.5">
+		<span class="inline-block size-2.5 shrink-0 rounded-micro" style="background:{pkg.cor}"></span>
 		<div class="min-w-0 flex-1">
-			<div class="truncate text-[13.5px] font-bold">{titulo}</div>
+			<div class="truncate text-corpo font-bold">{titulo}</div>
 		</div>
-		<span class="shrink-0 font-mono text-[13px] font-bold">
+		<span class="shrink-0 font-mono text-corpo font-bold">
 			{pkg.usadas ?? 0}/{pkg.total}
 		</span>
 	</div>
 
 	{#if erro}
-		<p class="py-6 text-center text-[12.5px] text-danger">
+		<p class="py-6 text-center text-rotulo text-danger">
 			Não foi possível carregar as sessões deste pacote.
 		</p>
 	{:else if sessoes === null}
-		<p class="flex items-center justify-center gap-2 py-6 text-[12.5px] text-faint">
+		<p class="flex items-center justify-center gap-2 py-6 text-rotulo text-faint">
 			<Loader size={15} class="animate-spin" /> Carregando…
 		</p>
 	{:else if sessoes.length === 0}
-		<p class="py-6 text-center text-[12.5px] text-faint">
+		<p class="py-6 text-center text-rotulo text-faint">
 			Nenhuma sessão materializada ainda — o agendamento roda em segundo plano.
 		</p>
 	{:else}
@@ -115,15 +115,15 @@
 					     que esta ficou segurada / faltou?" nasce, e a resposta está no drawer. -->
 					<a
 						href={appointmentHref(s.appointment_id, zonedParts(s.starts_at, timezone).date)}
-						class="flex items-center gap-2.5 rounded-md py-2 hover:bg-surface-2"
+						class="flex items-center gap-2.5 rounded-controle py-2 hover:bg-surface-2"
 					>
-						<span class="w-5 shrink-0 text-right font-mono text-[10px] text-faint">{i + 1}</span>
+						<span class="w-5 shrink-0 text-right font-mono text-micro text-faint">{i + 1}</span>
 						<span
 							class="box-border size-3.5 shrink-0 rounded-full border-2 {ESTADO[s.estado].classe}"
 							style={ESTADO[s.estado].estilo}
 						></span>
-						<span class="min-w-0 flex-1 text-[12.5px] font-medium">{quando(s.starts_at)}</span>
-						<span class="shrink-0 text-[11.5px] font-semibold text-muted">
+						<span class="min-w-0 flex-1 text-rotulo font-medium">{quando(s.starts_at)}</span>
+						<span class="shrink-0 text-meta font-semibold text-muted">
 							{ESTADO[s.estado].label}
 						</span>
 					</a>
@@ -136,7 +136,7 @@
 		<button
 			type="button"
 			onclick={onClose}
-			class="rounded-lg border border-edge px-3.5 py-2 text-[13px] font-semibold hover:bg-surface-2"
+			class="rounded-controle border border-edge px-3.5 py-2 text-corpo font-semibold hover:bg-surface-2"
 		>
 			Fechar
 		</button>

@@ -370,7 +370,7 @@
 				<div class="relative" data-testid="hour-gutter" style="height:{gridH}px">
 					{#each horas as h (h)}
 						<span
-							class="absolute right-2 -translate-y-1/2 font-mono text-[10.5px] tabular-nums text-faint"
+							class="absolute right-2 -translate-y-1/2 font-mono text-micro tabular-nums text-faint"
 							style="top:{topDe(h)}px">{rotuloHora(h)}</span
 						>
 					{/each}
@@ -393,14 +393,14 @@
 					>
 						<div class="flex items-center gap-2">
 							<span
-								class="grid size-6.5 shrink-0 place-items-center rounded-full text-[10px] font-bold"
+								class="grid size-6.5 shrink-0 place-items-center rounded-full text-micro font-bold"
 								style={avatarStyle(col.prof.cor_indice)}
 							>
 								{initials(col.prof.nome)}
 							</span>
 							<div class="min-w-0 flex-1">
-								<div class="truncate text-[13px] font-semibold">{col.prof.nome}</div>
-								<div class="truncate font-mono text-[10px] text-faint">
+								<div class="truncate text-corpo font-semibold">{col.prof.nome}</div>
+								<div class="truncate font-mono text-micro text-faint">
 									{col.prof.crefito ?? ''}
 								</div>
 							</div>
@@ -409,13 +409,13 @@
 								     máxima e acende até com encaixe. Um aviso booleano não mente. -->
 								<span
 									title="Conflito de horário nesta coluna"
-									class="inline-flex items-center gap-0.75 rounded px-1 py-0.5 text-[9.5px] font-bold text-danger"
+									class="inline-flex items-center gap-0.75 rounded-micro px-1 py-0.5 text-micro font-bold text-danger"
 									style="background:color-mix(in srgb, var(--color-danger) 14%, transparent)"
 								>
 									<TriangleAlert size={11} />
 								</span>
 							{/if}
-							<span class="font-mono text-[10px] font-semibold text-muted">{col.ativos}</span>
+							<span class="font-mono text-micro font-semibold text-muted">{col.ativos}</span>
 						</div>
 
 						<!-- HOM-021 é sobre relatórios, mas a queixa é a mesma aqui: número sem
@@ -482,10 +482,10 @@
 							     bloco pousa — o par do bloco de origem esmaecido. -->
 							<div
 								data-testid="drag-ghost"
-								class="pointer-events-none absolute inset-x-1 z-9 flex items-start rounded-lg border-2 border-dashed border-accent bg-accent/12 px-1.5 py-1"
+								class="pointer-events-none absolute inset-x-1 z-9 flex items-start rounded-controle border-2 border-dashed border-accent bg-accent/12 px-1.5 py-1"
 								style="top:{topDe(drag.startMin)}px; height:{Math.max(drag.dur * PPM - 2, 18)}px"
 							>
-								<span class="font-mono text-[10.5px] font-semibold text-accent-text">{drag.hora}</span>
+								<span class="font-mono text-micro font-semibold text-accent-text">{drag.hora}</span>
 							</div>
 						{/if}
 					</div>
@@ -505,7 +505,7 @@
 				     recuo é limitado pela calha: 44 no modo largo, 34 no estreito. Aqui o ":00" não
 				     pode sumir (é o minuto do agora), o selo é que se ajusta. -->
 				<span
-					class="absolute -top-2.25 rounded bg-accent px-1.25 font-mono text-[10px] font-semibold text-on-solid"
+					class="absolute -top-2.25 rounded-micro bg-accent px-1.25 font-mono text-micro font-semibold text-on-solid"
 					style="left:{-Math.min(GUTTER, 44)}px"
 				>
 					{m2t(agoraMin)}

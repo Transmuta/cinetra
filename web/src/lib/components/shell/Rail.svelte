@@ -62,7 +62,7 @@
 		href="/"
 		title="Cinetra"
 		aria-label="Cinetra — página inicial"
-		class="mb-2.5 grid size-[34px] place-items-center rounded-[9px] bg-white"
+		class="mb-2.5 grid size-[34px] place-items-center rounded-controle bg-white"
 	>
 		<Mark class="size-6" />
 	</a>
@@ -74,7 +74,7 @@
 			href={item.href}
 			title={item.label}
 			aria-current={isActive ? 'page' : undefined}
-			class="relative grid size-10 place-items-center rounded-lg transition-colors {isActive
+			class="relative grid size-10 place-items-center rounded-controle transition-colors {isActive
 				? 'bg-rail-item text-white'
 				: 'text-white/60 hover:bg-rail-item/60 hover:text-white'}"
 		>
@@ -93,14 +93,14 @@
 		title="Notificações"
 		aria-label={unread > 0 ? `Notificações (${unread} não lidas)` : 'Notificações'}
 		aria-current={notificacoesActive ? 'page' : undefined}
-		class="relative grid size-10 place-items-center rounded-lg transition-colors {notificacoesActive
+		class="relative grid size-10 place-items-center rounded-controle transition-colors {notificacoesActive
 			? 'bg-rail-item text-white'
 			: 'text-white/60 hover:bg-rail-item/60 hover:text-white'}"
 	>
 		<Bell size={18} />
 		{#if unread > 0}
 			<span
-				class="absolute -right-0.5 -top-0.5 grid h-3.75 min-w-3.75 place-items-center rounded-full border-[1.5px] border-rail bg-accent px-0.75 text-[9px] font-semibold leading-none text-on-solid"
+				class="absolute -right-0.5 -top-0.5 grid h-3.75 min-w-3.75 place-items-center rounded-full border-[1.5px] border-rail bg-accent px-0.75 text-micro font-semibold leading-none text-on-solid"
 			>
 				{badge}
 			</span>
