@@ -144,3 +144,94 @@ describe('ProfessionalForm — edição', () => {
 		expect(tels[1].value).toBe('(11) 3333-4444');
 	});
 });
+
+/**
+ * O vão que o doc 94 §4.7 mediu: 754 linhas para **10 `it`**, contra 823 e 25 do gêmeo
+ * `PatientForm`. E não era "este componente é mais simples" — rodando os títulos lado a lado, o
+ * que faltava eram exatamente as classes que o outro cobre: validação de campo, estado de erro
+ * do servidor e semântica de a11y.
+ *
+ * Metade dos testes de um provava o código do outro **por cópia, não por reúso**. Agora que o
+ * CEP e a coluna de seções são módulos compartilhados e testados, o que sobra aqui é o que é
+ * mesmo do profissional — e é isto.
+ */
+describe('ProfessionalForm — o que barra o salvar', () => {
+	interface Q {
+		getByPlaceholderText(text: string): HTMLElement;
+		getByLabelText(text: RegExp | string): HTMLElement;
+		getByRole(role: string, opts?: { name?: string | RegExp }): HTMLElement;
+		getByText(text: RegExp | string): HTMLElement;
+	}
+
+	async function preencherMinimo(r: Q) {
+		await fireEvent.input(r.getByPlaceholderText('Nome do profissional'), {
+			target: { value: 'Rafael Couto' }
+		});
+		await fireEvent.input(r.getByLabelText(/Celular \/ WhatsApp/), { target: { value: '11987654321' } });
+	}
+
+	it('com nome e telefone, salva', async () => {
+		const r = render(ProfessionalForm, { props: { clinicHours } });
+		await preencherMinimo(r);
+
+		expect(r.getByRole('button', { name: 'Cadastrar profissional' })).toBeEnabled();
+	});
+
+	/**
+	 * O profissional que não atende em dia nenhum não é um cadastro incompleto — é um cadastro que
+	 * não pode existir: ele nunca apareceria como coluna da agenda, e a recepção não teria como
+	 * descobrir por quê.
+	 */
+	it('sem NENHUM dia de atendimento, desabilita e o rodapé diz o porquê', async () => {
+		const r = render(ProfessionalForm, { props: { clinicHours } });
+		await preencherMinimo(r);
+
+		// Desligar "seguir a clínica" revela a grade; com todos os dias fechados, não há atendimento.
+		await fireEvent.click(r.getByRole('switch', { name: /Seguir o horário da clínica/ }));
+
+		for (const dia of Array.from(
+			document.querySelectorAll<HTMLElement>('[role="switch"][aria-checked="true"]')
+		)) {
+			if (!/Seguir o horário/.test(dia.getAttribute('aria-label') ?? '')) await fireEvent.click(dia);
+		}
+
+		expect(r.getByRole('button', { name: 'Cadastrar profissional' })).toBeDisabled();
+		// Pelo PAPEL, e não por texto solto: o rodapé precisa ANUNCIAR, não só mostrar.
+		expect(r.getByRole('alert')).toHaveTextContent(/ao menos um dia de atendimento/i);
+	});
+
+	it('telefone pela metade desabilita e explica — não é o 422 depois da viagem', async () => {
+		const r = render(ProfessionalForm, { props: { clinicHours } });
+		await fireEvent.input(r.getByPlaceholderText('Nome do profissional'), {
+			target: { value: 'Rafael Couto' }
+		});
+		await fireEvent.input(r.getByLabelText(/Celular \/ WhatsApp/), { target: { value: '1198765' } });
+
+		expect(r.getByRole('button', { name: 'Cadastrar profissional' })).toBeDisabled();
+		expect(r.getByRole('alert')).toHaveTextContent(/Telefone incompleto/i);
+	});
+});
+
+describe('ProfessionalForm — o rodapé fala com quem não vê a tela', () => {
+	/**
+	 * ACC-04: o erro do servidor ficava numa faixa que sumia em larguras pequenas, e em nenhuma
+	 * delas era live region — quem usa leitor de tela não recebia nada. O par do teste gêmeo.
+	 */
+	it('o erro do servidor é anunciado e aparece em QUALQUER largura', () => {
+		const { getByRole } = render(ProfessionalForm, {
+			props: { clinicHours, error: 'CREFITO já cadastrado para outro profissional.' }
+		});
+
+		const aviso = getByRole('alert');
+		expect(aviso).toHaveTextContent('CREFITO já cadastrado para outro profissional.');
+		expect(aviso.className).not.toContain('hidden');
+		expect(aviso.className).not.toContain('md:flex');
+	});
+
+	it('a DICA neutra não é alert (senão o leitor de tela a anunciaria a cada toque)', () => {
+		const { queryByRole, getByText } = render(ProfessionalForm, { props: { clinicHours } });
+
+		expect(queryByRole('alert')).toBeNull();
+		expect(getByText(/Nome e telefone são obrigatórios/)).toBeInTheDocument();
+	});
+});

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import Button from '$lib/components/Button.svelte';
+	import FichaShell from '$lib/components/FichaShell.svelte';
 	import { CONTROL_CLASS, CONTROL_PX, CONTROL_H } from '$lib/components/Field.svelte';
 	// Ficha do paciente, fiel a `renderPacienteForm` (:2010): painel de altura cheia com
 	// cabeçalho (avatar + barra de progresso X/Y), coluna "SEÇÕES" com contador por seção,
@@ -10,7 +10,6 @@
 	import { enhance } from '$app/forms';
 	import { ERRO_DE_REDE } from '$lib/forms.svelte';
 	import type { SubmitFunction } from '@sveltejs/kit';
-	import ChevronLeft from '@lucide/svelte/icons/chevron-left';
 	import User from '@lucide/svelte/icons/user';
 	import MapPin from '@lucide/svelte/icons/map-pin';
 	import Siren from '@lucide/svelte/icons/siren';
@@ -23,13 +22,12 @@
 	import X from '@lucide/svelte/icons/x';
 	import Plus from '@lucide/svelte/icons/plus';
 	import UserSearch from '@lucide/svelte/icons/user-search';
-	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 	import { initials } from '$lib/format';
 	import { avatarStyle } from '$lib/avatar';
 	import { patientColor, idade, stripTitle, emailValido, nascimentoValido, type Patient } from '$lib/patients';
 	import { profColor, type Professional } from '$lib/professionals';
 	import { maskCpf, maskTel, maskCep, maskMy, maskUf } from '$lib/masks';
-	import { lookupCep, type CepStatus } from '$lib/cep';
+	import { criarCep } from '$lib/cep.svelte';
 	import { formatarTelefone, recebeWhatsapp, telefoneValido } from '$lib/telefone';
 	import { isValidCpf } from '$lib/cpf';
 
@@ -216,31 +214,10 @@
 		}
 	}
 
-	// CEP → autopreenchimento pelo BFF, com status e guarda de requisição obsoleta.
-	let cepStatus = $state<CepStatus>(null);
-	let cepReq = '';
-	async function runCepLookup(cep: string) {
-		const d = cep.replace(/\D/g, '');
-		if (d.length !== 8) {
-			cepStatus = null;
-			return;
-		}
-		cepReq = d;
-		cepStatus = 'loading';
-		const { status, address } = await lookupCep(d);
-		if (cepReq !== d) return;
-		cepStatus = status;
-		if (status === 'ok' && address) {
-			if (address.endereco) f.endereco = address.endereco;
-			if (address.bairro) f.bairro = address.bairro;
-			if (address.cidade) f.cidade = address.cidade;
-			if (address.uf) f.uf = address.uf;
-		}
-	}
-	function onCepInput(e: Event & { currentTarget: HTMLInputElement }) {
-		f.cep = maskCep(e.currentTarget.value);
-		runCepLookup(f.cep);
-	}
+	// CEP → autopreenchimento pelo BFF, com status na tela e guarda de resposta atrasada. A
+	// máquina inteira mora em `$lib/cep.svelte`: era escrita duas vezes, byte a byte a menos do
+	// nome de uma variável local (doc 94 §D-1), e nenhuma das duas cópias tinha teste próprio.
+	const cep = criarCep(f);
 
 	// ---- Validação: nome e telefone são obrigatórios ----
 	const nomeOk = $derived(f.nome.trim().length > 0);
@@ -341,24 +318,6 @@
 		{ id: 'clinico', icon: Stethoscope, t: 'Preferências clínicas', sub: 'Profissional preferido e condições', total: 2 },
 		{ id: 'consentimento', icon: ShieldCheck, t: 'Consentimento', sub: 'Autorizações LGPD e contato', total: 2 }
 	] as const;
-	const totalKeys = SECTIONS.reduce((a, s) => a + s.total, 0);
-	const totalFilled = $derived(Object.values(counts).reduce((a: number, b: number) => a + b, 0));
-
-	// ---- Navegação lateral com scroll-spy ----
-	let active = $state('ident');
-	let scrollEl = $state<HTMLElement | null>(null);
-	function onScroll() {
-		if (!scrollEl) return;
-		let cur = SECTIONS[0].id as string;
-		for (const s of SECTIONS) {
-			const el = document.getElementById(`sec-${s.id}`);
-			if (el && el.getBoundingClientRect().top - scrollEl.getBoundingClientRect().top - 56 <= 0) cur = s.id;
-		}
-		active = cur;
-	}
-	function goSec(id: string) {
-		document.getElementById(`sec-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-	}
 
 	const inputCls = `${CONTROL_CLASS} ${CONTROL_PX} ${CONTROL_H} w-full`;
 </script>
@@ -390,63 +349,21 @@
 <form method="POST" action="?/save" use:enhance={submit} class="flex h-full flex-col bg-canvas">
 	<input type="hidden" name="ficha" value={JSON.stringify(fichaPayload())} />
 
-	<!-- Cabeçalho do painel -->
-	<header class="flex shrink-0 items-center gap-3.5 border-b border-edge bg-surface px-4 py-3 md:px-6">
-		<a
-			href={editing ? `/pacientes/${patient?.id}` : '/pacientes'}
-			title="Voltar"
-			class="grid size-[34px] shrink-0 place-items-center rounded-controle border border-edge bg-surface text-muted hover:bg-surface-2"
-		>
-			<ChevronLeft size={18} />
-		</a>
-		<span
-			class="grid size-[42px] shrink-0 place-items-center rounded-full text-titulo font-bold"
-			style={avatarStyle(corIndice)}
-		>
-			{f.nome.trim() ? initials(f.nome) : '?'}
-		</span>
-		<div class="min-w-0 flex-1">
-			<div class="truncate text-titulo font-bold md:text-destaque">
-				{f.nome.trim() || (editing ? 'Editar paciente' : 'Novo paciente')}
-			</div>
-			<div class="text-rotulo text-faint">
-				{editing ? 'Editando ficha cadastral' : 'Cadastro de novo paciente'}{idadeVal !== null ? ` · ${idadeVal} anos` : ''}
-			</div>
-		</div>
-		<div class="hidden shrink-0 items-center gap-2.5 md:flex">
-			<div class="h-1.5 w-[120px] overflow-hidden rounded-micro bg-surface-2">
-				<div class="h-full bg-accent transition-all" style="width:{(totalFilled / totalKeys) * 100}%"></div>
-			</div>
-			<span class="font-mono text-meta text-faint">{totalFilled}/{totalKeys}</span>
-		</div>
-	</header>
-
-	<div class="flex min-h-0 flex-1">
-		<!-- SEÇÕES (desktop) -->
-		<nav class="hidden w-[236px] shrink-0 overflow-y-auto border-r border-edge bg-surface p-3 md:block">
-			<div class="px-2 pb-2 text-micro font-bold text-faint">SEÇÕES</div>
-			<div class="flex flex-col gap-0.5">
-				{#each SECTIONS as s (s.id)}
-					{@const on = active === s.id}
-					{@const cnt = counts[s.id as keyof typeof counts]}
-					<button
-						type="button"
-						onclick={() => goSec(s.id)}
-						class="flex items-center gap-2.5 rounded-controle px-2.5 py-2 text-left text-corpo {on
-							? 'bg-accent-subtle font-bold text-accent-text'
-							: 'font-medium text-muted hover:bg-surface-2'}"
-					>
-						<s.icon size={16} />
-						<span class="min-w-0 flex-1 truncate">{s.t}</span>
-						{#if cnt}<span class="size-[7px] shrink-0 rounded-full bg-accent"></span>{/if}
-					</button>
-				{/each}
-			</div>
-		</nav>
-
-		<!-- Cartões -->
-		<div bind:this={scrollEl} onscroll={onScroll} class="min-h-0 flex-1 overflow-y-auto p-4 md:p-6">
-			<div class="mx-auto max-w-[720px] space-y-3.5 pb-4">
+	<FichaShell
+		voltarHref={editing ? `/pacientes/${patient?.id}` : '/pacientes'}
+		titulo={editing ? 'Editar paciente' : 'Novo paciente'}
+		subtitulo={(editing ? 'Editando ficha cadastral' : 'Cadastro de novo paciente') +
+			(idadeVal !== null ? ` · ${idadeVal} anos` : '')}
+		nome={f.nome}
+		{corIndice}
+		secoes={SECTIONS}
+		{counts}
+		{problema}
+		dica="Nome e telefone são obrigatórios — o resto pode ficar para depois."
+		acaoRotulo={editing ? 'Salvar' : 'Cadastrar paciente'}
+		acaoDesabilitada={!nomeOk || !telOk || !identOk}
+		emVoo={submitting}
+	>
 				<!-- 1. Identificação -->
 				<section id="sec-ident" class="scroll-mt-4 rounded-cartao border border-edge bg-surface p-5">
 					{@render cardHead(User, SECTIONS[0].t, SECTIONS[0].sub, counts.ident, SECTIONS[0].total)}
@@ -550,26 +467,26 @@
 					<div class="grid grid-cols-1 gap-3 md:grid-cols-[0.9fr_2.3fr]">
 						<label class="block">
 							{@render label('CEP')}
-							<input value={f.cep} oninput={onCepInput} onblur={() => runCepLookup(f.cep)} inputmode="numeric" placeholder="00000-000" class="{inputCls} font-mono" />
+							<input value={f.cep} oninput={cep.aoDigitar} onblur={() => cep.consultar(f.cep)} inputmode="numeric" placeholder="00000-000" class="{inputCls} font-mono" />
 						</label>
 						<label class="block">
 							{@render label('Endereço residencial')}
 							<input bind:value={f.endereco} placeholder="Preenchido automaticamente pelo CEP" class={inputCls} />
 						</label>
 					</div>
-					{#if cepStatus}
+					{#if cep.status}
 						<span
-							class="mt-1 block text-meta {cepStatus === 'ok'
+							class="mt-1 block text-meta {cep.status === 'ok'
 								? 'text-accent-text'
-								: cepStatus === 'loading'
+								: cep.status === 'loading'
 									? 'text-muted'
 									: 'text-danger'}"
 						>
-							{cepStatus === 'loading'
+							{cep.status === 'loading'
 								? 'Buscando endereço…'
-								: cepStatus === 'ok'
+								: cep.status === 'ok'
 									? 'Endereço preenchido pelo CEP'
-									: cepStatus === 'notfound'
+									: cep.status === 'notfound'
 										? 'CEP não encontrado — preencha manualmente'
 										: 'Não foi possível consultar o CEP agora'}
 						</span>
@@ -779,45 +696,5 @@
 						</span>
 					</label>
 				</section>
-			</div>
-		</div>
-	</div>
-
-	<!-- Rodapé fixo -->
-	<footer class="flex shrink-0 items-center gap-3 border-t border-edge bg-surface px-4 py-3 md:px-6">
-		<!--
-			ACC-04 (doc 83): problema e DICA são coisas diferentes, e antes dividiam o mesmo `<span
-			class="hidden … md:flex">`. Consequências, as duas medidas: no celular o 422 do servidor
-			não aparecia em lugar nenhum (o espaço dele era um `<div>` vazio), e em nenhuma largura
-			havia live region, então o leitor de tela nunca recebia o erro.
-
-			Agora: **problema** é `role="alert"` e visível em qualquer largura; **dica** continua só no
-			desktop (esconder uma dica não custa tarefa) e sem `role`, senão o leitor a anunciaria a
-			cada tecla digitada.
-		-->
-		{#if problema}
-			<span role="alert" class="flex flex-1 items-center gap-1.5 text-rotulo text-danger">
-				<TriangleAlert size={14} class="shrink-0" /> {problema}
-			</span>
-		{:else}
-			<!-- Era "nenhum campo é obrigatório", e a frase sobreviveu à `TelObrigatorio`: o
-			     asterisco já estava no rótulo do telefone e o rodapé seguia prometendo o
-			     contrário, na mesma tela. -->
-			<span class="hidden flex-1 items-center gap-1.5 text-rotulo text-faint md:flex">
-				Nome e telefone são obrigatórios — o resto pode ficar para depois.
-			</span>
-			<div class="flex-1 md:hidden"></div>
-		{/if}
-		<a
-			href={editing ? `/pacientes/${patient?.id}` : '/pacientes'}
-			class="rounded-controle border border-edge bg-surface px-4 py-2 text-corpo font-semibold text-ink hover:bg-surface-2"
-			>Cancelar</a
-		>
-		<Button type="submit"
-			emVoo={submitting}
-			disabled={!nomeOk || !telOk || !identOk}
-		>
-			{editing ? 'Salvar' : 'Cadastrar paciente'}
-		</Button>
-	</footer>
+	</FichaShell>
 </form>

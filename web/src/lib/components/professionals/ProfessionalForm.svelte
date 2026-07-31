@@ -1,5 +1,5 @@
 <script lang="ts">
-	import Button from '$lib/components/Button.svelte';
+	import FichaShell from '$lib/components/FichaShell.svelte';
 	import { CONTROL_CLASS, CONTROL_PX, CONTROL_H } from '$lib/components/Field.svelte';
 	// Ficha do profissional, fiel a `renderProfForm` (:2955): painel de altura cheia com
 	// cabeçalho (avatar + barra de progresso X/Y), coluna "SEÇÕES" com contador por seção,
@@ -11,7 +11,6 @@
 	import ConflictsModal from '$lib/components/scheduling/ConflictsModal.svelte';
 	import { parseFutureConflicts, type FutureConflicts } from '$lib/scheduling-conflicts';
 	import type { SubmitFunction } from '@sveltejs/kit';
-	import ChevronLeft from '@lucide/svelte/icons/chevron-left';
 	import User from '@lucide/svelte/icons/user';
 	import MapPin from '@lucide/svelte/icons/map-pin';
 	import Stethoscope from '@lucide/svelte/icons/stethoscope';
@@ -19,10 +18,10 @@
 	import CalendarClock from '@lucide/svelte/icons/calendar-clock';
 	import Palette from '@lucide/svelte/icons/palette';
 	import CalendarOff from '@lucide/svelte/icons/calendar-off';
+	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 	import Clock from '@lucide/svelte/icons/clock';
 	import Check from '@lucide/svelte/icons/check';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
-	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 	import SwitchToggle from '$lib/components/scheduling/SwitchToggle.svelte';
 	import PeriodEditor from '$lib/components/scheduling/PeriodEditor.svelte';
 	import ProfessionalHoursEditor from './ProfessionalHoursEditor.svelte';
@@ -42,7 +41,7 @@
 	} from '$lib/professionals';
 	import { validateDayPeriods, formatDate, formatPeriods, type Period } from '$lib/scheduling';
 	import { maskCpf, maskTel, maskCep, maskCnpj, maskAno, maskUf } from '$lib/masks';
-	import { lookupCep, type CepStatus } from '$lib/cep';
+	import { criarCep } from '$lib/cep.svelte';
 	import { formatarTelefone, telefoneValido } from '$lib/telefone';
 
 	let {
@@ -140,34 +139,9 @@
 			: [...especialidades, t];
 	}
 
-	// CEP → autopreenchimento (endereço/bairro/cidade/UF) pelo BFF, com status e guarda de
-	// requisição obsoleta (o usuário pode mudar o CEP no meio da consulta), como no protótipo.
-	let cepStatus = $state<CepStatus>(null);
-	let cepReq = '';
-
-	async function runCepLookup(cep: string) {
-		const digits = cep.replace(/\D/g, '');
-		if (digits.length !== 8) {
-			cepStatus = null;
-			return;
-		}
-		cepReq = digits;
-		cepStatus = 'loading';
-		const { status, address } = await lookupCep(digits);
-		if (cepReq !== digits) return; // um novo CEP foi digitado durante a consulta
-		cepStatus = status;
-		if (status === 'ok' && address) {
-			if (address.endereco) f.endereco = address.endereco;
-			if (address.bairro) f.bairro = address.bairro;
-			if (address.cidade) f.cidade = address.cidade;
-			if (address.uf) f.uf = address.uf;
-		}
-	}
-
-	function onCepInput(e: Event & { currentTarget: HTMLInputElement }) {
-		f.cep = maskCep(e.currentTarget.value);
-		runCepLookup(f.cep);
-	}
+	// CEP → autopreenchimento pelo BFF, com status na tela e guarda de resposta atrasada. Ver a
+	// nota gêmea no `PatientForm`: a máquina mora em `$lib/cep.svelte` (doc 94 §D-1).
+	const cep = criarCep(f);
 
 	// ---- Validação: nome, telefone e horário obrigatórios ----
 	const nomeOk = $derived(f.nome.trim().length > 0);
@@ -263,25 +237,6 @@
 		{ id: 'horario', icon: CalendarClock, t: 'Horário de atendimento', sub: 'Disponibilidade na agenda', total: 1 },
 		{ id: 'cor', icon: Palette, t: 'Cor & status', sub: 'Aparência na agenda e situação', total: 2 }
 	] as const;
-	const totalKeys = SECTIONS.reduce((a, s) => a + s.total, 0);
-	const totalFilled = $derived(Object.values(counts).reduce((a: number, b: number) => a + b, 0));
-
-	// ---- Navegação lateral com scroll-spy ----
-	let active = $state('ident');
-	let scrollEl = $state<HTMLElement | null>(null);
-
-	function onScroll() {
-		if (!scrollEl) return;
-		let cur = SECTIONS[0].id as string;
-		for (const s of SECTIONS) {
-			const el = document.getElementById(`sec-${s.id}`);
-			if (el && el.getBoundingClientRect().top - scrollEl.getBoundingClientRect().top - 56 <= 0) cur = s.id;
-		}
-		active = cur;
-	}
-	function goSec(id: string) {
-		document.getElementById(`sec-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-	}
 
 	const inputCls = `${CONTROL_CLASS} ${CONTROL_PX} ${CONTROL_H} w-full`;
 </script>
@@ -325,63 +280,20 @@
 	<input type="hidden" name="ativo" value={ativo} />
 	<input type="hidden" name="original_ativo" value={originalAtivo} />
 
-	<!-- Cabeçalho do painel -->
-	<header class="flex shrink-0 items-center gap-3.5 border-b border-edge bg-surface px-4 py-3 md:px-6">
-		<a
-			href="/profissionais"
-			title="Voltar"
-			class="grid size-[34px] shrink-0 place-items-center rounded-controle border border-edge bg-surface text-muted hover:bg-surface-2"
-		>
-			<ChevronLeft size={18} />
-		</a>
-		<span
-			class="grid size-[42px] shrink-0 place-items-center rounded-full text-titulo font-bold"
-			style={avatarStyle(corIndice)}
-		>
-			{f.nome.trim() ? initials(f.nome) : '?'}
-		</span>
-		<div class="min-w-0 flex-1">
-			<div class="truncate text-titulo font-bold md:text-destaque">
-				{f.nome.trim() || (editing ? 'Editar profissional' : 'Novo profissional')}
-			</div>
-			<div class="text-rotulo text-faint">
-				{editing ? 'Editando cadastro profissional' : 'Cadastro de novo profissional'}
-			</div>
-		</div>
-		<div class="hidden shrink-0 items-center gap-2.5 md:flex">
-			<div class="h-1.5 w-[120px] overflow-hidden rounded-micro bg-surface-2">
-				<div class="h-full bg-accent transition-all" style="width:{(totalFilled / totalKeys) * 100}%"></div>
-			</div>
-			<span class="font-mono text-meta text-faint">{totalFilled}/{totalKeys}</span>
-		</div>
-	</header>
-
-	<div class="flex min-h-0 flex-1">
-		<!-- SEÇÕES (desktop) -->
-		<nav class="hidden w-[236px] shrink-0 overflow-y-auto border-r border-edge bg-surface p-3 md:block">
-			<div class="px-2 pb-2 text-micro font-bold text-faint">SEÇÕES</div>
-			<div class="flex flex-col gap-0.5">
-				{#each SECTIONS as s (s.id)}
-					{@const on = active === s.id}
-					{@const cnt = counts[s.id as keyof typeof counts]}
-					<button
-						type="button"
-						onclick={() => goSec(s.id)}
-						class="flex items-center gap-2.5 rounded-controle px-2.5 py-2 text-left text-corpo {on
-							? 'bg-accent-subtle font-bold text-accent-text'
-							: 'font-medium text-muted hover:bg-surface-2'}"
-					>
-						<s.icon size={16} />
-						<span class="min-w-0 flex-1 truncate">{s.t}</span>
-						{#if cnt}<span class="size-[7px] shrink-0 rounded-full bg-accent"></span>{/if}
-					</button>
-				{/each}
-			</div>
-		</nav>
-
-		<!-- Cartões -->
-		<div bind:this={scrollEl} onscroll={onScroll} class="min-h-0 flex-1 overflow-y-auto p-4 md:p-6">
-			<div class="mx-auto max-w-[720px] space-y-3.5 pb-4">
+	<FichaShell
+		voltarHref="/profissionais"
+		titulo={editing ? 'Editar profissional' : 'Novo profissional'}
+		subtitulo={editing ? 'Editando cadastro profissional' : 'Cadastro de novo profissional'}
+		nome={f.nome}
+		{corIndice}
+		secoes={SECTIONS}
+		{counts}
+		{problema}
+		dica="Nome e telefone são obrigatórios — o resto pode ficar para depois."
+		acaoRotulo={editing ? 'Salvar' : 'Cadastrar profissional'}
+		acaoDesabilitada={!canSave}
+		emVoo={submitting}
+	>
 				<!-- 1. Identificação -->
 				<section id="sec-ident" class="scroll-mt-4 rounded-cartao border border-edge bg-surface p-5">
 					{@render cardHead(User, SECTIONS[0].t, SECTIONS[0].sub, counts.ident, SECTIONS[0].total)}
@@ -431,20 +343,20 @@
 						</label>
 						<label class="block">
 							{@render label('CEP')}
-							<input value={f.cep} oninput={onCepInput} onblur={() => runCepLookup(f.cep)} inputmode="numeric" placeholder="00000-000" class="{inputCls} font-mono" />
-							{#if cepStatus}
+							<input value={f.cep} oninput={cep.aoDigitar} onblur={() => cep.consultar(f.cep)} inputmode="numeric" placeholder="00000-000" class="{inputCls} font-mono" />
+							{#if cep.status}
 								<span
-									class="mt-1 block text-meta {cepStatus === 'ok'
+									class="mt-1 block text-meta {cep.status === 'ok'
 										? 'text-accent-text'
-										: cepStatus === 'loading'
+										: cep.status === 'loading'
 											? 'text-muted'
 											: 'text-danger'}"
 								>
-									{cepStatus === 'loading'
+									{cep.status === 'loading'
 										? 'Buscando endereço…'
-										: cepStatus === 'ok'
+										: cep.status === 'ok'
 											? 'Endereço preenchido pelo CEP'
-											: cepStatus === 'notfound'
+											: cep.status === 'notfound'
 												? 'CEP não encontrado — preencha manualmente'
 												: 'Não foi possível consultar o CEP agora'}
 								</span>
@@ -713,39 +625,7 @@
 						</div>
 					</div>
 				</section>
-			</div>
-		</div>
-	</div>
-
-	<!-- Rodapé fixo -->
-	<footer class="flex shrink-0 items-center gap-3 border-t border-edge bg-surface px-4 py-3 md:px-6">
-		<!-- ACC-04 (doc 83): o par do rodapé da ficha do paciente — problema é `role="alert"` e
-		     visível em qualquer largura; dica segue só no desktop e sem papel. -->
-		{#if problema}
-			<span role="alert" class="flex flex-1 items-center gap-1.5 text-rotulo text-danger">
-				<TriangleAlert size={14} class="shrink-0" /> {problema}
-			</span>
-		{:else}
-			<!-- D6: o mínimo deixou de ser só o nome. A frase antiga ("apenas o nome") passou a
-			     mentir no instante em que a validação entrou, e uma dica que mente é pior que
-			     nenhuma: manda a pessoa clicar em salvar para descobrir o contrário. -->
-			<span class="hidden flex-1 items-center gap-1.5 text-rotulo text-faint md:flex">
-				Nome e telefone são obrigatórios — o resto pode ficar para depois.
-			</span>
-			<div class="flex-1 md:hidden"></div>
-		{/if}
-		<a
-			href="/profissionais"
-			class="rounded-controle border border-edge bg-surface px-4 py-2 text-corpo font-semibold text-ink hover:bg-surface-2"
-			>Cancelar</a
-		>
-		<Button type="submit"
-			emVoo={submitting}
-			disabled={!canSave}
-		>
-			{editing ? 'Salvar' : 'Cadastrar profissional'}
-		</Button>
-	</footer>
+	</FichaShell>
 </form>
 
 {#if conflitos}
