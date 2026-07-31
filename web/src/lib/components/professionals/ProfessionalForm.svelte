@@ -295,7 +295,7 @@
 {#snippet cardHead(icon: typeof User, t: string, sub: string, filled: number, total: number)}
 	{@const Icon = icon}
 	<div class="mb-4 flex items-center gap-3">
-		<span class="grid size-[34px] shrink-0 place-items-center rounded-[9px] bg-teal-subtle text-teal-text">
+		<span class="grid size-[34px] shrink-0 place-items-center rounded-[9px] bg-accent-subtle text-accent-text">
 			<Icon size={17} />
 		</span>
 		<div class="min-w-0 flex-1">
@@ -304,7 +304,7 @@
 			<h2 class="text-[15px] font-bold">{t}</h2>
 			<div class="text-[11.5px] text-faint">{sub}</div>
 		</div>
-		<span class="shrink-0 font-mono text-[10.5px] {filled ? 'text-teal-text' : 'text-faint'}">{filled}/{total}</span>
+		<span class="shrink-0 font-mono text-[10.5px] {filled ? 'text-accent-text' : 'text-faint'}">{filled}/{total}</span>
 	</div>
 {/snippet}
 
@@ -350,7 +350,7 @@
 		</div>
 		<div class="hidden shrink-0 items-center gap-2.5 md:flex">
 			<div class="h-1.5 w-[120px] overflow-hidden rounded bg-surface-2">
-				<div class="h-full bg-teal transition-all" style="width:{(totalFilled / totalKeys) * 100}%"></div>
+				<div class="h-full bg-accent transition-all" style="width:{(totalFilled / totalKeys) * 100}%"></div>
 			</div>
 			<span class="font-mono text-[11px] text-faint">{totalFilled}/{totalKeys}</span>
 		</div>
@@ -368,12 +368,12 @@
 						type="button"
 						onclick={() => goSec(s.id)}
 						class="flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] {on
-							? 'bg-teal-subtle font-bold text-teal-text'
+							? 'bg-accent-subtle font-bold text-accent-text'
 							: 'font-medium text-muted hover:bg-surface-2'}"
 					>
 						<s.icon size={16} />
 						<span class="min-w-0 flex-1 truncate">{s.t}</span>
-						{#if cnt}<span class="size-[7px] shrink-0 rounded-full bg-teal"></span>{/if}
+						{#if cnt}<span class="size-[7px] shrink-0 rounded-full bg-accent"></span>{/if}
 					</button>
 				{/each}
 			</div>
@@ -435,7 +435,7 @@
 							{#if cepStatus}
 								<span
 									class="mt-1 block text-[11px] {cepStatus === 'ok'
-										? 'text-teal-text'
+										? 'text-accent-text'
 										: cepStatus === 'loading'
 											? 'text-muted'
 											: 'text-danger'}"
@@ -520,7 +520,7 @@
 								type="button"
 								onclick={() => toggleEsp(t)}
 								class="flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[12.5px] font-semibold {on
-									? 'border-transparent bg-teal-subtle text-teal-text'
+									? 'border-transparent bg-accent-subtle text-accent-text'
 									: 'border-edge bg-surface text-ink hover:bg-surface-2'}"
 							>
 								{t}{#if on}<Check size={13} />{/if}
@@ -569,7 +569,7 @@
 				<section id="sec-horario" class="scroll-mt-4 rounded-[14px] border border-edge bg-surface p-5">
 					{@render cardHead(CalendarClock, SECTIONS[4].t, SECTIONS[4].sub, counts.horario, SECTIONS[4].total)}
 
-					<div class="mb-3 flex items-center gap-3 rounded-lg border p-3 {segue ? 'border-teal bg-teal-subtle' : 'border-edge'}">
+					<div class="mb-3 flex items-center gap-3 rounded-lg border p-3 {segue ? 'border-accent bg-accent-subtle' : 'border-edge'}">
 						<SwitchToggle checked={segue} label="Seguir o horário da clínica" onchange={() => (segue = !segue)} />
 						<div>
 							<div class="text-[13px] font-semibold">Seguir o horário da clínica</div>
@@ -621,7 +621,7 @@
 									onclick={() => (exTipo = 'fechado')}
 									aria-pressed={exTipo === 'fechado'}
 									class="flex-1 rounded-[7px] border px-2 py-[7px] text-[12px] font-semibold {exTipo === 'fechado'
-										? 'border-teal bg-teal-subtle text-teal-text'
+										? 'border-accent bg-accent-subtle text-accent-text'
 										: 'border-edge bg-surface text-muted'}"
 								>
 									Não atende no dia
@@ -631,7 +631,7 @@
 									onclick={() => (exTipo = 'horario')}
 									aria-pressed={exTipo === 'horario'}
 									class="flex-1 rounded-[7px] border px-2 py-[7px] text-[12px] font-semibold {exTipo === 'horario'
-										? 'border-teal bg-teal-subtle text-teal-text'
+										? 'border-accent bg-accent-subtle text-accent-text'
 										: 'border-edge bg-surface text-muted'}"
 								>
 									Horário específico
@@ -658,11 +658,11 @@
 								{#each sortedExceptions as e (e.id)}
 									{@const isH = e.tipo === 'horario'}
 									<div class="flex items-center gap-3 border-t border-edge px-3 py-2.5 first:border-t-0">
-										{#if isH}<Clock size={16} class="text-teal-text" />{:else}<CalendarOff size={16} class="text-danger" />{/if}
+										{#if isH}<Clock size={16} class="text-accent-text" />{:else}<CalendarOff size={16} class="text-danger" />{/if}
 										<span class="w-[82px] shrink-0 font-mono text-[11.5px]">{formatDate(e.data)}</span>
 										<div class="min-w-0 flex-1">
 											<div class="truncate text-[13px]">{e.nome}</div>
-											<div class="font-mono text-[10.5px] {isH ? 'text-teal-text' : 'text-danger'}">
+											<div class="font-mono text-[10.5px] {isH ? 'text-accent-text' : 'text-danger'}">
 												{isH ? formatPeriods(e.periods) : 'Não atende o dia inteiro'}
 											</div>
 										</div>

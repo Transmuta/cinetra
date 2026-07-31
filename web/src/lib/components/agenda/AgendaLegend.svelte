@@ -125,7 +125,7 @@
 					<span class="text-warning"><CalendarClock size={11} /></span> Pediu para remarcar
 				</span>
 				<span class="flex items-center gap-1 text-[11px] text-muted">
-					<span class="text-teal"><Star size={11} /></span> Confirmou presença
+					<span class="text-accent"><Star size={11} /></span> Confirmou presença
 				</span>
 			</div>
 

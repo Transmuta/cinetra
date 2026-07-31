@@ -339,6 +339,18 @@ e todo hex tem linha de proveniência no protótipo.
   /* Teal — cor de marca / foco. solid/hover iguais nos dois temas (:303) */
   --mv-teal-solid: #0FB5A6;
   --mv-teal-hover: #0BA294;
+  /* ⚠️ A FAMÍLIA TEAL NÃO EXISTE MAIS. Desde a [ADR-021](00-decisoes.md) (2026-07-30) ela se
+     chama `--mv-accent-*` e vale o SAGE da marca (`#7fa59a` e derivados), não o teal:
+
+       --mv-accent-solid:  #7fa59a   --mv-accent-hover: #72958b
+       --mv-accent-text:   #3b6d5f (claro) / #8ec2b3 (escuro)
+       --mv-accent-subtle: #ebf4f2 (claro) / rgba(127,165,154,.16) (escuro)
+       --mv-accent-border: #9cc9bc (claro) / rgba(127,165,154,.45) (escuro)
+
+     Vale para TODAS as listagens de token deste §4 — inclusive `--mv-primary`, que a
+     [ADR-020](00-decisoes.md) já tinha trocado por `#7fa59a` e que aqui ainda aparece como o
+     quase-preto invertido. Os blocos abaixo são o PROTÓTIPO, mantidos como proveniência; a
+     paleta viva é `web/src/lib/styles/app.css`, e quem a mede é `contraste.test.ts`. */
 }
 
 [data-density="compacto"]   { --mv-ppm: 0.82; }
@@ -434,11 +446,11 @@ e todo hex tem linha de proveniência no protótipo.
   --color-primary-hover: var(--mv-primary-hover);
   --color-on-primary:    var(--mv-on-primary);
 
-  --color-teal:        var(--mv-teal-solid);
-  --color-teal-hover:  var(--mv-teal-hover);
-  --color-teal-text:   var(--mv-teal-text);
-  --color-teal-subtle: var(--mv-teal-subtle);
-  --color-teal-border: var(--mv-teal-border);
+  --color-accent:        var(--mv-accent-solid);
+  --color-accent-hover:  var(--mv-accent-hover);
+  --color-accent-text:   var(--mv-accent-text);
+  --color-accent-subtle: var(--mv-accent-subtle);
+  --color-accent-border: var(--mv-accent-border);
 
   --color-success:    var(--mv-success);
   --color-warning:    var(--mv-warning);
@@ -486,7 +498,7 @@ e todo hex tem linha de proveniência no protótipo.
   ::-webkit-scrollbar-track      { background: transparent; }
 
   :where(input, select, button, textarea, [tabindex]):focus-visible {
-    outline: 2px solid var(--mv-teal-solid);   /* era o literal #0FB5A6 */
+    outline: 2px solid var(--mv-accent-solid); /* era o literal #0FB5A6; hoje é o sage, ADR-021 */
     outline-offset: 1px;
   }
 
@@ -863,9 +875,9 @@ Checklist acionável, ancorado no que o protótipo **já** tem e no que **falta*
 
 ### 8.1 O que o protótipo já acerta (preservar)
 
-- **`focus-visible` global** com outline teal `#0FB5A6`, `outline-offset:1px`
+- **`focus-visible` global** com outline no acento (`#0FB5A6` no protótipo, hoje o sage), `outline-offset:1px`
   ([`:32`](../interface/Movimento.dc.html#L32)). Manter no `@layer base` de `app.css`, com o
-  literal trocado por `var(--mv-teal-solid)` ([§4.1](#41-srclibstylesappcss)).
+  literal trocado por `var(--mv-accent-solid)` ([§4.1](#41-srclibstylesappcss)).
 - **`prefers-reduced-motion: reduce`** zera durações de animação/transição
   ([`:33`](../interface/Movimento.dc.html#L33)). As keyframes (`mvPulse`, `mvSlide`, …
   [`:20`–`:26`](../interface/Movimento.dc.html#L20)) só rodam quando permitido. Manter.

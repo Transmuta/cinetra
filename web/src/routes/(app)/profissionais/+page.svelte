@@ -42,7 +42,7 @@
 
 	const COLS = 'md:grid-cols-[2.05fr_1.35fr_1.15fr_0.9fr_1.25fr]';
 	const pill =
-		'inline-block rounded-full bg-teal-subtle px-2 py-0.5 text-[10.5px] font-semibold text-teal-text';
+		'inline-block rounded-full bg-accent-subtle px-2 py-0.5 text-[10.5px] font-semibold text-accent-text';
 </script>
 
 <svelte:head><title>Profissionais · Cinetra</title></svelte:head>
@@ -116,7 +116,7 @@
 					{#if at.hours}
 						<span class="block font-mono text-[10.5px] text-faint">{at.hours}</span>
 					{:else if at.followsClinic}
-						<span class="block text-[10px] font-semibold text-teal-text">Segue a clínica</span>
+						<span class="block text-[10px] font-semibold text-accent-text">Segue a clínica</span>
 					{/if}
 				</span>
 			</a>
@@ -150,7 +150,7 @@
 				<div class="flex items-center gap-1.5 text-[12px] text-muted">
 					<CalendarClock size={12} /> {at.days}
 					{#if at.hours}<span class="font-mono text-[11px] text-faint">{at.hours}</span>
-					{:else if at.followsClinic}<span class="text-[11px] font-semibold text-teal-text">· Segue a clínica</span>{/if}
+					{:else if at.followsClinic}<span class="text-[11px] font-semibold text-accent-text">· Segue a clínica</span>{/if}
 				</div>
 			</a>
 		{/each}

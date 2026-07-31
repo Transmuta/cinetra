@@ -191,7 +191,7 @@ export interface StatusMeta {
 	 * quem já saiu da agenda). O `null` sobrou só onde ele significa outra coisa — ver
 	 * `StatusSignal`.
 	 */
-	tone: 'info' | 'teal' | 'success' | 'danger' | 'muted' | 'faint';
+	tone: 'info' | 'accent' | 'success' | 'danger' | 'muted' | 'faint';
 	/** Concluído a 72% de opacidade (protótipo :1672). */
 	dim?: boolean;
 	/** Cancelado sai riscado. */
@@ -212,7 +212,7 @@ export const STATUS_ORDER: readonly AppointmentStatus[] = [
 export const STATUS_META: Record<AppointmentStatus, StatusMeta> = {
 	agendado: { label: 'Agendado', tone: 'muted' },
 	confirmado: { label: 'Confirmado', tone: 'info' },
-	em_atendimento: { label: 'Em atendimento', tone: 'teal', live: true },
+	em_atendimento: { label: 'Em atendimento', tone: 'accent', live: true },
 	concluido: { label: 'Concluído', tone: 'success', dim: true },
 	faltou: { label: 'Faltou', tone: 'danger' },
 	cancelado: { label: 'Cancelado', tone: 'faint', strike: true }

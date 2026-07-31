@@ -44,7 +44,7 @@
 		</div>
 	{:else}
 		<div class="rounded-xl border border-edge bg-surface p-6">
-			<p class="text-[12.5px] font-semibold tracking-wide text-teal uppercase">
+			<p class="text-[12.5px] font-semibold tracking-wide text-accent uppercase">
 				{resumo.clinica}
 			</p>
 
@@ -84,7 +84,7 @@
 						name="resposta"
 						value="confirmou"
 						size={17}
-						class="flex items-center justify-center gap-2 rounded-lg bg-teal px-4 py-3 text-[14px] font-bold text-on-solid hover:opacity-90 disabled:opacity-60"
+						class="flex items-center justify-center gap-2 rounded-lg bg-accent px-4 py-3 text-[14px] font-bold text-on-solid hover:opacity-90 disabled:opacity-60"
 					>
 						<Check size={17} /> Confirmar presença
 					</SubmitButton>

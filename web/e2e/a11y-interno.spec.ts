@@ -17,6 +17,10 @@ import { criarAgendamento, instanteUtc } from './helpers';
  * NÃO se faz é baixar o gate — vale a mesma regra do gate de cobertura
  * (`.claude/rules/testes.md`): mudar o mínimo é decisão humana explícita, não atalho para verde.
  *
+ * Existe hoje **uma** isenção, e ela é justamente uma dessas decisões explícitas: o contraste do
+ * botão primário (ADR-020 / débito D-17). Está isolada em `semExcecaoDoPrimario` logo abaixo, com
+ * o escopo e o prazo de validade escritos ali. Nenhuma outra isenção deve existir neste arquivo.
+ *
  * Duas coisas que uma varredura de página estática não veria e esta cobre:
  *
  *   * **os diálogos** — `Modal`/`Drawer` renderizam por cima e só existem depois de um clique;
@@ -55,12 +59,41 @@ async function esperarAnimacao(page: Page): Promise<void> {
 	);
 }
 
+/**
+ * A ÚNICA isenção do gate: o contraste do botão primário, aceito pela ADR-020 (débito D-17).
+ *
+ * `--mv-primary` é o sage da marca com texto branco — 2,71:1, reprova de 1.4.3 que é **decisão
+ * humana registrada**, não descuido. Sem isto o gate ficaria vermelho para sempre em 7 nós de 5
+ * telas, e um gate cronicamente vermelho é um gate que ninguém lê.
+ *
+ * O filtro é deliberadamente estreito, e vale reparar no que ele NÃO faz:
+ *
+ *   * não desliga a regra `color-contrast` — ela continua valendo em todo o resto do app, que é
+ *     onde a auditoria do doc 83 achou 36 reprovas;
+ *   * não usa `.exclude()` no seletor, que tiraria aqueles nós de **todas** as regras (foco,
+ *     nome acessível, papel) e não só desta;
+ *   * some com o nó, não com a violação: se `color-contrast` reprovar em qualquer outro elemento
+ *     da mesma tela, a violação continua chegando ao relatório e o teste continua falhando.
+ *
+ * Quando o D-17 for pago (escurecer o sage ou voltar ao texto escuro), **apague esta função** e
+ * a chamada abaixo — o gate volta a ser integral.
+ */
+function semExcecaoDoPrimario<T extends { html: string }>(nodes: T[], regra: string): T[] {
+	if (regra !== 'color-contrast') return nodes;
+	return nodes.filter((n) => !/\bbg-primary(-hover)?\b/.test(n.html));
+}
+
 async function varrer(page: Page, tela: string): Promise<void> {
 	const results = await new AxeBuilder({ page })
 		.withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
 		.analyze();
 
-	for (const v of results.violations) {
+	for (const bruta of results.violations) {
+		const nodes = semExcecaoDoPrimario(bruta.nodes, bruta.id);
+		// Violação que só existia por causa do botão primário sai inteira.
+		if (nodes.length === 0) continue;
+		const v = { ...bruta, nodes };
+
 		achados.push({
 			tela,
 			id: v.id,

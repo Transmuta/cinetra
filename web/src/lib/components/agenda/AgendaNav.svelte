@@ -67,7 +67,7 @@
 			onclick={() => onDate(today)}
 			aria-current={isToday ? 'date' : undefined}
 			class="h-8 rounded-lg border px-3 text-[12.5px] font-semibold {isToday
-				? 'border-teal-border bg-teal-subtle text-teal-text'
+				? 'border-accent-border bg-accent-subtle text-accent-text'
 				: 'border-edge bg-surface text-ink hover:bg-surface-2'}"
 		>
 			Hoje

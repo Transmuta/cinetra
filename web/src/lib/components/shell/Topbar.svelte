@@ -4,7 +4,7 @@
 	import { sectionOf, SECTION_TITLES } from './nav';
 	import type { Me } from '$lib/session';
 
-	// Faixa teal de 2px + título à esquerda; à direita, o avatar do usuário (menu). No mobile,
+	// Faixa do acento, 2px + título à esquerda; à direita, o avatar do usuário (menu). No mobile,
 	// um hambúrguer à esquerda abre o rail+sidebar como gaveta (onMenu, tratado no layout).
 	let {
 		pathname,
@@ -27,7 +27,7 @@
 	const title = $derived(section ? SECTION_TITLES[section] : 'Cinetra');
 </script>
 
-<div class="h-0.5 shrink-0 bg-teal"></div>
+<div class="h-0.5 shrink-0 bg-accent"></div>
 <header class="flex h-14 shrink-0 items-center gap-3 border-b border-edge bg-surface px-4 sm:px-5">
 	<button
 		type="button"

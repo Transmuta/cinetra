@@ -96,7 +96,7 @@
 	// "— → valor" seria ruído. Só as ATUALIZAÇÕES mostram o antes/depois.
 	const showDiff = $derived(entry.action_type !== 'create' && entry.diff.length > 0);
 
-	const linkClass = 'inline-flex items-center gap-1 font-medium text-teal-text hover:underline';
+	const linkClass = 'inline-flex items-center gap-1 font-medium text-accent-text hover:underline';
 </script>
 
 <article class="flex gap-3 px-3.5 py-3">

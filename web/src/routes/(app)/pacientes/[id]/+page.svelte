@@ -192,7 +192,7 @@
 
 {#snippet cabecalho(icon: typeof User, title: string)}
 	{@const Icon = icon}
-	<span class="grid size-[30px] shrink-0 place-items-center rounded-lg bg-teal-subtle text-teal-text">
+	<span class="grid size-[30px] shrink-0 place-items-center rounded-lg bg-accent-subtle text-accent-text">
 		<Icon size={15} />
 	</span>
 	<div class="text-[14px] font-bold">{title}</div>
@@ -280,7 +280,7 @@
 				{#if p.nome_social}<div class="mt-0.5 text-[13px] text-muted">“{p.nome_social}”</div>{/if}
 				<div class="mt-1.5 flex flex-wrap items-center gap-2.5 text-[12.5px] text-muted">
 					<span class="font-mono">{maskCpf(p.cpf ?? '') || 'CPF não informado'}</span>
-					<span class="inline-flex items-center gap-1.5 rounded-full bg-teal-subtle px-2.5 py-0.5 text-[11.5px] font-semibold text-teal-text">
+					<span class="inline-flex items-center gap-1.5 rounded-full bg-accent-subtle px-2.5 py-0.5 text-[11.5px] font-semibold text-accent-text">
 						<CreditCard size={12} /> {convLabel(p)}
 					</span>
 					<!-- O que o cartão "Consentimentos" acrescentava a este selo era a COBERTURA de

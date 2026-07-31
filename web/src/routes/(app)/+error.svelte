@@ -30,7 +30,7 @@
 		</p>
 		<a
 			href="/agenda"
-			class="mt-4 inline-block text-[13px] font-semibold text-teal-text hover:underline"
+			class="mt-4 inline-block text-[13px] font-semibold text-accent-text hover:underline"
 		>
 			Ir para a agenda
 		</a>

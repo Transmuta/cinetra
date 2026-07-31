@@ -77,7 +77,7 @@
 		<input type="hidden" name="dows" value={dowsPlano} />
 		<input type="hidden" name="horarios" value={horariosPlano} />
 
-		<div class="mb-3.5 flex items-start gap-2 rounded-[10px] bg-teal-subtle px-3 py-2.5 text-[12px] text-teal-text">
+		<div class="mb-3.5 flex items-start gap-2 rounded-[10px] bg-accent-subtle px-3 py-2.5 text-[12px] text-accent-text">
 			<Info size={15} class="mt-0.5 shrink-0" />
 			<span>
 				Vale para as <strong>próximas</strong> sessões deste pacote. As já concluídas não mudam.

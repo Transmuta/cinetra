@@ -113,7 +113,7 @@
 						aria-label="Ícone {ic}"
 						aria-pressed={on}
 						class="grid size-8.5 place-items-center rounded-[7px] border {on
-							? 'border-teal-border bg-teal-subtle text-teal-text'
+							? 'border-accent-border bg-accent-subtle text-accent-text'
 							: 'border-edge bg-surface text-muted hover:bg-surface-2'}"
 					>
 						<Icon size={16} />
@@ -124,7 +124,7 @@
 		<input type="hidden" name="icon" value={icon} />
 
 		<label class="mb-2.5 flex cursor-pointer items-center gap-2 text-[13px]">
-			<input type="checkbox" bind:checked={grupo} class="size-4 accent-teal" />
+			<input type="checkbox" bind:checked={grupo} class="size-4 accent-primary" />
 			Atendimento em grupo
 		</label>
 		<!-- checkbox desmarcado não é submetido; o valor viaja neste hidden. -->

@@ -104,7 +104,7 @@
 
 	// Teal para a confirmação (é a cor do sinal no drawer), âmbar para o pedido de remarcação —
 	// que é o único dos dois que pede ação de alguém.
-	const TOM_DA_RESPOSTA = { confirmou: 'text-teal', quer_remarcar: 'text-warning' };
+	const TOM_DA_RESPOSTA = { confirmou: 'text-accent', quer_remarcar: 'text-warning' };
 
 	const rotulo = $derived(
 		[
@@ -287,7 +287,7 @@
 				<span
 					data-testid="package-badge"
 					title={pacote.title}
-					class="flex shrink-0 items-center gap-0.5 rounded bg-teal-subtle px-1 py-px text-[9.5px] font-bold text-teal-text"
+					class="flex shrink-0 items-center gap-0.5 rounded bg-accent-subtle px-1 py-px text-[9.5px] font-bold text-accent-text"
 				>
 					<Package size={9} />
 					{pacote.label ?? ''}

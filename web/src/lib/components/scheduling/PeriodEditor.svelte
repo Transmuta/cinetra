@@ -80,7 +80,7 @@
 	<button
 		type="button"
 		onclick={() => onchange(appendPeriod(periods))}
-		class="flex items-center gap-1 self-start rounded-md border border-dashed border-edge px-2 py-[3px] text-[11.5px] font-semibold text-teal-text hover:bg-surface-2"
+		class="flex items-center gap-1 self-start rounded-md border border-dashed border-edge px-2 py-[3px] text-[11.5px] font-semibold text-accent-text hover:bg-surface-2"
 	>
 		<Plus size={12} /> período
 	</button>

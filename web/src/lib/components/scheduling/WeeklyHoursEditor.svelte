@@ -26,7 +26,7 @@
 	<button
 		type="button"
 		onclick={() => onchange(mirrorWeekdays(hours))}
-		class="flex shrink-0 items-center gap-1.5 rounded-[7px] border border-edge bg-surface px-[11px] py-1.5 text-[12px] font-semibold text-teal-text hover:bg-surface-2"
+		class="flex shrink-0 items-center gap-1.5 rounded-[7px] border border-edge bg-surface px-[11px] py-1.5 text-[12px] font-semibold text-accent-text hover:bg-surface-2"
 	>
 		<Copy size={13} /> Espelhar Seg → Seg–Sex
 	</button>

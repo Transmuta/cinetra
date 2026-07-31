@@ -74,7 +74,7 @@
 			onclick={() => (tipo = 'fechado')}
 			aria-pressed={tipo === 'fechado'}
 			class="{seg} {tipo === 'fechado'
-				? 'border-teal bg-teal-subtle text-teal-text'
+				? 'border-accent bg-accent-subtle text-accent-text'
 				: 'border-edge bg-surface text-muted'}"
 		>
 			Fechar o dia inteiro
@@ -84,7 +84,7 @@
 			onclick={() => (tipo = 'horario')}
 			aria-pressed={tipo === 'horario'}
 			class="{seg} {tipo === 'horario'
-				? 'border-teal bg-teal-subtle text-teal-text'
+				? 'border-accent bg-accent-subtle text-accent-text'
 				: 'border-edge bg-surface text-muted'}"
 		>
 			Horário específico

@@ -61,7 +61,7 @@
 		<!-- `h2` (ACC-22): o `h1` da página é o do topbar, que já diz "Auditoria" — dois `h1` com o
 		     mesmo texto na mesma tela não é hierarquia, é eco. As classes mandam no visual. -->
 		<h2 class="flex items-center gap-2 text-xl font-semibold text-ink">
-			<ScrollText size={19} class="text-teal-text" /> Auditoria
+			<ScrollText size={19} class="text-accent-text" /> Auditoria
 		</h2>
 		<p class="mt-0.5 text-sm text-muted">
 			Quem mudou o quê, quem abriu o quê, e quando — o histórico da clínica.
@@ -86,7 +86,7 @@
 				</span>
 			{/each}
 			{#if chips.length > 1}
-				<button type="button" onclick={clearAll} class="font-medium text-teal-text hover:underline">
+				<button type="button" onclick={clearAll} class="font-medium text-accent-text hover:underline">
 					Limpar filtros
 				</button>
 			{/if}
@@ -121,7 +121,7 @@
 			<p class="mt-1 text-sm text-muted">
 				{#if chips.length}
 					Tente ampliar o período ou
-					<button type="button" onclick={clearAll} class="font-medium text-teal-text hover:underline">
+					<button type="button" onclick={clearAll} class="font-medium text-accent-text hover:underline">
 						limpar os filtros
 					</button>.
 				{:else}

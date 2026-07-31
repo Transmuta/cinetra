@@ -28,7 +28,8 @@ function patient(overrides: Partial<Patient> = {}): Patient {
 
 describe('patientColor', () => {
 	it('mapeia o índice 1-based na paleta (mesma do avatar do profissional)', () => {
-		expect(patientColor(1)).toBe('#0FB5A6');
+		// A entrada 1 é o sage da marca desde a ADR-021 (era o teal `#0FB5A6` do protótipo).
+		expect(patientColor(1)).toBe('#7FA59A');
 		expect(patientColor(2)).toBe('#0072B2');
 	});
 	it('faz wrap além de 7 e tolera 0/negativos', () => {

@@ -128,7 +128,7 @@
 							{#if m.resposta}
 								<!-- A resposta é o que a fatia inteira existe para capturar (§5): destacada,
 								     e não mais uma linha cinza igual às outras. -->
-								<li class="flex items-start gap-2 text-[12.5px] font-semibold text-teal">
+								<li class="flex items-start gap-2 text-[12.5px] font-semibold text-accent">
 									<span class="mt-0.5 shrink-0"><Star size={14} /></span>
 									<span>
 										{respostaTexto(m)}
@@ -160,7 +160,7 @@
 						<button
 							type="button"
 							onclick={() => onReenviar?.(p.patientId)}
-							class="mt-1.5 text-[12px] font-semibold text-teal hover:underline"
+							class="mt-1.5 text-[12px] font-semibold text-accent hover:underline"
 						>
 							Reenviar
 						</button>

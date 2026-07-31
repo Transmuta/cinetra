@@ -86,11 +86,11 @@
 					onclick={() => (papel = role)}
 					aria-pressed={on}
 					class="rounded-lg border p-3 text-left transition-colors {on
-						? 'border-teal-border bg-teal-subtle'
+						? 'border-accent-border bg-accent-subtle'
 						: 'border-edge bg-surface hover:bg-surface-2'}"
 				>
 					<div class="flex items-center gap-2 text-[13px] font-semibold text-ink">
-						<span class={on ? 'text-teal-text' : 'text-faint'}><Icon size={15} /></span>
+						<span class={on ? 'text-accent-text' : 'text-faint'}><Icon size={15} /></span>
 						{ROLE_META[role].label}
 					</div>
 					<div class="mt-0.5 text-[11.5px] leading-snug text-muted">{ROLE_META[role].desc}</div>

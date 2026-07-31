@@ -15,7 +15,7 @@
 		<p class="mt-1 text-[13px] text-muted">{page.error?.message ?? 'Tente novamente em instantes.'}</p>
 		<a
 			href="/"
-			class="mt-5 inline-block text-[13px] font-semibold text-teal-text hover:underline"
+			class="mt-5 inline-block text-[13px] font-semibold text-accent-text hover:underline"
 		>
 			Voltar ao início
 		</a>

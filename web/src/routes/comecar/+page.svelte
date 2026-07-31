@@ -60,7 +60,7 @@
 	{#snippet footer()}
 		{#if nova}
 			Você será a <strong class="text-ink">dona</strong> desta clínica.
-			<a class="ml-1 text-teal-text hover:underline" href="/">Voltar</a>
+			<a class="ml-1 text-accent-text hover:underline" href="/">Voltar</a>
 		{:else}
 			Você será a <strong class="text-ink">dona</strong> desta clínica.
 		{/if}

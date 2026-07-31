@@ -80,7 +80,7 @@
 		>
 			<Icon size={19} />
 			{#if isActive}
-				<span class="absolute right-1.5 top-1.5 size-[5px] rounded-full bg-teal"></span>
+				<span class="absolute right-1.5 top-1.5 size-[5px] rounded-full bg-accent"></span>
 			{/if}
 		</a>
 	{/each}
@@ -100,7 +100,7 @@
 		<Bell size={18} />
 		{#if unread > 0}
 			<span
-				class="absolute -right-0.5 -top-0.5 grid h-3.75 min-w-3.75 place-items-center rounded-full border-[1.5px] border-rail bg-teal px-0.75 text-[9px] font-semibold leading-none text-on-solid"
+				class="absolute -right-0.5 -top-0.5 grid h-3.75 min-w-3.75 place-items-center rounded-full border-[1.5px] border-rail bg-accent px-0.75 text-[9px] font-semibold leading-none text-on-solid"
 			>
 				{badge}
 			</span>

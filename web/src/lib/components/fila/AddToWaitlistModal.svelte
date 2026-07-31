@@ -178,7 +178,7 @@
 							type="button"
 							onclick={() => toggleProf(p.id)}
 							class="flex items-center gap-1.5 rounded-full border py-1.5 pl-1.5 pr-2.5 text-[12.5px] font-semibold {on
-								? 'border-transparent bg-teal-subtle text-teal-text'
+								? 'border-transparent bg-accent-subtle text-accent-text'
 								: 'border-edge bg-surface text-ink hover:bg-surface-2'}"
 						>
 							<span
@@ -212,7 +212,7 @@
 						onclick={() => (janela = w)}
 						aria-pressed={janela === w}
 						class="flex-1 rounded-md border py-2 text-[12.5px] font-semibold {janela === w
-							? 'border-teal bg-teal-subtle text-teal-text'
+							? 'border-accent bg-accent-subtle text-accent-text'
 							: 'border-edge bg-surface text-muted hover:bg-surface-2'}"
 					>
 						{TIME_WINDOW_LABEL[w]}
@@ -229,7 +229,7 @@
 					{#each rules as rule, i (i)}
 						<div class="rounded-[9px] border border-edge bg-surface p-3">
 							<div class="mb-2.5 flex items-center justify-between">
-								<span class="flex items-center gap-1.5 text-[12px] font-bold {rule.tipo === 'data' ? 'text-teal-text' : 'text-ink'}">
+								<span class="flex items-center gap-1.5 text-[12px] font-bold {rule.tipo === 'data' ? 'text-accent-text' : 'text-ink'}">
 									{#if rule.tipo === 'data'}<CalendarClock size={14} /> Data específica{:else}<CalendarDays size={14} /> Dias da semana{/if}
 								</span>
 								<button
@@ -252,7 +252,7 @@
 											onclick={() => toggleDow(i, d.dow)}
 											aria-pressed={on}
 											class="h-7 w-[34px] rounded-md border text-[11px] font-semibold {on
-												? 'border-teal bg-teal-subtle text-teal-text'
+												? 'border-accent bg-accent-subtle text-accent-text'
 												: 'border-edge bg-surface text-muted hover:bg-surface-2'}"
 										>
 											{d.label}
@@ -287,14 +287,14 @@
 				<button
 					type="button"
 					onclick={addSemana}
-					class="flex items-center gap-1.5 rounded-lg border border-dashed border-edge px-3 py-2 text-[12px] font-semibold text-teal-text hover:bg-surface-2"
+					class="flex items-center gap-1.5 rounded-lg border border-dashed border-edge px-3 py-2 text-[12px] font-semibold text-accent-text hover:bg-surface-2"
 				>
 					<Plus size={13} /> Dias da semana
 				</button>
 				<button
 					type="button"
 					onclick={addData}
-					class="flex items-center gap-1.5 rounded-lg border border-dashed border-edge px-3 py-2 text-[12px] font-semibold text-teal-text hover:bg-surface-2"
+					class="flex items-center gap-1.5 rounded-lg border border-dashed border-edge px-3 py-2 text-[12px] font-semibold text-accent-text hover:bg-surface-2"
 				>
 					<Plus size={13} /> Data específica
 				</button>

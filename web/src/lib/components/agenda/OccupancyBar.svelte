@@ -16,7 +16,7 @@
 	const COR: Record<string, string> = {
 		closed: 'var(--color-edge)',
 		empty: 'var(--color-edge)',
-		normal: 'var(--color-teal)',
+		normal: 'var(--color-accent)',
 		over: 'var(--color-danger)'
 	};
 

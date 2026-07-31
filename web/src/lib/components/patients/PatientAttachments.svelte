@@ -263,7 +263,7 @@
 
 <section class="rounded-[14px] border border-edge bg-surface p-5">
 	<div class="mb-4 flex items-center gap-2.5">
-		<span class="grid size-[30px] shrink-0 place-items-center rounded-lg bg-teal-subtle text-teal-text">
+		<span class="grid size-[30px] shrink-0 place-items-center rounded-lg bg-accent-subtle text-accent-text">
 			<Paperclip size={15} />
 		</span>
 		<div class="flex-1 text-[14px] font-bold">Anexos e documentos</div>
@@ -284,12 +284,12 @@
 		{#if enviando}
 			<div class="mb-2.5 rounded-[10px] border border-edge bg-surface-2 px-3.5 py-3">
 				<div class="mb-1.5 flex items-center gap-2 text-[12.5px] font-semibold">
-					<LoaderCircle size={14} class="animate-spin text-teal-text" />
+					<LoaderCircle size={14} class="animate-spin text-accent-text" />
 					<span class="min-w-0 flex-1 truncate">{enviando.nome}</span>
 					<span class="font-mono text-[11px] text-faint">{enviando.pct}%</span>
 				</div>
 				<div class="h-1.5 overflow-hidden rounded-full bg-edge">
-					<div class="h-full rounded-full bg-teal transition-[width]" style="width:{enviando.pct}%"></div>
+					<div class="h-full rounded-full bg-accent transition-[width]" style="width:{enviando.pct}%"></div>
 				</div>
 			</div>
 		{:else if cheio}
@@ -306,8 +306,8 @@
 				significa "solte aqui".
 			-->
 			<label
-				class="mb-2.5 flex cursor-pointer flex-col items-center gap-1.5 rounded-[10px] border-[1.5px] border-dashed p-[18px] transition-colors focus-within:border-teal focus-within:bg-teal-subtle focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-teal {arrastando
-					? 'border-teal bg-teal-subtle'
+				class="mb-2.5 flex cursor-pointer flex-col items-center gap-1.5 rounded-[10px] border-[1.5px] border-dashed p-[18px] transition-colors focus-within:border-accent focus-within:bg-accent-subtle focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-accent {arrastando
+					? 'border-accent bg-accent-subtle'
 					: 'border-edge-strong bg-surface'}"
 				ondragover={(e) => {
 					e.preventDefault();
@@ -336,7 +336,7 @@
 					class="sr-only"
 					onchange={(e) => receber((e.currentTarget as HTMLInputElement).files)}
 				/>
-				<Upload size={20} class="text-teal-text" />
+				<Upload size={20} class="text-accent-text" />
 				<span class="text-[12.5px] font-semibold text-ink">Arraste um arquivo ou clique para enviar</span>
 				<span class="text-[11px] text-faint">{rotuloLimite()}</span>
 			</label>
@@ -417,7 +417,7 @@
 				autofocus
 				maxlength="200"
 				aria-label="Nome do anexo"
-				class="mb-4 w-full rounded-lg border border-edge bg-surface-2 px-3 py-2 text-[13.5px] outline-none focus:border-teal"
+				class="mb-4 w-full rounded-lg border border-edge bg-surface-2 px-3 py-2 text-[13.5px] outline-none focus:border-accent"
 			/>
 			<div class="flex justify-end gap-2">
 				<button

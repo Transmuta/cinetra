@@ -9,7 +9,7 @@
 /** 2800ms, verbatim do protótipo. */
 export const TOAST_DURATION_MS = 2800;
 
-/** `success` = confirmação (check teal); `error` = falha (ícone de alerta danger). */
+/** `success` = confirmação (check no acento); `error` = falha (ícone de alerta danger). */
 export type ToastVariant = 'success' | 'error';
 
 export interface ActiveToast {

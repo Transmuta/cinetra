@@ -1,6 +1,7 @@
 /* Cinetra — superfícies de marketing/autenticação (interface/Cinetra Landing.dc.html).
    Paleta quente (papel #F6F4EF · navy #212A37 · sálvia #7FA59A · sálvia-fundo #4E7468 ·
-   azul #3A5A78), separada do design system teal do app interno. Tudo escopado sob
+   azul #3A5A78), separada do design system do app interno — que desde a ADR-021 também é sage,
+   pelo mesmo #7FA59A daqui. Tudo escopado sob
    `.cn-root` para NÃO vazar no shell administrativo — só as @keyframes são globais
    (os `animation:` inline das artes/seções as referenciam pelo nome). */
 

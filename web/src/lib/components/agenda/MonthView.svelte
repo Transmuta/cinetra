@@ -66,7 +66,7 @@
 				aria-current={cell.isToday ? 'date' : undefined}
 				aria-label="{cell.date}{cell.totals ? `, ${cell.totals.total} agendamentos` : ''}"
 				class="flex min-h-[74px] flex-col gap-1 rounded-lg border p-1.5 text-left {cell.isSelected
-					? 'border-teal-border bg-teal-subtle'
+					? 'border-accent-border bg-accent-subtle'
 					: cell.inMonth
 						? 'border-edge bg-surface hover:bg-surface-2'
 						: 'border-edge bg-surface-2'}"
@@ -74,7 +74,7 @@
 			>
 				<span
 					class="grid size-[26px] place-items-center rounded-full font-mono text-[13px] font-semibold tabular-nums {cell.isToday
-						? 'bg-teal text-on-solid'
+						? 'bg-accent text-on-solid'
 						: cell.inMonth
 							? 'text-ink'
 							: 'text-faint'}"
@@ -84,7 +84,7 @@
 
 				{#if cell.totals && cell.totals.total > 0}
 					<div class="mt-auto flex flex-col gap-1">
-						<span class="text-[10.5px] font-semibold text-teal-text">
+						<span class="text-[10.5px] font-semibold text-accent-text">
 							{cell.totals.total} agend.
 						</span>
 						<OccupancyBar rate={cell.totals.rate} title="Ocupação de {cell.date}" />

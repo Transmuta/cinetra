@@ -146,7 +146,7 @@
 					</span>
 					{#if isActive}
 						<span
-							class="inline-flex items-center gap-1 rounded-full bg-teal-subtle px-2 py-0.5 text-[11px] font-semibold text-teal-text"
+							class="inline-flex items-center gap-1 rounded-full bg-accent-subtle px-2 py-0.5 text-[11px] font-semibold text-accent-text"
 						>
 							<Check size={12} /> Ativa
 						</span>

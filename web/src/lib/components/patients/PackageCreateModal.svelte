@@ -291,7 +291,7 @@
 		if (o.issue === 'fora_expediente' || o.issue === 'conflito' || o.issue === 'cheia')
 			return 'border-danger/45 bg-danger/8 text-danger';
 		if (o.feriado) return 'border-edge bg-surface text-faint line-through';
-		if (o.issue === 'join') return 'border-teal-border bg-teal-subtle text-teal-text';
+		if (o.issue === 'join') return 'border-accent-border bg-accent-subtle text-accent-text';
 		return 'border-edge bg-surface text-muted';
 	}
 
@@ -410,7 +410,7 @@
 						<button
 							type="button"
 							onclick={igualarHorarios}
-							class="text-[11.5px] font-semibold text-teal-text hover:underline"
+							class="text-[11.5px] font-semibold text-accent-text hover:underline"
 						>
 							Igualar horários
 						</button>

@@ -36,7 +36,7 @@
 
 <section class="rounded-[14px] border border-edge bg-surface p-5">
 	<div class="mb-4 flex items-center gap-2.5">
-		<span class="grid size-[30px] shrink-0 place-items-center rounded-lg bg-teal-subtle text-teal-text">
+		<span class="grid size-[30px] shrink-0 place-items-center rounded-lg bg-accent-subtle text-accent-text">
 			<CalendarClock size={15} />
 		</span>
 		<h2 class="flex-1 text-[14px] font-bold">Próximas sessões</h2>
@@ -86,9 +86,12 @@
 							{#if i === 0}
 								<!-- a resposta à pergunta do cartão é esta linha; sem a marca ela some no meio
 								     das outras quatro -->
+								<!-- Par accent-text/accent-subtle, e não `primary` sobre a tinta dele mesmo: desde a
+								     ADR-020 `primary` é o sage da marca, e sage sobre a própria tinta de 14% dá
+								     2,26:1 (o axe pegou em `a11y-interno`). Este par é o que o design system tem
+								     para chip tingido, e o `contraste.test.ts` o fixa em 4,71 nos dois temas. -->
 								<span
-									class="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold"
-									style="background:color-mix(in srgb, var(--color-primary) 14%, transparent); color:var(--color-primary)"
+									class="shrink-0 rounded-full bg-accent-subtle px-2 py-0.5 text-[11px] font-semibold text-accent-text"
 								>
 									próxima
 								</span>

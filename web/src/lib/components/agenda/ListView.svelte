@@ -121,7 +121,7 @@
 
 					<!-- Todo status tem tom próprio (ver `StatusMeta.tone`), então o chip não precisa mais
 					     do ramo "sem cor". O texto usa a variante `-text` quando ela existe (é o caso
-					     do teal, cujo sólido não tem contraste sobre 14% dele mesmo) e cai no próprio
+					     do acento, cujo sólido não tem contraste sobre 14% dele mesmo) e cai no próprio
 					     token quando não existe — a mesma expressão do badge do cartão. -->
 					<span
 						class="shrink-0 rounded-full px-1.5 py-px text-[10.5px] font-semibold"

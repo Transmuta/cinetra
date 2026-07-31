@@ -239,7 +239,7 @@
 									professional_id: p.id
 								}
 							})}
-						class="flex shrink-0 items-center gap-1.5 rounded-md border border-edge bg-surface px-2.5 py-1.5 text-[12px] font-semibold text-teal-text hover:bg-surface-2"
+						class="flex shrink-0 items-center gap-1.5 rounded-md border border-edge bg-surface px-2.5 py-1.5 text-[12px] font-semibold text-accent-text hover:bg-surface-2"
 					>
 						<UserPlus size={13} /> Conceder acesso
 					</button>

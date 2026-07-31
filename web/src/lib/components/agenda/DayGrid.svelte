@@ -477,15 +477,15 @@
 						{/each}
 
 						{#if drag?.active && drag.profId === col.prof.id && drag.startMin !== null}
-							<!-- Fantasma: bloco tracejado teal na coluna-alvo, com a ALTURA real e o
+							<!-- Fantasma: bloco tracejado no acento, na coluna-alvo, com a ALTURA real e o
 							     horário de destino (protótipo :1651). É a prévia espacial de onde o
 							     bloco pousa — o par do bloco de origem esmaecido. -->
 							<div
 								data-testid="drag-ghost"
-								class="pointer-events-none absolute inset-x-1 z-9 flex items-start rounded-lg border-2 border-dashed border-teal bg-teal/12 px-1.5 py-1"
+								class="pointer-events-none absolute inset-x-1 z-9 flex items-start rounded-lg border-2 border-dashed border-accent bg-accent/12 px-1.5 py-1"
 								style="top:{topDe(drag.startMin)}px; height:{Math.max(drag.dur * PPM - 2, 18)}px"
 							>
-								<span class="font-mono text-[10.5px] font-semibold text-teal-text">{drag.hora}</span>
+								<span class="font-mono text-[10.5px] font-semibold text-accent-text">{drag.hora}</span>
 							</div>
 						{/if}
 					</div>
@@ -499,13 +499,13 @@
 				class="pointer-events-none absolute z-8 h-0"
 				style="top:{HEADER + topDe(agoraMin)}px; left:{GUTTER}px; right:0"
 			>
-				<div class="absolute inset-x-0 top-0 border-t-2 border-teal"></div>
+				<div class="absolute inset-x-0 top-0 border-t-2 border-accent"></div>
 				<!-- O selo recua para dentro da calha (protótipo :1620 recua 44px fixos). Fixo ele
 				     também estourava a calha estreita — começava em -10px e era cortado —, então o
 				     recuo é limitado pela calha: 44 no modo largo, 34 no estreito. Aqui o ":00" não
 				     pode sumir (é o minuto do agora), o selo é que se ajusta. -->
 				<span
-					class="absolute -top-2.25 rounded bg-teal px-1.25 font-mono text-[10px] font-semibold text-on-solid"
+					class="absolute -top-2.25 rounded bg-accent px-1.25 font-mono text-[10px] font-semibold text-on-solid"
 					style="left:{-Math.min(GUTTER, 44)}px"
 				>
 					{m2t(agoraMin)}

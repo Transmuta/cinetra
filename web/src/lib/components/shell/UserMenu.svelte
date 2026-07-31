@@ -99,7 +99,7 @@
 								<span class="block truncate">{m.clinic_nome ?? 'Clínica'}</span>
 								<span class="block text-[11px] font-normal text-faint">{ROLE_META[m.papel].label}</span>
 							</span>
-							{#if isActive}<Check size={15} class="shrink-0 text-teal-text" />{/if}
+							{#if isActive}<Check size={15} class="shrink-0 text-accent-text" />{/if}
 						</button>
 					</form>
 				{/each}
@@ -107,9 +107,9 @@
 				<a
 					href="/comecar?nova=1"
 					onclick={close}
-					class="mt-0.5 flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium text-teal-text hover:bg-surface-2"
+					class="mt-0.5 flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium text-accent-text hover:bg-surface-2"
 				>
-					<span class="grid size-[22px] shrink-0 place-items-center rounded-md bg-teal-subtle">
+					<span class="grid size-[22px] shrink-0 place-items-center rounded-md bg-accent-subtle">
 						<Plus size={14} />
 					</span>
 					Nova clínica

@@ -36,12 +36,12 @@
 </script>
 
 <!--
-	Cabeçalho e moldura do protótipo ([`:2814`]): o `cardHead` teal que os cartões vizinhos usam,
+	Cabeçalho e moldura do protótipo ([`:2814`]): o `cardHead` (teal no protótipo, acento no app) que os cartões vizinhos usam,
 	a contagem em mono à direita, e as linhas dentro de uma caixa com borda (doc 51 §L5/§L6).
 -->
 <section class="rounded-[14px] border border-edge bg-surface p-5">
 	<div class="mb-4 flex items-center gap-2.5">
-		<span class="grid size-[30px] shrink-0 place-items-center rounded-lg bg-teal-subtle text-teal-text">
+		<span class="grid size-[30px] shrink-0 place-items-center rounded-lg bg-accent-subtle text-accent-text">
 			<History size={15} />
 		</span>
 		<h2 class="flex-1 text-[14px] font-bold">Histórico de atendimentos</h2>

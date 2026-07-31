@@ -56,7 +56,7 @@
 						href={appointmentHref(c.appointment_id, c.date)}
 						target="_blank"
 						rel="noopener"
-						class="inline-flex shrink-0 items-center gap-1 text-[11.5px] font-semibold text-teal-text hover:underline"
+						class="inline-flex shrink-0 items-center gap-1 text-[11.5px] font-semibold text-accent-text hover:underline"
 						aria-label="Abrir {diaCurto(c.date)} às {c.hora} na agenda, em outra aba"
 					>
 						<ExternalLink size={12} /> Abrir

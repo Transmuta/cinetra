@@ -166,7 +166,7 @@
 			<input type="hidden" name="starts_at" value={startsAt} />
 			<input type="hidden" name="professional_id" value={selected.professional_id} />
 
-			<div class="mb-3 flex items-center gap-2.5 rounded-[10px] border border-teal-border bg-teal-subtle px-3 py-2.5 text-teal-text">
+			<div class="mb-3 flex items-center gap-2.5 rounded-[10px] border border-accent-border bg-accent-subtle px-3 py-2.5 text-accent-text">
 				<CalendarClock size={16} class="shrink-0" />
 				<span class="text-[12.5px] font-semibold capitalize">{dateHeader(selected.date)}</span>
 				<span class="font-mono text-[13px] font-bold">{m2t(selected.start)}</span>
@@ -202,7 +202,7 @@
 		<div class="py-10 text-center text-[13px] text-faint">Buscando horários livres…</div>
 	{:else if dates.length}
 		<div class="mb-3 flex items-center gap-1.75 text-[12.5px] text-muted">
-			<Sparkles size={15} class="shrink-0 text-teal-text" />
+			<Sparkles size={15} class="shrink-0 text-accent-text" />
 			<span>Horários livres que batem com a disponibilidade — clique para agendar.</span>
 		</div>
 		<div class="flex flex-col gap-3">
@@ -218,11 +218,11 @@
 								onclick={() => (selected = slot)}
 								title={`Oferecer ${slotDateLabel(slot)} às ${m2t(slot.start)}${slot.freed ? ' · vaga que abriu' : ''}`}
 								class="inline-flex items-center gap-2 rounded-[9px] border px-3 py-2 text-[12.5px] {slot.freed
-									? 'border-teal bg-teal text-on-solid'
-									: 'border-teal-border bg-teal-subtle text-teal-text'}"
+									? 'border-accent bg-accent text-on-solid'
+									: 'border-accent-border bg-accent-subtle text-accent-text'}"
 							>
 								<span class="font-mono text-[13px] font-bold">{m2t(slot.start)}</span>
-								<!-- O chip da vaga que abriu é teal SÓLIDO, e sobre ele o texto é escuro (`on-solid`);
+								<!-- O chip da vaga que abriu usa o acento SÓLIDO, e sobre ele o texto é escuro (`on-solid`);
 								     este trecho secundário acompanha com opacidade, em vez do branco que havia. -->
 								<span class="inline-flex items-center gap-1.5 {slot.freed ? 'text-on-solid/80' : 'text-muted'}">
 									<span

@@ -51,7 +51,7 @@
 			{@const isHorario = exc.tipo === 'horario'}
 			<div class="flex items-center gap-3 border-t border-edge py-2.5">
 				{#if isHorario}
-					<Clock size={16} class="shrink-0 text-teal" />
+					<Clock size={16} class="shrink-0 text-accent" />
 				{:else}
 					<CalendarOff size={16} class="shrink-0 text-danger" />
 				{/if}
@@ -62,7 +62,7 @@
 					{#if exc.nome}
 						<div class="truncate text-[13.5px] font-medium">{exc.nome}</div>
 					{/if}
-					<div class="font-mono text-[10.5px] {isHorario ? 'text-teal-text' : 'text-danger'}">
+					<div class="font-mono text-[10.5px] {isHorario ? 'text-accent-text' : 'text-danger'}">
 						{isHorario ? formatPeriods(exc.periods) : 'Fechado o dia inteiro'}
 					</div>
 				</div>

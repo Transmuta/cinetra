@@ -155,7 +155,7 @@
 				<li
 					class="flex items-stretch border-b border-edge last:border-b-0 {n.read
 						? ''
-						: 'bg-teal-subtle/40'}"
+						: 'bg-accent-subtle/40'}"
 				>
 					<form method="POST" action="?/read" use:enhance={openRow(n)} class="min-w-0 flex-1">
 						<input type="hidden" name="id" value={n.id} />
@@ -164,7 +164,7 @@
 							class="flex w-full items-start gap-3 px-4 py-3.5 text-left transition-colors hover:bg-surface-2"
 						>
 							<span
-								class="mt-1.5 size-2 shrink-0 rounded-full {n.read ? 'bg-transparent' : 'bg-teal'}"
+								class="mt-1.5 size-2 shrink-0 rounded-full {n.read ? 'bg-transparent' : 'bg-accent'}"
 								aria-hidden="true"
 							></span>
 							<span class="min-w-0 flex-1">
@@ -187,15 +187,15 @@
 							use:enhance={lerUma.submit(n.id)}
 							class="flex shrink-0 items-center pr-3"
 						>
-							<!-- Em repouso já se lê como botão (borda + ícone teal, não um cinza apagado);
-							     no hover vira teal sólido. Antes era `text-faint` sem borda, e ao vivo
+							<!-- Em repouso já se lê como botão (borda + ícone no acento, não um cinza apagado);
+							     no hover vira o acento sólido. Antes era `text-faint` sem borda, e ao vivo
 							     passava por enfeite da linha. -->
 							<SubmitButton
 								emVoo={lerUma.emVoo(n.id)}
 								trocaConteudo
 								title="Marcar como lida"
 								ariaLabel={'Marcar "' + n.title + '" como lida'}
-								class="grid size-8 place-items-center rounded-lg border border-teal-border bg-surface text-teal-text transition-colors hover:border-teal hover:bg-teal hover:text-white disabled:opacity-60"
+								class="grid size-8 place-items-center rounded-lg border border-accent-border bg-surface text-accent-text transition-colors hover:border-accent hover:bg-accent hover:text-white disabled:opacity-60"
 							>
 								<Check size={16} />
 							</SubmitButton>

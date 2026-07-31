@@ -80,7 +80,7 @@
 	<!-- Cabeçalho: período, intervalo, profissional e o pico do período. -->
 	<div class="mb-3.5 flex flex-wrap items-center gap-2">
 		<span
-			class="rounded-full bg-teal-subtle px-2.5 py-1 text-[12.5px] font-semibold text-teal-text"
+			class="rounded-full bg-accent-subtle px-2.5 py-1 text-[12.5px] font-semibold text-accent-text"
 		>
 			{PERIOD_LABELS[data.period]}
 		</span>
@@ -205,15 +205,15 @@
 								<div
 									class="flex w-full items-end overflow-hidden rounded-t bg-surface-2"
 									style="height:{hp}%;min-height:{d.total ? '4px' : '0'};{isToday
-										? 'outline:2px solid var(--color-teal);outline-offset:-1px'
+										? 'outline:2px solid var(--color-accent);outline-offset:-1px'
 										: ''}"
 								>
-									<div class="w-full bg-teal" style="height:{cf}%"></div>
+									<div class="w-full bg-accent" style="height:{cf}%"></div>
 								</div>
 							</div>
 							<div
 								class="h-3 font-mono text-[9px] {isToday
-									? 'font-bold text-teal-text'
+									? 'font-bold text-accent-text'
 									: 'text-faint'}"
 							>
 								{report.por_dia.length <= 16 || new Date(d.date + 'T00:00').getDay() === 1
@@ -225,7 +225,7 @@
 				</div>
 				<div class="mt-2.5 flex gap-4 text-[11px] text-muted">
 					<span class="inline-flex items-center gap-[5px]">
-						<span class="size-[9px] rounded-sm bg-teal"></span> Concluídos
+						<span class="size-[9px] rounded-sm bg-accent"></span> Concluídos
 					</span>
 					<span class="inline-flex items-center gap-[5px]">
 						<span class="size-[9px] rounded-sm border border-edge bg-surface-2"></span> Demais

@@ -316,7 +316,7 @@ Dark mode continua por `data-theme` (`@custom-variant dark`), não por `class` n
 - **`--mv-<sem>-solid`** é o **fundo** (badge, chip, botão sólido). Fixo nos dois temas — badge é badge — e o texto sobre ele é `--mv-on-solid`, escuro e também fixo. O precedente é a badge ENCAIXE, consertada assim no AN-08.
 - **`--mv-<sem>`** é **texto/ícone** (`text-danger` e parentes), e muda **por tema**.
 - **Exceção deliberada:** `--mv-danger-solid` escureceu (`#e5484d` → `#d83b40`) para **manter o texto branco**. Botão destrutivo com texto escuro sobre vermelho claro perde a força de aviso.
-- O par espelha o que o teal já era (`--mv-teal-solid` + `--mv-teal-text`): não é padrão novo, é o padrão existente estendido às outras quatro.
+- O par espelha o que o teal já era (`--mv-teal-solid` + `--mv-teal-text`, hoje `--mv-accent-*` pela ADR-021): não é padrão novo, é o padrão existente estendido às outras quatro.
 - **Paleta categórica** (avatar, tipo de atendimento, prioridade) **não** entra nesse modelo: ela vem de lista e é contrato com o `one_of` do servidor (débito **D-3**), então o hex não muda. Ali a cor do texto é **escolhida por cor de fundo** (`textoSobre()` em `web/src/lib/contraste.ts`), porque 5 das 7 cores de avatar reprovam com branco e nenhuma cor única serve às sete.
 
 **Consequências.**
@@ -325,6 +325,80 @@ Dark mode continua por `data-theme` (`@custom-variant dark`), não por `class` n
 - Valor de token novo tem de passar em **duas** famílias de fundo: as superfícies e a **própria tinta** (`bg-<sem>/10..14`), onde o fundo já está tingido da cor do texto. Foi a tinta que empurrou os valores finais além do mínimo óbvio — ver doc 83 §11.2.
 - A trava é `web/src/lib/styles/contraste.test.ts`, que **lê o `app.css`** em vez de repetir os hex: um teste com os valores à mão concorda com o CSS até o dia em que divergem.
 - Mexer nessas cores deixou de ser escolha estética livre. O piso é WCAG AA (4,5 para texto, 3 para indicador de foco), e baixar o gate é decisão humana explícita — a mesma regra do gate de cobertura.
+
+---
+
+## ADR-021 — O teal sai do app: o acento de UI é o sage da marca, e a família se chama `accent`
+
+**Status:** Aceita (2026-07-30) · **Completa:** [ADR-020](#adr-020--o-botão-primário-é-o-sage-da-marca-com-texto-branco-abaixo-do-piso-de-contraste) · **Débito que ela cria:** [D-18](50-debitos-tecnicos.md)
+
+**Contexto.** A ADR-020 trocou só o **botão primário** para o sage. O resto do app continuou teal (`#0fb5a6` e derivados) — a faixa do topo, o marcador do "agora", o chip "Hoje", o estado ativo da sidebar, o anel de foco. O app ficou com **duas identidades ao mesmo tempo**, e a pergunta que abriu esta decisão foi exatamente essa: "ainda não mudou em todos os lugares".
+
+**Decisão.** A família inteira do acento passa a ser derivada do sage, **e muda de nome de `teal` para `accent`** — porque um token chamado `teal` valendo um verde-acinzentado é a mentira que o `app.css` existe para não contar. Valores medidos antes de escolher:
+
+| token | era (teal) | é (sage) |
+| --- | --- | --- |
+| `--mv-accent-solid` | `#0fb5a6` | `#7fa59a` |
+| `--mv-accent-hover` | `#0ba294` | `#72958b` |
+| `--mv-accent-text` (claro / escuro) | `#067a6f` / `#3fd6c7` | `#3b6d5f` / `#8ec2b3` |
+| `--mv-accent-subtle` (claro / escuro) | `#e5f7f4` / `rgba(15,181,166,.16)` | `#ebf4f2` / `rgba(127,165,154,.16)` |
+| `--mv-accent-border` (claro / escuro) | `#7fdacd` / `rgba(127,218,205,.45)` | `#9cc9bc` / `rgba(127,165,154,.45)` |
+
+**Por que sage e não outra cor — o anel de foco decidiu.** O acento carrega o anel de `:focus-visible`, e o **rail é escuro nos dois temas**: uma cor escura desaparece ali. Medido: o blue da marca (`#3a5a78`) dá **2,47 sobre o rail** e reprovaria 1.4.11. O sage é claro como o teal era, então o contrato do anel duplo sobrevive **sem remedição** — 6,56 contra os 6,92 do teal. Todos os outros papéis caem dentro de ±0,4 do que o teal media, e o texto sobre o chip até melhorou (4,71 → 5,30).
+
+**O preço, registrado.** O sage tem **saturação 17%** contra os 85% do teal. O acento lê mais discreto — decisão consciente de marca, não descuido. E a matiz do sage (163°) fica a 17° do verde de `success` (146°), contra os 29° que o teal tinha: "Em atendimento" e "Concluído" ficaram cromaticamente mais próximos.
+
+**A paleta de avatar entra; a de tipos de atendimento, não — e as razões são diferentes.**
+
+A **paleta de avatar** (profissional e paciente, `AVATAR_PALETTE`) troca a entrada 1 de `#0FB5A6` para `#7FA59A`. Ela é cor de **dado**, não de marca — o trabalho dela é distinguir pessoas entre si —, então a pergunta que decide é distância perceptual, e ela foi **medida em OKLab** antes da troca:
+
+| paleta | par mais confundível | ΔE_ok |
+| --- | --- | --- |
+| antes (teal) | `#0FB5A6` ↔ `#009E73` | **0,087** |
+| depois (sage) | `#7FA59A` ↔ `#009E73` | **0,111** |
+
+Ou seja: o teal **já era** a cor mais confundível da lista, e o sage afasta o pior par em 28%. Vale registrar o erro que quase barrou esta troca: a primeira análise olhou só a matiz (sage 163°, `#009E73` 164°) e concluiu "duas das sete viraram a mesma". Matiz sozinha não decide — as duas diferem em saturação (17% vs 100%) e luminosidade (57% vs 31%), que é o que o olho usa. **A lição é medir, não supor**, e vale para toda paleta categórica deste app. O contrato de contraste (`textoSobre` devolvendo texto que passa 4,5:1 para as sete cores) continua verde: sage aceita texto escuro a 6,46.
+
+A troca é **frontend puro**: `cor_indice` é um índice 1-based, não um hex — não há cor de avatar no servidor nem migração a fazer.
+
+A **paleta de tipo de atendimento** (`appointment-types.ts` + `@cores`) fica como está. Ali o hex é **persistido** e validado por `one_of` no servidor em **create, update *e destroy*** ([`appointment_type.ex`](../api/lib/api/directory/appointment_type.ex)) — trocar o valor sem migração de dados deixaria toda linha antiga impossível de editar **e de apagar** (422). É trabalho de outra natureza: migração + seed + ~20 arquivos de teste do backend.
+
+**Consequências.**
+
+- **Três tokens valem `#7fa59a` agora**, e a separação é de papel, não de valor: `--mv-sage` (pigmento da marca), `--mv-primary` (botão, ADR-020) e `--mv-accent-solid` (acento, com a família `text`/`subtle`/`border`). Continuam separados de propósito — quem for pagar o D-17 mexe em um sem arrastar os outros.
+- **Os 5 `accent-teal` de checkbox viraram `accent-primary`.** `accent-accent` seria ilegível, e o preenchimento de checkbox é de fato a cor do controle primário.
+- **O tom `'teal'` do domínio virou `'accent'`** em `StatusMeta['tone']` (agenda) e `ChipTone` (pacotes) — e isso **não era cosmético**: meia dúzia de componentes interpola o tom dentro do nome da variável (`var(--color-${tone})`), então o tom `'teal'` apontaria para um token extinto e o ponto do "Em atendimento" e o chip "Ativo" renderizariam **sem cor**, em silêncio. Ver o novo `web/src/lib/tons.test.ts`.
+- **O `contraste-tokens.mjs` foi ressincronizado.** Ele estava medindo `faint`, `teal_text` e as semânticas nos **valores antigos**, e tratava `success`/`warning`/`danger`/`info` como iguais nos dois temas, o que deixou de ser verdade na [ADR-019](#adr-019--cor-semântica-é-dois-tokens-fundo-fixo-e-texto-por-tema). Tabela por tema agora, e as badges medem o `-solid` (o fundo real) em vez do token de texto.
+- **A borda do chip continua abaixo de 1.4.11** — 1,83 sobre `surface`, contra os 1,64 do teal. Melhorou junto, mas não passou; virou o débito **D-18**.
+
+---
+
+## ADR-020 — O botão primário é o sage da marca com texto branco, abaixo do piso de contraste
+
+**Status:** Aceita (2026-07-30) · **Abre exceção a:** [ADR-019](#adr-019--cor-semântica-é-dois-tokens-fundo-fixo-e-texto-por-tema) · **Débito que ela cria:** [D-17](50-debitos-tecnicos.md)
+
+**Contexto.** Até aqui `--mv-primary` era o **tema invertido**: quase-preto (`#16181c`) no claro, quase-branco (`#eceef0`) no escuro, com `--mv-on-primary` invertendo junto. Era o par de maior contraste do app (17,77 e 15,28) e cobria botão primário, Toast e chips de grade de pacote — mas não era o **sage da marca**, e o texto escuro sobre verde foi reportado como difícil de ler.
+
+**Decisão.** `--mv-primary` passa a ser **`#7fa59a`** — o mesmo hex de `--mv-sage` — com **`--mv-on-primary: #ffffff`**, igual nos dois temas. O hover escurece para `#72958b` (mesma matiz, ~90%), seguindo a convenção que o acento já usava.
+
+**A exceção, com o número na mesa.** Branco sobre `#7fa59a` mede **2,71:1**. Isso reprova o 4,5 de texto (1.4.3) e reprova até o 3 de limite de componente (1.4.11). A alternativa conforme existia e foi **medida e recusada**: texto escuro `#16181c` sobre o mesmo sage dá **6,56:1** — passa folgado, e é inclusive o que a própria landing usa (`+page.svelte:538` pinta a seção sage com `color:#16241E`). Foi recusada por legibilidade percebida.
+
+Registrar isso é o ponto do ADR: pela regra de [`.claude/rules/testes.md`](../.claude/rules/testes.md), baixar um piso é decisão humana explícita e justificada, nunca atalho para verde. Esta é a decisão explícita.
+
+**Alternativas descartadas.**
+
+- **Sage escurecido preservando a matiz** — `#567b70` (branco a 4,71) ou `#597e73` (4,51), calculados em OKLab. Conformes e visualmente ainda sage, mas não são o hex da marca.
+- **`#7fa59a` com texto escuro** — conforme (6,56), é o que a marca já faz na landing. Recusada pelo motivo acima.
+
+**Consequências.**
+
+- **`primary` deixou de inverter por tema.** O Toast do tema escuro era uma pill quase-branca; agora é sage nos dois temas.
+- **`--mv-sage` continua existindo com o mesmo hex, e isso é de propósito**: `sage` é o pigmento da marca (logo, landing, gradientes), `primary` é o papel de UI. Quem for pagar o D-17 um dia mexe só em `primary`, sem tocar na marca.
+- **O ícone do Toast perdeu a cor como sinal.** `text-accent` (então ainda `text-teal`) sobre sage media **1,06:1** — o check de sucesso literalmente sumia; `text-danger`, 1,20–2,13. Os dois viraram `text-on-primary`, e a variante passou a se distinguir só pela **forma** (check vs alerta). Não fere 1.4.1 porque a cor nunca foi o único sinal ali, mas o teste que provava a distinção media a tinta e teria passado verde sobre um ícone invisível — ele agora mede `lucide-check` vs `lucide-circle-alert`.
+- **O chip "próxima" da ficha do paciente saiu de `primary`.** Ele usava `primary` como *texto sobre a própria tinta de 14%* — o padrão que o [ADR-019](#adr-019--cor-semântica-é-dois-tokens-fundo-fixo-e-texto-por-tema) já apontava como o pior caso — e com sage caiu para **2,26:1**. Passou para o par `accent-text`/`accent-subtle` (chamado `teal-*` até a ADR-021), que existe no design system exatamente para chip tingido e é fixado em 4,71. Lição que generaliza: **`primary` agora serve de fundo sólido, não de tinta**; quem precisar de chip tingido usa o par do acento.
+- **O gate `e2e/a11y-interno.spec.ts` ganhou uma isenção — a única do arquivo.** Sem ela ficariam 7 nós de `color-contrast` vermelhos para sempre em 5 telas, e gate cronicamente vermelho é gate que ninguém lê. Ela é estreita de propósito: filtra os **nós** cujo HTML casa `bg-primary`, e não desliga a regra `color-contrast` nem usa `.exclude()` (que tiraria aqueles elementos de *todas* as regras). Qualquer outra reprova de contraste na mesma tela continua barrando.
+- **Sobra colateral não resolvida**, listada no D-17: `text-primary` (2 links de 11,5px), `border-primary` e `accent-primary` agora pintam sage **sobre** superfície clara, a 2,54–2,71. No tema escuro esses mesmos usos melhoraram (6,56–7,18). O axe não os pegou porque são condicionais e não renderizaram no cenário da varredura — o que é um lembrete de que a varredura mede o que a spec semeia.
+- A trava é `web/src/lib/styles/contraste.test.ts`, que **crava o 2,71** em vez de fingir que passa — e que avisa para apagar a exceção se o número um dia subir de 4,5. Antes desta ADR o par `primary`/`on-primary` simplesmente **não era medido por ninguém**: a troca teria passado verde em silêncio.
 
 ---
 

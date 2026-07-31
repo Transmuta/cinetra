@@ -464,7 +464,7 @@
 
 		     A cor é a do STATUS, não um cinza para tudo que não é verde/vermelho: cada um tem o seu
 		     token (`muted` para agendado, `faint` para cancelado — ver `StatusMeta.tone`). O texto
-		     usa a variante `-text` quando existe, porque o teal sólido não tem contraste sobre 14%
+		     usa a variante `-text` quando existe, porque o sólido do acento não tem contraste sobre 14%
 		     dele mesmo; sem a variante, cai no próprio token. É a mesma expressão do badge do
 		     cartão — uma regra de cor, três superfícies. -->
 		{#if !terminal || appt.encaixe}
@@ -630,7 +630,7 @@
 			{@const debito = packageDebit(presenca)}
 			<div data-testid="drawer-pacote" class="mt-1.5">
 				<!--
-					Sem caixa, sem preenchimento e sem borda: a primeira versão era um retângulo teal
+					Sem caixa, sem preenchimento e sem borda: a primeira versão era um retângulo no acento
 					com três linhas dentro, e num painel que já tem cartão de paciente, botões de
 					presença e timeline, ele gritava mais alto que o próprio paciente. Do verde sobra
 					o ícone de 13px — o suficiente para dizer "pacote" sem disputar a atenção.
@@ -647,7 +647,7 @@
 						: ''} — ver na ficha"
 					class="flex items-center gap-1.5 text-[12.5px] hover:underline"
 				>
-					<Package size={13} class="shrink-0 text-teal-text" />
+					<Package size={13} class="shrink-0 text-accent-text" />
 					<span class="truncate font-medium">{pkg.nome}</span>
 					{#if pkg.sessao}
 						<span class="shrink-0 text-muted">· {pkg.sessao} de {pkg.total}</span>
@@ -759,7 +759,7 @@
 				{#if presencaSolo}{@render controlesPresenca(soloPaciente, presencaSolo)}{/if}
 				<a
 					href="/pacientes/{soloPaciente.id}"
-					class="mt-2 inline-flex items-center gap-1 text-[12.5px] font-semibold text-teal-text hover:underline"
+					class="mt-2 inline-flex items-center gap-1 text-[12.5px] font-semibold text-accent-text hover:underline"
 				>
 					Abrir ficha <ArrowRight size={13} />
 				</a>
@@ -772,9 +772,9 @@
 		{#if vagaAberta && candidatos !== undefined}
 			<div class="rounded-lg border border-edge">
 				<div class="flex items-center gap-1.5 border-b border-edge px-3 py-2 text-[12px] text-faint">
-					<Sparkles size={13} class="shrink-0 text-teal-text" />
+					<Sparkles size={13} class="shrink-0 text-accent-text" />
 					<span class="font-semibold text-muted">Quem cabe aqui</span>
-					<a href="/fila" class="ml-auto inline-flex items-center gap-1 font-semibold text-teal-text hover:underline">
+					<a href="/fila" class="ml-auto inline-flex items-center gap-1 font-semibold text-accent-text hover:underline">
 						Ver fila <ArrowRight size={12} />
 					</a>
 				</div>
@@ -806,7 +806,7 @@
 											? 'A vaga é de uma falta — o novo agendamento entra como encaixe'
 											: `Agendar ${c.patient.nome} neste horário`}
 										size={13}
-										class="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-teal-border bg-teal-subtle px-2.5 py-1.5 text-[12px] font-semibold text-teal-text transition-colors hover:bg-teal hover:text-white disabled:cursor-not-allowed disabled:opacity-55"
+										class="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-accent-border bg-accent-subtle px-2.5 py-1.5 text-[12px] font-semibold text-accent-text transition-colors hover:bg-accent hover:text-white disabled:cursor-not-allowed disabled:opacity-55"
 									>
 										Agendar
 									</SubmitButton>
@@ -982,7 +982,7 @@
 				bind:value={motivo}
 				maxlength="300"
 				placeholder="Ex.: paciente pediu, imprevisto do profissional…"
-				class="w-full rounded-md border border-edge bg-surface px-2.5 py-2 text-[13px] text-ink placeholder:text-faint focus:border-teal focus:outline-none"
+				class="w-full rounded-md border border-edge bg-surface px-2.5 py-2 text-[13px] text-ink placeholder:text-faint focus:border-accent focus:outline-none"
 			/>
 		</label>
 	</ConfirmDialog>
@@ -1011,7 +1011,7 @@
 				bind:value={motivoFalta}
 				maxlength="300"
 				placeholder="Ex.: avisou que estava doente, não avisou…"
-				class="w-full rounded-md border border-edge bg-surface px-2.5 py-2 text-[13px] text-ink placeholder:text-faint focus:border-teal focus:outline-none"
+				class="w-full rounded-md border border-edge bg-surface px-2.5 py-2 text-[13px] text-ink placeholder:text-faint focus:border-accent focus:outline-none"
 			/>
 		</label>
 	</ConfirmDialog>

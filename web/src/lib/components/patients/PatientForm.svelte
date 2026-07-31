@@ -371,7 +371,7 @@
 {#snippet cardHead(icon: typeof User, t: string, sub: string, filled: number, total: number)}
 	{@const Icon = icon}
 	<div class="mb-4 flex items-center gap-3">
-		<span class="grid size-[34px] shrink-0 place-items-center rounded-[9px] bg-teal-subtle text-teal-text">
+		<span class="grid size-[34px] shrink-0 place-items-center rounded-[9px] bg-accent-subtle text-accent-text">
 			<Icon size={17} />
 		</span>
 		<div class="min-w-0 flex-1">
@@ -382,7 +382,7 @@
 			<h2 class="text-[15px] font-bold">{t}</h2>
 			<div class="text-[11.5px] text-faint">{sub}</div>
 		</div>
-		<span class="shrink-0 font-mono text-[10.5px] {filled ? 'text-teal-text' : 'text-faint'}">{filled}/{total}</span>
+		<span class="shrink-0 font-mono text-[10.5px] {filled ? 'text-accent-text' : 'text-faint'}">{filled}/{total}</span>
 	</div>
 {/snippet}
 
@@ -414,7 +414,7 @@
 		</div>
 		<div class="hidden shrink-0 items-center gap-2.5 md:flex">
 			<div class="h-1.5 w-[120px] overflow-hidden rounded bg-surface-2">
-				<div class="h-full bg-teal transition-all" style="width:{(totalFilled / totalKeys) * 100}%"></div>
+				<div class="h-full bg-accent transition-all" style="width:{(totalFilled / totalKeys) * 100}%"></div>
 			</div>
 			<span class="font-mono text-[11px] text-faint">{totalFilled}/{totalKeys}</span>
 		</div>
@@ -432,12 +432,12 @@
 						type="button"
 						onclick={() => goSec(s.id)}
 						class="flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] {on
-							? 'bg-teal-subtle font-bold text-teal-text'
+							? 'bg-accent-subtle font-bold text-accent-text'
 							: 'font-medium text-muted hover:bg-surface-2'}"
 					>
 						<s.icon size={16} />
 						<span class="min-w-0 flex-1 truncate">{s.t}</span>
-						{#if cnt}<span class="size-[7px] shrink-0 rounded-full bg-teal"></span>{/if}
+						{#if cnt}<span class="size-[7px] shrink-0 rounded-full bg-accent"></span>{/if}
 					</button>
 				{/each}
 			</div>
@@ -559,7 +559,7 @@
 					{#if cepStatus}
 						<span
 							class="mt-1 block text-[11.5px] {cepStatus === 'ok'
-								? 'text-teal-text'
+								? 'text-accent-text'
 								: cepStatus === 'loading'
 									? 'text-muted'
 									: 'text-danger'}"
@@ -679,7 +679,7 @@
 						fica guardado caso seja preciso encaminhar para outro tratamento coberto pelo convênio.
 					</p>
 					<label class="flex items-center gap-2.5 rounded-lg border border-edge bg-surface-2 px-3 py-2.5 text-[13px]">
-						<input type="checkbox" bind:checked={temConvenio} class="size-4 accent-teal" />
+						<input type="checkbox" bind:checked={temConvenio} class="size-4 accent-primary" />
 						<span class="font-semibold">O paciente possui convênio / plano de saúde</span>
 					</label>
 					{#if temConvenio}
@@ -712,7 +712,7 @@
 									type="button"
 									onclick={() => togglePref(p.id)}
 									class="flex items-center gap-1.5 rounded-full border py-1.5 pl-1.5 pr-2.5 text-[12.5px] font-semibold {on
-										? 'border-transparent bg-teal-subtle text-teal-text'
+										? 'border-transparent bg-accent-subtle text-accent-text'
 										: 'border-edge bg-surface text-ink hover:bg-surface-2'}"
 								>
 									<span class="grid size-5 place-items-center rounded-full text-[9px] font-bold" style={avatarStyle(p.cor_indice)}>
@@ -729,9 +729,9 @@
 					{@render label('Tags / condições clínicas')}
 					<div class="flex min-h-[38px] flex-wrap items-center gap-1.5 rounded-lg border border-edge bg-surface p-1.5">
 						{#each tags as t (t)}
-							<span class="inline-flex items-center gap-1.5 rounded-md bg-teal-subtle py-0.5 pl-2 pr-1 text-[12px] font-semibold text-teal-text">
+							<span class="inline-flex items-center gap-1.5 rounded-md bg-accent-subtle py-0.5 pl-2 pr-1 text-[12px] font-semibold text-accent-text">
 								{t}
-								<button type="button" onclick={() => removeTag(t)} aria-label="Remover {t}" class="grid size-4 place-items-center rounded text-teal-text hover:bg-teal/20">
+								<button type="button" onclick={() => removeTag(t)} aria-label="Remover {t}" class="grid size-4 place-items-center rounded text-accent-text hover:bg-accent/20">
 									<X size={12} />
 								</button>
 							</span>
@@ -758,7 +758,7 @@
 				<section id="sec-consentimento" class="scroll-mt-4 rounded-[14px] border border-edge bg-surface p-5">
 					{@render cardHead(ShieldCheck, SECTIONS[7].t, SECTIONS[7].sub, counts.consentimento, SECTIONS[7].total)}
 					<label class="flex items-start gap-2.5 rounded-lg border border-edge bg-surface-2 px-3 py-2.5 text-[12.5px]">
-						<input type="checkbox" bind:checked={lgpd} class="mt-0.5 size-4 accent-teal" />
+						<input type="checkbox" bind:checked={lgpd} class="mt-0.5 size-4 accent-primary" />
 						<span class="text-muted">
 							Autorizo o tratamento dos meus dados pessoais e dados sensíveis de saúde para compor o
 							prontuário, emitir documentos e planejar a assistência, conforme a
@@ -766,7 +766,7 @@
 						</span>
 					</label>
 					<label class="mt-2.5 flex items-start gap-2.5 rounded-lg border border-edge bg-surface-2 px-3 py-2.5 text-[12.5px]">
-						<input type="checkbox" bind:checked={comunicacao} class="mt-0.5 size-4 accent-teal" />
+						<input type="checkbox" bind:checked={comunicacao} class="mt-0.5 size-4 accent-primary" />
 						<!-- O texto mudou junto com o default (doc 52 §11.2): a caixa deixou de ser
 						     "autorizar" e passou a ser algo que se DESMARCA, então ela precisa dizer o que
 						     sai por ali. Desmarcar sem saber o que se está desligando é adivinhação.

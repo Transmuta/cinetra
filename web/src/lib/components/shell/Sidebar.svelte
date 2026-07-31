@@ -255,7 +255,7 @@
 	{#if title}
 		<div class="flex items-center gap-1.5 px-4 pb-2 pt-2.5">
 			<span class="text-[11px] font-bold uppercase tracking-[.06em] text-ink">{title}</span>
-			<span class="size-[5px] rounded-full bg-teal"></span>
+			<span class="size-[5px] rounded-full bg-accent"></span>
 		</div>
 	{/if}
 
@@ -274,7 +274,7 @@
 						? 'bg-surface-2 font-semibold text-ink'
 						: 'font-medium text-muted hover:bg-surface-2'}"
 				>
-					<span class={isActive ? 'text-teal-text' : 'text-faint'}><Icon size={15} /></span>
+					<span class={isActive ? 'text-accent-text' : 'text-faint'}><Icon size={15} /></span>
 					<span class="flex-1 truncate">{link.label}</span>
 				</a>
 			{/each}
@@ -304,7 +304,7 @@
 						? 'bg-surface-2 font-semibold text-ink'
 						: 'font-medium text-muted hover:bg-surface-2'}"
 				>
-					<span class={isActive ? 'text-teal-text' : 'text-faint'}><fil.icon size={15} /></span>
+					<span class={isActive ? 'text-accent-text' : 'text-faint'}><fil.icon size={15} /></span>
 					<span class="flex-1 truncate">{fil.label}</span>
 					{#if hasProfCounts}
 						<span class="font-mono text-[11px] text-faint">{profCounts[fil.key]}</span>
@@ -321,7 +321,7 @@
 			>
 				<span>Profissionais</span>
 				{#if agendaHidden.length}
-					<a href={agendaHref([])} class="normal-case tracking-normal text-teal-text hover:underline">
+					<a href={agendaHref([])} class="normal-case tracking-normal text-accent-text hover:underline">
 						Mostrar todos
 					</a>
 				{/if}
@@ -379,7 +379,7 @@
 						? 'bg-surface-2 font-semibold text-ink'
 						: 'font-medium text-muted hover:bg-surface-2'}"
 				>
-					<span class={isActive ? 'text-teal-text' : 'text-faint'}><fil.icon size={15} /></span>
+					<span class={isActive ? 'text-accent-text' : 'text-faint'}><fil.icon size={15} /></span>
 					<span class="flex-1 truncate">{fil.label}</span>
 					{#if hasPatCounts}
 						<span class="font-mono text-[11px] text-faint">{patCounts[fil.key]}</span>
@@ -414,7 +414,7 @@
 				>
 					<!-- Bolinha na cor da prioridade (hex fixo do protótipo); "Todas" leva o relógio. -->
 					{#if fil.key === 'todas'}
-						<span class={isActive ? 'text-teal-text' : 'text-faint'}><Clock4 size={15} /></span>
+						<span class={isActive ? 'text-accent-text' : 'text-faint'}><Clock4 size={15} /></span>
 					{:else}
 						<span class="grid size-[15px] place-items-center">
 							<span class="size-2.5 rounded-full" style="background:{PRIORITY_META[fil.key].color}"></span>
@@ -440,7 +440,7 @@
 					? 'bg-surface-2 font-semibold text-ink'
 					: 'font-medium text-muted hover:bg-surface-2'}"
 			>
-				<span class={!notifOnlyUnread ? 'text-teal-text' : 'text-faint'}><Inbox size={15} /></span>
+				<span class={!notifOnlyUnread ? 'text-accent-text' : 'text-faint'}><Inbox size={15} /></span>
 				<span class="flex-1 truncate">Todas</span>
 			</a>
 
@@ -451,7 +451,7 @@
 					? 'bg-surface-2 font-semibold text-ink'
 					: 'font-medium text-muted hover:bg-surface-2'}"
 			>
-				<span class={notifOnlyUnread ? 'text-teal-text' : 'text-faint'}><BellDot size={15} /></span>
+				<span class={notifOnlyUnread ? 'text-accent-text' : 'text-faint'}><BellDot size={15} /></span>
 				<span class="flex-1 truncate">Não lidas</span>
 				{#if notifUnread > 0}
 					<span class="font-mono text-[11px] text-faint">{notifUnread}</span>
@@ -474,11 +474,11 @@
 						: 'font-medium text-muted hover:bg-surface-2'}"
 				>
 					{#if Icon}
-						<span class={isActive ? 'text-teal-text' : 'text-faint'}><Icon size={15} /></span>
+						<span class={isActive ? 'text-accent-text' : 'text-faint'}><Icon size={15} /></span>
 					{:else}
 						<span class="grid size-[15px] place-items-center">
 							<span
-								class="size-1.5 rounded-full {isActive ? 'bg-teal' : 'bg-edge-strong'}"
+								class="size-1.5 rounded-full {isActive ? 'bg-accent' : 'bg-edge-strong'}"
 							></span>
 						</span>
 					{/if}
@@ -557,7 +557,7 @@
 						? 'bg-surface-2 font-semibold text-ink'
 						: 'font-medium text-muted hover:bg-surface-2'}"
 				>
-					<span class={isActive ? 'text-teal-text' : 'text-faint'}><per.icon size={15} /></span>
+					<span class={isActive ? 'text-accent-text' : 'text-faint'}><per.icon size={15} /></span>
 					<span class="flex-1 truncate">{PERIOD_LABELS[per.key]}</span>
 				</a>
 			{/each}
@@ -573,7 +573,7 @@
 					? 'bg-surface-2 font-semibold text-ink'
 					: 'font-medium text-muted hover:bg-surface-2'}"
 			>
-				<span class={relProf === 'todos' ? 'text-teal-text' : 'text-faint'}><Users size={15} /></span>
+				<span class={relProf === 'todos' ? 'text-accent-text' : 'text-faint'}><Users size={15} /></span>
 				<span class="flex-1 truncate">Todos</span>
 			</a>
 			{#each relProfs as prof (prof.id)}

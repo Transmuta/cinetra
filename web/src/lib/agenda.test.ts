@@ -88,7 +88,7 @@ describe('STATUS_META', () => {
 	// já os separava (`statusMeta` :810: `muted` para agendado, `faint` para cancelado).
 	it('cada status tem cor própria — nenhuma repetida', () => {
 		const tons = STATUS_ORDER.map((s) => STATUS_META[s].tone);
-		expect(tons).toEqual(['muted', 'info', 'teal', 'success', 'danger', 'faint']);
+		expect(tons).toEqual(['muted', 'info', 'accent', 'success', 'danger', 'faint']);
 		expect(new Set(tons).size).toBe(STATUS_ORDER.length);
 	});
 

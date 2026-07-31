@@ -95,7 +95,7 @@
 					<input type="hidden" name="id" value={t.id} />
 					<SubmitButton
 						emVoo={linha.emVoo(t.id)}
-						class="flex shrink-0 items-center gap-1.5 rounded-md border border-edge bg-surface px-2.5 py-1.5 text-[12px] font-semibold text-teal-text hover:bg-surface-2 disabled:opacity-60"
+						class="flex shrink-0 items-center gap-1.5 rounded-md border border-edge bg-surface px-2.5 py-1.5 text-[12px] font-semibold text-accent-text hover:bg-surface-2 disabled:opacity-60"
 					>
 						<RotateCcw size={13} /> Restaurar
 					</SubmitButton>

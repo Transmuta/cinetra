@@ -72,13 +72,13 @@
 			onclick={() => onPick(card.date)}
 			aria-current={card.isToday ? 'date' : undefined}
 			class="flex flex-col gap-2 rounded-xl border p-3 text-left transition-colors {card.isSelected
-				? 'border-teal-border bg-teal-subtle'
+				? 'border-accent-border bg-accent-subtle'
 				: 'border-edge bg-surface hover:bg-surface-2'}"
 		>
 			<div class="flex items-baseline justify-between gap-1">
 				<span class="text-[11px] font-medium text-faint capitalize">{card.label}</span>
 				{#if card.isToday}
-					<span class="text-[10px] font-bold tracking-wide text-teal-text uppercase">hoje</span>
+					<span class="text-[10px] font-bold tracking-wide text-accent-text uppercase">hoje</span>
 				{/if}
 			</div>
 
@@ -92,7 +92,7 @@
 				<div class="text-[12px] font-semibold text-faint">Sem expediente</div>
 			{:else}
 				<div
-					class="text-[12px] font-semibold {card.totals.total > 0 ? 'text-teal-text' : 'text-faint'}"
+					class="text-[12px] font-semibold {card.totals.total > 0 ? 'text-accent-text' : 'text-faint'}"
 				>
 					{card.totals.total} agend.
 				</div>

@@ -22,7 +22,7 @@
 	{disabled}
 	onclick={() => !disabled && onchange()}
 	class="relative h-[22px] w-[38px] shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 {checked
-		? 'bg-teal'
+		? 'bg-accent'
 		: 'bg-edge'}"
 >
 	<span

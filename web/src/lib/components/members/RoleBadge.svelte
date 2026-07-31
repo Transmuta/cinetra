@@ -16,8 +16,8 @@
 	};
 
 	const STYLE: Record<Papel, string> = {
-		owner: 'bg-teal-subtle text-teal-text',
-		admin: 'bg-teal-subtle text-teal-text',
+		owner: 'bg-accent-subtle text-accent-text',
+		admin: 'bg-accent-subtle text-accent-text',
 		profissional: 'bg-surface-2 text-info',
 		recepcao: 'bg-surface-2 text-muted'
 	};

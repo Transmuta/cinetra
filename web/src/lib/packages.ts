@@ -153,7 +153,7 @@ export function gradeLabel(
 	return [dias, prof].filter(Boolean).join(' · ');
 }
 
-export type ChipTone = 'teal' | 'warning' | 'faint' | 'danger';
+export type ChipTone = 'accent' | 'warning' | 'faint' | 'danger';
 /** Ícone da pílula de estado — `null` é o "Ativo", que no protótipo não tem ícone. */
 export type ChipIcone = 'alerta' | 'pausa' | 'check' | 'x' | null;
 
@@ -176,7 +176,7 @@ export function statusChip(pkg: {
 
 	if (pkg.restantes === 0) return { label: 'Completo', tone: 'faint', icone: 'check' };
 	if (pkg.acabando) return { label: 'Acabando', tone: 'warning', icone: 'alerta' };
-	return { label: 'Ativo', tone: 'teal', icone: null };
+	return { label: 'Ativo', tone: 'accent', icone: null };
 }
 
 /**

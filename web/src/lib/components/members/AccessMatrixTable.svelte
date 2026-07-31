@@ -10,7 +10,7 @@
 
 	// Cada tom em fundo + texto (nunca só cor): o rótulo escrito é o dado, o tom é reforço.
 	const TONE_CLASS = {
-		ok: 'bg-teal-subtle text-teal-text',
+		ok: 'bg-accent-subtle text-accent-text',
 		meio: 'bg-surface-2 text-muted',
 		nada: 'text-faint'
 	} as const;

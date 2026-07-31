@@ -441,3 +441,87 @@ limit por IP viram controláveis pelo cliente, do mesmo jeito da causa B do
 esquerda o número de proxies confiáveis da topologia (é o que o `XFF_DEPTH` do adapter-node faz do
 lado do BFF), e configurá-la junto com o proxy, como já é a regra para a lista de headers
 confiáveis. Meia hora, mais uma decisão explícita sobre quantos hops confiar.
+
+---
+
+## D-17 · O botão primário está 2,71:1 — exceção de contraste aceita
+
+**O que é.** Desde a [ADR-020](00-decisoes.md) `--mv-primary` é o sage da marca (`#7fa59a`) com
+`--mv-on-primary: #ffffff`. O par mede **2,71:1**, abaixo do 4,5 de texto (WCAG 1.4.3) e abaixo até
+do 3 de limite de componente (1.4.11). O `:hover` (`#72958b`) mede 3,29.
+
+**Por que virou débito.** Decisão de produto, com o número na mesa: a alternativa conforme era texto
+escuro sobre o mesmo sage (**6,56:1**, que é o que a landing já faz em `+page.svelte:538`), e foi
+recusada por legibilidade percebida. Não é descuido nem furo de medição — é escolha registrada.
+
+**O que custa hoje.** Alcança quase todo clique primário do app: `bg-primary` + `text-on-primary`
+são os botões ([`Button.svelte:33`](../web/src/lib/components/Button.svelte)), o Toast e os chips de
+grade de pacote — 86 usos dos tokens `primary*` no `web/src`. Some-se o colateral que a troca criou
+e que **não foi resolvido**:
+
+| uso | onde | claro | escuro |
+| --- | --- | --- | --- |
+| `text-primary` (link 11,5px) | `PatientHistory.svelte:121`, `PatientUpcoming.svelte:106` | **2,54–2,71** | 6,56–7,18 |
+| `border-primary` | `PackageGradeModal`, `PackageCreateModal`, `pacientes/[id]:399` | **2,54–2,71** | 6,56–7,18 |
+| `accent-primary` (checkbox) | `PackageCreateModal.svelte:453,472` | **2,71** | 7,18 |
+
+Note a inversão do custo: no tema **escuro** esses três usos ficaram melhores do que precisam; quem
+paga a conta é o tema **claro**.
+
+Os três da tabela **não** foram pegos pela varredura axe — são condicionais e não renderizaram no
+cenário que a spec semeia. Ou seja: o número real de nós reprovados em produção é **maior** que os 7
+que o gate mediu. Quem for pagar este débito não deve tomar a lista do axe como completa.
+
+**O que já foi pago junto com a troca**, e não conta como débito: o chip "próxima" da ficha
+(`PatientUpcoming.svelte`) usava `primary` como texto sobre a própria tinta de 14% e caiu para
+**2,26:1** — migrou para o par `teal-text`/`teal-subtle`. E o ícone do Toast, que sumia a 1,06:1,
+passou a `text-on-primary`. Ambos estão descritos na ADR-020.
+
+**A isenção no gate do axe.** `e2e/a11y-interno.spec.ts` tinha 7 nós de `color-contrast` reprovando
+em 5 telas, e o gate exige zero. A função `semExcecaoDoPrimario` filtra **só** os nós cujo HTML casa
+`bg-primary`; a regra `color-contrast` continua ativa em todo o resto. É a única isenção do arquivo
+e some quando este débito for pago.
+
+**O que o paga.** Duas saídas, e as duas já estão medidas:
+
+1. **Escurecer o sage preservando a matiz** (calculado em OKLab): `#567b70` dá 4,71 com branco e
+   4,58 sobre o canvas claro — conforme, e ainda claramente sage. `#597e73` (4,51) é o limite. Mexe
+   só em `--mv-primary`/`--mv-primary-hover`; `--mv-sage` fica intacto para logo e landing.
+2. **Voltar o texto para escuro** (`#16181c`, 6,56) — conforme e alinhado à landing, mas é
+   exatamente o que a ADR-020 recusou.
+
+Qualquer das duas fecha este débito. Ao fazer, apague o par de testes de exceção em
+`web/src/lib/styles/contraste.test.ts` (eles avisam sozinhos quando o número passa de 4,5) e
+restaure o piso normal na linha do `contraste-tokens.mjs`.
+
+**Não confundir com o D-3**, que é a paleta categórica (avatar/tipo/prioridade) vivendo em duas
+linguagens. Este aqui é um par único de token, e tem conserto de uma linha.
+
+---
+
+## D-18 · A borda do chip do acento está 1,83:1 — abaixo do piso de componente
+
+**O que é.** `--mv-accent-border` mede **1,83:1** sobre `surface` no tema claro e **2,33:1** no
+escuro (achatada sobre a superfície onde de fato pinta). O piso de limite de componente (WCAG
+1.4.11) é **3**.
+
+**Por que virou débito agora.** Não é regressão da [ADR-021](00-decisoes.md) — é o contrário: a
+borda **melhorou** com a troca do teal para sage (era 1,64 no claro). O débito nasce porque a ADR
+mexeu no valor e mediu, e medir o que já estava errado transforma um furo silencioso em item de
+lista. O `contraste-tokens.mjs` já reportava essa linha como REPROVA; ninguém a tinha registrado.
+
+**O que custa hoje.** 13 usos de `border-accent-border`, sempre **acompanhados** de
+`bg-accent-subtle` e de texto em `accent-text`: o chip "Hoje" da navegação
+([`AgendaNav.svelte:70`](../web/src/lib/components/agenda/AgendaNav.svelte)), o dia corrente no Mês e
+na Semana, o botão de ação do drawer, o de marcar-como-lida em `/notificacoes`.
+
+**Por que não é urgente.** A borda **não é o único indicador** desses elementos: o fundo tingido e o
+texto (que mede 5,30 sobre o próprio chip) carregam o estado sozinhos. 1.4.11 fala de limite
+*necessário para identificar* o componente — aqui ele não é. É por isso que isto é débito e não
+correção imediata.
+
+**O que o paga.** `#7fa59a` na matiz do sage precisa cair para cerca de **L 52%** para bater 3:1
+sobre branco — algo como `#6f9a8e`, que é o próprio `accent-solid` escurecido e já mede 3,14. O
+efeito colateral é que a borda passa a ter quase o mesmo tom do sólido, e o chip fica mais pesado
+visualmente; vale checar no browser antes de fechar. Rodar `node scripts/contraste-tokens.mjs` para
+confirmar — a linha `accent_border / surface` sai da lista de reprovas.

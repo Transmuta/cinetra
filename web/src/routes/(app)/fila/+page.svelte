@@ -272,7 +272,7 @@
 	// inteiro fica no `title`. Sem isso ele empurra e cobre a coluna vizinha (doc 38 §5C).
 	const chip =
 		'max-w-full truncate rounded-[5px] border border-edge-strong px-[7px] py-0.5 text-[10.5px] leading-[1.5] text-ink';
-	// Chip de vaga casada (protótipo :2605): mesmo formato do chip, mas clicável e teal — sólido
+	// Chip de vaga casada (protótipo :2605): mesmo formato do chip, mas clicável e no acento — sólido
 	// quando a vaga ABRIU (cancelamento/falta), suave quando é uma brecha geral.
 	const matchChip =
 		'inline-flex max-w-full min-w-0 items-center gap-x-[5px] gap-y-1 rounded-[5px] border px-[7px] py-0.5 text-[10.5px] font-semibold leading-[1.5]';
@@ -291,7 +291,7 @@
 			title="{nomes.join(', ')} — está com o modal de oferecer aberto agora"
 			class="inline-flex max-w-full min-w-0 items-center gap-1 rounded-full bg-surface-2 px-2 py-px text-[10.5px] font-semibold text-muted"
 		>
-			<Radio size={10} class="shrink-0 text-teal" />
+			<Radio size={10} class="shrink-0 text-accent" />
 			<span class="truncate">
 				{stripTitle(nomes[0])}{nomes.length > 1 ? ` +${nomes.length - 1}` : ''} oferecendo
 			</span>
@@ -320,11 +320,11 @@
 						? ' · vaga que abriu'
 						: ''}"
 					class="{matchChip} {item.slot.freed
-						? 'border-teal bg-teal text-on-solid'
-						: 'border-teal-border bg-teal-subtle text-teal-text'}"
+						? 'border-accent bg-accent text-on-solid'
+						: 'border-accent-border bg-accent-subtle text-accent-text'}"
 				>
 					<span
-						class="size-1.5 shrink-0 rounded-full {item.slot.freed ? 'bg-on-solid' : 'bg-teal'}"
+						class="size-1.5 shrink-0 rounded-full {item.slot.freed ? 'bg-on-solid' : 'bg-accent'}"
 					></span>
 					<!-- O que encolhe é o RÓTULO da regra ("Seg/Ter/Qua…"); a data e a hora ficam
 					     inteiras, porque são a informação que faz a pessoa clicar. -->
@@ -355,10 +355,10 @@
 			? `Próxima vaga: ${slotDateLabel(slots[0])} ${m2t(slots[0].start)}`
 			: 'Sem vaga compatível — oferecer manualmente'}
 		class="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-1.5 text-[12.5px] font-semibold hover:opacity-90 {has
-			? 'border-teal-border bg-teal-subtle text-teal-text'
+			? 'border-accent-border bg-accent-subtle text-accent-text'
 			: 'border-edge-strong bg-transparent text-muted'}"
 	>
-		{#if has}<span class="size-1.5 shrink-0 rounded-full bg-teal"></span>{/if}
+		{#if has}<span class="size-1.5 shrink-0 rounded-full bg-accent"></span>{/if}
 		Oferecer vaga
 	</button>
 {/snippet}
@@ -391,10 +391,10 @@
 		{#each list as entry (entry.id)}
 			{@const rowSlots = slotsFor(entry)}
 			{@const rowHasVaga = rowSlots.length > 0}
-			<!-- Desktop: linha em grid. Barra teal à esquerda quando há vaga (protótipo :2878). -->
+			<!-- Desktop: linha em grid. Barra do acento à esquerda quando há vaga (protótipo :2878). -->
 			<div
 				class="hidden items-center gap-4 border-b border-edge px-4 py-2.5 last:border-b-0 md:grid {COLS} {rowHasVaga
-					? 'shadow-[inset_3px_0_0_var(--mv-teal-solid)]'
+					? 'shadow-[inset_3px_0_0_var(--mv-accent-solid)]'
 					: ''}"
 			>
 				<span class="flex min-w-0 items-center gap-2.5">
@@ -440,10 +440,10 @@
 								? `Próxima vaga: ${slotDateLabel(rowSlots[0])} ${m2t(rowSlots[0].start)}`
 								: 'Sem vaga compatível — oferecer manualmente'}
 							class="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[12px] font-semibold hover:opacity-90 {rowHasVaga
-								? 'border-teal-border bg-teal-subtle text-teal-text'
+								? 'border-accent-border bg-accent-subtle text-accent-text'
 								: 'border-edge-strong bg-transparent text-muted'}"
 						>
-							{#if rowHasVaga}<span class="size-1.5 shrink-0 rounded-full bg-teal"></span>{/if}
+							{#if rowHasVaga}<span class="size-1.5 shrink-0 rounded-full bg-accent"></span>{/if}
 							Oferecer
 						</button>
 						<button
@@ -464,10 +464,10 @@
 				</span>
 			</div>
 
-			<!-- Mobile: cartão. Mesma barra teal do "tem vaga". -->
+			<!-- Mobile: cartão. Mesma barra do acento do "tem vaga". -->
 			<div
 				class="flex flex-col gap-2 border-b border-edge px-4 py-3 last:border-b-0 md:hidden {rowHasVaga
-					? 'shadow-[inset_3px_0_0_var(--mv-teal-solid)]'
+					? 'shadow-[inset_3px_0_0_var(--mv-accent-solid)]'
 					: ''}"
 			>
 				<div class="flex items-center gap-2.5">

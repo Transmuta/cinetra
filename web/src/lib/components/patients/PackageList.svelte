@@ -133,7 +133,7 @@
 
 	// Tom do chip por estado (o `statusChip` decide o rótulo e o ícone; aqui só a pintura).
 	const CHIP: Record<string, string> = {
-		teal: 'bg-teal-subtle text-teal-text',
+		accent: 'bg-accent-subtle text-accent-text',
 		// Era o hex cru `#9a6a05` — um conserto de contraste feito à mão, fora da paleta e
 		// invisível para o tripwire. Agora é o próprio token de texto do âmbar, que passa nos dois
 		// temas (doc 83 §5).
@@ -190,7 +190,7 @@
 </script>
 
 <!--
-	O cabeçalho é o `cardHead` do protótipo ([`:2735`]) — quadrado teal 30×30, título 14px bold —,
+	O cabeçalho é o `cardHead` do protótipo ([`:2735`]) — quadrado no acento, 30×30, título 14px bold —,
 	o MESMO dos cinco cartões cadastrais da ficha. Era um ícone cinza solto com título 13px
 	maiúsculo: não divergia só do protótipo, divergia dos cartões vizinhos, a 300px de distância
 	(doc 51 §L5).
@@ -205,7 +205,7 @@
 		: 'border-edge'}"
 >
 	<div class="mb-4 flex items-center gap-2.5">
-		<span class="grid size-[30px] shrink-0 place-items-center rounded-lg bg-teal-subtle text-teal-text">
+		<span class="grid size-[30px] shrink-0 place-items-center rounded-lg bg-accent-subtle text-accent-text">
 			<Package size={15} />
 		</span>
 		<h2 class="flex-1 text-[14px] font-bold">
