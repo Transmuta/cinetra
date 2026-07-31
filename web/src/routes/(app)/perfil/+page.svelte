@@ -64,7 +64,10 @@
 			{avatarInitials}
 		</div>
 		<div class="min-w-0">
-			<h1 class="truncate text-destaque leading-7 font-semibold text-ink">{me.user.nome}</h1>
+			<!-- `h2` (ACC-22), como em /auditoria e /notificacoes: o `h1` da página é o do topbar,
+			     que já diz "Meu perfil". Esta era a ÚNICA das 19 rotas com dois `h1` (doc 93 §B-5) —
+			     e o segundo não acrescentava um nível, repetia um. As classes mandam no visual. -->
+			<h2 class="truncate text-destaque leading-7 font-semibold text-ink">{me.user.nome}</h2>
 			<p class="truncate text-leitura leading-5 text-muted">{me.user.email}</p>
 		</div>
 	</header>
