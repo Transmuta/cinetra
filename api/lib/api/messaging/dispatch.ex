@@ -309,21 +309,16 @@ defmodule Api.Messaging.Dispatch do
     # o Oban outra.
     agendado_para = quando_sai(kind, clinic)
 
-    # ⚠️ CORRIDA CONHECIDA (doc 96, B-8; NÃO fechada — ver a nota abaixo).
+    # A corrida da barreira (doc 96, B-8), fechada no banco.
     #
-    # `barreira/3` lê numa transação e esta escrita acontece em outra: dois POSTs simultâneos para
-    # a mesma `(attendance_id, kind)` passam os dois. Em WhatsApp cada duplicata é **paga**.
+    # `barreira/3` lê numa transação e esta escrita acontece em **outra**: dois pedidos simultâneos
+    # para a mesma `(attendance_id, kind)` passam os dois pela leitura. A barreira resolve o caso
+    # sequencial; quem arbitra concorrência é o Postgres, pelo índice único parcial
+    # `messages_uma_pendente_por_presenca`. No WhatsApp cada duplicata é **paga**.
     #
-    # O remédio proposto pela auditoria — índice único parcial em
-    # `(attendance_id, kind) WHERE status = 'pendente'` — foi implementado e **revertido**: ele
-    # quebra um caminho legítimo. Medido em `SendJobTest`: criar o agendamento já enfileira uma
-    # confirmação automática, e `dispatch/4` (o reenvio manual da recepção) grava uma SEGUNDA
-    # pendente para a mesma presença — a barreira não bloqueia esse caminho, por desenho.
-    #
-    # Ou seja: "duas pendentes do mesmo tipo" **não é** um estado inválido hoje, e um índice que o
-    # proíba está proibindo mais do que a regra de domínio. Fechar a corrida de verdade exige
-    # primeiro decidir se o reenvio manual deve substituir a pendente em vez de somar — que é
-    # pergunta de produto, não de índice.
+    # Aqui a violação é traduzida de volta para a linguagem do domínio: se o banco diz "já existe
+    # uma pendente para esta presença e este tipo", isso é exatamente `{:skip, :ja_na_fila}` — a
+    # mesma resposta que a barreira daria se tivesse enxergado a linha a tempo.
     attrs = %{
       attendance_id: attendance.id,
       appointment_id: attendance.appointment_id,
@@ -340,6 +335,18 @@ defmodule Api.Messaging.Dispatch do
     attrs
     |> Messaging.enqueue_message!(tenant: clinic.id, authorize?: false)
     |> enfileirar(clinic, agendado_para)
+  rescue
+    erro ->
+      # SÓ esta constraint, pelo nome. Engolir qualquer erro aqui esconderia defeito de validação
+      # como se fosse concorrência — trocaria um bug caro por um silêncio, que é pior.
+      if colisao_de_pendente?(erro), do: {:skip, :ja_na_fila}, else: reraise(erro, __STACKTRACE__)
+  end
+
+  # A violação chega como `Postgrex.Error` (o índice é escrito à mão, fora do conhecimento do Ash)
+  # ou embrulhada num erro do Ash. Casar pelo nome do índice cobre as duas formas sem depender de
+  # qual camada traduziu.
+  defp colisao_de_pendente?(erro) do
+    inspect(erro) =~ "messages_uma_pendente_por_presenca"
   end
 
   # O retorno do `Oban.insert` NÃO pode ser descartado. Sem job, a linha fica `:pendente` para

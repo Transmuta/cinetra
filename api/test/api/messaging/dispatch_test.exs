@@ -608,4 +608,35 @@ defmodule Api.Messaging.DispatchTest do
     {:ok, local} = DateTime.new(date, Time.new!(hora, 0, 0), tz)
     DateTime.shift_zone!(local, "Etc/UTC")
   end
+
+  # Regressão (auditoria doc 96, B-8). `barreira/3` lê numa transação e a escrita acontece em
+  # outra: dois pedidos simultâneos para a mesma `(attendance_id, kind)` passam os dois pela
+  # leitura. Quem fecha isso é o índice único parcial `messages_uma_pendente_por_presenca`.
+  #
+  # A corrida real não é reproduzível de forma determinística na suíte (precisaria de duas
+  # conexões cruzando no instante certo). O que se prova aqui é o que importa para quem opera:
+  # quando o banco recusa, a resposta é `{:skip, :ja_na_fila}` — a mesma que a barreira daria —
+  # e **não** uma exceção subindo até virar 500 no balcão.
+  describe "a corrida da barreira é fechada pelo banco (B-8)" do
+    test "colisão de pendente vira {:skip, :ja_na_fila}, não exceção" do
+      ctx = clinica()
+      paciente = paciente_com(ctx, comunicacao: true, email: "colisao@example.com")
+      appt = agendamento!(ctx, paciente: paciente)
+      [presenca] = appt.attendances
+
+      assert {:ok, _} = Dispatch.dispatch(ctx.clinic, presenca, paciente, :confirmacao)
+
+      # Simula o perdedor da corrida: a barreira já foi consultada e não viu a linha, então a
+      # escrita vai direto ao banco — que a recusa pelo índice.
+      assert {:skip, :ja_na_fila} =
+               Dispatch.dispatch(ctx.clinic, presenca, paciente, :confirmacao)
+
+      pendentes =
+        presenca.id
+        |> Api.Messaging.list_attendance_messages!(authorize?: false)
+        |> Enum.filter(&(&1.status == :pendente and &1.kind == :confirmacao))
+
+      assert length(pendentes) == 1, "nasceu mensagem duplicada — no WhatsApp isso é pago"
+    end
+  end
 end
