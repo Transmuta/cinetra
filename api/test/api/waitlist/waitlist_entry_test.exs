@@ -427,4 +427,34 @@ defmodule Api.Waitlist.WaitlistEntryTest do
       end
     end
   end
+
+  # Regressão (auditoria doc 96, E-4). O motor de vagas lia os profissionais candidatos com
+  # `scope:`, e `Professional` tem a preparation global `OwnProfessionalOnly` — então o papel
+  # `profissional` só enxergava a si mesmo como candidato.
+  #
+  # O sintoma era SILENCIOSO: ele abria a fila e via "sem vaga" para todo item cuja preferência
+  # não o incluísse, concluindo que não havia horário quando havia. O moduledoc de `find_slots/2`
+  # já declarava a intenção certa e o `WaitlistChannel` afirmava o mesmo; só a leitura discordava.
+  describe "o motor de vagas não é recortado por papel (E-4)" do
+    test "profissional vê as vagas das colunas dos COLEGAS, não só as suas" do
+      ctx = clinica()
+      colega = profissional!(ctx, "Dra. Colega")
+      eu = escopo_de_membro!(ctx, :profissional, ctx.prof.id)
+
+      {:ok, entry} =
+        Waitlist.enqueue_entry(ctx.scope, %{
+          patient_id: paciente!(ctx, "Quem espera").id,
+          prio: :urgente,
+          janela: :qualquer,
+          # A preferência é pelo COLEGA — eu não estou nela.
+          professional_ids: [colega.id],
+          rules: []
+        })
+
+      vagas = Waitlist.find_slots(eu, entry)
+
+      assert vagas != [], "o profissional viu a fila vazia — subnotificação silenciosa"
+      assert Enum.all?(vagas, &(&1.professional_id == colega.id))
+    end
+  end
 end

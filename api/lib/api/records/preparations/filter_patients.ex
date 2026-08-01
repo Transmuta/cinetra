@@ -48,7 +48,7 @@ defmodule Api.Records.Preparations.FilterPatients do
   defp filter_search(query, term) when is_binary(term) do
     case term |> String.trim() |> String.slice(0, @max_term) do
       "" -> query
-      trimmed -> apply_term(query, trimmed, String.replace(trimmed, ~r/\D/, ""))
+      trimmed -> apply_term(query, trimmed, Api.Texto.somente_digitos(trimmed))
     end
   end
 

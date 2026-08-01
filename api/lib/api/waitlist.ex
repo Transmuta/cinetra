@@ -211,10 +211,12 @@ defmodule Api.Waitlist do
   ativos), as fontes de expediente e os agendamentos da janela de 14 dias, e delega ao motor puro
   `Api.Waitlist.SlotFinder` com o **relógio do escopo** (ADR-009) no fuso da clínica.
 
-  A leitura de agendamentos é **invariante** (`authorize?: false`), não a recortada por A7: as
-  vagas são o que está de fato livre na clínica, não a agenda "do profissional". Sob o recorte,
-  um profissional veria as colunas dos colegas como vazias e ofereceria vagas já ocupadas —
-  mesmo motivo de `Api.Scheduling.count_participants/2` ler sem escopo.
+  As leituras deste motor são **invariantes** (`authorize?: false`), não as recortadas por papel:
+  as vagas são o que está de fato livre na clínica, não a agenda "do profissional". Vale para as
+  DUAS — os agendamentos (sob o recorte A7, um profissional veria as colunas dos colegas como
+  vazias e ofereceria vagas já ocupadas) e os **profissionais candidatos**, que até o doc 96
+  (E-4) eram lidos com `scope:` e caíam na preparation `OwnProfessionalOnly`. Mesmo motivo de
+  `Api.Scheduling.count_participants/2` ler sem escopo.
   """
   def find_slots(%Api.Scope{} = scope, entry) do
     scope |> slots_by_entry([entry]) |> Map.fetch!(entry.id)
@@ -234,8 +236,21 @@ defmodule Api.Waitlist do
     to = Date.add(today, 13)
 
     in_clinic(scope, fn ->
+      # `authorize?: false` + `tenant:`, e NÃO `scope:` — pelo mesmo motivo da leitura de
+      # agendamentos logo abaixo (doc 96, E-4).
+      #
+      # `Professional` tem a preparation global `OwnProfessionalOnly`: sob `scope:`, o papel
+      # `profissional` enxerga só o próprio registro. O efeito na fila era subnotificação
+      # SILENCIOSA — ele abria `GET /waitlist/slots` e via `[]` para todo item cuja preferência
+      # não o incluísse, concluindo "não tem vaga" quando havia. O moduledoc acima já declarava a
+      # intenção certa ("as vagas são o que está de fato livre na clínica, não a agenda do
+      # profissional") e o `WaitlistChannel` afirmava o mesmo; só esta linha discordava.
       active_by_id =
-        Api.Directory.list_professionals!(scope: scope, query: [filter: [ativo: true]])
+        Api.Directory.list_professionals!(
+          tenant: scope.clinic_id,
+          authorize?: false,
+          query: [filter: [ativo: true]]
+        )
         |> Map.new(&{&1.id, &1})
 
       ids = entries |> Enum.flat_map(&candidate_ids(&1, active_by_id)) |> Enum.uniq()

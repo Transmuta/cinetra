@@ -213,7 +213,7 @@ defmodule Api.Messaging.Dispatch do
   end
 
   def normalizar(:whatsapp, valor) when is_binary(valor) do
-    digitos = String.replace(valor, ~r/\D/, "")
+    digitos = Api.Texto.somente_digitos(valor)
 
     cond do
       # Já veio com o código do país (55 + DDD + 8 ou 9 dígitos).

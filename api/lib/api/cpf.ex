@@ -19,7 +19,7 @@ defmodule Api.Cpf do
   def normalize(nil), do: nil
 
   def normalize(value) when is_binary(value) do
-    digits = String.replace(value, ~r/\D/, "")
+    digits = Api.Texto.somente_digitos(value)
     if digits == "", do: nil, else: digits
   end
 

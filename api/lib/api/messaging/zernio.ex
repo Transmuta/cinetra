@@ -179,7 +179,7 @@ defmodule Api.Messaging.Zernio do
   defp texto(valor) when is_binary(valor), do: String.slice(valor, 0, 200)
   defp texto(valor), do: valor |> inspect() |> String.slice(0, 200)
 
-  defp somente_digitos(destino), do: String.replace(destino, ~r/\D/, "")
+  defp somente_digitos(destino), do: Api.Texto.somente_digitos(destino)
 
   defp preenchido?(valor), do: is_binary(valor) and valor != ""
 
