@@ -22,6 +22,7 @@ defmodule Api.Messaging.TemplatesTest do
     "hora" => "14:00",
     "quantas" => "3 sessões",
     "pacote" => "Pilates 10",
+    "telefone" => "(11) 3456-7890",
     "token" => "tok123"
   }
 
@@ -83,7 +84,9 @@ defmodule Api.Messaging.TemplatesTest do
       # Some seria pior: a Meta recusa a mensagem inteira quando a contagem não bate.
       {:ok, %{params: params}} = Templates.render_whatsapp("confirmacao_v1", %{})
 
-      assert length(params) == 5
+      # Derivado da definição, não literal: um número escrito à mão aqui só diria que alguém
+      # lembrou de atualizar o teste ao acrescentar uma posicional.
+      assert length(params) == length(Templates.hsm("confirmacao_v1").vars) + 1
       assert Enum.all?(params, &is_binary/1)
     end
 
@@ -120,6 +123,31 @@ defmodule Api.Messaging.TemplatesTest do
     test "template desconhecido devolve :error nos dois canais" do
       assert Templates.render_whatsapp("nao_existe_v9", @vars) == :error
       assert Templates.render_email("nao_existe_v9", @vars) == :error
+    end
+  end
+
+  describe "render_email/2 — o telefone e o aviso de automática" do
+    test "todo e-mail diz o telefone da clínica e que não se responde por ali" do
+      for template <- Templates.conhecidos() do
+        {:ok, %{texto: texto}} = Templates.render_email(template, @vars)
+
+        assert texto =~ "(11) 3456-7890", "#{template}: e-mail sem telefone"
+        assert texto =~ "Mensagem automática", "#{template}: e-mail sem o aviso"
+      end
+    end
+
+    test "sem telefone, a LINHA some — não vira 'ligue para —'" do
+      # Aqui o e-mail pode o que o WhatsApp não pode: omitir. No template HSM a contagem de
+      # posicionais é fixa e um travessão é o mal menor; no e-mail, texto livre, "Ligue para —"
+      # seria defeito visível escrito por nós.
+      sem = Map.delete(@vars, "telefone")
+
+      for template <- Templates.conhecidos() do
+        {:ok, %{texto: texto}} = Templates.render_email(template, sem)
+
+        refute texto =~ "—", "#{template}: travessão vazou para o e-mail"
+        assert texto =~ "Mensagem automática", "#{template}: o aviso não depende do telefone"
+      end
     end
   end
 
@@ -167,6 +195,38 @@ defmodule Api.Messaging.TemplatesTest do
 
     test "template desconhecido não vira payload" do
       assert Templates.hsm_payload("nao_existe_v9", "https://cinetra.com.br") == :error
+    end
+
+    test "o telefone da clínica está em TODO template" do
+      # O canal não tem para onde responder: botão de URL abre o navegador, e uma resposta em
+      # texto livre cai no número compartilhado que ninguém lê (`Api.Messaging.Zernio`). Sem um
+      # telefone no corpo, "preciso falar com alguém" não tem saída nenhuma.
+      for template <- Templates.conhecidos() do
+        assert "telefone" in Templates.hsm(template).vars, "#{template} não diz para onde ligar"
+      end
+    end
+
+    test "o footer é estático, curto e sem variável" do
+      # Três regras da Meta numa asserção só, e cada uma reprova o template dias depois de
+      # submetido: footer não aceita parâmetro, tem teto de 60 caracteres, e é o MESMO texto para
+      # todas as clínicas — é por isso que o telefone teve de ir para o corpo.
+      for template <- Templates.conhecidos() do
+        {:ok, payload} = Templates.hsm_payload(template, "https://cinetra.com.br")
+
+        footer = Enum.find(payload.components, &(&1.type == "FOOTER"))
+
+        assert footer, "#{template} não tem footer"
+        assert String.length(footer.text) <= 60, "#{template}: footer passa de 60 caracteres"
+        refute footer.text =~ ~r/\{\{/, "#{template}: footer com variável — a Meta recusa"
+      end
+    end
+
+    test "o footer vem ANTES dos botões, que é a ordem que a Meta espera" do
+      {:ok, payload} = Templates.hsm_payload("confirmacao_v1", "https://cinetra.com.br")
+
+      tipos = Enum.map(payload.components, & &1.type)
+
+      assert tipos == ["BODY", "FOOTER", "BUTTONS"]
     end
 
     test "o nome da clínica está em TODO template (§9.1.4)" do

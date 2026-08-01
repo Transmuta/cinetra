@@ -77,19 +77,21 @@ defmodule Api.Scheduling.Appointment.Validations.GroupCapacity do
   defp check(changeset, clinic_id, entrando, capacidade) do
     # Numa criação não há participante ainda; num `:add_participant` os que já estão contam.
     #
-    # ⚠️ CORRIDA CONHECIDA (doc 96, B-12; não corrigida aqui de propósito).
+    # A contagem roda numa transação própria e o `manage_relationship` grava em **outra**, então
+    # duas entradas concorrentes numa turma com uma vaga passam as duas: a turma pode fechar com
+    # capacidade+1. O `identity :one_per_patient_per_appt` impede o MESMO paciente duas vezes, não
+    # o estouro do teto.
     #
-    # Esta contagem roda numa transação própria (`count_participants` abre a sua) e o
-    # `manage_relationship` grava em **outra**: duas entradas concorrentes numa turma com uma vaga
-    # passam as duas. O `identity :one_per_patient_per_appt` impede o MESMO paciente duas vezes,
-    # não o estouro do teto.
+    # **Isso é aceito** (decisão de 2026-08-01, sobre o achado B-12 do doc 96). A capacidade é
+    # orientação de sala, não invariante de dinheiro nem de segurança: um a mais numa turma é algo
+    # que a recepção resolve na hora, remanejando. Serializar a escrita para isso custaria um
+    # `before_action` com `FOR UPDATE` em todo `add_participant` — lock no caminho mais clicado da
+    # agenda para evitar um caso raro e reversível.
     #
-    # O remédio óbvio — `Ash.Query.lock(:for_update)` no bloco, como `RollupBlockStatus` faz — NÃO
-    # funciona a partir daqui: validação do Ash roda **antes** da transação da ação, então o lock
-    # seria liberado no commit da transação da própria contagem, antes da escrita. Fechar de
-    # verdade exige mover a checagem para um `before_action` (que roda dentro da transação da
-    # ação) ou uma constraint no banco — as duas mexem no contrato de erro da ação e merecem
-    # fatia própria.
+    # Registrado aqui, e não só no doc, porque o remédio "óbvio" é uma armadilha: um
+    # `Ash.Query.lock(:for_update)` **a partir desta validação** não funciona — validação do Ash
+    # roda ANTES da transação da ação, e o lock morreria no commit da transação da contagem, antes
+    # da escrita. Quem for reabrir isso precisa de `before_action` ou constraint no banco.
     ja_dentro =
       case changeset.data do
         %{id: id} when is_binary(id) -> Api.Scheduling.count_participants(clinic_id, id)

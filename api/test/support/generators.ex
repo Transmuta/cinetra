@@ -247,8 +247,18 @@ defmodule Api.Generators do
     DateTime.shift_zone!(local, "Etc/UTC")
   end
 
+  @doc """
+  A próxima data em que a clínica abre, a partir de `data` (inclusive).
+
+  Pública porque testes precisam dela como **Date**, não só como instante: o de lembretes montava
+  `utc_now |> to_date |> Date.add(1)` inline, em três lugares, e reprovava toda sexta e sábado
+  pelo mesmo motivo que `amanha_as/2` reprovava (doc 96). Helper de teste copiado é helper que
+  diverge — é o que este módulo inteiro existe para evitar.
+  """
+  def proximo_dia_util(data)
+
   # `day_of_week/1` é 1=segunda … 7=domingo.
-  defp proximo_dia_util(data) do
+  def proximo_dia_util(data) do
     if Date.day_of_week(data) >= 6, do: proximo_dia_util(Date.add(data, 1)), else: data
   end
 

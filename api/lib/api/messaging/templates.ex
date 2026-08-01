@@ -47,7 +47,29 @@ defmodule Api.Messaging.Templates do
   A Meta recusa template que **comece ou termine** com variável, e recusa duas variáveis coladas.
   O texto do e-mail é livre disso. Escrever os dois a partir de um só produziria ou um e-mail
   torto ou um template reprovado — e a reprovação tem lead time de dias para descobrir.
+
+  ## O telefone da clínica é variável do CORPO; o aviso de automática é footer
+
+  As duas coisas parecem a mesma (“o rodapé da mensagem”) e não são, porque o **footer da Meta
+  não aceita parâmetro** — é texto estático, teto de 60 caracteres, igual para todas as clínicas.
+  Então o telefone, que muda por clínica, não cabe nele: vai no corpo, como posicional.
+
+  Ele existe porque este canal **não tem para onde responder**. O botão é URL: abre o navegador e
+  não trafega nada pelo WhatsApp. Uma resposta em texto livre chega ao número compartilhado, que
+  `Api.Messaging.Zernio` diz explicitamente que ninguém lê. Sem um telefone no corpo, "preciso
+  falar com alguém agora" não tem saída nenhuma — e o footer é o que evita que a pessoa tente
+  pela via que não funciona.
+
+  No e-mail a linha do telefone **some** quando a clínica não tem um. É a diferença que o canal
+  permite: no HSM a contagem de posicionais é fixa e um travessão é o mal menor, mas em texto
+  livre "Ligue para —" seria um defeito escrito por nós. Na prática o WhatsApp nunca chega lá —
+  `Clinic.msg_whatsapp_ativo` só liga com telefone preenchido.
   """
+
+  # O footer, e ele é um só para todas as clínicas — a Meta não aceita variável aqui. Sem
+  # travessão de propósito: `nome/2` usa "—" para variável ausente, e um travessão fixo no rodapé
+  # tornaria o teste que caça o fallback incapaz de distinguir os dois.
+  @footer "Mensagem automática. Não responda por aqui."
 
   # A definição única de cada template: o `kind` que o origina, o texto do e-mail (que é livre) e
   # o HSM do WhatsApp (que é o que a Meta aprovou, com a ordem das posicionais).
@@ -60,25 +82,29 @@ defmodule Api.Messaging.Templates do
     "confirmacao_v1" => %{
       kind: :confirmacao,
       idioma: "pt_BR",
-      vars: ["paciente", "clinica", "data", "hora"],
+      vars: ["paciente", "clinica", "data", "hora", "telefone"],
       botao?: true,
       corpo: """
       Olá, {{1}}! Aqui é da {{2}}.
 
       Sua sessão está agendada para {{3}} às {{4}}.
 
-      Se precisar confirmar ou remarcar, é só tocar no botão abaixo.\
+      Precisa falar com a gente? Ligue para {{5}}.
+
+      Para confirmar ou remarcar, é só tocar no botão abaixo.\
       """
     },
     "lembrete_v1" => %{
       kind: :lembrete,
       idioma: "pt_BR",
-      vars: ["paciente", "clinica", "data", "hora"],
+      vars: ["paciente", "clinica", "data", "hora", "telefone"],
       botao?: true,
       corpo: """
       Olá, {{1}}! Lembrete da {{2}}.
 
       Sua sessão é {{3}} às {{4}}.
+
+      Precisa falar com a gente? Ligue para {{5}}.
 
       Se não puder vir, avise pelo botão abaixo.\
       """
@@ -86,12 +112,14 @@ defmodule Api.Messaging.Templates do
     "remarcacao_v1" => %{
       kind: :remarcacao,
       idioma: "pt_BR",
-      vars: ["paciente", "clinica", "data", "hora"],
+      vars: ["paciente", "clinica", "data", "hora", "telefone"],
       botao?: true,
       corpo: """
       Olá, {{1}}! Sua sessão na {{2}} mudou de horário.
 
       Agora é {{3}} às {{4}}.
+
+      Precisa falar com a gente? Ligue para {{5}}.
 
       Se o novo horário não servir, avise pelo botão abaixo.\
       """
@@ -99,34 +127,34 @@ defmodule Api.Messaging.Templates do
     "cancelamento_v1" => %{
       kind: :cancelamento,
       idioma: "pt_BR",
-      vars: ["paciente", "clinica", "data", "hora"],
+      vars: ["paciente", "clinica", "data", "hora", "telefone"],
       botao?: false,
       corpo: """
       Olá, {{1}}! Sua sessão na {{2}}, em {{3}} às {{4}}, foi cancelada.
 
-      Para remarcar, fale com a recepção da clínica.\
+      Para remarcar, ligue para {{5}} e a recepção reserva um novo horário.\
       """
     },
     "pacote_remarcado_v1" => %{
       kind: :pacote_remarcado,
       idioma: "pt_BR",
-      vars: ["paciente", "clinica", "quantas", "pacote"],
+      vars: ["paciente", "clinica", "quantas", "pacote", "telefone"],
       botao?: false,
       corpo: """
       Olá, {{1}}! Na {{2}}, {{3}} do seu pacote {{4}} mudaram de horário.
 
-      A recepção entra em contato com os novos horários.\
+      A recepção entra em contato. Se preferir, ligue para {{5}} e já resolvemos.\
       """
     },
     "pacote_cancelado_v1" => %{
       kind: :pacote_cancelado,
       idioma: "pt_BR",
-      vars: ["paciente", "clinica", "quantas", "pacote"],
+      vars: ["paciente", "clinica", "quantas", "pacote", "telefone"],
       botao?: false,
       corpo: """
       Olá, {{1}}! Na {{2}}, {{3}} do seu pacote {{4}} foram canceladas.
 
-      Para remarcar, fale com a recepção da clínica.\
+      Para remarcar, ligue para {{5}} e a recepção monta os novos horários.\
       """
     }
   }
@@ -162,7 +190,8 @@ defmodule Api.Messaging.Templates do
     "data" => "28/07/2026",
     "hora" => "14:00",
     "quantas" => "3 sessões",
-    "pacote" => "Pilates 10"
+    "pacote" => "Pilates 10",
+    "telefone" => "(11) 3456-7890"
   }
 
   @doc """
@@ -189,13 +218,16 @@ defmodule Api.Messaging.Templates do
            # aprovação — e um template operacional aprovado como marketing fica sujeito ao
            # opt-out de marketing, que é outro consentimento.
            category: "UTILITY",
+           # A ordem dos componentes é a que a Meta espera, e ela não é negociável:
+           # `BODY` → `FOOTER` → `BUTTONS`.
            components:
              [
                %{
                  type: "BODY",
                  text: corpo,
                  example: %{body_text: [Enum.map(nomes, &Map.fetch!(@exemplos, &1))]}
-               }
+               },
+               %{type: "FOOTER", text: @footer}
              ] ++ botao(botao?, base_url)
          }}
     end
@@ -239,6 +271,7 @@ defmodule Api.Messaging.Templates do
 
        Sua sessão na #{nome(v, "clinica")} está agendada para #{v["data"]} às #{v["hora"]}.
        #{confirme(v)}
+       #{rodape(v)}
        """
      }}
   end
@@ -252,6 +285,7 @@ defmodule Api.Messaging.Templates do
 
        Passando para lembrar da sua sessão na #{nome(v, "clinica")}: #{v["data"]} às #{v["hora"]}.
        #{confirme(v)}
+       #{rodape(v)}
        """
      }}
   end
@@ -265,6 +299,7 @@ defmodule Api.Messaging.Templates do
 
        Sua sessão na #{nome(v, "clinica")} passou para #{v["data"]} às #{v["hora"]}.
        #{confirme(v)}
+       #{rodape(v)}
        """
      }}
   end
@@ -278,7 +313,9 @@ defmodule Api.Messaging.Templates do
 
        Sua sessão na #{nome(v, "clinica")} em #{v["data"]} às #{v["hora"]} foi cancelada.
 
-       Para remarcar, é só responder a quem te atende na clínica.
+       Para remarcar, fale com a clínica.
+
+       #{rodape(v)}
        """
      }}
   end
@@ -294,6 +331,8 @@ defmodule Api.Messaging.Templates do
        horário.
 
        A recepção entra em contato com os novos horários.
+
+       #{rodape(v)}
        """
      }}
   end
@@ -308,7 +347,9 @@ defmodule Api.Messaging.Templates do
        Na #{nome(v, "clinica")}, #{v["quantas"]} do seu pacote #{nome(v, "pacote")} foram
        canceladas.
 
-       Para remarcar, é só responder a quem te atende na clínica.
+       Para remarcar, fale com a clínica.
+
+       #{rodape(v)}
        """
      }}
   end
@@ -354,6 +395,27 @@ defmodule Api.Messaging.Templates do
   end
 
   defp confirme(_vars), do: ""
+
+  # O texto do footer no e-mail é o do WhatsApp com o canal trocado — "por aqui" não quer dizer
+  # nada numa caixa de entrada, e o teto de 60 caracteres da Meta não vale aqui.
+  @footer_email "Mensagem automática. Não responda a este e-mail."
+
+  # O fecho de todo e-mail, **num lugar só**: para onde ligar e o aviso de que ninguém lê a
+  # resposta. Seis cópias divergiriam na primeira correção de texto — e a divergência entre dois
+  # e-mails que dizem a mesma coisa de jeitos diferentes é invisível em teste e visível ao
+  # paciente.
+  defp rodape(vars) do
+    [ligue(vars), @footer_email]
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.join("\n\n")
+  end
+
+  # Sem telefone a linha inteira some. Aqui, ao contrário do HSM, isso é possível: o e-mail é
+  # texto livre, e "Ligue para —" seria um defeito escrito por nós.
+  defp ligue(%{"telefone" => tel}) when is_binary(tel) and tel != "",
+    do: "Precisa falar com a gente? Ligue para #{tel}."
+
+  defp ligue(_vars), do: ""
 
   # "Olá, Maria!" e não "Olá, Maria Aparecida da Silva Santos!". O primeiro nome é como se fala
   # com alguém; o nome completo num cumprimento soa a cobrança.

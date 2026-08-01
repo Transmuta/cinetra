@@ -870,7 +870,17 @@ defmodule Api.RlsSmokeTest do
     test "o resumo diário enxerga a agenda de amanhã sob RLS" do
       ctx = fixture()
       tz = Scheduling.clinic_timezone(ctx.clinic.id)
-      amanha = DateTime.utc_now() |> DateTime.shift_zone!(tz) |> DateTime.to_date() |> Date.add(1)
+
+      # Dia ÚTIL, não literalmente amanhã: o seed abre seg–sex, e agendar num sábado/domingo é
+      # recusado com "A clínica não atende neste dia" — o teste reprovaria por calendário, não
+      # por RLS, que é o que ele existe para provar (mesma família do doc 96).
+      amanha =
+        DateTime.utc_now()
+        |> DateTime.shift_zone!(tz)
+        |> DateTime.to_date()
+        |> Date.add(1)
+        |> Api.Generators.proximo_dia_util()
+
       {:ok, as_nove} = Scheduling.LocalTime.to_utc(amanha, "09:00", tz)
 
       {:ok, _} =

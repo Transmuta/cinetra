@@ -106,6 +106,8 @@ defmodule Api.Waitlist do
   # O que todo item de fila carrega para a tela: as regras e o paciente numa projeção enxuta
   # (nome/telefone) + o agregado `faltas`. Sem `select` o cadastro traria as ~39 colunas (CPF,
   # RG, prefs) por item — mesma economia de `Api.Scheduling.patients_for/2`.
+  @teto_candidatos 200
+
   defp entry_load do
     patient_query =
       Api.Records.Patient
@@ -360,7 +362,20 @@ defmodule Api.Waitlist do
     dow = LocalTime.dow(date)
 
     in_clinic(scope, fn ->
-      list_waitlist_entries!(scope: scope, load: entry_load())
+      # Pela ação `:queued`, e com teto — era a **única lista do projeto sem limite** (doc 96,
+      # P-2). A `:read` default não pagina, e `entry_load/0` puxa `:rules` mais o paciente com o
+      # agregado `:faltas` (um `LEFT JOIN LATERAL` sobre `attendances`) — ou seja, o custo por
+      # linha não é pequeno, e o consumidor (`GET /waitlist/candidates`) devolvia a fila inteira.
+      #
+      # O teto é o mesmo `max_page_size` que a fila já declara para si (200): quem cabe numa vaga
+      # é lido na mesma régua com que a fila é exibida. Uma clínica com mais de 200 esperando tem
+      # um problema de operação que uma lista mais longa não resolve.
+      list_waitlist_entries!(
+        scope: scope,
+        load: entry_load(),
+        action: :queued,
+        page: [limit: @teto_candidatos]
+      ).results
       |> Enum.filter(fn entry ->
         prof_preferred?(entry, professional_id) and
           SlotFinder.matches_slot?(entry, start, finish, date, dow, today)
