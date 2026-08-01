@@ -78,11 +78,20 @@ defmodule ApiWeb.RequestLogger do
   defp registrar(conn, duracao) do
     ms = System.convert_time_unit(duracao, :native, :microsecond) / 1000
 
+    # `client_ip` é o que responde "quem está batendo na porta". Sem ele, um 401 ou 429 **anônimo**
+    # — o caso de brute-force no magic link e o do webhook sem assinatura — não deixava nenhum
+    # identificador de origem na linha: `actor_id` e `clinic_id` são nulos justamente aí (doc 96,
+    # O-1). O IP já era resolvido corretamente pelo `ClientIp`, só que servia apenas de chave de
+    # rate limit e nunca chegava ao log.
+    #
+    # Cardinalidade alta não é problema aqui: no Loki isto é **campo** do JSON, não label — não
+    # entra no índice e não multiplica séries.
     metadata = [
       method: conn.method,
       route: rota(conn.request_path),
       status: conn.status,
-      duration_ms: Float.round(ms, 1)
+      duration_ms: Float.round(ms, 1),
+      client_ip: ApiWeb.ClientIp.get(conn)
     ]
 
     Logger.log(nivel(conn.status), "requisição", metadata)
@@ -97,19 +106,28 @@ defmodule ApiWeb.RequestLogger do
   defp nivel(_status), do: :info
 
   @doc """
-  Troca por `:id` todo segmento de path que é identificador.
+  Troca por `:id` todo segmento de path que é identificador, e por `:token` todo segmento opaco.
 
   Pega UUID (com ou sem hífen — o projeto usa UUIDv7) e número. É a barreira que impede
   `patient_id` de sair do processo, e o que mantém a rota agrupável.
+
+  O segundo corte é o do **segmento opaco**: qualquer coisa longa demais para ser nome de rota.
+  Ele existe porque reconhecer só UUID e número deixava passar o token de `/api/reply/:token` —
+  um `Phoenix.Token` base64, que saía inteiro na linha (doc 96, S-2). Como ele vale 30 dias e o
+  Loki retém 30 dias, era credencial viva no log: dava para responder pelo paciente a partir do
+  Grafana. Reconhecer *formatos* de credencial é lista que envelhece; medir comprimento não.
   """
   def rota(path) when not is_binary(path), do: "desconhecida"
 
   def rota(path) do
     path
     |> String.split("/")
-    |> Enum.map_join("/", fn
-      segmento ->
-        if identificador?(segmento), do: ":id", else: segmento
+    |> Enum.map_join("/", fn segmento ->
+      cond do
+        identificador?(segmento) -> ":id"
+        opaco?(segmento) -> ":token"
+        true -> segmento
+      end
     end)
   end
 
@@ -121,4 +139,10 @@ defmodule ApiWeb.RequestLogger do
       String.match?(segmento, ~r/^[0-9a-fA-F]{32}$/) or
       String.match?(segmento, ~r/^\d+$/)
   end
+
+  # 32 fica acima do maior segmento literal do router (`sign-out-everywhere`, 19) e abaixo de
+  # qualquer token que o projeto emita. O UUID (36 com hífen, 32 sem) nunca chega aqui: o
+  # `identificador?/1` casa antes e devolve `:id`, que é o rótulo mais útil dos dois.
+  @max_segmento 32
+  defp opaco?(segmento), do: String.length(segmento) > @max_segmento
 end

@@ -77,8 +77,12 @@ defmodule Api.Waitlist.AvailabilityRule do
       authorize_if {Api.Accounts.Checks.HasClinicRole, roles: :any, clinic_from: :tenant}
     end
 
+    # `always()` era uma afirmação sobre quem chama ("só o `WaitlistEntry` gerencia"), não uma
+    # garantia — e afirmação não é policy (doc 96, A-1). `accessing_from` expressa a invariante
+    # real: a escrita só é autorizada quando vem pela relação `:rules` do `WaitlistEntry`, cuja
+    # própria policy já cobrou papel e tenant. Chamada direta ao recurso passa a ser recusada.
     policy action_type([:create, :update, :destroy]) do
-      authorize_if always()
+      authorize_if accessing_from(Api.Waitlist.WaitlistEntry, :rules)
     end
   end
 

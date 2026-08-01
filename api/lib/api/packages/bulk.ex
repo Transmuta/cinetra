@@ -364,8 +364,7 @@ defmodule Api.Packages.Bulk do
     end
   end
 
-  defp uuid?(value) when is_binary(value), do: match?({:ok, _}, Ecto.UUID.cast(value))
-  defp uuid?(_value), do: false
+  defp uuid?(value), do: Api.Params.uuid?(value)
 
   defp attendances(scope, package_id),
     do: Scheduling.list_package_attendances(scope, package_id)

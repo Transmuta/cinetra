@@ -66,4 +66,15 @@ defmodule Api.Params do
   """
   def get(params, key) when is_map(params) and is_atom(key),
     do: Map.get(params, key, Map.get(params, Atom.to_string(key)))
+
+  @doc """
+  O valor é um UUID bem formado?
+
+  Estava copiado, byte a byte, em `Api.Scheduling` e `Api.Packages.Bulk` (doc 96, R-2). Mora aqui
+  pela mesma razão que `get/2`: é higiene de valor vindo da fronteira, e não regra de nenhum
+  domínio. A cláusula de catch-all é o que torna a função segura para valor de qualquer tipo —
+  `nil`, número, mapa — que é como ele chega de um corpo HTTP.
+  """
+  def uuid?(value) when is_binary(value), do: match?({:ok, _}, Ecto.UUID.cast(value))
+  def uuid?(_value), do: false
 end

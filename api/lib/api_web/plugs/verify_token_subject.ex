@@ -44,15 +44,27 @@ defmodule ApiWeb.Plugs.VerifyTokenSubject do
     end
   end
 
+  # Este é o alerta mais crítico do sistema: se ele dispara, ou o `TOKEN_SIGNING_SECRET` vazou, ou
+  # alguém está forjando sessão. Ele saía sem NENHUM contexto — sem `jti`, sem IP, sem rota (doc
+  # 96, S-10). E como este plug roda **antes** do `LoadScope`, o `Logger.metadata` de
+  # `clinic_id`/`actor_id` ainda não foi carimbado: a linha saía só com `request_id`. Descobrir
+  # isso durante o incidente é o pior momento possível.
+  #
+  # O `jti` entra porque é **opaco** — identifica o token, não o titular. O `sub` NÃO entra: ele
+  # carrega o id do usuário, e o alvo de uma forja não é necessariamente quem a fez.
   defp reject(conn) do
     Logger.warning(
-      "Sessão rejeitada: jti↔sub não confere (possível forja de token com secret vazada)."
+      "Sessão rejeitada: jti↔sub não confere (possível forja de token com secret vazada).",
+      client_ip: ApiWeb.ClientIp.get(conn),
+      rota: ApiWeb.RequestLogger.rota(conn.request_path),
+      metodo: conn.method,
+      user_agent: conn |> get_req_header("user-agent") |> List.first()
     )
 
     conn
     |> clear_session()
     |> put_resp_content_type("application/json")
-    |> send_resp(:unauthorized, ~s({"error":"unauthorized"}))
+    |> send_resp(:unauthorized, ~s({"error":"unauthenticated"}))
     |> halt()
   end
 end

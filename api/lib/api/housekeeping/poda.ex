@@ -24,6 +24,8 @@ defmodule Api.Housekeeping.Poda do
   """
 
   # Teto por rodada. Repetimos até a tabela não devolver mais nada.
+  require Ash.Query
+
   @lote 5_000
 
   @doc """
@@ -39,10 +41,19 @@ defmodule Api.Housekeeping.Poda do
     end)
   end
 
-  @doc "Os ids de todas as clínicas (leitura de sistema — a poda não tem ator)."
-  @spec clinicas() :: [String.t()]
+  @doc """
+  Os ids de todas as clínicas (leitura de sistema — a poda não tem ator).
+
+  `Ash.stream!` e não `read!` (doc 96, P-5): esta função é chamada pelos crons — `SessionSoonJob`
+  roda de 5 em 5 minutos, **288×/dia** — e carregar a tabela inteira de clínicas na memória a cada
+  passada não escala com o número de clientes. O consumidor só precisa dos ids, um de cada vez.
+  """
+  @spec clinicas() :: Enumerable.t()
   def clinicas do
-    Api.Accounts.list_clinics!(authorize?: false) |> Enum.map(& &1.id)
+    Api.Accounts.Clinic
+    |> Ash.Query.select([:id])
+    |> Ash.stream!(authorize?: false, batch_size: 500)
+    |> Stream.map(& &1.id)
   end
 
   @doc """
@@ -51,6 +62,13 @@ defmodule Api.Housekeeping.Poda do
   `condicao` é o `WHERE` (com `$1`, `$2`… casando com `params`); `tabela` **precisa** ser
   literal do módulo chamador — ver o aviso no moduledoc.
   """
+  #
+  # ⚠️ Esta função recursa **dentro** da transação aberta por `por_clinica/1`. O `LIMIT` reduz o
+  # tamanho de cada `DELETE`, **não o da transação**: uma clínica com 300 mil eventos ainda produz
+  # um COMMIT de 300 mil linhas com a conexão presa o tempo todo — que é justamente o que o
+  # moduledoc diz querer evitar (doc 96, P-3). Inverter (laço de lotes fora, cada `DELETE` no seu
+  # próprio `with_clinic`) é a estrutura que `PruneAttachments` já usa; mexe na assinatura de
+  # `por_clinica/1` e nos quatro chamadores, e fica para fatia própria.
   @spec em_lote(String.t(), String.t(), [term()], non_neg_integer()) :: non_neg_integer()
   def em_lote(tabela, condicao, params, total \\ 0) do
     {:ok, %{num_rows: n}} =

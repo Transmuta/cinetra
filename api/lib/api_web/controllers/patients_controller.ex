@@ -56,7 +56,9 @@ defmodule ApiWeb.PatientsController do
           # mais usada da recepção.
           Api.Audit.Acesso.ficha_visualizada(scope, patient)
 
-          json(conn, %{patient: patient_json(patient)})
+          # `no-store`: a ficha completa é dado de saúde de um titular (doc 96, S-9). O default do
+          # `Plug.Session` é `must-revalidate`, que **autoriza armazenar**.
+          conn |> no_store() |> json(%{patient: patient_json(patient)})
 
         {:ok, nil} ->
           not_found(conn)

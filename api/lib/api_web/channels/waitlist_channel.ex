@@ -68,15 +68,33 @@ defmodule ApiWeb.WaitlistChannel do
 
   # O cliente diz **em qual item** está trabalhando; quem ele é sai do socket (do vínculo lido no
   # `join`), não do corpo — senão qualquer sessão se passaria por outra pessoa.
+  # O guard era só `is_binary/1`, e isso abria dois furos (doc 96, S-6):
+  #
+  #   * **amplificação** — a chave do `track` vinha do corpo sem validação, e cada `track` gera um
+  #     `presence_diff` transmitido a **todos** os assinantes de `waitlist:<clinic_id>`. Um membro
+  #     autenticado em laço fazia 1 mensagem virar N por membro conectado, com o mapa de presença
+  #     crescendo sem teto na memória do nó e replicando por PubSub;
+  #   * **crash** — `Phoenix.Tracker.track/5` devolve `{:error, {:already_tracked, …}}` quando o
+  #     mesmo pid já rastreia aquela chave. O `{:ok, _} =` virava `MatchError` e derrubava o canal,
+  #     contradizendo o comentário logo abaixo ("mensagem malformada não derruba o canal"): a
+  #     BEM-formada e repetida derrubava.
+  #
+  # O UUID é validado porque `entry_id` é chave de recurso, não texto livre. Repetir `offering`
+  # passa a ser idempotente — que é o que o cliente espera de "estou trabalhando neste item".
   @impl true
   def handle_in("offering", %{"entry_id" => entry_id}, socket) when is_binary(entry_id) do
-    {:ok, _ref} =
-      ApiWeb.Presence.track(socket, entry_id, %{
-        user_id: socket.assigns.user_id,
-        nome: socket.assigns.nome
-      })
+    case Ecto.UUID.cast(entry_id) do
+      {:ok, id} ->
+        ApiWeb.Presence.track(socket, id, %{
+          user_id: socket.assigns.user_id,
+          nome: socket.assigns.nome
+        })
 
-    {:reply, :ok, socket}
+        {:reply, :ok, socket}
+
+      :error ->
+        {:reply, {:error, %{reason: "invalid"}}, socket}
+    end
   end
 
   @impl true

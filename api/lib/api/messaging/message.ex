@@ -53,8 +53,6 @@ defmodule Api.Messaging.Message do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
-  alias Api.Messaging.MessageStatus
-
   postgres do
     table "messages"
     repo Api.Repo
@@ -366,20 +364,5 @@ defmodule Api.Messaging.Message do
 
     # Nulo = automático (criação do bloco ou cron). Preenchido = alguém clicou.
     belongs_to :disparado_por, Api.Accounts.User
-  end
-
-  @doc """
-  A mensagem chegou ao destino? Usada pela timeline e pelo "reenviar": `:pendente`/`:enviado` são
-  estados em trânsito, e só `:falhou` é motivo para o botão pedir atenção.
-
-  O `case` é deliberado: `MessageStatus.ordem/1` devolve `nil` em `:falhou`, e uma comparação
-  direta (`ordem(status) >= ordem(:entregue)`) diria **true** para mensagem falhada — no
-  ordenamento de termos do Elixir todo átomo é maior que todo número.
-  """
-  def entregue?(%{status: status}) do
-    case MessageStatus.ordem(status) do
-      nil -> false
-      n -> n >= MessageStatus.ordem(:entregue)
-    end
   end
 end

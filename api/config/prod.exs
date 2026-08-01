@@ -38,7 +38,12 @@ config :logger, :default_handler,
        :method,
        :route,
        :status,
-       :duration_ms
+       :duration_ms,
+       # Quem bateu na porta (doc 96, O-1). É o único identificador de origem que existe num
+       # 401/429 anônimo, onde `clinic_id` e `actor_id` são nulos por definição — sem ele a
+       # defesa contra brute-force funciona e não pode ser auditada. Também carimba as linhas
+       # de `rate_limit` e do plug de verificação de token, que passaram a emiti-lo.
+       :client_ip
      ]}
 
 # Liga o rate limiting: o dos endpoints de auth (auditoria doc 13, causa A) e o global de

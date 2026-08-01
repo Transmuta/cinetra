@@ -39,7 +39,6 @@ defmodule Api.Audit do
     resource Api.Audit.Event do
       define :record_event, action: :record
       define :page_events, action: :feed
-      define :list_recent_duplicates, action: :recent_duplicate
     end
   end
 
@@ -69,9 +68,6 @@ defmodule Api.Audit do
   end
 
   def rotulo(valor), do: valor |> to_string() |> rotulo()
-
-  @doc "O teto de caracteres de um rótulo da trilha."
-  def max_rotulo, do: @max_rotulo
 
   @doc """
   Por quantos dias a trilha é retida (D-Aud5). Config vence o default:

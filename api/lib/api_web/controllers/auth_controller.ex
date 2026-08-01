@@ -9,7 +9,7 @@ defmodule ApiWeb.AuthController do
 
   # Tradução do erro do Ash em resposta HTTP (403/404/422). Fonte única compartilhada com os
   # controllers de tenant, mesmo que estes endpoints de identidade sejam globais (sem clínica).
-  import ApiWeb.TenantScope, only: [error_response: 2]
+  import ApiWeb.TenantScope, only: [error_response: 2, unauthorized: 1, invalid: 2]
 
   alias Api.Accounts
   alias Api.Accounts.Membership
@@ -87,7 +87,7 @@ defmodule ApiWeb.AuthController do
         })
 
       _ ->
-        unauthenticated(conn)
+        unauthorized(conn)
     end
   end
 
@@ -104,12 +104,15 @@ defmodule ApiWeb.AuthController do
             |> reload_scope(user, clinic_id)
             |> me(%{})
 
+          # 404, e não 403 (doc 96, H-7): o ator não está proibido de nada — a clínica pedida
+          # simplesmente não existe para ele. Com 403 o cliente não distinguia "sem permissão
+          # nesta clínica" de "esta clínica não é sua", e as duas pedem telas diferentes.
           _ ->
-            conn |> put_status(:forbidden) |> json(%{error: "no_active_membership"})
+            conn |> put_status(:not_found) |> json(%{error: "no_active_membership"})
         end
 
       _ ->
-        unauthenticated(conn)
+        unauthorized(conn)
     end
   end
 
@@ -151,7 +154,7 @@ defmodule ApiWeb.AuthController do
         end
 
       _ ->
-        unauthenticated(conn)
+        unauthorized(conn)
     end
   end
 
@@ -172,7 +175,7 @@ defmodule ApiWeb.AuthController do
         end
 
       _ ->
-        unauthenticated(conn)
+        unauthorized(conn)
     end
   end
 
@@ -198,11 +201,15 @@ defmodule ApiWeb.AuthController do
 
         json(conn, %{token: token, expires_at: expires_at, clinic_id: clinic_id})
 
+      # 422, e não 409 (doc 96, H-6). A régua do projeto está escrita em `TenantScope`:
+      # **422 = "seu pedido está errado"; 409 = "seu pedido estava certo, o mundo mudou"**, com o
+      # 409 reservado a concorrência. "Você não tem clínica ativa" não é corrida — e o corpo
+      # tampouco seguia a forma do 409 do projeto.
       %Scope{} ->
-        conn |> put_status(:conflict) |> json(%{error: "no_active_clinic"})
+        invalid(conn, "Nenhuma clínica ativa nesta sessão.")
 
       _ ->
-        unauthenticated(conn)
+        unauthorized(conn)
     end
   end
 
@@ -246,9 +253,5 @@ defmodule ApiWeb.AuthController do
       %{clinic: %{timezone: timezone}} -> timezone
       _ -> nil
     end
-  end
-
-  defp unauthenticated(conn) do
-    conn |> put_status(:unauthorized) |> json(%{error: "not_authenticated"})
   end
 end

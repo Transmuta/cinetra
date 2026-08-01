@@ -47,8 +47,12 @@ defmodule ApiWeb.MessagesController do
   def create(conn, %{"appointment_id" => appointment_id} = params) do
     with_roles_scope(conn, @papeis_que_disparam, fn scope ->
       case disparar(scope, appointment_id, params["patient_id"]) do
+        # 201 só quando alguma mensagem de fato nasceu. Se todos os participantes caíram em
+        # `{:skip, motivo}` — já confirmou, opt-out, sem canal — nenhuma `Message` foi criada, e
+        # `201 Created` afirmava uma criação que não houve (doc 96, H-9).
         {:ok, resultados} ->
-          conn |> put_status(:created) |> json(%{resultados: resultados})
+          status = if Enum.any?(resultados, &(&1[:status] != :skip)), do: :created, else: :ok
+          conn |> put_status(status) |> json(%{resultados: resultados})
 
         :error ->
           not_found(conn)

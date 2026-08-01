@@ -48,7 +48,6 @@ defmodule Api.Scheduling do
 
     resource Api.Scheduling.Attendance do
       define :list_attendances, action: :read
-      define :get_attendance, action: :read, get_by: [:id]
 
       # Segura/solta a presença na pausa do pacote (doc 43 §5c) — cascata interna de `Api.Packages`.
       define :set_attendance_pkg_hold, action: :set_pkg_hold
@@ -234,9 +233,10 @@ defmodule Api.Scheduling do
   end
 
   # `attrs` chega com chaves atom (testes, code interfaces) ou string (corpo HTTP).
-  defp fetch(attrs, key) do
-    Map.get(attrs, key, Map.get(attrs, Atom.to_string(key)))
-  end
+  #
+  # Delega, não copia: `Api.Params` nasceu do bate-volta da Onda 3 (doc 43 §5e) justamente para
+  # acabar com as quatro versões divergentes deste padrão — e a cópia tinha voltado (doc 96, R-1).
+  defp fetch(attrs, key), do: Api.Params.get(attrs, key)
 
   @doc """
   O teto de participantes de uma turma: `AppointmentType.capacidade`, ou o
@@ -553,8 +553,7 @@ defmodule Api.Scheduling do
   defp recorte(:passadas, now), do: {[less_than_or_equal: now], :desc}
   defp recorte(:proximas, now), do: {[greater_than: now], :asc}
 
-  defp uuid?(value) when is_binary(value), do: match?({:ok, _}, Ecto.UUID.cast(value))
-  defp uuid?(_value), do: false
+  defp uuid?(value), do: Api.Params.uuid?(value)
 
   @doc """
   Tudo o que a visão Dia precisa, **numa transação só** com a GUC de tenant setada:

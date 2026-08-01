@@ -118,9 +118,9 @@ defmodule ApiWeb.AuthControllerTest do
   end
 
   describe "GET /api/auth/me" do
-    test "sem sessão: 401 not_authenticated", %{conn: conn} do
+    test "sem sessão: 401 unauthenticated", %{conn: conn} do
       conn = get(conn, ~p"/api/auth/me")
-      assert json_response(conn, 401) == %{"error" => "not_authenticated"}
+      assert json_response(conn, 401) == %{"error" => "unauthenticated"}
     end
 
     test "autenticado com clínica: 200 com identidade, papel e memberships", %{conn: conn} do
@@ -197,14 +197,14 @@ defmodule ApiWeb.AuthControllerTest do
       assert json_response(conn, 200)["active_clinic_id"] == b.id
     end
 
-    test "clínica sem vínculo ativo: 403 no_active_membership", %{conn: conn} do
+    test "clínica sem vínculo ativo: 404 no_active_membership", %{conn: conn} do
       user = create_user()
       _sua = onboard(user, "Sua Clínica")
       outro = create_user()
       alheia = onboard(outro, "Clínica Alheia")
 
       conn = conn |> authed(user) |> post(~p"/api/auth/switch-tenant", %{clinic_id: alheia.id})
-      assert json_response(conn, 403) == %{"error" => "no_active_membership"}
+      assert json_response(conn, 404) == %{"error" => "no_active_membership"}
     end
 
     test "sem clinic_id: 400 missing_clinic_id", %{conn: conn} do
@@ -235,16 +235,16 @@ defmodule ApiWeb.AuthControllerTest do
       assert cid == clinic.id
     end
 
-    test "autenticado sem clínica ativa: 409 no_active_clinic", %{conn: conn} do
+    test "autenticado sem clínica ativa: 422 (não é concorrência)", %{conn: conn} do
       user = create_user()
 
       conn = conn |> authed(user) |> get(~p"/api/realtime/token")
-      assert json_response(conn, 409) == %{"error" => "no_active_clinic"}
+      assert %{"error" => "invalid"} = json_response(conn, 422)
     end
 
     test "sem sessão: 401", %{conn: conn} do
       conn = get(conn, ~p"/api/realtime/token")
-      assert json_response(conn, 401) == %{"error" => "not_authenticated"}
+      assert json_response(conn, 401) == %{"error" => "unauthenticated"}
     end
   end
 
@@ -258,14 +258,14 @@ defmodule ApiWeb.AuthControllerTest do
 
       # Sessão limpa: uma nova requisição na mesma conn (cookies reciclados) não autentica.
       conn = get(conn, ~p"/api/auth/me")
-      assert json_response(conn, 401) == %{"error" => "not_authenticated"}
+      assert json_response(conn, 401) == %{"error" => "unauthenticated"}
     end
   end
 
   describe "PATCH /api/auth/me (Meu perfil)" do
-    test "sem sessão: 401 not_authenticated", %{conn: conn} do
+    test "sem sessão: 401 unauthenticated", %{conn: conn} do
       conn = patch(conn, ~p"/api/auth/me", %{nome: "Novo Nome"})
-      assert json_response(conn, 401) == %{"error" => "not_authenticated"}
+      assert json_response(conn, 401) == %{"error" => "unauthenticated"}
     end
 
     test "autenticado: 200, atualiza o nome e o /me seguinte reflete", %{conn: conn} do
@@ -297,9 +297,9 @@ defmodule ApiWeb.AuthControllerTest do
   end
 
   describe "POST /api/auth/sign-out-everywhere" do
-    test "sem sessão: 401 not_authenticated", %{conn: conn} do
+    test "sem sessão: 401 unauthenticated", %{conn: conn} do
       conn = post(conn, ~p"/api/auth/sign-out-everywhere")
-      assert json_response(conn, 401) == %{"error" => "not_authenticated"}
+      assert json_response(conn, 401) == %{"error" => "unauthenticated"}
     end
 
     test "204 e limpa a própria sessão", %{conn: conn} do
@@ -309,7 +309,7 @@ defmodule ApiWeb.AuthControllerTest do
       assert conn.status == 204
 
       conn = get(conn, ~p"/api/auth/me")
-      assert json_response(conn, 401) == %{"error" => "not_authenticated"}
+      assert json_response(conn, 401) == %{"error" => "unauthenticated"}
     end
 
     test "revoga TODOS os tokens: outra sessão do mesmo usuário também para de valer",
@@ -325,7 +325,7 @@ defmodule ApiWeb.AuthControllerTest do
 
       # O dispositivo A, com um TOKEN diferente, também deixa de autenticar.
       conn_a = build_conn() |> authed(device_a) |> get(~p"/api/auth/me")
-      assert json_response(conn_a, 401) == %{"error" => "not_authenticated"}
+      assert json_response(conn_a, 401) == %{"error" => "unauthenticated"}
     end
   end
 end

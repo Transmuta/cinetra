@@ -79,6 +79,44 @@ defmodule Api.Directory.Professional do
     :ativo
   ]
 
+  # A ficha do profissional tem DUAS leituras dentro dela, e até o doc 96 (S-1) elas eram uma só:
+  #
+  #   * o **diretório** — nome, exibição, crefito, especialidade, cor, contato, ativo. É o que a
+  #     agenda, a sidebar e a tela de equipe precisam, e todo membro lê;
+  #   * a **ficha contratual** — CPF, RG, CNPJ, razão social, dados bancários (banco, agência,
+  #     conta, PIX), endereço residencial e contato de emergência.
+  #
+  # Colapsadas numa permissão só, a recepção abria `/profissionais` e recebia a chave PIX e a
+  # conta bancária de todos os colegas. O `AccessMatrix` concede `:leitura` da área a recepção e
+  # profissional — mas "ler o diretório" nunca quis dizer "ler a folha de pagamento", e a matriz
+  # publicada ao usuário não promete isso.
+  #
+  # Fica no RECURSO, e não só no serializador, porque a fronteira HTTP não é o único leitor: um
+  # relatório, um export ou um canal futuro herdam o recorte de graça. A fronteira apenas **omite
+  # o que não pôde ler** (ver `prof_json/2`), sem reescrever a regra de papel.
+  @ficha_contratual [
+    :cpf,
+    :rg,
+    :nascimento,
+    :estado_civil,
+    :cep,
+    :endereco,
+    :numero,
+    :complemento,
+    :bairro,
+    :cidade,
+    :uf,
+    :emergencia_nome,
+    :emergencia_tel,
+    :razao_social,
+    :cnpj,
+    :banco,
+    :agencia,
+    :conta,
+    :conta_tipo,
+    :pix
+  ]
+
   postgres do
     table "professionals"
     repo Api.Repo
@@ -94,6 +132,26 @@ defmodule Api.Directory.Professional do
     # scan conforme a tabela cresce (auditoria doc 13, causa C).
     custom_indexes do
       index [:clinic_id]
+    end
+  end
+
+  field_policies do
+    field_policy @ficha_contratual do
+      # Quem administra a clínica vê a ficha inteira, de todo mundo — é quem paga e contrata.
+      authorize_if {Api.Accounts.Checks.HasClinicRole,
+                    roles: [:owner, :admin], clinic_from: :tenant}
+
+      # O profissional vê a PRÓPRIA ficha. Não é preciso comparar id aqui: a preparation
+      # `OwnProfessionalOnly` já reduziu a leitura ao próprio registro **e é fail-closed** quando
+      # o vínculo é nulo (filtra `false`, devolve vazio). Logo, para este papel, "a linha que ele
+      # está lendo" e "a ficha dele" são a mesma coisa por construção.
+      authorize_if {Api.Accounts.Checks.HasClinicRole,
+                    roles: [:profissional], clinic_from: :tenant}
+    end
+
+    # Todo o resto é diretório: liberado a quem já passou pela policy de leitura acima.
+    field_policy :* do
+      authorize_if always()
     end
   end
 

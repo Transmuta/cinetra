@@ -302,6 +302,68 @@ defmodule ApiWeb.ProfessionalsControllerTest do
       assert conn |> get(~p"/api/professionals") |> json_response(200)
       assert conn |> post(~p"/api/professionals", %{"nome" => "X"}) |> json_response(403)
     end
+
+    # Regressão (auditoria doc 96, S-1). "Ler o diretório" e "ler a ficha de pagamento do colega"
+    # estavam colapsadas na mesma permissão: a guarda era `with_member_scope` (qualquer papel), a
+    # policy do recurso era `roles: :any` para leitura, não havia `field_policies`, e o
+    # serializador mandava a ficha inteira. Recepção e profissional recebiam CPF, RG, CNPJ e os
+    # dados BANCÁRIOS (banco, agência, conta, PIX) de todo mundo ao abrir a tela.
+    #
+    # O `MembersController` já restringia a mesma leitura com `select:` — era assimetria, não
+    # decisão de produto. A matriz de acesso publicada ao usuário nunca prometeu isso.
+    @sigilosos ~w(cpf rg cnpj razao_social banco agencia conta conta_tipo pix
+                  nascimento estado_civil cep endereco numero complemento bairro cidade uf
+                  emergencia_nome emergencia_tel)
+
+    test "recepção NÃO recebe dado bancário nem documento do profissional",
+         %{base_conn: base, owner: owner, clinic: clinic} do
+      create_prof(clinic, "Dra. Marina", %{
+        cpf: "111.444.777-35",
+        rg: "12.345.678-9",
+        banco: "341",
+        agencia: "0001",
+        conta: "12345-6",
+        pix: "marina@clinica.com"
+      })
+
+      recep = sessao_de_membro!(owner, clinic, :recepcao)
+      body = base |> authed(recep) |> get(~p"/api/professionals") |> json_response(200)
+
+      assert [p] = body["professionals"]
+      # O diretório continua servindo para o que ele existe.
+      assert p["nome"] == "Dra. Marina"
+
+      for campo <- @sigilosos do
+        refute Map.has_key?(p, campo), "vazou #{campo} para a recepção: #{inspect(p[campo])}"
+      end
+
+      refute inspect(p) =~ "marina@clinica.com"
+      refute inspect(p) =~ "12345-6"
+    end
+
+    test "owner continua recebendo a ficha completa", %{conn: conn, clinic: clinic} do
+      prof =
+        create_prof(clinic, "Dra. Marina", %{cpf: "111.444.777-35", pix: "marina@clinica.com"})
+
+      body = conn |> get(~p"/api/professionals") |> json_response(200)
+
+      assert [p] = body["professionals"]
+      assert p["cpf"] == prof.cpf
+      assert p["pix"] == prof.pix
+      refute is_nil(prof.cpf)
+    end
+
+    test "o profissional vê a PRÓPRIA ficha completa",
+         %{base_conn: base, owner: owner, clinic: clinic} do
+      prof = create_prof(clinic, "Dra. Marina", %{cpf: "111.444.777-35", pix: "eu@clinica.com"})
+      user = sessao_de_membro!(owner, clinic, :profissional, prof.id)
+
+      body = base |> authed(user) |> get(~p"/api/professionals") |> json_response(200)
+
+      assert [p] = body["professionals"]
+      assert p["cpf"] == prof.cpf
+      assert p["pix"] == prof.pix
+    end
   end
 
   # Bate-volta da Onda 6 (doc 49) — a fronteira manda string, e o `modo` é escolha do cliente.

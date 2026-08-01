@@ -59,6 +59,31 @@ defmodule ApiWeb.RequestLoggerTest do
       assert RequestLogger.rota("/api/json/appointments") == "/api/json/appointments"
       assert RequestLogger.rota("/") == "/"
     end
+
+    # Regressão (auditoria doc 96, S-2). A barreira reconhecia UUID e número — e o token de
+    # `/api/reply/:token` é um `Phoenix.Token` base64, que não casa com nenhum dos dois e saía
+    # INTEIRO na linha de log. Ele vale 30 dias (`Api.Messaging.ReplyToken`) e o Loki retém 30
+    # dias: quem lê o Grafana podia replayar `POST /api/reply/<token>` e responder pelo paciente.
+    # Credencial em log é exatamente a classe que este módulo existe para impedir.
+    test "token opaco de rota pública não vaza no log" do
+      token =
+        "SFMyNTY.g2gDdAAAAAFkAAptZXNzYWdlX2lkbQAAACQwMTk4LWZha2UtdG9rZW4tcGFyYS10ZXN0ZQ.abc123"
+
+      rota = RequestLogger.rota("/api/reply/#{token}")
+
+      assert rota == "/api/reply/:token"
+      refute rota =~ token
+      refute rota =~ "SFMy"
+    end
+
+    test "o corte de segmento opaco não come nome de rota longo" do
+      # `sign-out-everywhere` (19) é o segmento literal mais longo do router. O piso precisa
+      # ficar acima dele, ou a barreira apagaria a rota que o log existe para agrupar.
+      assert RequestLogger.rota("/api/auth/sign-out-everywhere") ==
+               "/api/auth/sign-out-everywhere"
+
+      assert RequestLogger.rota("/api/clinic-exceptions") == "/api/clinic-exceptions"
+    end
   end
 
   describe "handle/4 — o evento" do
@@ -71,8 +96,27 @@ defmodule ApiWeb.RequestLoggerTest do
       on_exit(fn -> Logger.configure(level: nivel) end)
     end
 
+    # O falso precisa ter `req_headers` e `remote_ip` porque a linha carrega `client_ip` desde o
+    # doc 96 (O-1), e `ApiWeb.ClientIp.get/1` lê os dois. Antes o mapa era mínimo, e o handler
+    # estourava no `get_req_header/2` — o `rescue` do `RequestLogger` segurava (era para isso que
+    # ele existia), mas a linha se perdia inteira.
+    # Um `%Plug.Conn{}` de verdade, e não um mapa solto: `ApiWeb.ClientIp.get/1` casa contra a
+    # struct (o `client_ip` entrou na linha no doc 96, O-1), e o mapa mínimo que estava aqui
+    # estourava no `get_req_header/2`. O `rescue` do `RequestLogger` segurava o estouro — era
+    # exatamente para isso que ele existia —, mas a linha se perdia inteira. O falso passa a ter a
+    # mesma forma do que o `[:phoenix, :endpoint, :stop]` entrega em produção.
     defp evento(conn_extra, duracao_native \\ 1_000_000) do
-      conn = Map.merge(%{method: "GET", request_path: "/api/x", status: 200}, conn_extra)
+      conn =
+        Map.merge(
+          %Plug.Conn{
+            method: "GET",
+            request_path: "/api/x",
+            status: 200,
+            req_headers: [],
+            remote_ip: {127, 0, 0, 1}
+          },
+          conn_extra
+        )
 
       capture_log(fn ->
         RequestLogger.handle(

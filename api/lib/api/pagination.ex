@@ -18,9 +18,6 @@ defmodule Api.Pagination do
   # inteiro absurdo ao banco.
   @max_offset 100_000
 
-  @doc "O tamanho de página padrão (50)."
-  def default_limit, do: @default_limit
-
   @doc """
   Normaliza o `limit` pedido: fora de `1..max`, cai no padrão ou no teto.
 

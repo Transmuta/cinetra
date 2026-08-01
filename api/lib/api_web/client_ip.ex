@@ -48,10 +48,40 @@ defmodule ApiWeb.ClientIp do
     Enum.find_value(trusted ++ ["x-forwarded-for"], &forwarded(conn, &1)) || peer_ip(conn)
   end
 
+  # **Contado a partir do fim**, não do começo (doc 96, L-4; relacionado ao débito D-16).
+  #
+  # O `x-forwarded-for` é uma lista que cada salto **acrescenta**, escrevendo o IP de quem falou
+  # com ele. Logo, num `A, B, C`: `A` é o que o CLIENTE mandou (e portanto o que um atacante
+  # escolhe), e `C` é o que o último proxy observou. Ler `List.first/1` — o que este módulo fazia —
+  # entregava a chave de rate limit ao atacante: bastava rotacionar o header a cada request para
+  # nunca estourar o teto, inclusive no limitador anti-brute-force do magic link.
+  #
+  # Isso mordia **no default do deploy**: `TRUSTED_CLIENT_IP_HEADER` vem vazio no
+  # `compose.dokploy.yml`, e o Traefik anexa em vez de substituir.
+  #
+  # Quantos elementos descartar depende de **quantos proxies confiáveis** estão na frente, e não
+  # há como adivinhar: com 1 salto o cliente é o último item; com 2, o penúltimo. Por isso o
+  # número é configuração explícita, com default 1 — a topologia atual (Traefik sozinho). Ao
+  # colocar uma edge na frente, este número sobe **junto** com a troca do proxy, como o header
+  # confiável logo acima.
+  @default_hops 1
+
   defp forwarded(conn, header) do
     case get_req_header(conn, header) do
-      [value | _] -> value |> String.split(",") |> List.first() |> String.trim() |> nil_if_empty()
+      [value | _] -> value |> String.split(",") |> cliente() |> nil_if_empty()
       [] -> nil
+    end
+  end
+
+  defp cliente(itens) do
+    hops = Application.get_env(:api, :trusted_proxy_hops, @default_hops)
+
+    itens
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> case do
+      [] -> ""
+      lista -> Enum.at(lista, max(length(lista) - hops, 0))
     end
   end
 

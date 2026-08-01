@@ -72,11 +72,26 @@ defmodule Api.Messaging.SendJob do
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"clinic_id" => clinic_id, "message_id" => message_id}}) do
     case ler(clinic_id, message_id) do
-      {:ok, %Message{} = message} -> enviar(message)
-      _ -> :ok
-    end
+      {:ok, %Message{} = message} ->
+        enviar(message)
 
-    :ok
+      # A mensagem sumiu (poda, cancelamento). Nada a fazer, e não é erro.
+      {:ok, nil} ->
+        :ok
+
+      # Erro de banco/RLS na LEITURA. Antes caía no mesmo `_ -> :ok` do caso acima: o job era
+      # marcado `completed`, a mensagem nunca saía, e não havia retry nem log — silêncio total
+      # sobre uma mensagem que a recepção acha que está na fila (doc 96, B-9). Devolver `{:error,
+      # _}` é o que faz o Oban retentar, que é o comportamento certo para falha transitória.
+      {:error, motivo} ->
+        Logger.error("SendJob: falha ao ler a mensagem",
+          message_id: message_id,
+          clinic_id: clinic_id,
+          motivo: inspect(motivo)
+        )
+
+        {:error, motivo}
+    end
   end
 
   # `tenant:` **e** GUC, e as duas por motivos diferentes: o `tenant:` é o filtro do Ash (sem ele a
@@ -84,6 +99,11 @@ defmodule Api.Messaging.SendJob do
   # Postgres exige. Faltar o primeiro dá erro alto; faltar o segundo devolve **vazio calado** sob
   # `cinetra_app`, e o job "funciona" sem enviar nada — invisível no `mix test`, onde o sandbox
   # bypassa RLS. Os dois já custaram fatia (doc 09, materialização de pacote).
+  #
+  # O `elem(1)` que estava aqui apagava a diferença entre as duas: `with_clinic/2` é
+  # `Repo.transaction/1`, e num rollback `elem(1)` devolve o *reason* cru, que o `case` do
+  # `perform/1` engolia como "não achei". Casar as duas formas é o que separa "não existe" de
+  # "não consegui ler" (doc 96, B-9/B-10).
   defp ler(clinic_id, message_id) do
     Api.Repo.with_clinic(clinic_id, fn ->
       Messaging.get_message(message_id,
@@ -92,7 +112,13 @@ defmodule Api.Messaging.SendJob do
         not_found_error?: false
       )
     end)
-    |> elem(1)
+    |> case do
+      {:ok, {:ok, message}} -> {:ok, message}
+      {:ok, {:error, motivo}} -> {:error, motivo}
+      {:ok, %Message{} = message} -> {:ok, message}
+      {:ok, nil} -> {:ok, nil}
+      {:error, motivo} -> {:error, motivo}
+    end
   end
 
   # Já enviada: a tentativa anterior chegou ao provider e gravou. Retentar aqui duplicaria a
@@ -128,21 +154,63 @@ defmodule Api.Messaging.SendJob do
   defp entregar(%Message{} = message, corpo) do
     case Transport.entregar(message, corpo) do
       {:ok, provider, provider_id} ->
-        # Volta para dentro de uma transação com GUC só para gravar — a entrega já aconteceu.
-        Api.Repo.with_clinic(message.clinic_id, fn ->
-          Messaging.do_mark_sent!(
-            message,
-            %{provider: provider, provider_message_id: provider_id},
-            tenant: message.clinic_id,
-            authorize?: false
-          )
-        end)
-
-        :ok
+        marcar_enviada(message, provider, provider_id)
 
       {:error, motivo} ->
         falhar(message, motivo)
     end
+  end
+
+  # A entrega **já aconteceu** quando esta função roda — o paciente já recebeu, e no WhatsApp a
+  # clínica já pagou. Daí as duas regras aqui:
+  #
+  #   1. o resultado da transação é casado, não descartado. Antes o `with_clinic` era chamado por
+  #      efeito colateral e o `:ok` vinha logo abaixo, incondicional: um `{:error, _}` (deadlock,
+  #      timeout de pool, RLS) saía como sucesso e a mensagem ficava `:pendente` para sempre,
+  #      entregue e invisível para a recepção (doc 96, B-3);
+  #
+  #   2. a falha ao GRAVAR **não** propaga. Se ela subisse, o `perform/1` estouraria, o Oban
+  #      reenfileiraria (`max_attempts: 3`), a mensagem ainda estaria `:pendente` — o guard de
+  #      `enviar/1` não pegaria — e o `Transport.entregar` rodaria de novo: **segunda mensagem
+  #      paga para o mesmo número**. Entre "reenviar ao paciente" e "registrar o desencontro no
+  #      log", o log é o mal menor, e é o único que não custa dinheiro nem constrange o paciente.
+  #
+  # O que sobra é um alerta alto o bastante para virar chamado: a linha ficou `:pendente` no banco
+  # e a mensagem saiu no mundo. É a inconsistência que o `provider_message_id` do webhook resolve
+  # depois, e que sem log ninguém descobriria.
+  defp marcar_enviada(%Message{} = message, provider, provider_id) do
+    Api.Repo.with_clinic(message.clinic_id, fn ->
+      Messaging.do_mark_sent!(
+        message,
+        %{provider: provider, provider_message_id: provider_id},
+        tenant: message.clinic_id,
+        authorize?: false
+      )
+    end)
+    |> case do
+      {:ok, _} ->
+        :ok
+
+      {:error, motivo} ->
+        alertar_entregue_sem_registro(message, provider, provider_id, motivo)
+    end
+  rescue
+    erro -> alertar_entregue_sem_registro(message, provider, provider_id, erro)
+  end
+
+  defp alertar_entregue_sem_registro(message, provider, provider_id, motivo) do
+    Logger.error(
+      "mensagem ENTREGUE mas não registrada: o provider aceitou e a gravação de :enviado falhou. " <>
+        "A linha segue :pendente e NÃO deve ser reenviada.",
+      message_id: message.id,
+      clinic_id: message.clinic_id,
+      canal: message.canal,
+      provider: provider,
+      provider_message_id: provider_id,
+      motivo: inspect(motivo)
+    )
+
+    :ok
   end
 
   # A falha é gravada e o job **não** levanta: o retry do Oban existe para erro transitório de

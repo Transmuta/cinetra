@@ -248,6 +248,45 @@ otelcol.processor.filter "encanamento" {
 	}
 
 	output {
+		traces = [otelcol.processor.transform.poda.input]
+	}
+}
+
+// ---- PODA DE ATRIBUTO QUE CARREGA IDENTIFICADOR OU CREDENCIAL ---------------------------------
+//
+// Deixou de ser exemplo comentado e passou a rodar (doc 96, S-3). O motivo é direto: o
+// `OpentelemetryBandit` grava, em TODO span de servidor, os atributos padrão da biblioteca — e
+// dois deles são veneno neste projeto.
+//
+//   * `url.query` é o PIOR dos dois e nem estava no exemplo original: é onde viaja o token do
+//     magic link (`GET /api/auth/magic-link/callback?token=…`), ou seja, a credencial que assina
+//     a sessão. Exportá-la para o Tempo é vazar sessão para quem lê o Grafana.
+//   * `url.path` carrega o `patient_id` cru (`GET /api/patients/<uuid>`) — o único identificador
+//     que o doc 05 §1.3 proíbe exportar, porque liga o registro a um titular de dado de saúde. O
+//     log já o sanitiza (`ApiWeb.RequestLogger.rota/1`); o trace não sanitizava nada.
+//
+// `http.route` (a rota PARAMETRIZADA, `/api/patients/:id`) permanece: é ela que serve para
+// agrupar, e é justamente a que não tem identificador dentro.
+//
+// Isto roda ANTES do lote, como o comentário abaixo previa. Hoje o exportador está inerte
+// (`OTEL_EXPORTER_OTLP_ENDPOINT` vem vazio no compose), e é exatamente por isso que a poda entra
+// agora: quando alguém ligar a variável, ela já tem de estar de pé.
+otelcol.processor.transform "poda" {
+	error_mode = "ignore"
+
+	trace_statements {
+		context = "span"
+		statements = [
+			// a credencial
+			`delete_key(attributes, "url.query")`,
+			// o caminho com o id do paciente; `http.route` (parametrizada) permanece
+			`delete_key(attributes, "url.path")`,
+			// o SQL do Ecto, que é útil na largada e volumoso depois
+			`delete_key(attributes, "db.statement")`,
+		]
+	}
+
+	output {
 		traces = [otelcol.processor.batch.lotes.input]
 	}
 }

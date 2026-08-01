@@ -160,6 +160,15 @@ defmodule ApiWeb.ProfessionalsController do
 
   # `clinic_id` NÃO sai: é o tenant, já implícito na sessão. `weekly_hours`/`exceptions` só saem
   # quando carregados (lista traz a grade; a ficha traz também as exceções).
+  #
+  # O bloco contratual (CPF, RG, CNPJ, banco/agência/conta/PIX, endereço, emergência) é recortado
+  # por `field_policies` no recurso (doc 96, S-1). Quem não pode lê-lo recebe `%Ash.ForbiddenField{}`
+  # no lugar do valor, e o campo simplesmente **não entra no JSON** — a chave some, em vez de sair
+  # `null` (que o cliente leria como "não preenchido") ou de vazar o struct.
+  #
+  # A regra de papel NÃO é repetida aqui de propósito: duplicá-la na fronteira criaria duas
+  # verdades que envelhecem em ritmos diferentes — foi assim que o vazamento nasceu. A fronteira
+  # só omite o que o domínio recusou.
   defp prof_json(p, opts \\ []) do
     base = %{
       id: p.id,
@@ -200,6 +209,7 @@ defmodule ApiWeb.ProfessionalsController do
     }
 
     base
+    |> Map.reject(fn {_campo, valor} -> match?(%Ash.ForbiddenField{}, valor) end)
     |> maybe_put_loaded(:weekly_hours, p.weekly_hours, &hours_row_json/1)
     |> then(fn map ->
       if Keyword.get(opts, :exceptions, false),

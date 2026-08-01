@@ -44,7 +44,7 @@ describe('load / (landing pública)', () => {
 	});
 
 	it('sessão inválida (401 no /me) → renderiza a landing', async () => {
-		const event = fakeEvent({ '/api/auth/me': json({ error: 'not_authenticated' }, 401) });
+		const event = fakeEvent({ '/api/auth/me': json({ error: 'unauthenticated' }, 401) });
 		await expect(load(event)).resolves.toMatchObject({ canonical: 'https://cinetra.app/' });
 	});
 

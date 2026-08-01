@@ -89,10 +89,29 @@ defmodule ApiWeb.TenantScope do
     end
   end
 
-  def error_response(conn, _error),
-    do: conn |> put_status(:bad_request) |> json(%{error: "bad_request"})
+  def error_response(conn, _error), do: bad_request(conn)
+
+  @doc """
+  400 — **fonte única do corpo**, como `unprocessable/2` é do 422.
+
+  Existia dentro do `error_response/2` e estava copiado à mão em `PackagesController` e
+  `AttachmentsController` (doc 96, R-4/H-1): a mesma classe de duplicação que o `unprocessable/2`
+  foi criado para eliminar, repetida porque este helper não era público.
+  """
+  def bad_request(conn), do: conn |> put_status(:bad_request) |> json(%{error: "bad_request"})
 
   def not_found(conn), do: conn |> put_status(:not_found) |> json(%{error: "not_found"})
+
+  @doc """
+  Marca a resposta como **não armazenável** (`Cache-Control: no-store`).
+
+  O default que saía do `Plug.Session` era `max-age=0, private, must-revalidate` — que permite
+  **armazenar** e só exige revalidar. Para a ficha completa do paciente e para a URL assinada de
+  um laudo, o correto é não guardar em lugar nenhum (doc 96, S-9). O tráfego passa pelo BFF, o que
+  torna o risco indireto — mas `must-revalidate` autoriza o que `no-store` proíbe, e é barato
+  fechar.
+  """
+  def no_store(conn), do: put_resp_header(conn, "cache-control", "no-store")
 
   @doc """
   409 — **novo nesta fatia**. A regra semântica é a de `09:659`: **422 = "seu pedido está
@@ -305,8 +324,19 @@ defmodule ApiWeb.TenantScope do
   # por-clínica. `Acesso.acesso_negado/2` trata esse caso devolvendo `:ok`.
   defp forbidden(conn) do
     case conn.assigns[:scope] do
-      %Scope{} = scope -> Api.Audit.Acesso.acesso_negado(scope, conn.request_path)
-      _ -> :ok
+      %Scope{} = scope ->
+        # A ROTA (com `:id` no lugar dos identificadores) é o que dedupa; o caminho cru vai no
+        # `meta` para a investigação. Enquanto o label era o path cru, a dedup nunca casava numa
+        # varredura por IDOR — que é exatamente o que este evento existe para detectar (doc 96,
+        # B-7). O normalizador é o mesmo do log de requisição: uma definição de "rota" só.
+        Api.Audit.Acesso.acesso_negado(
+          scope,
+          ApiWeb.RequestLogger.rota(conn.request_path),
+          conn.request_path
+        )
+
+      _ ->
+        :ok
     end
 
     conn |> put_status(:forbidden) |> json(%{error: "forbidden"})

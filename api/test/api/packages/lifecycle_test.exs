@@ -180,6 +180,64 @@ defmodule Api.Packages.LifecycleTest do
       assert hold == true
     end
 
+    # Regressão (auditoria doc 96, B-1). CANCELAR o bloco não alcançava a presença segurada: a
+    # `CascadeToAttendances` lia as presenças com `Ash.load!`, que passa pela preparation global
+    # `HideHeldAttendances` (filtra `pkg_hold == false`). A cascata irmã `RemoveParticipants` abre
+    # a porta com `set_context(%{include_held: true})`; esta não abria — assimetria entre duas
+    # cascatas que precisam ver o MESMO conjunto.
+    #
+    # O estrago não parava no bloco cancelado. A presença ficava viva (`:prevista`, segurada)
+    # pendurada num bloco `:cancelado`, e o `resume_package` não a recuperava: `held_targets/2`
+    # rejeita bloco `:cancelado`, o par caía fora e `enqueue_reproject(…, 0)` não reprojetava
+    # nada. Resultado para o paciente: **uma sessão paga desaparecia** do pacote, e a ficha
+    # seguia desenhando a bolinha como "segurada" para sempre, num pacote `:ativo`.
+    test "cancelar o bloco alcança a presença SEGURADA — a sessão paga não vira órfã" do
+      ctx = setup_clinic()
+      turma = tipo!(ctx, nome: "Turma #{unico()}", icon: "Users", grupo: true, capacidade: 4)
+      colega = paciente!(ctx, "Colega #{unico()}")
+
+      {:ok, pkg} =
+        Packages.create_package(params(ctx, %{appointment_type_id: turma.id}), scope: ctx.scope)
+
+      {:ok, dt} = Scheduling.LocalTime.to_utc(@segunda, "08:00", "America/Sao_Paulo")
+
+      {:ok, appt} =
+        Scheduling.schedule_appointment(
+          %{
+            starts_at: dt,
+            professional_id: ctx.prof.id,
+            appointment_type_id: turma.id,
+            patient_ids: [ctx.paciente.id],
+            package_id: pkg.id
+          },
+          scope: ctx.scope
+        )
+
+      {:ok, appt} =
+        Scheduling.add_appointment_participants(appt, %{patient_ids: [colega.id]},
+          scope: ctx.scope
+        )
+
+      # Pausar segura a presença do dono do pacote e deixa o bloco de pé (o colega continua).
+      {:ok, _} = Packages.pause_package(scope_before(ctx), pkg.id)
+
+      {:ok, _} = Scheduling.transition_appointment(scope_before(ctx), appt.id, :cancel)
+
+      # Estado CRU: nenhuma presença do bloco pode ter sobrado viva.
+      {:ok, %{rows: rows}} =
+        Api.Repo.query(
+          "SELECT at.status, at.pkg_hold FROM attendances at WHERE at.appointment_id = $1",
+          [Ecto.UUID.dump!(appt.id)]
+        )
+
+      assert length(rows) == 2
+
+      for [status, hold] <- rows do
+        assert status == "cancelada",
+               "presença sobrou #{status} (pkg_hold=#{hold}) num bloco cancelado"
+      end
+    end
+
     # Achado adversarial do bate-volta de 2026-07-26: com a presença segurada dentro, tirar o
     # COLEGA deixava o bloco `:agendado` com zero participantes visíveis — um bloco fantasma na
     # grade, ocupando o slot pela exclusion constraint e sem ninguém dentro. O guard do "último

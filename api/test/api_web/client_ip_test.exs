@@ -49,8 +49,34 @@ defmodule ApiWeb.ClientIpTest do
                "2.2.2.2"
     end
 
-    test "x-forwarded-for com vários hops usa o primeiro (o cliente)" do
-      assert ClientIp.get(conn([{"x-forwarded-for", "2.2.2.2, 10.0.0.1, 10.0.0.2"}])) == "2.2.2.2"
+    # Regressão (auditoria doc 96, L-4). Ler o PRIMEIRO item entregava a chave de rate limit ao
+    # atacante: o primeiro é o que o cliente escreveu, e cada salto só ACRESCENTA. Bastava
+    # rotacionar o header a cada request para nunca estourar o teto — inclusive no limitador
+    # anti-brute-force do magic link.
+    #
+    # Com 1 salto confiável (Traefik sozinho, a topologia atual), o cliente é o ÚLTIMO item: é o
+    # que o Traefik observou, e o único que o cliente não escolhe.
+    test "x-forwarded-for com vários hops: com 1 salto confiável, o cliente é o último" do
+      assert ClientIp.get(conn([{"x-forwarded-for", "2.2.2.2, 10.0.0.1, 10.0.0.2"}])) ==
+               "10.0.0.2"
+    end
+
+    test "o IP forjado pelo cliente NÃO vira chave" do
+      # O atacante manda o header; o Traefik anexa o que viu de verdade.
+      forjado = "1.1.1.1"
+      real = "203.0.113.9"
+
+      assert ClientIp.get(conn([{"x-forwarded-for", "#{forjado}, #{real}"}])) == real
+    end
+
+    test "com 2 saltos confiáveis, o cliente é o penúltimo" do
+      # Quantos descartar depende da topologia, e não dá para adivinhar — por isso é config
+      # explícita, que sobe JUNTO com a entrada de uma edge nova.
+      Application.put_env(:api, :trusted_proxy_hops, 2)
+      on_exit(fn -> Application.delete_env(:api, :trusted_proxy_hops) end)
+
+      assert ClientIp.get(conn([{"x-forwarded-for", "2.2.2.2, 10.0.0.1, 10.0.0.2"}])) ==
+               "10.0.0.1"
     end
   end
 

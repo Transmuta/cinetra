@@ -74,12 +74,19 @@ defmodule Api.Packages.Sessions do
   # o bloco; **acompanhado** (a sessão fundiu numa turma que já existia), segura só a presença — o
   # pacote pausado da Maria não pode sumir com o Pilates do João da agenda.
   defp segura(appt, pkg, clinic_id) do
+    # `in_clinic` obrigatório: esta leitura acontece DEPOIS do commit do `schedule_appointment`
+    # acima, e o `SET LOCAL` daquela transação já morreu. Sem a GUC, sob o role `cinetra_app`
+    # (NOBYPASSRLS), a RLS não devolve lista vazia — ela LEVANTA `22P02`, porque a GUC volta a
+    # `''` e não a NULL (doc 96, T-0/T-1). O gate `:rls` não pega: o sandbox roda o teste inteiro
+    # numa transação e a GUC da escrita fica pendurada, cobrindo esta leitura de graça.
     bloco =
-      Api.Scheduling.get_appointment!(appt.id,
-        tenant: clinic_id,
-        authorize?: false,
-        load: [:attendances]
-      )
+      Api.Tenancy.in_clinic(clinic_id, fn ->
+        Api.Scheduling.get_appointment!(appt.id,
+          tenant: clinic_id,
+          authorize?: false,
+          load: [:attendances]
+        )
+      end)
 
     case Enum.find(bloco.attendances, &(&1.package_id == pkg.id)) do
       nil ->

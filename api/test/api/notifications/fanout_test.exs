@@ -566,5 +566,24 @@ defmodule Api.Notifications.FanoutTest do
       # O recém-chegado não recebe o próprio aviso.
       refute :member_joined in kinds(novo, ctx.clinic)
     end
+
+    # Regressão (auditoria doc 96, B-2): `user_name/1` casava contra `%{nome: nome}`, mas
+    # `Accounts.get_user/2` é code interface NÃO-bang e devolve `{:ok, %User{}}`. Uma tupla nunca
+    # casa com um mapa, então o fallback era o ÚNICO caminho: toda notificação de equipe dizia
+    # "Um novo membro", inclusive a de saída. O irmão `patient_name/1`, quatro linhas acima no
+    # mesmo arquivo, já desembrulhava certo — era assimetria, não decisão.
+    test "o aviso traz o NOME de quem entrou, não o genérico" do
+      ctx = setup_clinic()
+      novo = member(ctx.clinic, :recepcao)
+      nome = Accounts.get_user!(novo.id, authorize?: false).nome
+
+      aviso =
+        ctx.owner
+        |> inbox(ctx.clinic)
+        |> Enum.find(&(&1.kind == :member_joined))
+
+      assert aviso.body =~ nome
+      refute aviso.body =~ "Um novo membro"
+    end
   end
 end

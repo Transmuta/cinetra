@@ -29,7 +29,6 @@ defmodule Api.Packages do
     end
 
     resource Api.Packages.PackageSchedule do
-      define :get_package_schedule, action: :read, get_by: [:id]
       define :list_package_schedules, action: :read
       define :update_package_schedule, action: :update
     end
@@ -497,15 +496,31 @@ defmodule Api.Packages do
         # código anterior — a recusa chegava tarde: as futuras já estavam canceladas e a
         # re-materialização morria em silêncio no job, deixando o pacote vendido com N sessões e
         # zero na agenda. Ver `Api.Packages.LifecycleTest`, "recusa profissional …".
+        # A reordenação acima fechou a recusa **previsível**; a atomicidade continuava aberta. Sem
+        # transação, uma falha no meio do `Enum.each` (o `{:ok, _} =` levanta) deixava parte das
+        # sessões canceladas, a grade já reescrita e **nenhum job enfileirado** — exatamente o
+        # estado "pacote vendido com N, zero na agenda" que o comentário acima diz ter consertado
+        # (doc 96, B-6). O irmão `resume_package/2` já usa este desenho.
+        #
+        # `enqueue_from` fica DENTRO: se a transação abortar, o job não deve existir — do
+        # contrário ele materializaria sobre uma grade que voltou atrás.
         with {:ok, atrs} <- grade_params(grade),
-             :ok <- checar_profissional(scope, profissional_efetivo(atrs, pkg.schedule)),
-             {:ok, _grade} <- update_package_schedule(pkg.schedule, atrs, scope: scope) do
-          Enum.each(futuras, fn alvo ->
-            {:ok, _notes} = Api.Packages.Bulk.cancelar_sessao(scope, alvo)
-          end)
+             :ok <- checar_profissional(scope, profissional_efetivo(atrs, pkg.schedule)) do
+          in_clinic(scope, fn ->
+            Api.Repo.transaction(fn ->
+              {:ok, _grade} = update_package_schedule(pkg.schedule, atrs, scope: scope)
 
-          enqueue_from(pkg, scope, today, length(futuras))
-          {:ok, get_patient_package!(scope, package_id)}
+              Enum.each(futuras, fn alvo ->
+                {:ok, _notes} = Api.Packages.Bulk.cancelar_sessao(scope, alvo)
+              end)
+
+              enqueue_from(pkg, scope, today, length(futuras))
+            end)
+          end)
+          |> case do
+            {:ok, _} -> {:ok, get_patient_package!(scope, package_id)}
+            {:error, motivo} -> {:error, motivo}
+          end
         end
     end
   end
@@ -776,5 +791,29 @@ defmodule Api.Packages do
         load: Keyword.get(opts, :load, [:usadas, :restantes, :acabando, :schedule])
       )
     end)
+  end
+
+  @doc """
+  A versão que **não levanta**: `{:ok, pacote}` ou `{:ok, nil}`.
+
+  Molde de `Api.Records.fetch_clinic_patient/3`. Existe porque a fronteira precisa devolver 404 com
+  o corpo do projeto (`{"error":"not_found"}`), e o bang produzia um `Ash.Error` que o
+  `ash_phoenix` traduz em `{"errors":{"detail":"Not Found"}}` — outro formato, mais um crash no
+  log, e **400** em vez de 404 quando o id nem é UUID (doc 96, H-4).
+  """
+  def fetch_patient_package(%Api.Scope{} = scope, id, opts \\ []) when is_binary(id) do
+    case Ecto.UUID.cast(id) do
+      {:ok, id} ->
+        in_clinic(scope, fn ->
+          get_package(id,
+            scope: scope,
+            not_found_error?: false,
+            load: Keyword.get(opts, :load, [:usadas, :restantes, :acabando, :schedule])
+          )
+        end)
+
+      :error ->
+        {:ok, nil}
+    end
   end
 end

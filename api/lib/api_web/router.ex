@@ -17,6 +17,13 @@ defmodule ApiWeb.Router do
     plug ApiWeb.Plugs.LoadScope
   end
 
+  # Exige o escopo já montado, com 401 se não houver. Ver o moduledoc do plug: o `:authenticated`
+  # acima CARREGA a sessão e não a exige, e as rotas que não têm guarda de controller ficavam
+  # anônimas por omissão (doc 96, S-4).
+  pipeline :require_scope do
+    plug ApiWeb.Plugs.RequireScope
+  end
+
   # Fluxo OAuth (Assent): precisa da sessão para o parâmetro de state.
   pipeline :oauth do
     plug :fetch_session
@@ -47,8 +54,12 @@ defmodule ApiWeb.Router do
 
   # AshJsonApi (recursos do domínio) — sob :authenticated, então cada request já chega
   # com actor e `clinic_id` (tenant) resolvidos do escopo, nunca do corpo/URL (09 §8).
+  #
+  # `RequireScope` fecha o buraco do doc 96 (S-4): este é o único escopo cujas rotas **não** têm
+  # guarda de controller — o `forward` entrega ao AshJsonApi e ao Swagger UI, que dependiam só da
+  # policy de cada recurso. Sem ele, `/api/json/swaggerui` respondia 200 sem cookie nenhum.
   scope "/api/json" do
-    pipe_through [:api, :rate_limited_edge, :authenticated, :rate_limited_global]
+    pipe_through [:api, :rate_limited_edge, :authenticated, :require_scope, :rate_limited_global]
 
     forward "/swaggerui", OpenApiSpex.Plug.SwaggerUI,
       path: "/api/json/open_api",

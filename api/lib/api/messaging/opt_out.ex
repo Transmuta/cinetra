@@ -105,6 +105,20 @@ defmodule Api.Messaging.OptOut do
       description "Registra que este destino pediu para parar."
 
       accept [:clinic_id, :canal, :destino, :origem, :motivo]
+
+      # A GUC de tenant, como TODA escrita de recurso com RLS (doc 96, T-2).
+      #
+      # O comentário em `Api.Messaging` diz que `OptOut` "não é por-tenant (é o único do
+      # projeto)". Isso é verdade **no Ash** e falso **no Postgres**: a tabela tem RLS, com a
+      # policy `clinic_id IS NULL OR clinic_id = current_setting(...)`. Sem a GUC, só as linhas
+      # globais são visíveis — e as duas ações abaixo eram as únicas escritas do projeto sem
+      # `SetTenantGuc`.
+      #
+      # Hoje isso é latente porque os dois produtores gravam opt-out GLOBAL. No dia em que uma
+      # clínica tiver número próprio (o cenário C10/C11 previsto no moduledoc), `opted_out?`
+      # passaria a responder `false` para opt-out por-clínica — ou seja, o sistema voltaria a
+      # mandar mensagem paga para quem pediu para parar.
+      change Api.Tenancy.SetTenantGuc
     end
 
     update :revogar do
@@ -112,11 +126,16 @@ defmodule Api.Messaging.OptOut do
 
       accept [:revogado_por_id]
 
+      # O `SetTenantGuc` seta a GUC num `before_action`, incompatível com update atômico — a
+      # mesma razão do `require_atomic? false` em toda escrita por-tenant do projeto.
+      require_atomic? false
+
       # `&DateTime.utc_now/0` e não `expr(now())`: a expressão só é avaliada no caminho atômico
       # (vira `now()` no SQL), e esta ação não vai por ele. Fora do atômico o Ash tenta gravar a
       # *expressão* como valor e recusa o cast — com um erro que não diz isso ("Could not cast
       # input to datetime. Value: now()").
       change set_attribute(:revogado_em, &DateTime.utc_now/0)
+      change Api.Tenancy.SetTenantGuc
     end
   end
 

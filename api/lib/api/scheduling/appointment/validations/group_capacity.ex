@@ -76,6 +76,20 @@ defmodule Api.Scheduling.Appointment.Validations.GroupCapacity do
 
   defp check(changeset, clinic_id, entrando, capacidade) do
     # Numa criação não há participante ainda; num `:add_participant` os que já estão contam.
+    #
+    # ⚠️ CORRIDA CONHECIDA (doc 96, B-12; não corrigida aqui de propósito).
+    #
+    # Esta contagem roda numa transação própria (`count_participants` abre a sua) e o
+    # `manage_relationship` grava em **outra**: duas entradas concorrentes numa turma com uma vaga
+    # passam as duas. O `identity :one_per_patient_per_appt` impede o MESMO paciente duas vezes,
+    # não o estouro do teto.
+    #
+    # O remédio óbvio — `Ash.Query.lock(:for_update)` no bloco, como `RollupBlockStatus` faz — NÃO
+    # funciona a partir daqui: validação do Ash roda **antes** da transação da ação, então o lock
+    # seria liberado no commit da transação da própria contagem, antes da escrita. Fechar de
+    # verdade exige mover a checagem para um `before_action` (que roda dentro da transação da
+    # ação) ou uma constraint no banco — as duas mexem no contrato de erro da ação e merecem
+    # fatia própria.
     ja_dentro =
       case changeset.data do
         %{id: id} when is_binary(id) -> Api.Scheduling.count_participants(clinic_id, id)

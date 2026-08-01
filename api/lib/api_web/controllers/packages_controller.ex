@@ -20,22 +20,34 @@ defmodule ApiWeb.PackagesController do
 
   require Logger
 
+  alias Api.Records
   alias Api.Packages
   alias ApiWeb.PackagesJSON
 
   # GET /api/patients/:patient_id/packages
   def index(conn, %{"patient_id" => patient_id}) do
     with_member_scope(conn, fn scope ->
-      packages = Packages.list_patient_packages(scope, patient_id)
-
-      # A trilha de todos os pacotes numa leitura só (o cartão desenha as bolinhas). Buscar por
-      # pacote seria um N+1 que cresce com o tempo de casa do paciente.
-      trilhas = Packages.sessions_by_package(scope, packages)
-
-      json(conn, %{
-        packages: Enum.map(packages, &PackagesJSON.package(&1, Map.get(trilhas, &1.id, [])))
-      })
+      # Resolver o paciente ANTES de listar (doc 96, H-3). Sem isto, um id de outra clínica — ou
+      # lixo — devolvia **200 com lista vazia**, indistinguível de "este paciente não tem pacote";
+      # e um id não-UUID chegava cru em `Ash.Query.filter` e virava 400 com corpo de outro
+      # formato, mais stacktrace no log. É o mesmo desenho de `PatientsController.history/2`.
+      case Records.fetch_clinic_patient(scope, patient_id) do
+        {:ok, nil} -> not_found(conn)
+        {:ok, %{}} -> listar_pacotes(conn, scope, patient_id)
+      end
     end)
+  end
+
+  defp listar_pacotes(conn, scope, patient_id) do
+    packages = Packages.list_patient_packages(scope, patient_id)
+
+    # A trilha de todos os pacotes numa leitura só (o cartão desenha as bolinhas). Buscar por
+    # pacote seria um N+1 que cresce com o tempo de casa do paciente.
+    trilhas = Packages.sessions_by_package(scope, packages)
+
+    json(conn, %{
+      packages: Enum.map(packages, &PackagesJSON.package(&1, Map.get(trilhas, &1.id, [])))
+    })
   end
 
   # POST /api/packages/preview
@@ -133,9 +145,18 @@ defmodule ApiWeb.PackagesController do
     with_member_scope(conn, fn scope ->
       # A leitura confirma o pacote pela porta de sempre (404 se não é desta clínica) antes de
       # listar — a trilha não pode ser um caminho lateral para descobrir id de outro tenant.
-      _pkg = Packages.get_patient_package!(scope, id, load: [])
+      # Pela versão que NÃO levanta: o bang produzia 404 com o corpo do `ash_phoenix`
+      # (`{"errors":{"detail":...}}`) em vez do `{"error":"not_found"}` de todos os irmãos, e
+      # **400** quando o id nem era UUID (doc 96, H-4).
+      case Packages.fetch_patient_package(scope, id, load: []) do
+        {:ok, nil} ->
+          not_found(conn)
 
-      json(conn, %{sessions: Enum.map(Packages.list_sessions(scope, id), &PackagesJSON.session/1)})
+        {:ok, %{}} ->
+          json(conn, %{
+            sessions: Enum.map(Packages.list_sessions(scope, id), &PackagesJSON.session/1)
+          })
+      end
     end)
   end
 
@@ -269,9 +290,6 @@ defmodule ApiWeb.PackagesController do
       _ -> :invalid
     end
   end
-
-  defp bad_request(conn),
-    do: conn |> put_status(:bad_request) |> json(%{error: "bad_request"})
 
   defp parse_date(value) when is_binary(value), do: Date.from_iso8601(value)
   defp parse_date(_), do: :error

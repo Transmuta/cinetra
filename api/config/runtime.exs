@@ -28,7 +28,14 @@ config :api, :google_oauth,
   client_id: System.get_env("GOOGLE_CLIENT_ID"),
   client_secret: System.get_env("GOOGLE_CLIENT_SECRET"),
   # BASE — o AshAuthentication anexa "/user/google/callback".
-  redirect_uri: System.get_env("GOOGLE_REDIRECT_URI") || "http://localhost:5173/auth"
+  #
+  # O default de localhost vale só FORA de produção (doc 96, C-1). Em produção ele era um destino
+  # de redirect de OAuth apontando para a máquina do desenvolvedor: o login por Google
+  # simplesmente não fechava, e nada acusava — o Google recusa o `redirect_uri` e o usuário vê
+  # uma tela de erro do Google, não do sistema.
+  redirect_uri:
+    System.get_env("GOOGLE_REDIRECT_URI") ||
+      if(config_env() == :prod, do: nil, else: "http://localhost:5173/auth")
 
 # Cloudflare R2 (anexos, doc 51). Fora do teste: lá o adaptador é `Api.Storage.Memory` e
 # sobrescrever as chaves aqui apagaria a escolha de `config/test.exs` — `runtime.exs` roda
@@ -224,7 +231,14 @@ if config_env() == :prod do
       You can generate one by calling: mix phx.gen.secret
       """
 
-  host = System.get_env("PHX_HOST") || "example.com"
+  # Fail-fast, como `SECRET_KEY_BASE` logo acima (doc 96, C-1). Com o default `"example.com"` a
+  # aplicação **subia normalmente** em produção e: todo magic link redirecionava para
+  # `https://example.com`, e o `check_origin` do WebSocket virava `["https://example.com"]` —
+  # tempo real morto, com tudo verde no health check. É exatamente o modo de falha que o
+  # comentário do `check_origin` (mais abaixo) descreve, e que ele não protegia.
+  host =
+    System.get_env("PHX_HOST") ||
+      raise "environment variable PHX_HOST is missing (host público da API)."
 
   config :api, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 
@@ -270,7 +284,13 @@ if config_env() == :prod do
         raise("Missing environment variable `TOKEN_SIGNING_SECRET`!")
 
   # Destino do redirect pós-login (BFF SvelteKit). O :google_oauth é setado acima (todos os envs).
-  web_app_url = System.get_env("WEB_APP_URL") || "https://#{host}"
+  # Idem: derivar do `host` é um default silencioso para a variável que decide **para onde o
+  # login volta** e **qual origem o socket aceita**. Errar aqui não levanta nada — só deixa de
+  # funcionar.
+  web_app_url =
+    System.get_env("WEB_APP_URL") ||
+      raise "environment variable WEB_APP_URL is missing (origem do BFF, usada no redirect e no check_origin)."
+
   config :api, :web_app_url, web_app_url
 
   # O WebSocket da agenda (Entrega 3) é aberto pelo browser **do outro host**: o usuário está

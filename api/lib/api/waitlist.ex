@@ -31,7 +31,6 @@ defmodule Api.Waitlist do
     end
 
     resource Api.Waitlist.AvailabilityRule do
-      define :list_availability_rules, action: :read
     end
   end
 
@@ -251,6 +250,16 @@ defmodule Api.Waitlist do
           appts = appts_index(scope, from_utc, to_utc, ids, tz)
           pair_by_id = Map.new(pairs, fn {prof, sources} -> {prof.id, {prof, sources}} end)
 
+          # O expediente por `(prof, dia)` é composto UMA vez para a página inteira, ao lado do
+          # `appts_index` — antes ele era recomposto dentro do motor, por item da fila (doc 96,
+          # P-1). Depende só de `(prof, data)`, nunca do entry.
+          periods =
+            SlotFinder.periods_index(
+              Enum.map(pairs, fn {prof, _} -> prof end),
+              Map.new(pairs, fn {prof, sources} -> {prof.id, sources} end),
+              today
+            )
+
           Map.new(entries, fn entry ->
             entry_pairs =
               entry
@@ -258,7 +267,7 @@ defmodule Api.Waitlist do
               |> Enum.map(&Map.get(pair_by_id, &1))
               |> Enum.reject(&is_nil/1)
 
-            {entry.id, run_finder(entry, entry_pairs, appts, today, now_minutes)}
+            {entry.id, run_finder(entry, entry_pairs, appts, today, now_minutes, periods)}
           end)
       end
     end)
@@ -266,16 +275,17 @@ defmodule Api.Waitlist do
 
   # O motor puro sobre os índices já carregados. Sem par candidato (nenhum preferido ativo com
   # expediente), não há o que varrer — devolve vazio, como `candidate_ids == []`.
-  defp run_finder(_entry, [], _appts, _today, _now_minutes), do: []
+  defp run_finder(_entry, [], _appts, _today, _now_minutes, _periods), do: []
 
-  defp run_finder(entry, pairs, appts, today, now_minutes) do
+  defp run_finder(entry, pairs, appts, today, now_minutes, periods) do
     SlotFinder.find_slots(%{
       entry: %{janela: entry.janela, rules: entry.rules},
       professionals: Enum.map(pairs, fn {prof, _} -> prof end),
       sources_by_prof: Map.new(pairs, fn {prof, sources} -> {prof.id, sources} end),
       appts_by_prof_day: appts,
       today: today,
-      now_minutes: now_minutes
+      now_minutes: now_minutes,
+      periods_by_prof_day: periods
     })
   end
 

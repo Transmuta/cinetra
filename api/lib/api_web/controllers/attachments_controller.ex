@@ -85,8 +85,13 @@ defmodule ApiWeb.AttachmentsController do
   def download(conn, %{"id" => id}) do
     with_attachment(conn, id, fn scope, anexo ->
       case Records.attachment_download(scope, anexo) do
-        {:ok, %{url: url, expira_em: expira_em}} -> json(conn, %{url: url, expira_em: expira_em})
-        {:error, motivo} -> erro(conn, motivo)
+        # `no-store`: esta resposta carrega uma URL assinada que dá acesso aos BYTES de um laudo
+        # (doc 96, S-9). O default do `Plug.Session` (`must-revalidate`) autoriza armazenar.
+        {:ok, %{url: url, expira_em: expira_em}} ->
+          conn |> no_store() |> json(%{url: url, expira_em: expira_em})
+
+        {:error, motivo} ->
+          erro(conn, motivo)
       end
     end)
   end
@@ -224,5 +229,5 @@ defmodule ApiWeb.AttachmentsController do
     })
   end
 
-  defp erro(conn, _motivo), do: conn |> put_status(:bad_request) |> json(%{error: "bad_request"})
+  defp erro(conn, _motivo), do: bad_request(conn)
 end
