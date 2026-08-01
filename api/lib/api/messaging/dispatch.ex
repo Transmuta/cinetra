@@ -337,26 +337,10 @@ defmodule Api.Messaging.Dispatch do
       agendado_para: agendado_para
     }
 
-    case Messaging.enqueue_message(attrs, tenant: clinic.id, authorize?: false) do
-      {:ok, message} ->
-        enfileirar(message, clinic, agendado_para)
-
-      {:error, erro} ->
-        if ja_pendente?(erro), do: {:skip, :ja_na_fila}, else: raise(erro)
-    end
+    attrs
+    |> Messaging.enqueue_message!(tenant: clinic.id, authorize?: false)
+    |> enfileirar(clinic, agendado_para)
   end
-
-  # A violação do índice único parcial `messages_uma_pendente_por_presenca`. O Ash traduz a
-  # constraint do Postgres num erro de unicidade; qualquer outro erro continua subindo, porque
-  # engolir tudo aqui esconderia defeito de validação como se fosse concorrência.
-  # SÓ a constraint, pelo nome. A primeira versão disto casava qualquer mensagem de erro contendo
-  # "já" — e engolia validação legítima como se fosse concorrência, o que é pior que o bug que ela
-  # veio consertar: transformava erro de dado em silêncio.
-  defp ja_pendente?(%Ash.Error.Invalid{errors: errors}) do
-    Enum.any?(errors, &(Map.get(&1, :constraint) == "messages_uma_pendente_por_presenca"))
-  end
-
-  defp ja_pendente?(_erro), do: false
 
   # O retorno do `Oban.insert` NÃO pode ser descartado. Sem job, a linha fica `:pendente` para
   # sempre — e aí `na_fila?/2` passa a recusar toda tentativa futura com `{:skip, :ja_na_fila}`.
