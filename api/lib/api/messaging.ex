@@ -119,6 +119,24 @@ defmodule Api.Messaging do
   end
 
   @doc """
+  O opt-in **por paciente**: revoga o "pare" de todos os contatos da ficha, nos dois canais.
+
+  É a contrapartida obrigatória do opt-out (LGPD, art. 8º §5 — revogar o consentimento tem de ser
+  tão simples quanto dá-lo). Sem isto, um paciente que respondeu "SAIR" e depois pediu no balcão
+  para voltar a receber só era desbloqueado por `psql` (doc 96, M-4).
+
+  Os destinos saem de `Dispatch.destinos/1`, já canonicalizados — revogar por um número escrito de
+  outro jeito não acha a linha gravada.
+  """
+  def revoke_patient_opt_outs(%Api.Scope{} = scope, patient) do
+    patient
+    |> Api.Messaging.Dispatch.destinos()
+    |> Enum.each(fn {canal, destino} -> revoke_opt_out(scope, canal, destino) end)
+
+    :ok
+  end
+
+  @doc """
   O paciente voltou a aceitar (§10.1, regra 3) — pedido no balcão, registrado com nome e hora.
 
   Revoga **todos** os opt-outs vigentes daquele destino no canal, inclusive o global: quem pede

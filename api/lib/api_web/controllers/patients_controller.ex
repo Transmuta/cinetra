@@ -165,6 +165,23 @@ defmodule ApiWeb.PatientsController do
     end)
   end
 
+  # POST /api/patients/:id/opt-in — o paciente voltou a aceitar mensagens.
+  #
+  # Revoga o "pare" de todos os contatos da ficha, nos dois canais, registrando quem autorizou.
+  # É `owner`/`admin`/`recepção`: quem atende o balcão é quem ouve o pedido.
+  def opt_in(conn, %{"id" => id}) do
+    with_roles_scope(conn, [:owner, :admin, :recepcao], fn scope ->
+      case Records.fetch_clinic_patient(scope, id) do
+        {:ok, %{} = patient} ->
+          :ok = Api.Messaging.revoke_patient_opt_outs(scope, patient)
+          send_resp(conn, :no_content, "")
+
+        {:ok, nil} ->
+          not_found(conn)
+      end
+    end)
+  end
+
   # ---- helpers ----
 
   # Query string → opções da listagem. Valor inválido vira `nil` e o DOMÍNIO aplica o default

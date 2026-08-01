@@ -148,10 +148,16 @@ defmodule Api.Messaging.Dispatch do
     end
   end
 
-  # Os destinos que existem **na ficha**, em ordem de preferência (C8) — sem opinar sobre
-  # transporte. "Telefone fixo" e "campo vazio" caem aqui, porque os dois são ausência de
-  # destino; "o WhatsApp está desligado" não, porque aquilo não é um dado da ficha.
-  defp destinos(patient) do
+  @doc """
+  Os destinos que existem **na ficha**, em ordem de preferência (C8) — sem opinar sobre
+  transporte. "Telefone fixo" e "campo vazio" caem aqui, porque os dois são ausência de destino;
+  "o WhatsApp está desligado" não, porque aquilo não é um dado da ficha.
+
+  Público porque o opt-in (`Api.Messaging.revoke_patient_opt_outs/2`) precisa da MESMA derivação,
+  já canonicalizada: revogar por um número escrito de outro jeito não encontra a linha gravada.
+  Duplicar isso lá criaria a segunda definição de "por onde eu falo com este paciente".
+  """
+  def destinos(patient) do
     [{:whatsapp, whatsapp_de(patient)}, {:email, normalizar(:email, patient.email)}]
     |> Enum.filter(fn {_canal, destino} -> destino != nil end)
   end

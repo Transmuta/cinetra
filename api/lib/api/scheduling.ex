@@ -1691,15 +1691,6 @@ defmodule Api.Scheduling do
 
   # ---- ScheduleException do profissional (folgas/horários pontuais) ----
 
-  @doc "Exceções de um profissional (professional_id preenchido), ordenadas por data."
-  def list_professional_exceptions(%Api.Scope{} = scope, professional_id)
-      when is_binary(professional_id) do
-    query =
-      Ash.Query.filter(Api.Scheduling.ScheduleException, professional_id == ^professional_id)
-
-    in_clinic(scope, fn -> list_schedule_exceptions!(query: query, scope: scope) end)
-  end
-
   @doc """
   Cria uma exceção **de um profissional** (folga ou horário pontual). O `professional_id` é
   amarrado aqui (não vem do corpo livre) e precisa ser da clínica ativa.

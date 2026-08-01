@@ -108,7 +108,10 @@ defmodule Api.Scheduling.ProfessionalExceptionTest do
         tipo: :fechado
       })
 
-    prof_exc = Scheduling.list_professional_exceptions(scope, prof.id)
+    # Pela ficha, que é como a tela lê (`GET /professionals/:id` carrega `:exceptions`). O
+    # atalho `list_professional_exceptions/2` foi removido: nunca teve rota, e duplicava esta
+    # leitura (doc 96, M-4).
+    prof_exc = excecoes_da_ficha(scope, prof.id)
     clinic_exc = Scheduling.list_clinic_exceptions(scope)
 
     assert Enum.map(prof_exc, & &1.data) == [~D[2026-08-10]]
@@ -148,6 +151,13 @@ defmodule Api.Scheduling.ProfessionalExceptionTest do
 
     :ok = Scheduling.destroy_professional_exception(scope, exc)
 
-    assert Scheduling.list_professional_exceptions(scope, prof.id) == []
+    assert excecoes_da_ficha(scope, prof.id) == []
+  end
+
+  defp excecoes_da_ficha(scope, professional_id) do
+    {:ok, prof} =
+      Api.Directory.fetch_clinic_professional(scope, professional_id, load: [:exceptions])
+
+    prof.exceptions
   end
 end

@@ -639,4 +639,32 @@ defmodule Api.Messaging.DispatchTest do
       assert length(pendentes) == 1, "nasceu mensagem duplicada — no WhatsApp isso é pago"
     end
   end
+
+  # Regressão (auditoria doc 96, M-4). `revoke_opt_out/3` existia no domínio, sem rota e sem tela:
+  # um paciente que respondeu "SAIR" e depois pediu no balcão para voltar a receber só era
+  # desbloqueado por `psql`. Revogar consentimento tem de ser tão simples quanto dá-lo (LGPD,
+  # art. 8º §5).
+  describe "opt-in por paciente (M-4)" do
+    test "revoga o pare de TODOS os contatos da ficha e o envio volta a sair" do
+      ctx = clinica()
+
+      paciente =
+        paciente_com(ctx, comunicacao: true, email: "volta@example.com", tel: telefone_unico())
+
+      appt = agendamento!(ctx, paciente: paciente)
+      [presenca] = appt.attendances
+
+      # O paciente pede para parar — nos dois canais que a ficha tem.
+      for {canal, destino} <- Dispatch.destinos(paciente) do
+        :ok = Api.Messaging.opt_out(canal, destino, :resposta, clinic_id: ctx.clinic.id)
+      end
+
+      assert {:skip, :opt_out} = Dispatch.dispatch(ctx.clinic, presenca, paciente, :confirmacao)
+
+      # No balcão, ele volta atrás.
+      :ok = Api.Messaging.revoke_patient_opt_outs(ctx.scope, paciente)
+
+      assert {:ok, _} = Dispatch.dispatch(ctx.clinic, presenca, paciente, :confirmacao)
+    end
+  end
 end

@@ -968,7 +968,7 @@ defmodule Api.RlsSmokeTest do
 
       assert {:ok, %{url: _}} = Records.attachment_download(ctx.scope, anexo)
 
-      eventos = Records.list_clinic_attachment_events(ctx.scope, anexo.id)
+      eventos = eventos_do_anexo(ctx.scope, anexo.id)
       assert Enum.any?(eventos, &(&1.action == "visualizou")), "a trilha LGPD não foi gravada"
     end
   end
@@ -1167,5 +1167,15 @@ defmodule Api.RlsSmokeTest do
 
       message
     end
+  end
+
+  # A trilha do anexo, lida direto de `Api.Audit` — que é onde ela mora desde o doc 63, e o que a
+  # tela de Auditoria consulta. O atalho `Records.list_clinic_attachment_events/2` foi removido:
+  # nunca teve rota, e era uma delegação de uma linha usada só por teste (doc 96, M-4).
+  defp eventos_do_anexo(scope, attachment_id) do
+    %{entries: entries} =
+      Api.Audit.list_events(scope, resource: :attachment, record_id: attachment_id)
+
+    entries
   end
 end

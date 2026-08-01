@@ -169,6 +169,9 @@ defmodule ApiWeb.Router do
     patch "/patients/:id", PatientsController, :update
     post "/patients/:id/deactivate", PatientsController, :deactivate
     post "/patients/:id/reactivate", PatientsController, :reactivate
+    # Opt-in: o paciente que pediu "SAIR" voltou a aceitar. Contrapartida obrigatória do opt-out
+    # (LGPD art. 8º §5) — antes só existia por `psql` (doc 96, M-4).
+    post "/patients/:id/opt-in", PatientsController, :opt_in
 
     # Pacotes (Fatia 3, doc 09). `preview` classifica a série sem escrever (save-gate); `create`
     # decide server-side e enfileira a materialização. Pausar/cancelar operam sobre a série. A

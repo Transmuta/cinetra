@@ -165,10 +165,20 @@ defmodule Api.Housekeeping.PruneAttachmentsTest do
       {:ok, confirmado} = Records.confirm_attachment(scope, anexo)
       {:ok, _} = Records.attachment_download(scope, confirmado)
 
-      assert length(Records.list_clinic_attachment_events(scope, anexo.id)) == 2
+      assert length(eventos_do_anexo(scope, anexo.id)) == 2
 
       assert :ok = perform_job(PruneAttachments, %{"reter_pendentes_horas" => 1})
-      assert length(Records.list_clinic_attachment_events(scope, anexo.id)) == 2
+      assert length(eventos_do_anexo(scope, anexo.id)) == 2
     end
+  end
+
+  # A trilha do anexo, lida direto de `Api.Audit` — que é onde ela mora desde o doc 63, e o que a
+  # tela de Auditoria consulta. O atalho `Records.list_clinic_attachment_events/2` foi removido:
+  # nunca teve rota, e era uma delegação de uma linha usada só por teste (doc 96, M-4).
+  defp eventos_do_anexo(scope, attachment_id) do
+    %{entries: entries} =
+      Api.Audit.list_events(scope, resource: :attachment, record_id: attachment_id)
+
+    entries
   end
 end

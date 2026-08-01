@@ -323,7 +323,7 @@ defmodule ApiWeb.AttachmentsControllerTest do
       # repetido gravava mais uma linha (medido: 5 POSTs → 5 eventos) e gastava mais duas idas
       # ao R2 — auditoria poluída e amplificação de rede, ambas acionáveis por quem já está
       # autenticado.
-      eventos = Records.list_clinic_attachment_events(escopo(owner, clinic), id)
+      eventos = eventos_do_anexo(escopo(owner, clinic), id)
       assert Enum.count(eventos, &(&1.action == "enviou")) == 1
     end
 
@@ -383,7 +383,7 @@ defmodule ApiWeb.AttachmentsControllerTest do
       conn |> get(~p"/api/attachments/#{id}/download") |> json_response(200)
 
       scope = escopo(owner, clinic)
-      eventos = Records.list_clinic_attachment_events(scope, id)
+      eventos = eventos_do_anexo(scope, id)
 
       assert Enum.count(eventos, &(&1.action == "visualizou")) == 2
       assert Enum.any?(eventos, &(&1.action == "enviou"))
@@ -399,7 +399,7 @@ defmodule ApiWeb.AttachmentsControllerTest do
       conn |> get(~p"/api/attachments/#{id}/download") |> json_response(200)
       assert conn |> delete(~p"/api/attachments/#{id}") |> response(204)
 
-      eventos = Records.list_clinic_attachment_events(escopo(owner, clinic), id)
+      eventos = eventos_do_anexo(escopo(owner, clinic), id)
 
       assert Enum.any?(eventos, &(&1.action == "removeu"))
       assert Enum.all?(eventos, &(&1.label == "laudo.pdf"))
@@ -417,8 +417,8 @@ defmodule ApiWeb.AttachmentsControllerTest do
       # `Ash.Error.Forbidden` (que é o que ele levanta em create/update/destroy — ver o teste de
       # defesa-em-profundidade abaixo). O efeito é o mesmo (ninguém lê), mas quem escrever teste
       # esperando exceção numa leitura vai vê-lo passar por engano.
-      assert Records.list_clinic_attachment_events(escopo(recepcao, clinic), id) == []
-      assert Records.list_clinic_attachment_events(escopo(owner, clinic), id) != []
+      assert eventos_do_anexo(escopo(recepcao, clinic), id) == []
+      assert eventos_do_anexo(escopo(owner, clinic), id) != []
 
       # Mas continua podendo operar o anexo — são perguntas diferentes.
       assert base
@@ -590,5 +590,15 @@ defmodule ApiWeb.AttachmentsControllerTest do
       # escolhido o arquivo. Achado da verificação ao vivo (doc 51 §7).
       assert body["limites"] == nil
     end
+  end
+
+  # A trilha do anexo, lida direto de `Api.Audit` — que é onde ela mora desde o doc 63, e o que a
+  # tela de Auditoria consulta. O atalho `Records.list_clinic_attachment_events/2` foi removido:
+  # nunca teve rota, e era uma delegação de uma linha usada só por teste (doc 96, M-4).
+  defp eventos_do_anexo(scope, attachment_id) do
+    %{entries: entries} =
+      Api.Audit.list_events(scope, resource: :attachment, record_id: attachment_id)
+
+    entries
   end
 end
