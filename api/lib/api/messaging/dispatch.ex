@@ -13,7 +13,8 @@ defmodule Api.Messaging.Dispatch do
 
   Toda a razão de este módulo existir é ser chamado pelos **dois** lados:
 
-    * o envio (manual, gatilho de criação, cron) — que precisa saber se manda;
+    * o envio (o clique da recepção, os gatilhos de remarcação/cancelamento, o cron do lembrete) —
+      que precisa saber se manda;
     * a **leitura** da timeline — que precisa explicar por que *não* mandou (§6). O "nada
       enviado" da tela não é uma linha em `Message`; é a ausência dela, e quem a explica é
       `avaliar/2`.
@@ -52,10 +53,13 @@ defmodule Api.Messaging.Dispatch do
 
   # Quantas confirmações uma presença pode receber, no total.
   #
-  # **Dois, e o número tem uma leitura:** a primeira é a automática da criação (ou o primeiro
-  # clique da recepção), a segunda é a insistência legítima de quem não obteve resposta. A terceira
-  # é o paciente sendo cobrado três vezes pela mesma sessão — no WhatsApp, três vezes **pago**, e é
-  # assim que se perde um número por bloqueio (§9.1.1).
+  # **Dois, e o número tem uma leitura:** o primeiro clique da recepção e a insistência legítima de
+  # quem não obteve resposta. O terceiro é o paciente sendo cobrado três vezes pela mesma sessão —
+  # no WhatsApp, três vezes **pago**, e é assim que se perde um número por bloqueio (§9.1.1).
+  #
+  # Os dois eram "a automática da criação + um clique" até 2026-07-31 (doc 98), quando a criação
+  # deixou de falar com o paciente. O teto não mudou de número porque o que ele protege é o
+  # paciente, não a origem do disparo.
   @limite_de_confirmacoes 2
 
   # Os estados que **gastam** uma unidade do teto: a mensagem chegou ao paciente, ou vai chegar.
@@ -218,8 +222,8 @@ defmodule Api.Messaging.Dispatch do
   Grava a mensagem e enfileira o envio — ou explica por que não.
 
   Devolve `{:ok, message}` ou `{:skip, motivo}`. **Nunca levanta por motivo de negócio**: quem
-  chama é o gatilho de criação de agendamento e o cron, e nenhum dos dois pode falhar porque um
-  paciente não tem e-mail.
+  chama são os gatilhos do ciclo de vida do bloco e o cron do lembrete, e nenhum deles pode falhar
+  porque um paciente não tem e-mail.
 
   Recebe a `attendance` já com `patient` e `appointment` carregados, e a `clinic` — quem chama
   costuma ter as três à mão, e lê-las aqui de novo seria N+1 no caminho do cron.
@@ -303,29 +307,91 @@ defmodule Api.Messaging.Dispatch do
     # Uma leitura só do relógio para os dois usos. Chamar `quando_enviar/1` duas vezes deixaria a
     # linha e o job discordarem quando a chamada cai na virada da janela — a tela diria uma hora e
     # o Oban outra.
-    agendado_para = quando_enviar(clinic)
+    agendado_para = quando_sai(kind, clinic)
 
-    message =
-      Messaging.enqueue_message!(
-        %{
-          attendance_id: attendance.id,
-          appointment_id: attendance.appointment_id,
-          patient_id: patient.id,
-          canal: canal,
-          kind: kind,
-          template: Templates.para(kind),
-          vars: Map.merge(vars(clinic, attendance, patient), extras(opts)),
-          destino: destino,
-          disparado_por_id: Keyword.get(opts, :disparado_por_id),
-          agendado_para: agendado_para
-        },
-        tenant: clinic.id,
-        authorize?: false
-      )
+    # ⚠️ CORRIDA CONHECIDA (doc 96, B-8; NÃO fechada — ver a nota abaixo).
+    #
+    # `barreira/3` lê numa transação e esta escrita acontece em outra: dois POSTs simultâneos para
+    # a mesma `(attendance_id, kind)` passam os dois. Em WhatsApp cada duplicata é **paga**.
+    #
+    # O remédio proposto pela auditoria — índice único parcial em
+    # `(attendance_id, kind) WHERE status = 'pendente'` — foi implementado e **revertido**: ele
+    # quebra um caminho legítimo. Medido em `SendJobTest`: criar o agendamento já enfileira uma
+    # confirmação automática, e `dispatch/4` (o reenvio manual da recepção) grava uma SEGUNDA
+    # pendente para a mesma presença — a barreira não bloqueia esse caminho, por desenho.
+    #
+    # Ou seja: "duas pendentes do mesmo tipo" **não é** um estado inválido hoje, e um índice que o
+    # proíba está proibindo mais do que a regra de domínio. Fechar a corrida de verdade exige
+    # primeiro decidir se o reenvio manual deve substituir a pendente em vez de somar — que é
+    # pergunta de produto, não de índice.
+    attrs = %{
+      attendance_id: attendance.id,
+      appointment_id: attendance.appointment_id,
+      patient_id: patient.id,
+      canal: canal,
+      kind: kind,
+      template: Templates.para(kind),
+      vars: Map.merge(vars(clinic, attendance, patient), extras(opts)),
+      destino: destino,
+      disparado_por_id: Keyword.get(opts, :disparado_por_id),
+      agendado_para: agendado_para
+    }
 
-    Api.Messaging.SendJob.enqueue(message, agendar_para: agendado_para)
+    case Messaging.enqueue_message(attrs, tenant: clinic.id, authorize?: false) do
+      {:ok, message} ->
+        enfileirar(message, clinic, agendado_para)
 
-    message
+      {:error, erro} ->
+        if ja_pendente?(erro), do: {:skip, :ja_na_fila}, else: raise(erro)
+    end
+  end
+
+  # A violação do índice único parcial `messages_uma_pendente_por_presenca`. O Ash traduz a
+  # constraint do Postgres num erro de unicidade; qualquer outro erro continua subindo, porque
+  # engolir tudo aqui esconderia defeito de validação como se fosse concorrência.
+  # SÓ a constraint, pelo nome. A primeira versão disto casava qualquer mensagem de erro contendo
+  # "já" — e engolia validação legítima como se fosse concorrência, o que é pior que o bug que ela
+  # veio consertar: transformava erro de dado em silêncio.
+  defp ja_pendente?(%Ash.Error.Invalid{errors: errors}) do
+    Enum.any?(errors, &(Map.get(&1, :constraint) == "messages_uma_pendente_por_presenca"))
+  end
+
+  defp ja_pendente?(_erro), do: false
+
+  # O retorno do `Oban.insert` NÃO pode ser descartado. Sem job, a linha fica `:pendente` para
+  # sempre — e aí `na_fila?/2` passa a recusar toda tentativa futura com `{:skip, :ja_na_fila}`.
+  # Não havia caminho de volta: nem cron, nem botão de reenviar; a tela dizia "Na fila"
+  # indefinidamente e a mensagem nunca saía (doc 96, B-4).
+  #
+  # Marcar `:falhou` é o que devolve o controle à recepção: o motivo aparece na tela e o próximo
+  # disparo é aceito, porque a barreira só bloqueia o que está pendente.
+  defp enfileirar(message, clinic, agendado_para) do
+    case Api.Messaging.SendJob.enqueue(message, agendar_para: agendado_para) do
+      {:ok, _job} ->
+        message
+
+      {:error, motivo} ->
+        Logger.error("não foi possível enfileirar o envio; a mensagem vai para :falhou",
+          message_id: message.id,
+          clinic_id: clinic.id,
+          motivo: inspect(motivo)
+        )
+
+        marcar_falha_de_enfileiramento(message, clinic.id)
+    end
+  end
+
+  defp marcar_falha_de_enfileiramento(message, clinic_id) do
+    Messaging.do_advance_message!(
+      message,
+      %{novo_status: :falhou, erro: "nao_enfileirada"},
+      tenant: clinic_id,
+      authorize?: false
+    )
+  rescue
+    # Se nem o registro da falha passa, devolver a linha original é melhor que derrubar o
+    # disparo inteiro: o efeito visível continua sendo "não saiu", que é a verdade.
+    _ -> message
   end
 
   @doc """
@@ -382,12 +448,31 @@ defmodule Api.Messaging.Dispatch do
   defp consentiu?(%{comunicacao: true}), do: true
   defp consentiu?(_patient), do: false
 
+  # O lembrete **ignora a janela de silêncio**; todo o resto a respeita (decisão de 2026-07-31,
+  # doc 98).
+  #
+  # A exceção é aritmética, não preferência. Adiar serve a uma mensagem que continua verdadeira
+  # horas depois — a confirmação de uma sessão da semana que vem é. O lembrete, desde que passou a
+  # sair **2 h** antes (`Clinic.msg_lembrete_horas`), não é: com a janela padrão 21h→8h, o lembrete
+  # de uma sessão das 7h30 é gerado às 5h30, adiado para as 8h e entregue **meia hora depois** de a
+  # sessão começar — anunciando como futuro algo que já passou. Adiar aqui não protege o sono de
+  # ninguém; só produz uma mensagem errada.
+  #
+  # O outro lado da escolha, registrado para não ser redescoberto como bug: uma sessão bem cedo faz
+  # o lembrete sair dentro da madrugada. É aceito porque a mensagem é sobre algo que o paciente
+  # está prestes a fazer — quem tem sessão às 7h30 já está de pé às 5h30 —, e porque o alternativo
+  # (descartar) cala justamente o aviso mais útil do dia.
+  defp quando_sai(:lembrete, _clinic), do: nil
+  defp quando_sai(_kind, clinic), do: quando_enviar(clinic)
+
   @doc """
   Quando esta mensagem pode sair: agora, ou no fim da janela de silêncio (§7).
 
-  **Adia, não descarta.** Um lembrete gerado às 23h para uma sessão das 9h ainda é útil às 8h;
-  jogá-lo fora seria perder a mensagem por causa do relógio. Devolve `nil` para "agora" — é o que
-  o Oban entende como imediato.
+  **Adia, não descarta.** Uma confirmação gerada às 23h para uma sessão de sexta ainda é útil às
+  8h; jogá-la fora seria perder a mensagem por causa do relógio. Devolve `nil` para "agora" — é o
+  que o Oban entende como imediato.
+
+  Vale para todo tipo **menos o lembrete**, que sai na hora — ver `quando_sai/2`.
   """
   def quando_enviar(clinic, agora \\ nil) do
     agora = agora || DateTime.utc_now()

@@ -40,7 +40,8 @@ defmodule ApiWeb.ZernioWebhookControllerTest do
     ctx = clinica()
     paciente = paciente_com(ctx, comunicacao: true, tel: "11987654321")
     appt = agendamento!(ctx, paciente: paciente)
-    [message] = mensagens(ctx, appt)
+    # Disparada à mão: criar o bloco não fala mais com o paciente (doc 98).
+    message = confirmacao!(ctx, appt, paciente)
 
     # Simula o que o transporte grava quando a Zernio aceita.
     enviada =

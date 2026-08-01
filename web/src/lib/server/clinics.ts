@@ -50,7 +50,6 @@ export interface Clinic {
 	//
 	// `msg_lembrete_horas: null` é **desligado**, não "zero horas antes" — a distinção é
 	// load-bearing e a tela a preserva mandando o campo em branco.
-	msg_confirmacao_auto: boolean;
 	msg_lembrete_horas: number | null;
 	msg_silencio_inicio: number | null;
 	msg_silencio_fim: number | null;
@@ -107,14 +106,13 @@ export async function switchTenant(event: RequestEvent, clinicId: string): Promi
 	}
 }
 
-// Comunicação com o paciente (doc 52 §7): quando a confirmação sai sozinha, se há lembrete e a
-// janela de silêncio. Rota própria na API (`PATCH /api/clinic/messaging`) — e não campos somados
-// ao `updateClinic` — porque a fronteira aceita o que a AÇÃO aceita, não o que o formulário
-// desenha (09 §8): somar aqui deixaria a tela de identidade capaz de desligar o lembrete.
+// Comunicação com o paciente (doc 52 §7): quantas horas antes sai o lembrete e a janela de
+// silêncio. Rota própria na API (`PATCH /api/clinic/messaging`) — e não campos somados ao
+// `updateClinic` — porque a fronteira aceita o que a AÇÃO aceita, não o que o formulário desenha
+// (09 §8): somar aqui deixaria a tela de identidade capaz de desligar o lembrete.
 export async function updateClinicMessaging(
 	event: RequestEvent,
 	body: {
-		msg_confirmacao_auto: boolean;
 		msg_lembrete_horas: number | null;
 		msg_silencio_inicio: number | null;
 		msg_silencio_fim: number | null;

@@ -2,15 +2,19 @@ defmodule Api.Messaging.ReminderJob do
   @moduledoc """
   "Sua sessão é amanhã às HH:MM" — o lembrete por relógio (doc 52 §7).
 
-  ## Nasce construído e **calado**
+  ## Nasceu calado; desde 2026-07-31 fala por padrão
 
-  `Clinic.msg_lembrete_horas` é `nil` por padrão, e clínica sem o número configurado é pulada. É
-  decisão de 2026-07-27: o cron existe desde a fase 1 para que ligá-lo seja escolher um número
-  numa tela — não um deploy —, mas nada dispara em massa antes de alguém decidir que deve.
+  `Clinic.msg_lembrete_horas` nascia `nil` (desligado) porque a fatia tinha **outro** disparo
+  automático — a confirmação na criação do agendamento —, e o cron podia esperar alguém escolher
+  um número na tela sem que nenhum paciente ficasse sem comunicação.
+
+  Removida a confirmação (doc 98), este job passou a ser o **único** contato automático com o
+  paciente, e o padrão virou **2 h**. Clínica que não quer continua desligando na tela — `nil`
+  segue significando desligado, e é pulada aqui.
 
   ## A janela ladrilha, e é isso que dispensa uma tabela de "já avisei"
 
-  O cron roda de hora em hora e serve as sessões que começam em `[agora + N, agora + N + 1h)`.
+  O cron roda a cada 15 min e serve as sessões que começam em `[agora + N, agora + N + 15min)`.
   Essa janela **ladrilha** a linha do tempo: sem buraco (toda sessão cai em exatamente uma
   rodada) e sem sobreposição (nenhuma cai em duas). É o mesmo desenho do
   `Api.Notifications.SessionSoonJob`, e pelo mesmo motivo — o alternativo seria uma coluna
@@ -23,7 +27,7 @@ defmodule Api.Messaging.ReminderJob do
   ## Sem retentativa, e isso é deliberado
 
   `max_attempts: 1`, como o `SessionSoonJob`: a janela deriva do relógio de **quando o job roda**,
-  não de um argumento. Uma retentativa 30 s depois cobre `[+N, +N+1h)` a partir dali, que
+  não de um argumento. Uma retentativa 30 s depois cobre `[+N, +N+15min)` a partir dali, que
   **sobrepõe** a janela da rodada seguinte — e o paciente recebe o mesmo lembrete duas vezes.
   Uma rodada perdida é só uma rodada perdida.
 
@@ -40,9 +44,13 @@ defmodule Api.Messaging.ReminderJob do
 
   alias Api.Messaging.Dispatch
 
-  # A largura da janela é o passo do cron. É o que a faz ladrilhar — mexer em um sem o outro
-  # abre buraco (sessão que ninguém lembra) ou sobreposição (lembrete em dobro).
-  @passo_horas 1
+  # A largura da janela é o passo do cron. É o que a faz ladrilhar — mexer em um sem o outro abre
+  # buraco (sessão que ninguém lembra) ou sobreposição (lembrete em dobro).
+  #
+  # **15 min, e não mais 1 h** (2026-07-31, doc 98): a largura da janela é o ERRO da antecedência
+  # configurada. Com 1 h, "2 horas antes" entregava entre 2h00 e 2h59 — meio prazo de folga num
+  # aviso de duas horas. Com 24 h ninguém notava; foi o padrão de 2 h que tornou o erro visível.
+  @passo_minutos 15
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: args}) do
@@ -78,7 +86,7 @@ defmodule Api.Messaging.ReminderJob do
 
   defp janela(agora, horas) do
     de = DateTime.add(agora, horas * 3600, :second)
-    {de, DateTime.add(de, @passo_horas * 3600, :second)}
+    {de, DateTime.add(de, @passo_minutos * 60, :second)}
   end
 
   defp lembrar(clinic, {de, ate}) do

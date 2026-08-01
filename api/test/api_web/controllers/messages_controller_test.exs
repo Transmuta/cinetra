@@ -17,15 +17,19 @@ defmodule ApiWeb.MessagesControllerTest do
 
   describe "GET /api/appointments/:id/messages" do
     test "traz a mensagem automática do participante", %{ctx: ctx, sessao: sessao} do
+      # `automatico` é `disparado_por_id == nil`: a regra disparou, não a pessoa. Desde 2026-07-31
+      # quem dispara sozinho é o LEMBRETE (doc 98) — a confirmação virou gesto da recepção, e o
+      # teste do disparo manual abaixo prova o outro lado (`automatico == false`).
       paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
       appt = agendamento!(ctx, paciente: paciente)
+      lembrete!(ctx, appt, paciente)
 
       %{"participantes" => [linha]} = get_json(sessao, appt)
 
       assert linha["paciente"] == paciente.nome
       assert linha["semEnvio"] == nil
 
-      assert [%{"kind" => "confirmacao", "automatico" => true, "status" => "pendente"}] =
+      assert [%{"kind" => "lembrete", "automatico" => true, "status" => "pendente"}] =
                linha["mensagens"]
     end
 
@@ -45,6 +49,7 @@ defmodule ApiWeb.MessagesControllerTest do
       silenciar_agora(ctx)
       paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
       appt = agendamento!(ctx, paciente: paciente)
+      confirmacao!(ctx, appt, paciente)
 
       %{"participantes" => [antes]} = get_json(sessao, appt)
 
@@ -106,10 +111,11 @@ defmodule ApiWeb.MessagesControllerTest do
       turma = clinica_turma(ctx)
       um = paciente_com(ctx, comunicacao: true, email: "um@example.com")
       dois = paciente_legado_sem_tel!(ctx, comunicacao: true, email: nil)
-      quando = Api.Generators.amanha_as(ctx, 15)
+      quando = Api.Generators.proximo_dia_util_as(ctx, 15)
 
       appt = agendamento!(ctx, paciente: um, tipo: turma, quando: quando)
       _ = agendamento!(ctx, paciente: dois, tipo: turma, quando: quando)
+      confirmacao!(ctx, appt, um)
 
       %{"participantes" => linhas} = get_json(sessao, appt)
 
@@ -125,7 +131,7 @@ defmodule ApiWeb.MessagesControllerTest do
     } do
       paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
       appt = agendamento!(ctx, paciente: paciente)
-      [message] = mensagens_do(ctx, appt)
+      message = confirmacao!(ctx, appt, paciente)
 
       Api.Tenancy.in_clinic(ctx.clinic.id, fn ->
         Api.Messaging.do_advance_message!(
@@ -163,7 +169,6 @@ defmodule ApiWeb.MessagesControllerTest do
 
   describe "POST /api/appointments/:id/messages" do
     test "reenvia e registra QUEM disparou", %{ctx: ctx, sessao: sessao} do
-      sem_confirmacao_automatica(ctx)
       paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
       appt = agendamento!(ctx, paciente: paciente)
 
@@ -182,7 +187,6 @@ defmodule ApiWeb.MessagesControllerTest do
       # local corrente porque o envio lê o relógio por dentro; horas fixas passariam de manhã e
       # falhariam de madrugada.
       silenciar_agora(ctx)
-      sem_confirmacao_automatica(ctx)
       paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
       appt = agendamento!(ctx, paciente: paciente)
 
@@ -193,8 +197,7 @@ defmodule ApiWeb.MessagesControllerTest do
 
       assert quando != nil
 
-      # E a timeline devolve o mesmo instante — é dele que sai o "sai às 8h" da tela. Vale para
-      # as duas linhas: a automática da criação do bloco caiu na mesma janela.
+      # E a timeline devolve o mesmo instante — é dele que sai o "sai às 8h" da tela.
       %{"participantes" => [linha]} = get_json(sessao, appt)
       assert Enum.all?(linha["mensagens"], &(&1["agendadoPara"] == quando))
     end
@@ -204,18 +207,23 @@ defmodule ApiWeb.MessagesControllerTest do
       sessao: sessao
     } do
       # O caso que motivou a trava, e ele é o COMUM: dentro da janela de silêncio a confirmação
-      # automática da criação fica horas parada, quem clica não vê nada acontecer e clica de novo.
-      # Medido no dev de 2026-07-28: quatro linhas idênticas para o mesmo paciente.
+      # fica horas parada, quem clicou não vê nada acontecer e clica de novo. Medido no dev de
+      # 2026-07-28: quatro linhas idênticas para o mesmo paciente.
       silenciar_agora(ctx)
       paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
       appt = agendamento!(ctx, paciente: paciente)
+
+      assert %{"resultados" => [%{"enviado" => true}]} =
+               sessao
+               |> post(~p"/api/appointments/#{appt.id}/messages", %{})
+               |> json_response(201)
 
       conn = post(sessao, ~p"/api/appointments/#{appt.id}/messages", %{})
 
       assert %{"resultados" => [%{"enviado" => false, "motivo" => "ja_na_fila"}]} =
                json_response(conn, 201)
 
-      # E a fila continua com UMA: a automática da criação.
+      # E a fila continua com UMA: a do primeiro clique.
       %{"participantes" => [linha]} = get_json(sessao, appt)
       assert length(linha["mensagens"]) == 1
     end
@@ -230,7 +238,7 @@ defmodule ApiWeb.MessagesControllerTest do
       paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
       appt = agendamento!(ctx, paciente: paciente)
 
-      [confirmacao] = mensagens_do(ctx, appt)
+      confirmacao = confirmacao!(ctx, appt, paciente)
       responder!(ctx, confirmacao, :confirmou)
 
       conn = post(sessao, ~p"/api/appointments/#{appt.id}/messages", %{})
@@ -240,13 +248,12 @@ defmodule ApiWeb.MessagesControllerTest do
     end
 
     test "a terceira confirmação é recusada com `limite_de_envios`", %{ctx: ctx, sessao: sessao} do
-      # O teto contra spam (duas por presença). A primeira é a automática da criação; a segunda é o
-      # clique da recepção; a terceira é o paciente sendo cobrado três vezes pela mesma sessão.
+      # O teto contra spam (duas por presença): dois cliques da recepção, e o terceiro é o paciente
+      # sendo cobrado três vezes pela mesma sessão.
       paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
       appt = agendamento!(ctx, paciente: paciente)
 
-      [automatica] = mensagens_do(ctx, appt)
-      entregar!(ctx, automatica)
+      entregar!(ctx, confirmacao!(ctx, appt, paciente))
 
       assert %{"resultados" => [%{"enviado" => true}]} =
                sessao
@@ -280,7 +287,7 @@ defmodule ApiWeb.MessagesControllerTest do
       turma = clinica_turma(ctx)
       um = paciente_com(ctx, comunicacao: true, email: "um@example.com")
       dois = paciente_com(ctx, comunicacao: true, email: "dois@example.com")
-      quando = Api.Generators.amanha_as(ctx, 16)
+      quando = Api.Generators.proximo_dia_util_as(ctx, 16)
 
       appt = agendamento!(ctx, paciente: um, tipo: turma, quando: quando)
       _ = agendamento!(ctx, paciente: dois, tipo: turma, quando: quando)
@@ -303,15 +310,6 @@ defmodule ApiWeb.MessagesControllerTest do
     Api.Accounts.update_clinic_messaging!(
       ctx.clinic,
       %{msg_silencio_inicio: hora, msg_silencio_fim: rem(hora + 2, 24)},
-      authorize?: false
-    )
-  end
-
-  # Desliga a confirmação automática da CRIAÇÃO do bloco. Sem isto, a mensagem que o teste quer
-  # disparar à mão esbarra na trava contra duplicata — que é o comportamento certo, e por isso
-  # tem teste próprio; aqui o assunto é outro.
-  defp sem_confirmacao_automatica(ctx) do
-    Api.Accounts.update_clinic_messaging!(ctx.clinic, %{msg_confirmacao_auto: false},
       authorize?: false
     )
   end

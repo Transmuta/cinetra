@@ -121,10 +121,11 @@ config :api, Oban,
        # min" caso a objeção do doc 31 §3d (ruído) se confirme no uso.
        {"*/5 * * * *", Api.Notifications.SessionSoonJob},
        # Doc 52 §7 — lembrete de sessão AO PACIENTE (não confundir com o `SessionSoonJob`, que
-       # avisa o profissional). De hora em hora porque a janela tem 1 h e é o passo que a faz
-       # ladrilhar. Nasce inofensivo: clínica sem `msg_lembrete_horas` configurado é pulada, e o
-       # default é `nil`.
-       {"0 * * * *", Api.Messaging.ReminderJob}
+       # avisa o profissional). A cada 15 min porque a janela tem 15 min: o passo do cron e a
+       # largura da janela são o MESMO número, e é isso que a faz ladrilhar (`@passo_minutos` em
+       # `Api.Messaging.ReminderJob`). Era de hora em hora até 2026-07-31, quando o padrão de 2 h
+       # tornou visível que a largura da janela é o erro da antecedência prometida (doc 98).
+       {"*/15 * * * *", Api.Messaging.ReminderJob}
      ]}
   ]
 

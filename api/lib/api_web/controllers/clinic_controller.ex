@@ -82,12 +82,10 @@ defmodule ApiWeb.ClinicController do
     end)
   end
 
-  # O booleano chega do form como string; os inteiros podem chegar em branco, e **branco é
-  # `nil`** — que para `msg_lembrete_horas` significa DESLIGADO, não zero. Tratá-lo como 0 ligaria
-  # o lembrete para o instante da sessão.
+  # Os inteiros podem chegar em branco, e **branco é `nil`** — que para `msg_lembrete_horas`
+  # significa DESLIGADO, não zero. Tratá-lo como 0 ligaria o lembrete para o instante da sessão.
   defp messaging_params(params) do
     %{
-      msg_confirmacao_auto: params["msg_confirmacao_auto"] in [true, "true", "on", "1"],
       msg_lembrete_horas: parse_int(params["msg_lembrete_horas"]),
       msg_silencio_inicio: parse_int(params["msg_silencio_inicio"]),
       msg_silencio_fim: parse_int(params["msg_silencio_fim"])
@@ -95,7 +93,7 @@ defmodule ApiWeb.ClinicController do
   end
 
   # Os campos de comunicação viajam junto com a identidade: as duas telas de configuração leem
-  # do mesmo `GET /api/clinic`, e uma segunda rota só para quatro escalares seria um round-trip a
+  # do mesmo `GET /api/clinic`, e uma segunda rota só para três escalares seria um round-trip a
   # mais por uma economia de bytes que não existe.
   defp clinic_json(c) do
     %{id: c.id, nome: c.nome, cnpj: c.cnpj, endereco: c.endereco}
@@ -104,7 +102,6 @@ defmodule ApiWeb.ClinicController do
 
   defp messaging_json(c) do
     %{
-      msg_confirmacao_auto: c.msg_confirmacao_auto,
       msg_lembrete_horas: c.msg_lembrete_horas,
       msg_silencio_inicio: c.msg_silencio_inicio,
       msg_silencio_fim: c.msg_silencio_fim

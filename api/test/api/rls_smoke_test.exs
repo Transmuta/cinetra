@@ -104,25 +104,37 @@ defmodule Api.RlsSmokeTest do
   # A resposta ao link, pela mesma porta do controller público (`record_reply` dentro de
   # `in_clinic`).
   #
-  # A mensagem **não** é criada aqui: com o paciente alcançável, o gatilho de criação do bloco já
-  # enfileirou a confirmação, e um segundo `Dispatch.dispatch` devolve `{:skip, :ja_na_fila}`. Ler
-  # a que existe é também o caminho real — o paciente responde à automática, não a uma inventada
-  # pelo teste. Zero mensagens aqui já seria falha de GUC, antes da asserção do agregado.
+  # A mensagem é disparada aqui desde 2026-07-31 (doc 98): criar o bloco deixou de enfileirar a
+  # confirmação, e sem este disparo a leitura abaixo voltaria vazia — o teste falharia por falta de
+  # dado, dizendo "RLS" no nome. O disparo passa pelo `Dispatch`, que é o caminho real; a leitura
+  # sob GUC continua sendo o que este arquivo mede.
   defp responder(ctx, appointment_id, resposta) do
     [presenca | _] = bloco(ctx, appointment_id).attendances
 
     Api.Tenancy.in_clinic(ctx.scope, fn ->
-      [message | _] =
-        Api.Messaging.list_attendance_messages!(presenca.id,
-          tenant: ctx.clinic.id,
-          authorize?: false
-        )
+      [message | _] = mensagens_da_presenca(ctx, presenca)
 
       Api.Messaging.do_record_reply!(message, %{resposta: resposta},
         tenant: ctx.clinic.id,
         authorize?: false
       )
     end)
+  end
+
+  # Dispara a confirmação desta presença e devolve as mensagens dela. Roda **dentro** do
+  # `in_clinic` de quem chama — é o que a leitura por-tenant exige, e o ponto do arquivo.
+  defp mensagens_da_presenca(ctx, presenca) do
+    paciente =
+      Api.Records.get_patient!(presenca.patient_id, tenant: ctx.clinic.id, authorize?: false)
+
+    clinic = Api.Accounts.get_clinic!(ctx.clinic.id, authorize?: false)
+
+    {:ok, _} = Api.Messaging.Dispatch.dispatch(clinic, presenca, paciente, :confirmacao)
+
+    Api.Messaging.list_attendance_messages!(presenca.id,
+      tenant: ctx.clinic.id,
+      authorize?: false
+    )
   end
 
   # A próxima segunda-feira — dia de expediente (o seed abre seg–sex) e no **futuro**, que é o
@@ -156,6 +168,42 @@ defmodule Api.RlsSmokeTest do
   defp sem_guc do
     Api.Repo.query!("SELECT set_config('cinetra.clinic_id', '', true)")
     :ok
+  end
+
+  # Regressão (auditoria doc 96, T-0). O projeto afirmava em CINCO lugares que leitura por-tenant
+  # sem GUC devolve "zero linhas, silenciosamente". Medido, isso valia em 2 das 17 tabelas: nas
+  # outras 15 a policy comparava a GUC CRUA, e `''::uuid` levanta `22P02`.
+  #
+  # A diferença aparecia só em conexão RECICLADA do pool: `current_setting(x, true)` devolve NULL
+  # enquanto a GUC nunca foi setada, mas volta a `''` depois de um `SET LOCAL` que já commitou. Ou
+  # seja, o modo de falha real em produção era **500 intermitente**, não lista vazia — e quem
+  # depurasse seguindo a documentação procuraria a coisa errada.
+  #
+  # A migration `20260731120000_rls_fail_closed_uniforme` pôs `nullif` nas 15. Este teste é o que
+  # impede a regressão: ele exercita justamente a GUC VAZIA (não a ausente).
+  describe "o modo de falha é fail-closed, não exceção (T-0)" do
+    test "GUC vazia devolve ZERO linhas em toda tabela por-tenant — nenhuma levanta 22P02" do
+      tabelas = ~w(
+        appointment_types appointments attachments attendances audit_events availability_rules
+        clinic_hours notifications package_schedules packages patients professional_hours
+        professionals schedule_exceptions waitlist_entries messages message_opt_outs
+      )
+
+      sem_guc()
+
+      for tabela <- tabelas do
+        resultado =
+          try do
+            %{rows: [[n]]} = Api.Repo.query!("SELECT count(*) FROM #{tabela}")
+            {:ok, n}
+          rescue
+            erro -> {:levantou, Exception.message(erro)}
+          end
+
+        assert {:ok, _} = resultado,
+               "#{tabela}: a policy LEVANTOU em vez de fechar — #{inspect(resultado)}"
+      end
+    end
   end
 
   describe "quem sou eu" do
@@ -1095,13 +1143,6 @@ defmodule Api.RlsSmokeTest do
 
     # Uma mensagem pronta para enviar, na clínica do `ctx`.
     defp mensagem(ctx) do
-      # A confirmação automática da criação do bloco ficaria na fila e a trava contra duplicata
-      # recusaria o disparo à mão abaixo. O que este arquivo mede é a RLS do caminho de envio, e
-      # para isso ele precisa da mensagem na mão.
-      Api.Accounts.update_clinic_messaging!(ctx.clinic, %{msg_confirmacao_auto: false},
-        authorize?: false
-      )
-
       paciente =
         Records.update_patient!(ctx.paciente, %{comunicacao: true, email: "rls@example.com"},
           tenant: ctx.clinic.id,

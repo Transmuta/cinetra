@@ -24,8 +24,7 @@ const clinic: Clinic = {
 	nome: 'Clínica Vida',
 	cnpj: null,
 	endereco: null,
-	msg_confirmacao_auto: true,
-	msg_lembrete_horas: null,
+	msg_lembrete_horas: 2,
 	msg_silencio_inicio: 21,
 	msg_silencio_fim: 8
 };

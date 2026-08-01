@@ -6,7 +6,7 @@ import { fetchClinic, updateClinicMessaging } from '$lib/server/clinics';
 //
 // Como as demais telas de config: todo membro LÊ, só owner/admin escreve (policy da API + o
 // `canManage` da página). O load reusa `GET /api/clinic` — os campos de comunicação viajam com a
-// identidade, e uma rota só para quatro escalares seria um round-trip a mais.
+// identidade, e uma rota só para três escalares seria um round-trip a mais.
 
 export const load: PageServerLoad = async (event) => {
 	const result = await fetchClinic(event);
@@ -34,7 +34,6 @@ export const actions: Actions = {
 		const silencio = form.get('silencio') === 'on';
 
 		const res = await updateClinicMessaging(event, {
-			msg_confirmacao_auto: form.get('msg_confirmacao_auto') === 'on',
 			msg_lembrete_horas: lembrete,
 			// Desligar a janela é mandar as duas pontas em `nil` — a API trata "sem janela" e
 			// "janela de largura zero" como a mesma coisa (nada silenciado), e mandar só uma

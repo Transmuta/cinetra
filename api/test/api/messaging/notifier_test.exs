@@ -1,45 +1,31 @@
 defmodule Api.Messaging.NotifierTest do
   @moduledoc """
-  O gatilho automático (doc 52 §7): agendamento criado → confirmação ao paciente.
+  A cola entre a agenda e a comunicação (doc 52 §7) — **depois** de 2026-07-31, quando a
+  confirmação na criação foi removida.
 
-  O teste que mais importa aqui é o da **turma**: entrar num bloco existente dispara o notifier
-  para o bloco inteiro, e sem a dedupe quem já estava lá receberia a confirmação de novo a cada
-  colega novo.
+  O teste que carrega o peso agora é o primeiro: **criar não fala com o paciente**. Era o gatilho
+  mais visível da fatia, e o que sobrou no lugar dele é o lembrete por relógio
+  (`Api.Messaging.ReminderJobTest`). Marcar uma sessão voltou a ser um gesto interno; o paciente
+  só é procurado quando o combinado **muda** (remarcação, cancelamento) ou quando a sessão está
+  perto.
+
+  Os outros dois gatilhos (`:remarcacao`, `:cancelamento`) têm arquivo próprio —
+  `Api.Messaging.GatilhosC7bTest`.
   """
-  # `async: false`: os testes de falha de entrega trocam o adapter do mailer por
+  # `async: false`: o teste de falha de entrega troca o adapter do mailer por
   # `Application.put_env`, que é **global ao nó**. Rodando em paralelo, esta troca alcança outro
   # teste no meio do envio dele — e o sintoma é um `refute_email_sent` que falha uma vez a cada
   # tantas execuções, no arquivo errado. Mesmo motivo de `access_revoked_email_test.exs`.
-  alias Api.Messaging
+  alias Api.Scheduling
 
   use Api.DataCase, async: false
 
-  describe "confirmação automática na criação" do
-    test "agendamento novo gera a confirmação do participante" do
+  describe "criar um agendamento NÃO fala com o paciente" do
+    test "agendamento novo não gera mensagem nenhuma" do
+      # A regra de 2026-07-31. Antes disto, marcar uma sessão disparava a confirmação na hora — e
+      # numa clínica de balcão a recepção marca por telefone, com o paciente do outro lado, o que
+      # fazia a mensagem chegar durante a própria conversa que a tornava desnecessária.
       ctx = clinica()
-      paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
-
-      appt = agendamento!(ctx, paciente: paciente)
-
-      assert [message] = mensagens(ctx, appt)
-      assert message.kind == :confirmacao
-      assert message.destino == "ana@example.com"
-      # Automático: ninguém clicou.
-      assert message.disparado_por_id == nil
-    end
-
-    test "paciente sem consentimento não gera mensagem nenhuma" do
-      ctx = clinica()
-      paciente = paciente_com(ctx, comunicacao: false, email: "ana@example.com")
-
-      appt = agendamento!(ctx, paciente: paciente)
-
-      assert [] = mensagens(ctx, appt)
-    end
-
-    test "clínica com o automático desligado não dispara" do
-      ctx = clinica()
-      desligar_automatico(ctx)
       paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
 
       appt = agendamento!(ctx, paciente: paciente)
@@ -47,45 +33,46 @@ defmodule Api.Messaging.NotifierTest do
       assert [] = mensagens(ctx, appt)
     end
 
-    test "entrar numa turma NÃO reconfirma quem já estava" do
+    test "entrar numa turma também não gera nada" do
+      # Entrar num bloco existente dispara o notifier para o bloco INTEIRO. Enquanto a criação
+      # confirmava, esta era a porta pela qual quem já estava na turma recebia a mesma confirmação
+      # a cada colega novo — numa turma de 4, quatro vezes. Sem o gatilho não há o que deduplicar,
+      # e é isso que este teste tranca: quem reintroduzir a confirmação na criação tem de
+      # reintroduzir a dedupe junto.
       ctx = clinica(tipo: [grupo: true, capacidade: 4])
       primeiro = paciente_com(ctx, comunicacao: true, email: "um@example.com")
       segundo = paciente_com(ctx, comunicacao: true, email: "dois@example.com")
 
-      quando = Api.Generators.amanha_as(ctx, 9)
+      quando = Api.Generators.proximo_dia_util_as(ctx, 9)
       appt = agendamento!(ctx, paciente: primeiro, quando: quando)
 
       # Mesmo horário, mesmo profissional, mesmo tipo de grupo: funde na turma existente.
       _ = agendamento!(ctx, paciente: segundo, quando: quando)
 
-      destinos = ctx |> mensagens(appt) |> Enum.map(& &1.destino) |> Enum.sort()
-
-      assert destinos == ["dois@example.com", "um@example.com"]
+      assert [] = mensagens(ctx, appt)
     end
+  end
 
-    test "escrita de LOTE não dispara confirmação — nem aqui, nem na caixa do sino" do
+  describe "a marca do LOTE continua suprimindo" do
+    test "escrita de lote não dispara remarcação — nem aqui, nem na caixa do sino" do
       # A marca `bulk_pacote` é a mesma nos DOIS notifiers, em duas cláusulas idênticas. O
       # bate-volta apontou a duplicação; a extração piora o código (função não casa em head), então
       # a invariante fica presa aqui: quem trocar a marca em `Api.Packages.Bulk` e esquecer um dos
-      # assinantes vê ESTE teste vermelho — e não 40 e-mails saindo, sem erro nenhum.
-      # O automático fica DESLIGADO na criação de propósito: com ele ligado, o agendamento já
-      # nasceria confirmado e a dedupe (`ja_confirmada?/2`) suprimiria o segundo envio — o teste
-      # ficaria verde mesmo com a supressão do lote quebrada. Foi exatamente assim que ele nasceu
-      # decorativo, e a mutação da marca provou.
+      # assinantes vê ESTE teste vermelho — e não 40 mensagens saindo, sem erro nenhum.
+      #
+      # **Ancorado em `:reschedule`, e não mais em `:schedule`**: desde que criar deixou de falar
+      # com o paciente, uma notificação de criação não geraria mensagem nem sem a marca — o teste
+      # ficaria verde com a supressão do lote quebrada, que é exatamente como ele nasceu decorativo
+      # da primeira vez.
       ctx = clinica()
-      desligar_automatico(ctx)
       paciente = paciente_com(ctx, comunicacao: true, email: "lote@example.com")
       appt = agendamento!(ctx, paciente: paciente)
 
       assert [] = mensagens(ctx, appt), "o setup precisa começar sem mensagem nenhuma"
 
-      # E religa: a partir daqui, o único motivo para NÃO sair mensagem é a marca do lote.
-      religar_automatico(ctx)
-
-      # Simula o que a materialização de pacote faz: a mesma ação, com a marca no contexto.
       notificacao = %Ash.Notifier.Notification{
         resource: Api.Scheduling.Appointment,
-        action: %{name: :schedule},
+        action: %{name: :reschedule},
         data: appt,
         changeset: %{context: %{bulk_pacote: true}}
       }
@@ -97,91 +84,41 @@ defmodule Api.Messaging.NotifierTest do
              "a escrita de lote gerou mensagem: a supressão do `bulk_pacote` quebrou"
     end
 
-    test "pacote materializado não manda uma confirmação por sessão — o caminho REAL" do
-      # O teste acima prova que a **cláusula** suprime; este prova que a **marca chega nela**. São
-      # coisas diferentes, e a diferença era o bug: o moduledoc do notifier dizia que a marca
-      # existia para a "materialização de pacote", mas ela só era posta em `Api.Packages.Bulk`
-      # (ajuste/cancelamento em massa). O caminho da **criação** —
-      # `Api.Packages.Sessions.create_and_stamp/5` → `schedule_appointment/2` — ia sem contexto
-      # nenhum, e um pacote de N enfileirava N confirmações para o mesmo paciente.
-      #
-      # Passava despercebido porque as mensagens saíam uma a uma; com a janela de silêncio (§7)
-      # elas ficam paradas e chegam **todas juntas** às 8h. Num pacote de 40, no WhatsApp, são 40
-      # mensagens pagas para o mesmo número em segundos — o §9.1.1 de novo.
-      ctx = clinica(tipo: [nome: "Pilates #{unico()}"])
-      paciente = paciente_com(ctx, comunicacao: true, email: "pacote@example.com")
-
-      {:ok, pkg} = Api.Packages.create_series(ctx.scope, serie(ctx, paciente))
-
-      Oban.drain_queue(queue: :housekeeping)
-
-      sessoes = sessoes_do_pacote(ctx, pkg)
-      assert length(sessoes) == 4, "a materialização precisa ter criado as 4 sessões"
-
-      assert Enum.flat_map(sessoes, &mensagens(ctx, &1)) == [],
-             "o pacote falou com o paciente uma vez por sessão: a marca `bulk_pacote` não chega " <>
-               "à materialização"
-    end
-
-    test "falha ao comunicar não derruba o agendamento" do
-      # O agendamento é o fato; a mensagem é o aviso sobre ele. Inverter faria a agenda depender
-      # de um provider externo estar de pé.
+    test "sem a marca, a MESMA notificação gera a remarcação" do
+      # O contraprova do teste acima: sem ele, um `notify/1` que parasse de funcionar por qualquer
+      # outro motivo (cláusula fora de ordem, participante filtrado) deixaria o anterior verde
+      # dizendo "o lote suprime" quando na verdade nada mais é enviado, nunca.
       ctx = clinica()
-      paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
+      paciente = paciente_com(ctx, comunicacao: true, email: "solto@example.com")
+      appt = agendamento!(ctx, paciente: paciente)
 
-      appt =
-        Api.Support.FailingMailer.with_failure(fn -> agendamento!(ctx, paciente: paciente) end)
+      notificacao = %Ash.Notifier.Notification{
+        resource: Api.Scheduling.Appointment,
+        action: %{name: :reschedule},
+        data: appt,
+        changeset: %{context: %{}}
+      }
 
-      assert appt.id
+      assert :ok = Api.Messaging.Notifier.notify(notificacao)
+
+      assert [%{kind: :remarcacao}] = mensagens(ctx, appt)
     end
   end
 
-  # ---- helpers ----
+  test "falha ao comunicar não derruba a operação da agenda" do
+    # O cancelamento é o fato; a mensagem é o aviso sobre ele. Inverter faria a agenda depender de
+    # um provider externo estar de pé. Ancorado no `:cancel` porque é o gatilho que ainda fala com
+    # o paciente — a criação deixou de falar.
+    ctx = clinica()
+    paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
+    appt = agendamento!(ctx, paciente: paciente)
 
-  # A mesma grade do `Api.Packages.MaterializeTest`: 4 sessões em segundas e quartas.
-  defp serie(ctx, paciente) do
-    %{
-      nome: "Pilates 4",
-      total: 4,
-      falta_punitiva: true,
-      cor: "#0FB5A6",
-      data_inicio: ~D[2026-07-20],
-      patient_id: paciente.id,
-      appointment_type_id: ctx.tipo.id,
-      grade: %{
-        dows: [1, 3],
-        horarios: %{"1" => "08:00", "3" => "09:00"},
-        professional_id: ctx.prof.id
-      }
-    }
-  end
+    resultado =
+      Api.Support.FailingMailer.with_failure(fn ->
+        Scheduling.transition_appointment(ctx.scope, appt.id, :cancel, %{}, appt.version)
+      end)
 
-  # Os blocos que a materialização criou, pelo carimbo `package_id` da presença — o mesmo vínculo
-  # que o `usadas` conta (D11).
-  defp sessoes_do_pacote(ctx, pkg) do
-    Api.Tenancy.in_clinic(ctx.clinic.id, fn ->
-      Api.Scheduling.list_attendances!(
-        tenant: ctx.clinic.id,
-        authorize?: false,
-        query: [filter: [package_id: pkg.id]],
-        load: [:appointment]
-      )
-    end)
-    |> Enum.map(& &1.appointment)
-  end
-
-  defp religar_automatico(ctx) do
-    Api.Accounts.update_clinic_messaging!(recarregar_clinica(ctx), %{msg_confirmacao_auto: true},
-      actor: ctx.owner
-    )
-  end
-
-  defp recarregar_clinica(ctx),
-    do: Api.Accounts.get_clinic!(ctx.clinic.id, actor: ctx.owner)
-
-  defp desligar_automatico(ctx) do
-    Api.Accounts.update_clinic_messaging!(ctx.clinic, %{msg_confirmacao_auto: false},
-      actor: ctx.owner
-    )
+    assert {:ok, cancelado} = resultado
+    assert cancelado.status == :cancelado
   end
 end

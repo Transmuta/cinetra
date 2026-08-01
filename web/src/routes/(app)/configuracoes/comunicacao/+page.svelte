@@ -5,8 +5,9 @@
 	//
 	// Por clínica, não por profissional: por profissional vira matriz que ninguém mantém.
 	//
-	// A tela existe para tornar **ligar o lembrete** uma escolha de número, não um deploy — o cron
-	// nasceu construído e calado de propósito, e é aqui que ele acorda.
+	// A tela existe para o lembrete ser uma escolha de número, não um deploy. Desde 2026-07-31 ela
+	// tem **dois** controles, não três: a confirmação na criação do agendamento saiu (doc 98), e
+	// com ela o botão que a ligava — o que sobrou é quando lembrar e quando não incomodar.
 	import { untrack } from 'svelte';
 	import { enhance } from '$app/forms';
 	import { envio } from '$lib/forms.svelte';
@@ -21,10 +22,13 @@
 
 	const canManage = $derived(canManageClinic(data.me.papel));
 
+	// O mesmo padrão do `Clinic.msg_lembrete_horas` no backend. Serve só de sugestão ao LIGAR o
+	// lembrete de novo depois de desligá-lo — quem manda é o valor salvo.
+	const PADRAO_HORAS = 2;
+
 	// Rascunho local, como nas outras telas de config: edita e só então salva.
-	let confirmacao = $state(untrack(() => data.clinic.msg_confirmacao_auto));
 	let lembrete = $state(untrack(() => data.clinic.msg_lembrete_horas != null));
-	let horas = $state(untrack(() => String(data.clinic.msg_lembrete_horas ?? 24)));
+	let horas = $state(untrack(() => String(data.clinic.msg_lembrete_horas ?? PADRAO_HORAS)));
 	let silencio = $state(untrack(() => data.clinic.msg_silencio_inicio != null));
 	let inicio = $state(untrack(() => String(data.clinic.msg_silencio_inicio ?? 21)));
 	let fim = $state(untrack(() => String(data.clinic.msg_silencio_fim ?? 8)));
@@ -36,16 +40,14 @@
 	);
 
 	const dirty = $derived(
-		confirmacao !== data.clinic.msg_confirmacao_auto ||
-			horasEfetivas !== (data.clinic.msg_lembrete_horas ?? null) ||
+		horasEfetivas !== (data.clinic.msg_lembrete_horas ?? null) ||
 			(silencio ? Number(inicio) : null) !== (data.clinic.msg_silencio_inicio ?? null) ||
 			(silencio ? Number(fim) : null) !== (data.clinic.msg_silencio_fim ?? null)
 	);
 
 	function sync() {
-		confirmacao = data.clinic.msg_confirmacao_auto;
 		lembrete = data.clinic.msg_lembrete_horas != null;
-		horas = String(data.clinic.msg_lembrete_horas ?? 24);
+		horas = String(data.clinic.msg_lembrete_horas ?? PADRAO_HORAS);
 		silencio = data.clinic.msg_silencio_inicio != null;
 		inicio = String(data.clinic.msg_silencio_inicio ?? 21);
 		fim = String(data.clinic.msg_silencio_fim ?? 8);
@@ -73,29 +75,13 @@
 	<section class="mb-3 rounded-cartao border border-edge bg-surface p-4">
 		{#if canManage}
 			<form method="POST" action="?/save" use:enhance={save.submit} class="space-y-5">
-				<!-- Confirmação na criação -->
-				<div class="flex items-start justify-between gap-4">
-					<div>
-						<p class="text-corpo font-semibold">Confirmar automaticamente</p>
-						<p class="mt-0.5 text-rotulo text-muted">
-							Ao marcar uma sessão, o paciente recebe a confirmação na hora.
-						</p>
-					</div>
-					<SwitchToggle
-						checked={confirmacao}
-						onchange={() => (confirmacao = !confirmacao)}
-						label="Confirmação automática"
-					/>
-					<input type="hidden" name="msg_confirmacao_auto" value={confirmacao ? 'on' : ''} />
-				</div>
-
 				<!-- Lembrete -->
-				<div class="border-t border-edge pt-5">
+				<div>
 					<div class="flex items-start justify-between gap-4">
 						<div>
 							<p class="text-corpo font-semibold">Lembrar antes da sessão</p>
 							<p class="mt-0.5 text-rotulo text-muted">
-								Uma segunda mensagem, algumas horas antes.
+								A mensagem que o paciente recebe quando a sessão está perto.
 							</p>
 						</div>
 						<SwitchToggle
@@ -117,7 +103,7 @@
 								aria-invalid={horasInvalidas}
 								class="{inputCls} {horasInvalidas ? 'border-danger' : ''}"
 							/>
-							<label for="horas" class="text-muted">horas antes</label>
+							<label for="horas" class="text-muted">horas antes do início da sessão</label>
 						</div>
 						{#if horasInvalidas}
 							<p class="mt-1 text-rotulo text-danger">Escolha entre 1 e 168 horas.</p>
@@ -135,7 +121,8 @@
 						<div>
 							<p class="text-corpo font-semibold">Não incomodar</p>
 							<p class="mt-0.5 text-rotulo text-muted">
-								Mensagem que cairia nesse intervalo é <strong>adiada</strong>, não descartada.
+								Mensagem que cairia nesse intervalo é <strong>adiada</strong>, não descartada. O
+								lembrete é a exceção: ele sai na hora, senão chegaria depois da sessão.
 							</p>
 						</div>
 						<SwitchToggle
@@ -143,6 +130,10 @@
 							onchange={() => (silencio = !silencio)}
 							label="Janela de silêncio"
 						/>
+						<!-- O `SwitchToggle` é um `<button role="switch">`, e botão não entra no FormData. Sem
+						     este campo a action lê `silencio` como ausente e apaga as DUAS pontas da janela — o
+						     que acontecia em toda gravação, mesmo a que só mexia no lembrete. -->
+						<input type="hidden" name="silencio" value={silencio ? 'on' : ''} />
 					</div>
 
 					{#if silencio}
@@ -221,14 +212,10 @@
 			<h2 class="mb-3 text-leitura font-semibold">Comunicação com o paciente</h2>
 			<dl class="space-y-2.5 text-corpo">
 				<div class="flex gap-3">
-					<dt class="w-[190px] shrink-0 text-muted">Confirmação automática</dt>
-					<dd class="font-medium">{data.clinic.msg_confirmacao_auto ? 'Ligada' : 'Desligada'}</dd>
-				</div>
-				<div class="flex gap-3">
 					<dt class="w-[190px] shrink-0 text-muted">Lembrete antes da sessão</dt>
 					<dd class="font-medium">
 						{data.clinic.msg_lembrete_horas
-							? `${data.clinic.msg_lembrete_horas} h antes`
+							? `${data.clinic.msg_lembrete_horas} h antes da sessão`
 							: 'Desligado'}
 					</dd>
 				</div>

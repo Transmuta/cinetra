@@ -15,7 +15,8 @@ defmodule ApiWeb.PatientReplyControllerTest do
     ctx = clinica()
     paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com", nome: "Ana Beatriz")
     appt = agendamento!(ctx, paciente: paciente)
-    [message] = mensagens(ctx, appt)
+    # Disparada à mão: criar o bloco não fala mais com o paciente (doc 98).
+    message = confirmacao!(ctx, appt, paciente)
 
     %{ctx: ctx, message: message, token: ReplyToken.sign(message.id)}
   end

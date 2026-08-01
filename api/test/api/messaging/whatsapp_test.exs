@@ -72,9 +72,8 @@ defmodule Api.Messaging.WhatsAppTest do
       paciente =
         paciente_com(ctx, nome: "Ana Maria Souza", comunicacao: true, tel: "(11) 98765-4321")
 
-      appt = agendamento!(ctx, paciente: paciente)
+      message = confirmacao!(ctx, paciente)
 
-      [message] = mensagens(ctx, appt)
       assert message.canal == :whatsapp
       assert message.destino == "+5511987654321"
 
@@ -105,8 +104,7 @@ defmodule Api.Messaging.WhatsAppTest do
       # correção proíbe.
       ctx = clinica()
       paciente = paciente_com(ctx, comunicacao: true, tel: "11987654321")
-      appt = agendamento!(ctx, paciente: paciente)
-      [message] = mensagens(ctx, appt)
+      message = confirmacao!(ctx, paciente)
 
       SendJob.perform(job(message))
 
@@ -116,8 +114,7 @@ defmodule Api.Messaging.WhatsAppTest do
     test "o id do provider é gravado — é a chave que o webhook usa depois" do
       ctx = clinica()
       paciente = paciente_com(ctx, comunicacao: true, tel: "11987654321")
-      appt = agendamento!(ctx, paciente: paciente)
-      [message] = mensagens(ctx, appt)
+      message = confirmacao!(ctx, paciente)
 
       SendJob.perform(job(message))
 
@@ -134,8 +131,7 @@ defmodule Api.Messaging.WhatsAppTest do
 
       ctx = clinica()
       paciente = paciente_com(ctx, comunicacao: true, tel: "11987654321")
-      appt = agendamento!(ctx, paciente: paciente)
-      [message] = mensagens(ctx, appt)
+      message = confirmacao!(ctx, paciente)
 
       assert :ok = SendJob.perform(job(message))
 
@@ -159,13 +155,32 @@ defmodule Api.Messaging.WhatsAppTest do
       end)
 
       paciente = paciente_com(ctx, comunicacao: true, tel: "11987654321")
-      appt = agendamento!(ctx, paciente: paciente)
-      [message] = mensagens(ctx, appt)
+      message = confirmacao!(ctx, paciente)
 
       SendJob.perform(job(message))
 
       assert [%{conta: "conta-da-clinica"}] = WhatsAppMemory.enviadas()
     end
+  end
+
+  # Marca a sessão e dispara a confirmação **à mão**, como a recepção faz pelo botão do drawer.
+  # Era a criação do bloco que produzia esta mensagem sozinha; desde 2026-07-31 (doc 98) ela não
+  # produz mais, e o que este arquivo mede — canal, template, transporte — não mudou.
+  # A clínica é **relida** do banco, e não reaproveitada do `ctx`: o teste da conta de WhatsApp
+  # grava `zernio_account_id` depois de montar o contexto, e a struct antiga não o traz — o
+  # `Dispatch` congelaria a mensagem sem a conta. É o que o notifier já fazia por dentro.
+  defp confirmacao!(ctx, paciente) do
+    appt = agendamento!(ctx, paciente: paciente)
+    [presenca] = appt.attendances
+
+    clinic =
+      Api.Tenancy.in_clinic(ctx.clinic.id, fn ->
+        Api.Accounts.get_clinic!(ctx.clinic.id, authorize?: false)
+      end)
+
+    {:ok, message} = Messaging.Dispatch.dispatch(clinic, presenca, paciente, :confirmacao)
+
+    message
   end
 
   defp job(message),

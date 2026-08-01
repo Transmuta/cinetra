@@ -23,6 +23,19 @@ defmodule Api.Messaging.GatilhosC7bTest do
 
   defp kinds(ctx, appt), do: ctx |> mensagens(appt) |> Enum.map(& &1.kind)
 
+  # Uma confirmação PENDENTE na fila, disparada à mão pela recepção — o que a criação do bloco
+  # fazia sozinha até 2026-07-31 (doc 98). É o estado que os descartes existem para varrer, e ele
+  # não nasce mais de graça: sem este disparo os três testes de descarte não teriam o que descartar
+  # e ficariam verdes sem provar nada.
+  defp confirmacao_na_fila!(ctx, appt, paciente) do
+    [presenca] = appt.attendances
+
+    {:ok, message} =
+      Api.Messaging.Dispatch.dispatch(ctx.clinic, presenca, paciente, :confirmacao)
+
+    message
+  end
+
   describe "ciclo de vida do bloco" do
     test "remarcar avisa o paciente, com o horário NOVO" do
       ctx = clinica()
@@ -34,7 +47,7 @@ defmodule Api.Messaging.GatilhosC7bTest do
           ctx.scope,
           appt.id,
           :reschedule,
-          %{starts_at: Api.Generators.amanha_as(ctx, 16)},
+          %{starts_at: Api.Generators.proximo_dia_util_as(ctx, 16)},
           appt.version
         )
 
@@ -66,8 +79,8 @@ defmodule Api.Messaging.GatilhosC7bTest do
       {:ok, _} =
         Scheduling.transition_appointment(ctx.scope, appt.id, :exclude, %{}, appt.version)
 
-      # Só a confirmação da criação; nada de cancelamento.
-      assert kinds(ctx, appt) == [:confirmacao]
+      # Nada: criar não fala com o paciente (desde 2026-07-31) e excluir também não.
+      assert kinds(ctx, appt) == []
     end
 
     test "reabrir NÃO avisa" do
@@ -81,21 +94,21 @@ defmodule Api.Messaging.GatilhosC7bTest do
       {:ok, _} =
         Scheduling.transition_appointment(ctx.scope, appt.id, :reopen, %{}, cancelado.version)
 
-      # Uma confirmação (da criação) e um cancelamento. Reabrir não acrescenta nada: quase sempre
-      # é um clique errado sendo desfeito segundos depois.
-      assert Enum.sort(kinds(ctx, appt)) == [:cancelamento, :confirmacao]
+      # Só o cancelamento. Reabrir não acrescenta nada: quase sempre é um clique errado sendo
+      # desfeito segundos depois.
+      assert kinds(ctx, appt) == [:cancelamento]
     end
 
     test "cancelar descarta a confirmação que ainda estava na fila" do
-      # A janela de silêncio (§7) **adia**: uma confirmação criada às 22h fica parada até as 8h.
+      # A janela de silêncio (§7) **adia**: uma confirmação disparada às 22h fica parada até as 8h.
       # Se o bloco for cancelado às 22h45, nada tirava aquela linha da fila — e às 8h o paciente
       # recebia "sua sessão está marcada para 28/07 às 12:00" de uma sessão que já não existe,
       # seguida do cancelamento. Mensagem enviada não volta.
       ctx = clinica()
       paciente = paciente_alcancavel(ctx)
       appt = agendamento!(ctx, paciente: paciente)
+      confirmacao = confirmacao_na_fila!(ctx, appt, paciente)
 
-      assert [confirmacao] = mensagens(ctx, appt)
       assert confirmacao.status == :pendente
 
       {:ok, _} =
@@ -113,13 +126,12 @@ defmodule Api.Messaging.GatilhosC7bTest do
 
     test "excluir descarta a confirmação que ainda estava na fila" do
       # Excluir é corrigir um lançamento errado (doc 40), e a decisão de não avisar o paciente
-      # (acima) morria aqui: a confirmação da criação seguia parada na fila e saía às 8h. Quem
-      # apagou uma duplicata teria acabado de dizer a alguém que a sessão dele existe.
+      # (acima) morria aqui: a confirmação que a recepção já tinha disparado seguia parada na fila
+      # e saía às 8h. Quem apagou uma duplicata teria acabado de dizer a alguém que a sessão existe.
       ctx = clinica()
       paciente = paciente_alcancavel(ctx)
       appt = agendamento!(ctx, paciente: paciente)
-
-      assert [confirmacao] = mensagens(ctx, appt)
+      confirmacao = confirmacao_na_fila!(ctx, appt, paciente)
 
       {:ok, _} =
         Scheduling.transition_appointment(ctx.scope, appt.id, :exclude, %{}, appt.version)
@@ -134,8 +146,7 @@ defmodule Api.Messaging.GatilhosC7bTest do
       ctx = clinica()
       paciente = paciente_alcancavel(ctx)
       appt = agendamento!(ctx, paciente: paciente)
-
-      assert [confirmacao] = mensagens(ctx, appt)
+      confirmacao = confirmacao_na_fila!(ctx, appt, paciente)
 
       enviada =
         Api.Tenancy.in_clinic(ctx.clinic.id, fn ->
@@ -165,7 +176,7 @@ defmodule Api.Messaging.GatilhosC7bTest do
           ctx.scope,
           appt.id,
           :reschedule,
-          %{starts_at: Api.Generators.amanha_as(ctx, 16)},
+          %{starts_at: Api.Generators.proximo_dia_util_as(ctx, 16)},
           appt.version
         )
 
@@ -174,7 +185,7 @@ defmodule Api.Messaging.GatilhosC7bTest do
           ctx.scope,
           appt.id,
           :reschedule,
-          %{starts_at: Api.Generators.amanha_as(ctx, 17)},
+          %{starts_at: Api.Generators.proximo_dia_util_as(ctx, 17)},
           uma.version
         )
 

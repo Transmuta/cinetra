@@ -272,7 +272,6 @@ defmodule Api.Messaging.DispatchTest do
   describe "dispatch/5" do
     test "grava a mensagem ancorada na PRESENÇA e enfileira o envio" do
       ctx = clinica()
-      sem_confirmacao_automatica(ctx)
       paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
       appt = agendamento!(ctx, paciente: paciente)
       [presenca] = appt.attendances
@@ -296,7 +295,6 @@ defmodule Api.Messaging.DispatchTest do
       # e quem lê conclui que falhou — foi o que aconteceu no teste ao vivo de 2026-07-28. O
       # `scheduled_at` do Oban sabia a resposta, mas ele é podado em 7 dias e não é fonte da UI.
       ctx = clinica()
-      sem_confirmacao_automatica(ctx)
       clinic = com_janela(ctx.clinic, :agora_dentro)
       paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
       appt = agendamento!(ctx, paciente: paciente)
@@ -311,7 +309,6 @@ defmodule Api.Messaging.DispatchTest do
 
     test "fora do silêncio, não há nada a prometer" do
       ctx = clinica()
-      sem_confirmacao_automatica(ctx)
       clinic = com_janela(ctx.clinic, :agora_fora)
       paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
       appt = agendamento!(ctx, paciente: paciente)
@@ -323,12 +320,29 @@ defmodule Api.Messaging.DispatchTest do
       assert message.agendado_para == nil
     end
 
+    test "o LEMBRETE não é adiado — dentro do silêncio ele sai assim mesmo" do
+      # A exceção de 2026-07-31 (doc 98), e a razão dela é aritmética. Adiar serve a uma mensagem
+      # que continua verdadeira horas depois; o lembrete de 2 h não é: gerado às 5h30 para uma
+      # sessão das 7h30, ele sairia às 8h — meia hora DEPOIS da sessão que anuncia, dizendo que ela
+      # ainda vai acontecer. O silêncio continua valendo para os outros tipos, e o teste acima é
+      # quem prova isso.
+      ctx = clinica()
+      clinic = com_janela(ctx.clinic, :agora_dentro)
+      paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
+      appt = agendamento!(ctx, paciente: paciente)
+      [presenca] = appt.attendances
+
+      assert {:ok, message} = Dispatch.dispatch(clinic, presenca, paciente, :lembrete)
+
+      assert message.agendado_para == nil
+      assert_enqueued(worker: Api.Messaging.SendJob)
+    end
+
     test "não enfileira a segunda enquanto a primeira espera" do
       # A trava contra duplicata. Sem ela, o segundo clique dentro da janela de silêncio empilha
       # outra mensagem para o mesmo paciente — e ele recebe as duas de manhã. Medido no dev de
       # 2026-07-28: quatro linhas idênticas, porque quem clica não vê nada acontecer.
       ctx = clinica()
-      sem_confirmacao_automatica(ctx)
       clinic = com_janela(ctx.clinic, :agora_dentro)
       paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
       appt = agendamento!(ctx, paciente: paciente)
@@ -342,7 +356,6 @@ defmodule Api.Messaging.DispatchTest do
       # São mensagens diferentes para a mesma sessão; barrar uma pela outra seria calar comunicação
       # que o paciente precisa receber.
       ctx = clinica()
-      sem_confirmacao_automatica(ctx)
       clinic = com_janela(ctx.clinic, :agora_dentro)
       paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
       appt = agendamento!(ctx, paciente: paciente)
@@ -356,7 +369,6 @@ defmodule Api.Messaging.DispatchTest do
       # A mesma lição que a A2 cobrou com a falta: numa turma, o que vale para um não vale para os
       # outros três. Travar por bloco deixaria os demais sem confirmação nenhuma.
       ctx = clinica()
-      sem_confirmacao_automatica(ctx)
       clinic = com_janela(ctx.clinic, :agora_dentro)
       turma = Api.Generators.tipo!(ctx, grupo: true, capacidade: 4)
       ana = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
@@ -364,7 +376,7 @@ defmodule Api.Messaging.DispatchTest do
 
       # Duas chamadas no MESMO horário e tipo de grupo caem no mesmo bloco — é como a turma se
       # forma no resto da suíte.
-      quando = amanha_as(ctx, 10)
+      quando = proximo_dia_util_as(ctx, 10)
       appt = agendamento!(ctx, paciente: ana, tipo: turma, quando: quando)
       _ = agendamento!(ctx, paciente: joao, tipo: turma, quando: quando)
 
@@ -381,7 +393,6 @@ defmodule Api.Messaging.DispatchTest do
       # Ele já respondeu que vem: mandar de novo é pedir a mesma coisa duas vezes a quem já
       # respondeu, e no WhatsApp é spam pago.
       ctx = clinica()
-      sem_confirmacao_automatica(ctx)
       paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
       appt = agendamento!(ctx, paciente: paciente)
       [presenca] = appt.attendances
@@ -398,7 +409,6 @@ defmodule Api.Messaging.DispatchTest do
       # respondendo ao lembrete. Se a trava olhasse só as mensagens de confirmação, quem confirmou
       # pelo lembrete continuaria recebendo pedidos de confirmação.
       ctx = clinica()
-      sem_confirmacao_automatica(ctx)
       paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
       appt = agendamento!(ctx, paciente: paciente)
       [presenca] = appt.attendances
@@ -415,7 +425,6 @@ defmodule Api.Messaging.DispatchTest do
       # confirmação nova é justamente o que fecha o assunto. Barrar aqui deixaria o pedido sem
       # resposta possível pelo canal que o originou.
       ctx = clinica()
-      sem_confirmacao_automatica(ctx)
       paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
       appt = agendamento!(ctx, paciente: paciente)
       [presenca] = appt.attendances
@@ -432,7 +441,6 @@ defmodule Api.Messaging.DispatchTest do
       # a insistência legítima da recepção; a terceira é o paciente sendo cobrado três vezes pela
       # mesma sessão.
       ctx = clinica()
-      sem_confirmacao_automatica(ctx)
       paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
       appt = agendamento!(ctx, paciente: paciente)
       [presenca] = appt.attendances
@@ -451,7 +459,6 @@ defmodule Api.Messaging.DispatchTest do
       # Mensagem que falhou não chegou a ninguém, então não é spam. Contá-la travaria exatamente
       # quem mais precisa reenviar: quem corrigiu o e-mail errado na ficha.
       ctx = clinica()
-      sem_confirmacao_automatica(ctx)
       paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
       appt = agendamento!(ctx, paciente: paciente)
       [presenca] = appt.attendances
@@ -466,12 +473,11 @@ defmodule Api.Messaging.DispatchTest do
 
     test "o teto é por PRESENÇA — a turma não trava por causa de um participante" do
       ctx = clinica()
-      sem_confirmacao_automatica(ctx)
       turma = Api.Generators.tipo!(ctx, grupo: true, capacidade: 4)
       ana = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
       joao = paciente_com(ctx, comunicacao: true, email: "joao@example.com")
 
-      quando = amanha_as(ctx, 10)
+      quando = proximo_dia_util_as(ctx, 10)
       appt = agendamento!(ctx, paciente: ana, tipo: turma, quando: quando)
       _ = agendamento!(ctx, paciente: joao, tipo: turma, quando: quando)
 
@@ -493,7 +499,6 @@ defmodule Api.Messaging.DispatchTest do
       # cancelamento trazem informação que a confirmação não tinha. Um teto de confirmação que
       # calasse os três seria um controle fazendo quatro coisas com um nome só.
       ctx = clinica()
-      sem_confirmacao_automatica(ctx)
       paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
       appt = agendamento!(ctx, paciente: paciente)
       [presenca] = appt.attendances
@@ -510,7 +515,6 @@ defmodule Api.Messaging.DispatchTest do
 
     test "não levanta quando o paciente não pode receber — devolve o motivo" do
       ctx = clinica()
-      sem_confirmacao_automatica(ctx)
       paciente = paciente_com(ctx, comunicacao: false)
       appt = agendamento!(ctx, paciente: paciente)
       [presenca] = appt.attendances
@@ -538,15 +542,6 @@ defmodule Api.Messaging.DispatchTest do
 
     on_exit(fn -> Application.put_env(:api, Api.Messaging.Transport, anterior) end)
     fun.()
-  end
-
-  # Desliga a confirmação automática da criação do bloco. Estes testes disparam à mão, e com ela
-  # ligada o primeiro `dispatch/5` já esbarraria na trava contra duplicata — que é o comportamento
-  # certo (tem teste próprio, e é o caso que o balcão vive), mas aqui o assunto é outro.
-  defp sem_confirmacao_automatica(ctx) do
-    Api.Accounts.update_clinic_messaging!(ctx.clinic, %{msg_confirmacao_auto: false},
-      authorize?: false
-    )
   end
 
   # ---- os três estados que as travas de confirmação leem ----
