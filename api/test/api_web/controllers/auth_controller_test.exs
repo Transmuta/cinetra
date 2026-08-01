@@ -80,11 +80,20 @@ defmodule ApiWeb.AuthControllerTest do
       assert json_response(conn, 400) == %{"error" => "missing_token"}
     end
 
-    test "token inválido: 401 com location para o login do web (erro=magic_link)", %{conn: conn} do
+    # Doc 96, H-10. Este teste fixava **401 com header `Location`** — que é o que
+    # `put_status(:unauthorized) |> redirect(external: …)` produz, e um redirect que browser
+    # nenhum segue. Quem lê esta resposta é o BFF, com `redirect: 'manual'`, e ele decide o
+    # destino sozinho: o `Location` nunca foi lido por ninguém.
+    #
+    # O corpo agora é o 401 único da API (`unauthenticated`), o mesmo de `/auth/me` e de toda
+    # rota de tenant — que é o que H-2 unificou.
+    test "token inválido: 401 unauthenticated, sem redirect decorativo", %{conn: conn} do
       conn = get(conn, ~p"/api/auth/magic-link/callback?token=lixo")
-      assert conn.status == 401
-      assert [location] = get_resp_header(conn, "location")
-      assert location =~ "/entrar?erro=magic_link"
+
+      assert json_response(conn, 401) == %{"error" => "unauthenticated"}
+
+      assert get_resp_header(conn, "location") == [],
+             "o 401 voltou a carregar Location — redirect que ninguém segue"
     end
 
     # O cookie de sessão é assinado E cifrado (encryption_salt no endpoint): assinatura

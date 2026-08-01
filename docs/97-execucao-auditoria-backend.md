@@ -1,11 +1,15 @@
 # 97 — Execução da auditoria do backend (doc 96): o que entrou
 
-**Data:** 2026-07-31 · **Base:** [`96-auditoria-backend.md`](96-auditoria-backend.md) (47 achados)
-· **Branch:** `develop`
+**Data:** 2026-07-31, com a **quarta leva em 2026-08-01** (§7)
+· **Base:** [`96-auditoria-backend.md`](96-auditoria-backend.md) (47 achados) · **Branch:** `develop`
 
-Este documento registra as correções dos achados do doc 96, em **duas levas**. Ele é honesto sobre
-o corte: **36 itens entraram, 11 continuam abertos**, e a §4 diz por quê em cada caso — com dois
-deles **deliberadamente não consertados** depois de tentativa (§4.0).
+Este documento registra as correções dos achados do doc 96. As §§3–6 são das **duas primeiras
+levas** (2026-07-31) e ficaram como foram escritas; a **§7 é a leva final** (2026-08-01), que fechou
+o que restava — inclusive a verificação pendente da §5.
+
+> **Leia a §7 antes da §4.** A §4 lista como aberto o que a §7 fechou depois, e a tabela §4.1 chega
+> a contradizer a §4.0-bis sobre T-0 — ela é o retrato de 31/07, não do estado atual. O placar de
+> hoje está na §7.1.
 
 Toda correção seguiu a regra do [CLAUDE.md](../CLAUDE.md): teste vermelho antes do conserto. Onde o
 vermelho foi **provado por execução**, a saída está colada.
@@ -14,15 +18,18 @@ vermelho foi **provado por execução**, a saída está colada.
 
 ## 1. Estado dos gates
 
-| Gate | Antes | Depois |
-| --- | --- | --- |
-| `mix compile --force --warnings-as-errors` | ✅ | ✅ |
-| `mix format --check-formatted` | ✅ | ✅ |
-| `mix test` | ⚠️ **1704 testes, 4 falhas** (ver §2) | ✅ **1714 testes, 0 falhas** |
-| `mix test --only rls` (como `cinetra_app`) | ✅ | ✅ |
-| `mix coveralls` (piso 80) | ✅ | ✅ **89,9%** |
+| Gate | Antes (31/07) | Depois das 2 levas | Depois da leva final (§7) |
+| --- | --- | --- | --- |
+| `mix compile --force --warnings-as-errors` | ✅ | ✅ | ✅ |
+| `mix format --check-formatted` | ✅ | ✅ | ✅ |
+| `mix test` | ⚠️ **1704 testes, 4 falhas** (ver §2) | ✅ 1714 · 0 falhas | ✅ **1759 · 0 falhas** |
+| `mix test --only rls` (como `cinetra_app`) | ✅ | ✅ | ✅ |
+| `mix coveralls` (piso 80) | ✅ | ✅ 89,9% | ✅ **89,9%** |
+| `npm run check` (web) | ✅ | ✅ | ✅ **0 erros** |
+| `npm run coverage` (web) | ✅ | ✅ | ✅ **2424 testes** |
 
-Diff: **58 arquivos, +1144 −280** (inclui `deploy/observability/alloy.alloy` e uma fixture do BFF).
+Diff das duas primeiras levas: **58 arquivos, +1144 −280**. Da leva final: **89 arquivos alterados
+(+2306 −1121) e 9 arquivos novos** — inclui o web, por causa de H-5.
 
 ---
 
@@ -357,7 +364,7 @@ ambiguidade **é** o achado T-0.
 
 ---
 
-## 6. Próximo passo sugerido
+## 6. Próximo passo sugerido (escrito em 31/07 — **todos foram feitos**, ver §7)
 
 1. **Decidir T-0.** É o que destrava T-1 (a verificação da §5), S-5, e a redação de cinco
    documentos que hoje descrevem errado o modo de falha do RLS. Não é decisão de implementador:
@@ -368,3 +375,212 @@ ambiguidade **é** o achado T-0.
    caminho errado está documentada no código.
 4. **E-1** (quebrar `Api.Scheduling`), que é a maior dívida estrutural e não tem risco funcional —
    o bloco de relatórios sai inteiro, sem tocar em mais nada.
+
+---
+
+# 7. Leva final (2026-08-01) — o que sobrava
+
+Entre a leva 2 e esta, cinco commits fecharam mais achados sem atualizar este documento: **B-8**
+(`8dbb055` — a reversão descrita na §4.0-bis era diagnóstico errado), **M-4** (`d6e12a4`), **E-1
+parcial** (`ac914c7` — os relatórios saem, 1723 → 1497 linhas), **E-4** e **R-3** (`485415e`),
+**P-2** e **B-12** (`1cf7eb9`), e **P-4**, que deixou de existir junto com o gatilho em `5f1c381`.
+**B-14** também já estava consertado. Esta leva partiu daí.
+
+## 7.1 Placar
+
+| Situação | Achados |
+| --- | --- |
+| **Corrigidos** (47 no total) | todos, menos os quatro abaixo |
+| **Débito aceito, registrado** | **B-12** (D-22) · **P-6** (D-23) |
+| **Refutado pela execução** | **A-4 parcial** (dois dos quatro pontos — §7.7) |
+| **Medível só com volume** | **P-9** (índices — depende do teste de carga, doc 98) |
+
+## 7.2 T-1: provado ao vivo — a §5 está fechada
+
+Com **T-0** resolvido (o `nullif` uniforme), o resultado esperado deixou de ser ambíguo. Sob
+`cinetra_app`, com o stack de pé:
+
+```
+sem GUC   : appointments 0 · professionals 0 · messages 0     (nenhuma levanta)
+com a GUC : appointments 30  = o mesmo que o superusuário lê para a mesma clínica
+```
+
+O **controle positivo importa tanto quanto o negativo**: sem ele, "0 linhas" não distingue *RLS
+funcionando* de *tabela vazia*. Os dois comandos e essa lição entraram na
+[`migrations.md` §3](../.claude/rules/migrations.md), junto com **E-3** — o alcance declarado do
+gate `:rls` passou a incluir a segunda cegueira medida (leitura **depois de escrita no mesmo job**)
+e o fato de o modo de falha ser hoje 0 linhas em toda tabela.
+
+## 7.3 Os dois com risco de dado errado
+
+**A-5 · o opt-out virou upsert de verdade.** O `if opted_out?, do: :ok, else: gravar` era
+*check-then-act*: duas reentregas simultâneas do mesmo evento (a Zernio manda até 7× em 24 h) leem
+"ainda não" as duas e gravam as duas. A ação `:registrar` ganhou `upsert?` sobre uma identity nova,
+`:vigente_por_destino` — `(canal, destino, clinic_id)` **recortada nos vigentes** e com
+`nils_distinct? false`.
+
+As duas escolhas são o ponto:
+
+- o recorte `where is_nil(revogado_em)` preserva o ciclo legítimo *parar → voltar → parar de novo*.
+  Um índice único simples ou proibiria a segunda parada ou, num upsert que sobrescrevesse,
+  **apagaria a revogação** — e este recurso não tem `AshPaperTrail` justamente porque a linha *é* o
+  histórico;
+- `nils_distinct? false` porque `clinic_id` nulo é o caso **normal** aqui (opt-out global, C10/C11),
+  não a exceção. No default do Postgres dois nulos não colidem, e a constraint não pegaria
+  justamente o caso que existe.
+
+**Vermelho provado:** duas gravações do mesmo destino produziam duas linhas vigentes.
+
+**S-7 · replay de webhook.** O argumento de que replay era inócuo tinha um furo que não era um
+evento novo — era uma ação **do outro lado**: `revoke_opt_out/3`. Entre o `SAIR` original e a
+reentrega cabe uma revogação, e o replay a desfaz. O sintoma para quem usa é o pior possível: o
+paciente pede no balcão para voltar a receber, a recepção reativa, e ele para de receber de novo,
+sem erro em lugar nenhum.
+
+Entrou `Api.Messaging.WebhookEvent` — corpos já vistos, chaveados pelo **SHA-256 do corpo cru**. A
+chave é o corpo, e não um id do provider, porque não depende de documentação que não temos (a Zernio
+não promete campo de id). A barreira mora nos **dois** controllers de webhook, e é consultada
+**depois** de processar: marcar antes faria uma falha no processamento consumir a única chance de
+reentrega. O Resend também a atravessa, embora o Svix já valide timestamp — a propriedade "um evento
+é processado uma vez" não deve depender de qual provider mandou.
+
+Junto veio a quarta poda da madrugada (`PruneWebhookEvents`, 03:45), e uma limitação aceita e
+escrita: **um payload guardado por mais de um ano volta a funcionar**. O conserto definitivo não
+está do nosso lado — exige a Zernio assinar timestamp.
+
+**Vermelho provado:** `o replay ressilenciou o paciente (doc 96, S-7)`.
+
+## 7.4 B-13 — o pacote vendido com N e zero na agenda
+
+O `−1 sessão` fazia duas escritas sem transação: cancelava a sessão e só então baixava o total.
+Falhar não era hipótese remota — `total` tem `min: 1` no recurso, então num pacote de **uma** sessão
+o segundo passo *sempre* recusava. Sobrava o pior estado do domínio, o mesmo que o comentário de
+`somar_sessao/3` diz ter consertado noutro caminho.
+
+`archive_package/2` tinha o outro formato do mesmo problema: lia as futuras numa transação e
+escrevia em outra, com a decisão tomada no meio. O que sobra de janela agora é a do **D-5** (sob
+`READ COMMITTED`), contra a anterior, que era do tamanho de duas transações separadas.
+
+Uma lição de implementação ficou no código: **`Repo.transaction` aninhado dentro de `in_clinic/2`
+não serve** para quem precisa de `Repo.rollback` — no Ecto a transação de dentro não abre savepoint,
+então o rollback derruba a de fora e o motivo chega como `{:error, :rollback}`, perdendo qual foi.
+Os dois usam `Api.Repo.with_clinic/2` cru.
+
+**Vermelho provado:** `a sessão foi cancelada e o total não baixou — pacote vendido com 1, zero na
+agenda`.
+
+## 7.5 P-3 e B-11 — transação e conexão do pool
+
+**P-3.** `por_clinica/1` abria a transação e `em_lote/4` recursava lá dentro: o `LIMIT 5000` reduzia
+o `DELETE`, **não** a transação. Invertido — o laço fora, cada `DELETE` no seu próprio `with_clinic`
+—, a poda também virou **retomável**: se a rodada morrer no meio, os lotes já commitados ficam.
+
+O teto do lote virou configuração, e não por gosto: com 5.000 o laço nunca dá a segunda volta em
+teste nenhum, ou seja, a recursão que o módulo existe para ter estava sem cobertura. O
+`poda_test.exs` novo baixa o teto para 2 e exercita o drenar de verdade — e diz, no moduledoc, o que
+**não** consegue provar (que cada lote é uma transação; sob o sandbox tudo é uma só).
+
+**B-11.** Os três `with_clinic` redundantes saíram (`send_job` ×2, `webhooks`, `patient_reply`) — as
+ações já carregam `SetTenantGuc`, e a transação de fora só acrescentava a armadilha que
+`Api.Tenancy` documenta. O caso real era o `ReminderJob`: a varredura **inteira** de uma clínica
+rodava dentro de um `with_clinic`, com um `Dispatch.dispatch` (escrita + `Oban.insert`) por presença
+lá dentro. Agora são duas fases — lê sob a GUC, dispara fora.
+
+Isso transfere a responsabilidade da GUC para o `Dispatch`, que já a assume por escrito. Quem
+**cobra** a afirmação é um teste `:rls` novo, e ele foi conferido **pela mutação**: tirando o
+`in_clinic` da fase 1, fica vermelho sob `cinetra_app` — e continua verde sob `postgres`, que é
+exatamente o motivo de o gate existir.
+
+## 7.6 L-3 e L-2 — as duas bordas que faltavam
+
+**L-3.** O transporte do socket é montado antes do router, e os dois limitadores são plugs de
+pipeline do router: `join` **nunca passou por teto nenhum**, e cada join custa uma query. O teto
+entrou em `ChannelScope.authorize/2` — ponto único por onde os três canais passam, e **antes** da
+query que ele protege —, por `user_id`, 120/min. A recusa deixa log, pela mesma razão de L-5: o
+canal responde só `:error`, sem status nem corpo.
+
+**L-2.** O estágio de borda virou plug do **endpoint**, entre `Plug.Telemetry` e `Plug.Parsers`.
+Como pipeline do router ele cortava antes do **banco**, mas não antes do **corpo**: uma requisição
+destinada a levar 429 já tinha lido e decodificado até 8 MB.
+
+A nuance que a auditoria não tinha: as isenções (`/webhooks`, health checks) eram feitas
+*escolhendo pipelines scope a scope*. Movendo o estágio para o endpoint elas precisam ser
+**explícitas**, senão a mudança reintroduz o que `router.ex` decidiu evitar — a rajada legítima de
+uma campanha virando 429. Viraram `@sem_teto_de_borda`, com teste.
+
+**Vermelho provado por ordem de plug**, sem medir memória: com o teto estourado, um corpo JSON
+malformado devolvia o **400 do parser**; agora devolve **429**. Não é opinião — é qual plug
+respondeu.
+
+## 7.7 Limpeza, idiomática e o que a execução refutou
+
+**M-2 — o AshJsonApi saiu inteiro** (decisão do usuário: não vamos expor Swagger). Foram junto os
+módulos `Api.Meta` e `ApiWeb.AshJsonApiRouter`, as deps `ash_json_api` e `open_api_spex`, o
+`AshJsonApi.Plug.Parser` do endpoint, a config de MIME `vnd.api+json` e o plug
+`ApiWeb.Plugs.RequireScope` — que existia **só** para tapar aquele escopo (o único sem guarda de
+controller, S-4). Duas rotas públicas, duas dependências e um plug a menos.
+
+**E-2 — `Api.Repo.unwrap/1`.** As três funções de GUC são `transaction/1`, então tudo volta com uma
+casca a mais, e onze pontos a tiravam à mão com semântica divergente. O pior era o `elem(1)`: sobre
+`{:error, motivo}` devolve o *motivo cru* como se fosse o valor — foi assim que o `SendJob`
+transformou erro de banco em "mensagem não existe". Uma função com as quatro cláusulas escritas uma
+vez faz o chamador voltar a decidir **o que fazer com o erro** em vez de decidir, sem querer, **se
+ele existe**.
+
+**E-1 (resto) — `Api.Scheduling.Hours`.** O bloco de expediente/exceções (314 linhas) saiu, com
+`defdelegate` na fachada, e nem controller nem teste mudaram uma linha. `Api.Scheduling` foi de
+1723 → **1220 linhas** somando as duas fatias.
+
+**R-4, P-8 e A-4** entraram no que sobrou de verdade: o `agora/1` idêntico em dois crons virou
+`Reminders.instante_dos_args/1`; a moldura repetida quatro vezes em `Api.Directory`; o comentário
+duplicado do `Falhas`; a leitura descartada de `all_slots` (que pedia `COUNT(*) OVER ()` e a lista
+inteira de profissionais para jogar fora); o `get_package!` duas vezes por request; o fuso resolvido
+**antes** do teste barato no `SessionSoonJob`; e a `read :na_janela` da `Attendance`, que tira do
+worker um recorte que é do recurso.
+
+**Dois pontos de A-4 a execução refutou**, e vale escrever por quê:
+
+- `Api.Notifications.unread_count/1` — a alternativa "usar o code interface" **materializaria as
+  linhas** para contar. `Ash.Query.for_read(:unread) |> Ash.count!` é a forma idiomática de contar
+  *por ação*, e os outros dois usos constroem query porque `bulk_update!`/`bulk_destroy!` pedem
+  query, não registros;
+- `Api.Audit.Acesso.consultar/3` — a ação é **dinâmica** (`:recent_duplicate` ou
+  `:recent_duplicate_by_label`) e a pergunta é `exists?`. Code interface não faz nenhuma das duas.
+
+**O-2 já estava resolvido** e o doc 96 não sabia: `Api.Tracing.OtlpFilter` descarta a linha e emite
+métrica no lugar — melhor que o throttle sugerido, porque *"o exportador está fora" é estado, não
+evento*.
+
+## 7.8 O contrato com o BFF (H-5, H-8, H-10)
+
+Os três num commit só, api+web, porque nenhum deles pode andar sozinho.
+
+**H-5.** As 14 chaves `camelCase` viraram `snake_case` nos dois controllers e nos ~20 arquivos do
+web que as consomem. O cuidado que a mudança exigiu: `patientId` também é **nome de variável local**
+em meia dúzia de componentes (`PatientAttachments`, `PackageCreateModal`…) — renomear por busca cega
+teria quebrado prop de componente. O `svelte-check` foi o instrumento: mudar os **tipos** primeiro e
+deixar os 21 erros apontarem cada consumidor real.
+
+**H-8.** As quatro formas de `page` viraram uma, `ApiWeb.TenantScope.page_json/1`, e as duas que
+eram montadas **dentro do domínio** (`Api.Audit`, `Api.Waitlist`) voltaram para a fronteira. `total`
+sai **sempre**, e vem `nil` quando a leitura não contou — a ausência do campo era o problema real,
+porque `undefined` e `null` pedem código diferente para o mesmo fato. Contar continua sendo escolha
+do domínio, e cara: `count: false` custa 400× menos buffers.
+
+**H-10.** `put_status(:unauthorized) |> redirect(external: …)` emitia **401 com header `Location`**
+— um redirect que browser nenhum segue. Funcionava porque quem lê é o BFF, com `redirect: 'manual'`,
+e ele olha só o `set-cookie`. Virou o 401 único da API (`unauthenticated`), e quem escolhe o destino
+é o BFF, que já o escolhia.
+
+## 7.9 O que fica em aberto, e por quê
+
+| Item | Situação |
+| --- | --- |
+| **B-12** | **Débito aceito** (D-22). Capacidade de turma é orientação de sala, não invariante de dinheiro; um a mais a recepção remaneja. A armadilha do remédio óbvio (lock a partir de uma validation) está escrita no código. |
+| **P-6** | **Débito aceito** (D-23). `future_conflicts` precisa mesmo rodar dentro da transação de escrita — tirá-la reabre a janela do D-5 onde hoje ela não existe. O horizonte da varredura é decisão de produto. |
+| **P-9** | **Não medível em dev** (banco vazio). Destrava com o teste de carga do [doc 98](98-teste-de-carga-em-producao.md): medir `pg_stat_user_indexes` antes/depois, **pelo caminho da aplicação**. |
+| **S-7 (resíduo)** | Payload com mais de um ano de idade volta a ser replayável, porque a linha foi podada. Fechar exige a Zernio assinar timestamp — não está do nosso lado. |
+
+E um débito que **nasceu** nesta leva, já registrado: a poda continua sem prova automatizada de que
+cada lote é uma transação própria. É a mesma cegueira estrutural do **D-15**, por um caminho
+diferente, e está dita no moduledoc do `poda_test.exs` em vez de ficar implícita.

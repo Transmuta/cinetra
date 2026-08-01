@@ -65,12 +65,37 @@ defmodule Api.Waitlist do
         entries: page.results,
         professionals:
           Api.Directory.list_professionals!(scope: scope, query: [filter: [ativo: true]]),
-        page: %{limit: page.limit, offset: page.offset, total: page.count, more: page.more?}
+        # Cru, como em `Api.Audit`: a forma do wire é da fronteira (doc 96, H-8).
+        page: page
       }
     end)
   end
 
   # Os tetos são de `Api.Pagination` — a mesma regra das outras listas do projeto.
+
+  @doc """
+  Só os **itens** da mesma página — sem a contagem total e sem os profissionais (doc 96, P-8).
+
+  Serve `GET /waitlist/slots`, que precisa da mesma janela de `list_entries/2` para saber de quem
+  calcular vaga, e jogava fora as duas outras coisas que ela traz: o `COUNT(*) OVER ()` da
+  paginação e a lista completa de profissionais ativos. Duas leituras por request, todo request,
+  para nada — e a contagem é a cara: `Api.Pagination` documenta o `count: false` custando 400×
+  menos buffers.
+
+  A janela é a mesma de propósito (o cliente pede o mesmo `limit`/`offset` nas duas chamadas), e é
+  por isso que as duas funções compartilham `build_query/1` e `entry_load/0` em vez de repetirem o
+  recorte.
+  """
+  def list_entries_only(%Api.Scope{} = scope, opts \\ []) do
+    in_clinic(scope, fn ->
+      page_waitlist_entries!(
+        scope: scope,
+        load: entry_load(),
+        query: build_query(opts),
+        page: opts |> Api.Pagination.page_opts() |> Keyword.put(:count, false)
+      ).results
+    end)
+  end
 
   @doc """
   Quantos itens a fila tem por prioridade — a sidebar (F6).

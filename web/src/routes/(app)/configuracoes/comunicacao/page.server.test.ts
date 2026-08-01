@@ -5,8 +5,10 @@ vi.mock('$lib/server/clinics', () => s);
 
 import { load, actions } from './+page.server';
 
-// A tela de comunicação (doc 52 §7). O que precisa estar preso aqui é a distinção
-// **desligado ≠ zero**: mandar 0 em vez de `null` ligaria o lembrete para o instante da sessão.
+// A tela de comunicação (doc 52 §7). O lembrete — e com ele a distinção "desligado ≠ zero" que
+// este arquivo guardava — saiu em 2026-08-01: sem cron, o número não tinha quem o lesse. O que
+// restou de load-bearing é o interruptor de WhatsApp, e o que o torna DESLIGÁVEL: campo ausente
+// significa `false`, não "não mexe".
 
 const event = {} as never;
 
@@ -38,29 +40,6 @@ describe('load', () => {
 });
 
 describe('save', () => {
-	it('lembrete em branco vira null — DESLIGADO, não zero', async () => {
-		await actions.save(formEvent({ msg_lembrete_horas: '' }));
-
-		expect(s.updateClinicMessaging.mock.calls[0][1]).toMatchObject({
-			msg_lembrete_horas: null
-		});
-	});
-
-	it('lembrete preenchido viaja como número', async () => {
-		await actions.save(formEvent({ msg_lembrete_horas: '24' }));
-
-		expect(s.updateClinicMessaging.mock.calls[0][1]).toMatchObject({ msg_lembrete_horas: 24 });
-	});
-
-	it('recusa hora fora da faixa antes de chamar a API', async () => {
-		const out = (await actions.save(formEvent({ msg_lembrete_horas: '0' }))) as {
-			status: number;
-		};
-
-		expect(out.status).toBe(400);
-		expect(s.updateClinicMessaging).not.toHaveBeenCalled();
-	});
-
 	it('janela desligada manda as DUAS pontas em null', async () => {
 		// Mandar só uma deixaria um estado meio-configurado que a tela não sabe desenhar.
 		await actions.save(formEvent({ msg_silencio_inicio: '21', msg_silencio_fim: '8' }));
@@ -80,6 +59,21 @@ describe('save', () => {
 			msg_silencio_inicio: 22,
 			msg_silencio_fim: 7
 		});
+	});
+
+	it('`whatsapp=on` liga o canal', async () => {
+		await actions.save(formEvent({ whatsapp: 'on' }));
+
+		expect(s.updateClinicMessaging.mock.calls[0][1]).toMatchObject({ msg_whatsapp_ativo: true });
+	});
+
+	it('`whatsapp` ausente DESLIGA — e é isso que torna o interruptor reversível', async () => {
+		// Se ausente significasse "não mexe", o canal seria impossível de desligar pela tela. Aqui o
+		// custo do engano não é uma configuração perdida como no doc 98 §6: é mensagem paga saindo
+		// depois de a clínica ter pedido para parar.
+		await actions.save(formEvent({}));
+
+		expect(s.updateClinicMessaging.mock.calls[0][1]).toMatchObject({ msg_whatsapp_ativo: false });
 	});
 
 	it('não manda mais a confirmação automática — o campo deixou de existir (doc 98)', async () => {

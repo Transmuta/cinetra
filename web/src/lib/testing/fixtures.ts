@@ -6,6 +6,7 @@
 // continua verde; quem se importa sobrescreve pelo `over`.
 
 import type { Me, MembershipSummary, Papel } from '../session';
+import type { Clinic } from '../server/clinics';
 import type { AgendaProfessional } from '../agenda';
 import type { DayCount, ProfessionalCount } from '../agenda-views';
 import type { AuditEntry } from '../audit';
@@ -103,6 +104,33 @@ export function meFixture(over: Partial<Me> = {}): Me {
 		professional_id: null,
 		timezone: 'America/Sao_Paulo',
 		memberships: [membershipFixture()],
+		...over
+	};
+}
+
+// ---------------------------------------------------------------------------
+// A clínica ativa (`GET /api/clinic`)
+//
+// Duas telas de configuração leem do MESMO payload — identidade, contato, endereço e os `msg_*`
+// viajam juntos —, então cada campo novo na clínica quebrava os dois arquivos de teste ao mesmo
+// tempo. Foi o que aconteceu ao levar telefone, endereço estruturado e `msg_whatsapp_ativo` para
+// lá. Mesma razão do `meFixture` logo acima.
+export function clinicFixture(over: Partial<Clinic> = {}): Clinic {
+	return {
+		id: 'c1',
+		nome: 'Clínica Vida',
+		cnpj: null,
+		telefone: null,
+		cep: null,
+		endereco: null,
+		numero: null,
+		complemento: null,
+		bairro: null,
+		cidade: null,
+		uf: null,
+		msg_whatsapp_ativo: false,
+		msg_silencio_inicio: 21,
+		msg_silencio_fim: 8,
 		...over
 	};
 }

@@ -46,10 +46,17 @@ defmodule ApiWeb.AuthController do
         |> Helpers.store_in_session(user)
         |> redirect(external: Api.web_app_url())
 
+      # **401 de verdade, sem `Location`** (doc 96, H-10). Isto era
+      # `put_status(:unauthorized) |> redirect(external: …)`, e `Phoenix.Controller.redirect/2`
+      # faz `send_resp(conn.status || 302, …)` — saía **401 com header `Location`**, um redirect
+      # que browser nenhum segue. Funcionava porque quem lê esta resposta é o BFF, com
+      # `redirect: 'manual'`, e ele olha só o `set-cookie` (`reemitSession/2`); o destino do
+      # "redirect" nunca foi usado por ninguém.
+      #
+      # Quem decide para onde o usuário vai depois de um link inválido é o BFF, que já faz
+      # `redirect(303, '/entrar?erro=link')` — e é o lugar certo, porque a rota de destino é dele.
       {:error, _reason} ->
-        conn
-        |> put_status(:unauthorized)
-        |> redirect(external: Api.web_app_url() <> "/entrar?erro=magic_link")
+        unauthorized(conn)
     end
   end
 

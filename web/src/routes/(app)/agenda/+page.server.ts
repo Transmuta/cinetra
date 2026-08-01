@@ -334,6 +334,7 @@ export const actions: Actions = {
 					? { reschedule_reason: String(form.get('reschedule_reason')).trim() }
 					: {}),
 				encaixe: form.get('encaixe') === 'on' || form.get('encaixe') === 'true',
+				avisar_paciente: form.get('avisar_paciente') === 'on',
 				expected_version: expectedVersion(form)
 			})
 		);
@@ -354,6 +355,10 @@ export const actions: Actions = {
 			'cancelar',
 			await cancelAppointment(event, id, {
 				...(cancel_reason ? { cancel_reason } : {}),
+				// Diferente do motivo, este viaja SEMPRE — inclusive `false`. O motivo em branco é
+				// "não informado" e some do payload; a escolha de não avisar é uma resposta, e uma
+				// resposta omitida vira o default do servidor sem ninguém saber.
+				avisar_paciente: form.get('avisar_paciente') === 'on',
 				expected_version: expectedVersion(form)
 			})
 		);

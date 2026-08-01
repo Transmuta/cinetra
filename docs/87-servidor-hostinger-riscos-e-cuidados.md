@@ -13,6 +13,14 @@ para não gastar esforço em cima de coisa feita.
 > abaixo marcado "coberto" é código escrito e testado, não comportamento observado em produção.**
 > A distinção é o assunto do §9.
 
+> **ATUALIZAÇÃO 2026-07-31 — o parágrafo acima está vencido.** O servidor **foi provisionado**: um
+> **KVM 2 (8 GB)** na Hostinger, com prod + HML + observabilidade + Dokploy no ar. O que isso muda
+> neste documento está em **[§2.1](#21-o-que-a-máquina-de-verdade-mediu-2026-07-31--a-estimativa-acima-estava-errada)**
+> (a conta de memória, que estava ~3× superestimada) e em **[§9](#9-o-que-eu-não-medi)** (o alcance
+> revisado). O resto do documento — as quatro portas root-equivalentes, o firewall, os modos de
+> falha — continua valendo como escrito. A decisão de provedor está travada no
+> **[ADR-023](00-decisoes.md)**.
+
 A boa notícia vem primeiro: **o plano do doc 59 sobrevive quase inteiro**. A Hostinger oferece um
 template **"Ubuntu 24.04 com Dokploy"** pré-instalado, então a arquitetura (Dokploy + Traefik, dois
 stacks do mesmo compose, BFF-only, um domínio por ambiente) não muda **uma linha**. O que muda é a
@@ -65,6 +73,35 @@ backup.
 
 **Swap de 4 GB** em qualquer plano. Não é para rodar em swap — é para o pico de build não virar OOM
 kill do Postgres.
+
+### 2.1 O que a máquina de verdade mediu (2026-07-31) — a estimativa acima estava errada
+
+**A conta de cima está mantida como registro do raciocínio, mas a conclusão dela caiu.** O servidor
+foi provisionado num **KVM 2 (8 GB)** e está no ar com **prod + HML + observabilidade + Dokploy,
+tudo de pé ao mesmo tempo**:
+
+| | Estimado (§2) | **Medido** |
+|---|---|---|
+| Residente, tudo ligado | 8,5–12 GB | **≈ 3,5 GB** |
+| CPU durante o build | não estimado | **≈ 90%** dos 2 vCPU, sem degradação percebida no app |
+
+**Onde a estimativa errou, para não repetir o erro:** a linha da observabilidade somava
+**`mem_limit`**, que é **teto**, não consumo. Os 4,0 GB atribuídos aos 7 containers eram a soma dos
+limites declarados em [`compose.obs.yml`](../deploy/observability/compose.obs.yml); o working set
+real é uma fração disso. Teto de container é para conter o pior caso, não para prever o caso comum
+— usar um como se fosse o outro superestimou a conta em **~3×**.
+
+**Consequência direta:** o **KVM 2 é suficiente** e nenhum dos três cortes precisou entrar. Isso
+fecha a pergunta nº 4 do [doc 91 §7](91-custos.md) e mantém o piso de custo na linha de
+R$ 108,99/mês, não na de ≈ R$ 220.
+
+> **O alcance desta medição, dito com precisão.** São observações do operador na máquina em
+> operação, não uma série do Grafana anexada aqui, e — decisivo — **sob carga real baixa ou nula**.
+> Os 3,5 GB são um ponto, não um teto: não medem o pico de build coincidindo com uso real, que é
+> exatamente o cenário que a estimativa temia. O mesmo vale para o "sem degradação percebida": com
+> pouca gente usando, não há com quem o build competir. **O número que ainda falta é o mesmo de
+> antes — consumo e p95 sob clínica trabalhando** — e agora ele é medível, porque o stack de
+> observabilidade está no ar. Ver [D-21](50-debitos-tecnicos.md).
 
 ---
 
@@ -420,10 +457,12 @@ passa em silêncio.
 
 Honestidade sobre o alcance deste documento:
 
-- **Nada foi medido em servidor nenhum.** Não há VPS provisionada, na Hostinger nem na Oracle. Os
-  números de memória do §2 são: **teto declarado** (a coluna da observabilidade, lida do arquivo) e
-  **estimativa** (a do app e do build). A primeira coisa que o primeiro deploy do HML mede é essa
-  conta.
+- ~~**Nada foi medido em servidor nenhum.**~~ **Corrigido em 2026-07-31** — ver
+  [§2.1](#21-o-que-a-máquina-de-verdade-mediu-2026-07-31--a-estimativa-acima-estava-errada). A VPS
+  existe (KVM 2), a conta de memória foi medida e a estimativa deste documento **errou por ~3× para
+  cima**, porque somava `mem_limit` (teto) como se fosse consumo. O que **continua não medido** é o
+  que só aparece com carga: consumo e p95 com clínica trabalhando, e o build coincidindo com uso
+  real. Registrado como [D-21](50-debitos-tecnicos.md).
 - **As características do provedor vêm do material da Hostinger**, não de teste próprio: onde o
   firewall filtra, a retenção de backup, o comportamento do snapshot, a filtragem de DDoS. O item
   que mais merece confirmação é **se o firewall do hPanel de fato cobre porta publicada por

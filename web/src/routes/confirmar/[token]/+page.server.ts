@@ -23,7 +23,7 @@ interface Resumo {
 	data: string | null;
 	hora: string | null;
 	resposta: 'confirmou' | 'quer_remarcar' | null;
-	respondidoEm: string | null;
+	respondido_em: string | null;
 }
 
 async function chamar(

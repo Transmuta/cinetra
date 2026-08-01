@@ -40,7 +40,7 @@ defmodule Api.Messaging.Templates do
   código de erro para esse defeito; o sintoma é um paciente confuso.
 
   Por isso o corpo aprovado (`:corpo`) e a ordem (`:vars`) ficam lado a lado na mesma definição, e
-  a mix task que submete à Meta lê daqui. Uma fonte, não duas que se parecem.
+  `hsm_payload/2` monta a submissão a partir daqui. Uma fonte, não duas que se parecem.
 
   ## Por que o texto do WhatsApp não é igual ao do e-mail
 
@@ -78,6 +78,12 @@ defmodule Api.Messaging.Templates do
   # com ele, **mais um valor no fim de `templateParams`**. Template sem pergunta a fazer
   # (cancelamento, massa de pacote) não tem botão: um "confirmar" numa sessão que não existe mais
   # é convite a clique inútil.
+  #
+  # **Três destes não têm mais gatilho** (2026-08-01): `lembrete_v1`, `pacote_remarcado_v1` e
+  # `pacote_cancelado_v1`. Ficam pelo mesmo motivo que um `_v1` sobrevive a um `_v2` — a timeline
+  # renderiza a partir do template gravado, e sem a definição a linha antiga não tem como ser
+  # exibida. Os que ainda nascem são confirmação, remarcação e cancelamento, todos por gesto da
+  # recepção.
   @definicoes %{
     "confirmacao_v1" => %{
       kind: :confirmacao,
@@ -176,8 +182,8 @@ defmodule Api.Messaging.Templates do
   def conhecidos, do: Map.keys(@definicoes)
 
   @doc """
-  A definição HSM de um template — o que a mix task submete à Meta e o que `render_whatsapp/2`
-  usa para ordenar as posicionais. `nil` para template desconhecido.
+  A definição HSM de um template — o corpo aprovado e a ordem das posicionais que
+  `render_whatsapp/2` usa. `nil` para template desconhecido.
   """
   def hsm(template), do: Map.get(@definicoes, template)
 
@@ -195,10 +201,17 @@ defmodule Api.Messaging.Templates do
   }
 
   @doc """
-  O payload de submissão do template à Meta, via Zernio (doc 65 §3).
+  O payload de submissão do template à Meta — hoje a **especificação do cadastro manual**.
 
-  Mora aqui, e não na mix task, por dois motivos: é a **mesma** definição que `render_whatsapp/2`
-  usa (uma fonte, não duas que se parecem), e assim a montagem é testável sem rodar a task.
+  Houve uma mix task que submetia isto pela API da Zernio; ela saiu quando o cadastro passou a ser
+  feito à mão no painel. A função ficou, e não por inércia: é ela que os testes usam para prender
+  as regras da Meta que não têm código de erro barato — footer sem variável e dentro de 60
+  caracteres, componentes na ordem `BODY → FOOTER → BUTTONS`, categoria `UTILITY`, um exemplo por
+  posicional. Reprovação por qualquer uma dessas custa dias de fila para descobrir, e é mais
+  barato descobrir na suíte.
+
+  Ou seja: o que se registra no painel é o que sai daqui. Divergir é possível — ninguém programa o
+  painel —, e é por isso que o texto do corpo vive em `@definicoes` e não numa planilha.
 
   `base_url` é o domínio do botão de resposta — congelado no template aprovado, então trocá-lo
   depois exige `_v2`.

@@ -324,6 +324,7 @@ describe('ciclo de vida (Entrega 4)', () => {
 			starts_at: '2026-07-20T12:00:00Z',
 			professional_id: 'p2',
 			encaixe: true,
+			avisar_paciente: false,
 			expected_version: 3
 		});
 		expect(r.ok).toBe(true);
@@ -339,7 +340,7 @@ describe('ciclo de vida (Entrega 4)', () => {
 		m.apiFetch.mockResolvedValueOnce(
 			res(409, { error: 'conflict', code: 'version_conflict', details: [{ field: null, message: 'Recarregue.' }] })
 		);
-		const r = await cancelAppointment(event, 'a1', { expected_version: 1 });
+		const r = await cancelAppointment(event, 'a1', { avisar_paciente: false, expected_version: 1 });
 		expect(r.ok).toBe(false);
 		expect(r.status).toBe(409);
 		expect(r.code).toBe('version_conflict');

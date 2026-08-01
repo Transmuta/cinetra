@@ -11,13 +11,23 @@ diferentes:
 4. **O que ainda não está na lista** — os buracos, que aqui são maiores que qualquer linha da
    lista original (§6, §7).
 
-> **A divergência que vem primeiro, porque muda o número:** a lista traz **KVM 2 (8 GB) por
-> R$ 108,99/mês**, mas o [doc 87 §2](87-servidor-hostinger-riscos-e-cuidados.md) já concluiu, com a
-> conta de memória escrita container a container, que **8 GB não cabe** — prod + HML +
-> observabilidade + pico de build somam mais que isso, e "16 GB (KVM 4) é o piso". Ou o orçamento
-> sobe para o KVM 4, ou entra a ordem de corte do doc 87: **(1)** observabilidade para outra
-> máquina, **(2)** build fora da VM, **(3)** desligar o HML — **nunca reduzir o backup**. As duas
-> hipóteses aparecem lado a lado nas tabelas abaixo; a escolha é humana e ainda não foi feita.
+> ~~**A divergência que vem primeiro, porque muda o número:**~~ **RESOLVIDA em 2026-07-31 — o
+> KVM 2 fica.** A divergência era esta: a lista trazia **KVM 2 (8 GB) por R$ 108,99/mês** e o
+> [doc 87 §2](87-servidor-hostinger-riscos-e-cuidados.md) concluía, com a conta escrita container a
+> container, que "8 GB não cabe" e que "16 GB (KVM 4) é o piso".
+>
+> **O servidor foi provisionado e a conta do doc 87 estava errada.** Com prod + HML +
+> observabilidade + Dokploy no ar ao mesmo tempo, o consumo residente medido é **≈ 3,5 GB**, não
+> 8,5–12 GB — a estimativa somava `mem_limit` (**teto** de container) como se fosse consumo, e
+> errou por ~3× para cima. Ver
+> [doc 87 §2.1](87-servidor-hostinger-riscos-e-cuidados.md#21-o-que-a-máquina-de-verdade-mediu-2026-07-31--a-estimativa-acima-estava-errada).
+>
+> **Consequência para este documento:** vale a **linha do KVM 2** nas tabelas abaixo (piso de
+> **R$ 135,08/mês**), a linha do KVM 4 fica como cenário de crescimento, e **nenhum** dos três
+> cortes precisou entrar. Decisão travada no [ADR-023](00-decisoes.md).
+>
+> **O que ainda não foi medido**, e é o que reabriria a conta: consumo sob carga real de clínica.
+> Os 3,5 GB são um ponto com pouca ou nenhuma gente usando ([D-21](50-debitos-tecnicos.md)).
 
 ---
 
@@ -43,19 +53,21 @@ Custo que existe pelo simples fato de o produto estar no ar.
 
 | Item | Fornecedor | Preço de lista | **R$/mês** |
 |---|---|---|---|
-| Servidor — **KVM 2 (8 GB)** *(o da lista)* | Hostinger | R$ 108,99/mês | **108,99** |
-| Servidor — **KVM 4 (16 GB)** *(o que o doc 87 exige)* | Hostinger | *a confirmar no painel* | **≈ 220,00** ⚠️ |
+| Servidor — **KVM 2 (8 GB)** ✅ *(provisionado, em uso — 3,5 GB de 8 com tudo no ar)* | Hostinger | R$ 108,99/mês | **108,99** |
+| Servidor — **KVM 4 (16 GB)** *(cenário de crescimento, não contratado)* | Hostinger | *a confirmar no painel* | **≈ 220,00** ⚠️ |
 | Domínio | Registro.br | R$ 40/ano | **3,33** |
 | Número de WhatsApp | Zernio + Meta | US$ 4/mês | **22,76** |
 | Armazenamento de arquivos | Cloudflare R2 | US$ 0,015/GB/mês | **0,00** (franquia) |
 | E-mail transacional | Resend | US$ 0,90/1.000 | **0,00** (franquia) |
 | TLS | Let's Encrypt via Traefik | — | **0,00** |
 | Observabilidade | Loki/Grafana/Prometheus **self-hosted** | — | **0,00** em licença; o custo dela é **RAM**, e está embutido no plano do servidor |
-| **Piso com KVM 2** | | | **R$ 135,08/mês** · R$ 1.621/ano |
-| **Piso com KVM 4** | | | **≈ R$ 246,09/mês** · ≈ R$ 2.953/ano |
+| **Piso com KVM 2** ✅ *(o vigente)* | | | **R$ 135,08/mês** · R$ 1.621/ano |
+| **Piso com KVM 4** *(hipótese de crescimento)* | | | **≈ R$ 246,09/mês** · ≈ R$ 2.953/ano |
 
 ⚠️ **O preço do KVM 4 é estimativa minha, não valor verificado** — trate como campo a preencher, não
-como número. É a única linha da tabela que não veio de fonte confirmada.
+como número. É a única linha da tabela que não veio de fonte confirmada. Como o KVM 2 ficou
+([ADR-023](00-decisoes.md)), essa lacuna deixou de bloquear a conta: **o piso vigente é o de cima,
+R$ 135,08/mês**, e todos os números derivados deste documento saem dele.
 
 Duas observações que a lista original escondia ao escrever "$4/mês pelo número":
 
@@ -173,10 +185,16 @@ Estes não estão precificados em lugar nenhum e são, somados, provavelmente ma
 2. **Os R$ 0,05 da Zernio incluem a tarifa da Meta?** Define se o §4 está certo ou pela metade.
 3. **Os R$ 0,05 valem igual para enviada e recebida?** A lista diz que sim; confirmar, porque
    resposta de paciente é volume que não controlamos.
-4. **KVM 2 ou KVM 4?** Se ficar no KVM 2, **qual corte do doc 87** entra junto — porque manter o
-   modelo inteiro em 8 GB não é uma das opções.
-5. **R$ 108,99 é preço de contrato ou de renovação?** E por quantos meses.
-6. **Qual o preço real do KVM 4?** É o único número deste doc que eu estimei.
+4. ~~**KVM 2 ou KVM 4?**~~ **RESPONDIDA (2026-07-31): KVM 2, sem corte nenhum.** A premissa da
+   pergunta ("manter o modelo inteiro em 8 GB não é uma das opções") era falsa — vinha de uma
+   estimativa que somava teto de container como consumo. Medido: **3,5 GB com tudo no ar**. Ver
+   [ADR-023](00-decisoes.md) e
+   [doc 87 §2.1](87-servidor-hostinger-riscos-e-cuidados.md#21-o-que-a-máquina-de-verdade-mediu-2026-07-31--a-estimativa-acima-estava-errada).
+5. **R$ 108,99 é preço de contrato ou de renovação?** E por quantos meses. **Continua aberta, e
+   subiu de importância**: agora é o único risco de preço do piso, e o §6 já registra que VPS
+   costuma ser promocional em contrato longo e subir +50–100% na renovação.
+6. ~~**Qual o preço real do KVM 4?**~~ **Deixou de bloquear** — o KVM 4 não foi contratado. Volta a
+   importar só se o D-21 (carga real) mostrar que 8 GB aperta.
 
 ---
 

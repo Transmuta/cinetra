@@ -96,7 +96,10 @@ defmodule Api.Messaging.NotifierTest do
         resource: Api.Scheduling.Appointment,
         action: %{name: :reschedule},
         data: appt,
-        changeset: %{context: %{}}
+        # `avisar_paciente: true` porque desde 2026-08-01 o disparo é opt-in: a recepção responde
+        # a pergunta do modal. Sem ele, este contraprova ficaria verde pelo motivo errado — nada
+        # sai, e a razão seria a escolha, não a marca de lote que o teste vizinho investiga.
+        changeset: %{context: %{}, arguments: %{avisar_paciente: true}}
       }
 
       assert :ok = Api.Messaging.Notifier.notify(notificacao)

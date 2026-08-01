@@ -20,6 +20,7 @@ defmodule ApiWeb.ZernioWebhookController do
 
   require Logger
 
+  alias Api.Messaging
   alias Api.Messaging.Webhooks
   alias Api.Messaging.ZernioSignature
   alias ApiWeb.Plugs.CacheRawBody
@@ -30,7 +31,17 @@ defmodule ApiWeb.ZernioWebhookController do
 
     case ZernioSignature.verificar(corpo, conn.req_headers, segredo()) do
       :ok ->
-        Webhooks.processar_zernio(params)
+        # **A metade que faltava da autenticação** (doc 96, S-7). A assinatura da Zernio não cobre
+        # timestamp, então um corpo capturado vale para sempre; quem recusa o replay é a barreira
+        # de evento visto. Ela mora aqui, e não no domínio, porque a chave é o **corpo cru** — que
+        # só a fronteira tem.
+        #
+        # A ordem importa: processa e **depois** marca. Marcar antes faria uma falha no
+        # processamento consumir a única chance de o provider reentregar aquele evento.
+        if Messaging.webhook_visto("zernio", corpo) == :novo do
+          Webhooks.processar_zernio(params)
+        end
+
         json(conn, %{ok: true})
 
       {:error, motivo} ->

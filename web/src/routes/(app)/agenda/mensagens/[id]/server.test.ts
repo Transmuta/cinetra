@@ -14,7 +14,7 @@ const event = (id: string) => ({ params: { id } }) as never;
 
 describe('GET /agenda/mensagens/[id]', () => {
 	it('devolve a timeline', async () => {
-		const data = { participantes: [{ attendanceId: 'a1' }] };
+		const data = { participantes: [{ attendance_id: 'a1' }] };
 		s.fetchMessages.mockResolvedValueOnce({ status: 200, data });
 
 		const res = await GET(event('ap1'));

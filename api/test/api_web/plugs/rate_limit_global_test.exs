@@ -219,6 +219,64 @@ defmodule ApiWeb.Plugs.RateLimitGlobalTest do
     end
   end
 
+  # Doc 96, L-2. O estágio de borda existia para "cortar a enxurrada antes do trabalho", e cortava
+  # antes do BANCO (o teste acima prova isso) — mas não antes do **corpo**: `Plug.Parsers` é plug do
+  # endpoint e rodava antes do router, então mesmo a requisição que ia levar 429 já tinha lido,
+  # alocado e decodificado até 8 MB.
+  #
+  # O jeito de provar a ORDEM sem medir memória é mandar um corpo que o parser recusa: se ele roda
+  # primeiro, a resposta é o 400 dele; se o limitador roda primeiro, é 429. Nenhum dos dois é
+  # opinião — é qual plug respondeu.
+  describe "a borda roda antes do Plug.Parsers (L-2)" do
+    defp post_json_quebrado(ip) do
+      build_conn()
+      |> put_req_header("x-forwarded-for", ip)
+      |> put_req_header("content-type", "application/json")
+      |> post(~p"/api/patients", "{isto não é json")
+    end
+
+    test "passado o teto, o 429 vem ANTES do erro de parse" do
+      Application.put_env(:api, :rate_limit_global, edge_limit: 1)
+      ip = "192.0.2.10"
+
+      # A primeira consome o balde. Ela morre no parser mesmo — é o comportamento esperado de
+      # corpo inválido, e o que interessa é o que acontece com a SEGUNDA.
+      assert_raise Plug.Parsers.ParseError, fn -> post_json_quebrado(ip) end
+
+      assert post_json_quebrado(ip).status == 429,
+             "o parser respondeu antes do limitador — o corpo foi lido e decodificado à toa"
+    end
+
+    test "webhook segue isento mesmo com a borda no endpoint" do
+      # A isenção do `/webhooks` era do ROUTER (o escopo simplesmente não passava pelo estágio).
+      # Movendo o estágio para o endpoint, ela precisa ser explícita — senão a mudança reintroduz
+      # exatamente o que `router.ex` decidiu evitar: a rajada legítima de uma campanha virando 429.
+      Application.put_env(:api, :rate_limit_global, edge_limit: 1)
+
+      for _ <- 1..3 do
+        resp =
+          build_conn()
+          |> put_req_header("x-forwarded-for", "192.0.2.20")
+          |> post(~p"/webhooks/resend", %{})
+
+        assert resp.status == 401
+      end
+    end
+
+    test "health check segue isento mesmo com a borda no endpoint" do
+      Application.put_env(:api, :rate_limit_global, edge_limit: 1)
+
+      for _ <- 1..3 do
+        resp =
+          build_conn()
+          |> put_req_header("x-forwarded-for", "192.0.2.30")
+          |> get(~p"/api/health")
+
+        assert resp.status == 200
+      end
+    end
+  end
+
   test "o retry-after vai em SEGUNDOS (RFC 7231), não em milissegundos" do
     # `>= 1` aceitava 60000 tão bem quanto 60 — e 60000 mandaria o cliente esperar 16 horas.
     # A janela é de 1 minuto, então qualquer valor acima de 60 é erro de unidade por construção.

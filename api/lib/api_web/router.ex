@@ -17,13 +17,6 @@ defmodule ApiWeb.Router do
     plug ApiWeb.Plugs.LoadScope
   end
 
-  # Exige o escopo já montado, com 401 se não houver. Ver o moduledoc do plug: o `:authenticated`
-  # acima CARREGA a sessão e não a exige, e as rotas que não têm guarda de controller ficavam
-  # anônimas por omissão (doc 96, S-4).
-  pipeline :require_scope do
-    plug ApiWeb.Plugs.RequireScope
-  end
-
   # Fluxo OAuth (Assent): precisa da sessão para o parâmetro de state.
   pipeline :oauth do
     plug :fetch_session
@@ -36,42 +29,36 @@ defmodule ApiWeb.Router do
 
   # Rate limit do tráfego geral, em DOIS estágios (doc 68, causa C).
   #
-  # `:rate_limited_edge` vem ANTES do `:authenticated` e corta enxurrada por IP com teto folgado
-  # (400/min). Sem ele, cada requisição barrada ainda pagava as 5 queries da stack de sessão —
-  # medido: 42× de amplificação, 27 s de banco por minuto descartados.
+  # **O estágio de borda não está mais aqui** (doc 96, L-2): ele virou plug do
+  # [`ApiWeb.Endpoint`](endpoint.ex), acima do `Plug.Parsers`. Como pipeline do router ele corria
+  # depois do parser, e a requisição que ia levar 429 já tinha decodificado o corpo inteiro. Lá
+  # também estão as isenções que antes eram feitas aqui, escolhendo pipelines scope a scope
+  # (webhooks e health checks).
   #
-  # `:rate_limited_global` vem DEPOIS, quando já existe escopo, e aplica o limite fino de 200/min
-  # por ator. Fora dos dois: os endpoints de auth (limite próprio), os health checks (liveness não
-  # pode depender do rate limiter, doc 62 §7.1) e os webhooks (rajada legítima de campanha; a
-  # guarda deles é a assinatura). No-op fora de produção.
-  pipeline :rate_limited_edge do
-    plug ApiWeb.Plugs.RateLimitGlobal, stage: :edge
-  end
-
+  # `:rate_limited_global` continua sendo do router porque depende do `LoadScope`: quando já existe
+  # escopo, aplica o limite fino de 200/min **por ator**. Fora dele: os endpoints de auth, que têm
+  # o `RateLimitAuth` próprio e mais apertado. No-op fora de produção.
   pipeline :rate_limited_global do
     plug ApiWeb.Plugs.RateLimitGlobal, stage: :actor
   end
 
-  # AshJsonApi (recursos do domínio) — sob :authenticated, então cada request já chega
-  # com actor e `clinic_id` (tenant) resolvidos do escopo, nunca do corpo/URL (09 §8).
+  # **`/api/json` não existe mais** (doc 96, M-2 — decisão de 2026-08-01: não vamos expor
+  # Swagger). Aqui moravam o `forward` do `AshJsonApi` e o `SwaggerUI`, servindo o domínio
+  # `Api.Meta`, que estava **vazio** (`routes do end`, `resources do end`) desde que a auditoria do
+  # doc 13 removeu o recurso de scaffold `Ping`.
   #
-  # `RequireScope` fecha o buraco do doc 96 (S-4): este é o único escopo cujas rotas **não** têm
-  # guarda de controller — o `forward` entrega ao AshJsonApi e ao Swagger UI, que dependiam só da
-  # policy de cada recurso. Sem ele, `/api/json/swaggerui` respondia 200 sem cookie nenhum.
-  scope "/api/json" do
-    pipe_through [:api, :rate_limited_edge, :authenticated, :require_scope, :rate_limited_global]
-
-    forward "/swaggerui", OpenApiSpex.Plug.SwaggerUI,
-      path: "/api/json/open_api",
-      default_model_expand_depth: 4
-
-    forward "/", ApiWeb.AshJsonApiRouter
-  end
+  # O que saiu junto: os módulos `Api.Meta` e `ApiWeb.AshJsonApiRouter`, as deps `ash_json_api` e
+  # `open_api_spex`, o `AshJsonApi.Plug.Parser` do endpoint e o plug `ApiWeb.Plugs.RequireScope` —
+  # que existia **só** para tapar este escopo (era o único sem guarda de controller, doc 96 S-4).
+  #
+  # Duas rotas públicas a menos, duas dependências a menos e um plug a menos para manter. Se um dia
+  # houver JSON:API, ele volta com recurso de verdade, policy e guarda — que é o que a lição do doc
+  # 13 pedia e uma superfície montada sobre domínio vazio não tinha como cumprir.
 
   # Endpoints de auth com rate limit (auditoria doc 13, causa A): os que geram e-mail/token
   # ou trocam de tenant. No-op fora de produção.
   scope "/api", ApiWeb do
-    pipe_through [:api, :rate_limited_edge, :authenticated, :rate_limited]
+    pipe_through [:api, :authenticated, :rate_limited]
 
     # Autenticação sem senha (ADR-015, contrato 09 §8).
     post "/auth/magic-link", AuthController, :request_magic_link
@@ -90,7 +77,7 @@ defmodule ApiWeb.Router do
   end
 
   scope "/api", ApiWeb do
-    pipe_through [:api, :rate_limited_edge, :authenticated, :rate_limited_global]
+    pipe_through [:api, :authenticated, :rate_limited_global]
 
     # Onboarding do primeiro acesso: cria a clínica + owner (ADR-016). clinic_id nasce aqui.
     post "/clinics", ClinicController, :onboard
@@ -307,7 +294,7 @@ defmodule ApiWeb.Router do
   end
 
   scope "/", ApiWeb do
-    pipe_through [:api, :rate_limited_edge, :rate_limited_global]
+    pipe_through [:api, :rate_limited_global]
 
     # A resposta do paciente (§5). O token identifica UMA mensagem e não abre sessão nenhuma —
     # e por ser pública e sem sessão, é exatamente o tipo de rota que o limite global protege.
@@ -318,7 +305,7 @@ defmodule ApiWeb.Router do
   # Máquina OAuth do AshAuthentication (Assent): request + callback do Google. Chama
   # `ApiWeb.AuthStrategyController.success/4` / `failure/3`.
   scope "/" do
-    pipe_through [:oauth, :rate_limited_edge, :rate_limited_global]
+    pipe_through [:oauth, :rate_limited_global]
     auth_routes(ApiWeb.AuthStrategyController, Api.Accounts.User, path: "/api/auth/strategy")
   end
 

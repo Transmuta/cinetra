@@ -27,7 +27,7 @@ defmodule ApiWeb.MessagesControllerTest do
       %{"participantes" => [linha]} = get_json(sessao, appt)
 
       assert linha["paciente"] == paciente.nome
-      assert linha["semEnvio"] == nil
+      assert linha["sem_envio"] == nil
 
       assert [%{"kind" => "lembrete", "automatico" => true, "status" => "pendente"}] =
                linha["mensagens"]
@@ -39,7 +39,7 @@ defmodule ApiWeb.MessagesControllerTest do
     } do
       # O bug relatado ao vivo em 2026-07-29, e ele **só existe atravessando a fronteira**: era
       # aqui, nesta linha, que a recepção lia "Confirmação por e-mail · Na fila · sai qua., 08:00"
-      # para uma sessão que já não ia acontecer. `agendadoPara` é o que vira aquela promessa na
+      # para uma sessão que já não ia acontecer. `agendado_para` é o que vira aquela promessa na
       # tela, e depois do descarte ele não pode mais governar a linha.
       #
       # O caminho passa por **reabrir**, e não por acaso: o `carregar/2` só lista participante
@@ -53,7 +53,7 @@ defmodule ApiWeb.MessagesControllerTest do
 
       %{"participantes" => [antes]} = get_json(sessao, appt)
 
-      assert [%{"status" => "pendente", "agendadoPara" => quando} = confirmacao] =
+      assert [%{"status" => "pendente", "agendado_para" => quando} = confirmacao] =
                antes["mensagens"]
 
       assert quando != nil
@@ -74,8 +74,8 @@ defmodule ApiWeb.MessagesControllerTest do
       linha = Enum.find(depois["mensagens"], &(&1["id"] == confirmacao["id"]))
 
       assert linha["status"] == "descartada"
-      assert linha["descarteMotivo"] == "sessao_cancelada"
-      assert linha["descartadaEm"] != nil
+      assert linha["descarte_motivo"] == "sessao_cancelada"
+      assert linha["descartada_em"] != nil
     end
 
     test "explica o silêncio de quem não tem contato", %{ctx: ctx, sessao: sessao} do
@@ -85,7 +85,7 @@ defmodule ApiWeb.MessagesControllerTest do
       %{"participantes" => [linha]} = get_json(sessao, appt)
 
       assert linha["mensagens"] == []
-      assert linha["semEnvio"] == "sem_contato"
+      assert linha["sem_envio"] == "sem_contato"
     end
 
     test "explica o silêncio de quem não autorizou", %{ctx: ctx, sessao: sessao} do
@@ -94,7 +94,7 @@ defmodule ApiWeb.MessagesControllerTest do
 
       %{"participantes" => [linha]} = get_json(sessao, appt)
 
-      assert linha["semEnvio"] == "sem_consentimento"
+      assert linha["sem_envio"] == "sem_consentimento"
     end
 
     test "explica o silêncio de quem pediu para parar", %{ctx: ctx, sessao: sessao} do
@@ -104,7 +104,7 @@ defmodule ApiWeb.MessagesControllerTest do
 
       %{"participantes" => [linha]} = get_json(sessao, appt)
 
-      assert linha["semEnvio"] == "opt_out"
+      assert linha["sem_envio"] == "opt_out"
     end
 
     test "uma linha por participante da turma", %{ctx: ctx, sessao: sessao} do
@@ -121,7 +121,7 @@ defmodule ApiWeb.MessagesControllerTest do
 
       assert length(linhas) == 2
       # Numa turma, "confirmação enviada" no bloco mentiria para quem não recebeu (§3).
-      assert Enum.any?(linhas, &(&1["semEnvio"] == "sem_contato"))
+      assert Enum.any?(linhas, &(&1["sem_envio"] == "sem_contato"))
       assert Enum.any?(linhas, &(&1["mensagens"] != []))
     end
 
@@ -148,7 +148,7 @@ defmodule ApiWeb.MessagesControllerTest do
       # O cru continua disponível para o suporte investigar…
       assert m["erro"] == "mailbox does not exist"
       # …e o que a tela mostra é a AÇÃO, em português.
-      assert m["erroTexto"] =~ "confira o endereço na ficha"
+      assert m["erro_texto"] =~ "confira o endereço na ficha"
     end
 
     test "agendamento de outra clínica responde 404", %{sessao: sessao} do
@@ -192,14 +192,14 @@ defmodule ApiWeb.MessagesControllerTest do
 
       conn = post(sessao, ~p"/api/appointments/#{appt.id}/messages", %{})
 
-      assert %{"resultados" => [%{"enviado" => true, "agendadoPara" => quando}]} =
+      assert %{"resultados" => [%{"enviado" => true, "agendado_para" => quando}]} =
                json_response(conn, 201)
 
       assert quando != nil
 
       # E a timeline devolve o mesmo instante — é dele que sai o "sai às 8h" da tela.
       %{"participantes" => [linha]} = get_json(sessao, appt)
-      assert Enum.all?(linha["mensagens"], &(&1["agendadoPara"] == quando))
+      assert Enum.all?(linha["mensagens"], &(&1["agendado_para"] == quando))
     end
 
     test "com uma confirmação já na fila, o segundo clique não empilha outra", %{
@@ -295,7 +295,7 @@ defmodule ApiWeb.MessagesControllerTest do
       conn =
         post(sessao, ~p"/api/appointments/#{appt.id}/messages", %{"patient_id" => um.id})
 
-      assert %{"resultados" => [%{"patientId" => id}]} = json_response(conn, 201)
+      assert %{"resultados" => [%{"patient_id" => id}]} = json_response(conn, 201)
       assert id == um.id
     end
   end

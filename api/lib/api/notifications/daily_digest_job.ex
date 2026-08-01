@@ -48,7 +48,7 @@ defmodule Api.Notifications.DailyDigestJob do
         de = Reminders.inicio_do_dia(amanha, tz)
         ate = Reminders.inicio_do_dia(Date.add(amanha, 1), tz)
 
-        Reminders.por_dono_da_coluna(clinic_id, de, ate, fn user_id, blocos ->
+        Reminders.por_dono_da_coluna(clinic_id, de, ate, fn user_id, blocos, _tz ->
           Fanout.daily_digest(clinic_id, user_id, amanha, length(blocos))
           1
         end)

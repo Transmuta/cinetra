@@ -152,9 +152,11 @@ defmodule ApiWeb.PackagesController do
         {:ok, nil} ->
           not_found(conn)
 
-        {:ok, %{}} ->
+        # O pacote já lido segue adiante (doc 96, P-8): `list_sessions/2` o relia para saber se a
+        # série está pausada, e era a mesma linha do banco duas vezes no mesmo request.
+        {:ok, %{} = pkg} ->
           json(conn, %{
-            sessions: Enum.map(Packages.list_sessions(scope, id), &PackagesJSON.session/1)
+            sessions: Enum.map(Packages.list_sessions(scope, pkg), &PackagesJSON.session/1)
           })
       end
     end)

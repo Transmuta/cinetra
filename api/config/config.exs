@@ -7,17 +7,9 @@
 # General application configuration
 import Config
 
-config :mime,
-  extensions: %{"json" => "application/vnd.api+json"},
-  types: %{"application/vnd.api+json" => ["json"]}
-
 # Base IANA de fusos (dep :tz). Sem isto `DateTime.new/4` devolve
 # `{:error, :time_zone_not_found}` e o `Clinic.timezone` (ADR-009) não converte nada.
 config :elixir, :time_zone_database, Tz.TimeZoneDatabase
-
-config :ash_json_api,
-  show_public_calculations_when_loaded?: false,
-  authorize_update_destroy_with_error?: true
 
 # These enable behaviors that will become the default in the next major
 # version of Ash. Setting them now opts your application into the new
@@ -73,7 +65,6 @@ config :api,
   generators: [timestamp_type: :utc_datetime],
   ecto_repos: [Api.Repo],
   ash_domains: [
-    Api.Meta,
     Api.Accounts,
     Api.Directory,
     Api.Scheduling,
@@ -114,18 +105,15 @@ config :api, Oban,
        # tem BYTES no R2 do outro lado, e por isso varre linha a linha em vez de DELETE em
        # lote — e a trilha de acesso a anexo.
        {"30 3 * * *", Api.Housekeeping.PruneAttachments},
+       # Mais 15 min, e o mesmo motivo de desencontro. A quarta poda é a única sem clínica: a
+       # tabela de corpos de webhook já vistos (doc 96, S-7) não tem tenant nenhum.
+       {"45 3 * * *", Api.Housekeeping.PruneWebhookEvents},
        # #51 — lembretes por relógio. O resumo acorda de hora em hora porque "19h" é local de
        # cada clínica (ADR-009); só trabalha nas que estão na hora certa.
        {"0 * * * *", Api.Notifications.DailyDigestJob},
        # A cada 5 min, servindo a janela [+15, +20). É esta linha que desliga o "sessão em 15
        # min" caso a objeção do doc 31 §3d (ruído) se confirme no uso.
-       {"*/5 * * * *", Api.Notifications.SessionSoonJob},
-       # Doc 52 §7 — lembrete de sessão AO PACIENTE (não confundir com o `SessionSoonJob`, que
-       # avisa o profissional). A cada 15 min porque a janela tem 15 min: o passo do cron e a
-       # largura da janela são o MESMO número, e é isso que a faz ladrilhar (`@passo_minutos` em
-       # `Api.Messaging.ReminderJob`). Era de hora em hora até 2026-07-31, quando o padrão de 2 h
-       # tornou visível que a largura da janela é o erro da antecedência prometida (doc 98).
-       {"*/15 * * * *", Api.Messaging.ReminderJob}
+       {"*/5 * * * *", Api.Notifications.SessionSoonJob}
      ]}
   ]
 

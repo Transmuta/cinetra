@@ -68,7 +68,9 @@ defmodule ApiWeb.NotificationsControllerTest do
       body = as(ctx.owner) |> get("/api/notifications?limit=2") |> json_response(200)
 
       assert length(body["notifications"]) == 2
-      assert body["page"] == %{"limit" => 2, "offset" => 0, "more" => true}
+      # `total` sai SEMPRE, e vem `nil` quando a leitura não contou (doc 96, H-8). A caixa do
+      # sino é `count: false` de propósito — quem conta é o `unread_count/1`, no índice parcial.
+      assert body["page"] == %{"limit" => 2, "offset" => 0, "more" => true, "total" => nil}
 
       segunda = as(ctx.owner) |> get("/api/notifications?limit=2&offset=4") |> json_response(200)
       assert length(segunda["notifications"]) == 1

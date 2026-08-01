@@ -46,7 +46,7 @@
 		/** O relógio do servidor (ADR-009). Decide se a previsão de envio ainda está no futuro. */
 		agora?: string;
 		podeEnviar?: boolean;
-		onReenviar?: (patientId: string) => void;
+		onReenviar?: (patient_id: string) => void;
 	} = $props();
 
 	// "ter 14:02" — dia da semana curto + hora, no fuso da clínica. Data cheia numa lista de 4
@@ -77,7 +77,7 @@
 		<p class="text-rotulo text-faint">Nada a mostrar.</p>
 	{:else}
 		<ul class="flex flex-col gap-3.5">
-			{#each participantes as p (p.attendanceId)}
+			{#each participantes as p (p.attendance_id)}
 				<li>
 					<!-- O nome só aparece quando há mais de um participante: numa sessão individual
 					     ele repetiria o cabeçalho do drawer duas linhas acima. -->
@@ -119,8 +119,8 @@
 									{#if m.automatico}
 										· automático
 									{/if}
-									{#if m.erroTexto}
-										<span class="text-danger"> · {m.erroTexto}</span>
+									{#if m.erro_texto}
+										<span class="text-danger"> · {m.erro_texto}</span>
 									{/if}
 								</span>
 							</li>
@@ -132,18 +132,18 @@
 									<span class="mt-0.5 shrink-0"><Star size={14} /></span>
 									<span>
 										{respostaTexto(m)}
-										{#if quando(m.respondidoEm)}
-											· {quando(m.respondidoEm)}
+										{#if quando(m.respondido_em)}
+											· {quando(m.respondido_em)}
 										{/if}
 									</span>
 								</li>
 							{/if}
 						{/each}
 
-						{#if p.semEnvio}
+						{#if p.sem_envio}
 							<li class="flex items-start gap-2 text-rotulo text-faint">
 								<span class="mt-0.5 shrink-0"><Minus size={14} /></span>
-								<span>{semEnvioTexto(p.semEnvio)}</span>
+								<span>{semEnvioTexto(p.sem_envio)}</span>
 							</li>
 						{:else if p.mensagens.length === 0}
 							<!-- Nada saiu e nada barra: a linha é o §6 em vigor — sem ela este
@@ -159,7 +159,7 @@
 					{#if podeEnviar && podeReenviar(p) && onReenviar}
 						<button
 							type="button"
-							onclick={() => onReenviar?.(p.patientId)}
+							onclick={() => onReenviar?.(p.patient_id)}
 							class="mt-1.5 text-rotulo font-semibold text-accent hover:underline"
 						>
 							Reenviar

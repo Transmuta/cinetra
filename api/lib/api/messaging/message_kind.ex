@@ -15,13 +15,18 @@ defmodule Api.Messaging.MessageKind do
   nunca pelo reúso do `comunicacao` da ficha.
 
   Acrescentar valor aqui não é migration (a coluna é `text` e o enum vive no Ash); remover um
-  valor já persistido é que quebra.
+  valor já persistido é que quebra. É por isso que os **aposentados** continuam na lista: eles não
+  nascem mais de gatilho nenhum, mas uma linha antiga precisa continuar renderizando. Quem procura
+  "quem ainda dispara isto?" olha `Api.Messaging.Notifier` e `ApiWeb.MessagesController`, não aqui.
   """
   use Ash.Type.Enum,
     values: [
       # "Sua sessão foi agendada para <dia> às <hora>" — sai na criação e no botão do drawer.
       :confirmacao,
-      # "Sua sessão é amanhã às <hora>" — o cron, N horas antes (desligado por padrão).
+      # "Sua sessão é amanhã às <hora>" — **aposentado em 2026-08-01**. Havia um cron
+      # (`ReminderJob`) e uma coluna (`clinics.msg_lembrete_horas`); os dois saíram. O átomo fica
+      # porque linha já gravada precisa continuar renderizando na timeline — remover valor
+      # persistido é o que quebra (ver o fim deste moduledoc) — e porque voltar atrás fica barato.
       :lembrete,
       # "Sua sessão mudou para <dia> às <hora>" — C7(b), o gatilho de remarcação.
       :remarcacao,
@@ -29,9 +34,11 @@ defmodule Api.Messaging.MessageKind do
       # corrigir um lançamento errado, e dar a esse gesto um efeito fora do sistema seria avisar
       # o paciente por causa de um erro de digitação. Ver `Api.Messaging.Notifier`.
       :cancelamento,
-      # Os dois de LOTE, e existem pela mesma razão que o `:package_bulk_adjusted` do sino
-      # (doc 43 §5b): remarcar um pacote de 40 mandaria 40 "sua sessão mudou" ao mesmo paciente,
-      # e no WhatsApp isso é spam **pago**. Uma mensagem por massa, com o número dentro.
+      # Os dois de LOTE, **aposentados em 2026-08-01** pelo mesmo motivo do `:lembrete`. Existiam
+      # porque remarcar um pacote de 40 mandaria 40 "sua sessão mudou" ao mesmo paciente (doc 43
+      # §5b), e a saída era uma mensagem por massa. Hoje a massa não fala com o paciente — quem
+      # avisa é a recepção, pelo telefone que vai dentro de toda mensagem. O que ficou de pé é o
+      # aviso na CAIXA do profissional dono da coluna, que é outra coisa e não custa nada.
       :pacote_remarcado,
       :pacote_cancelado
     ]

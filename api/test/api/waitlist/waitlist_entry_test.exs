@@ -173,8 +173,8 @@ defmodule Api.Waitlist.WaitlistEntryTest do
       assert Enum.map(pagina2.entries, & &1.prio) == [:normal, :normal]
 
       # O total é do RECORTE inteiro, não da página — é o "de Z" do rótulo.
-      assert pagina1.page.total == 5
-      assert pagina1.page.more == true
+      assert pagina1.page.count == 5
+      assert pagina1.page.more? == true
       assert pagina2.page.offset == 2
 
       ids1 = MapSet.new(pagina1.entries, & &1.id)
@@ -187,7 +187,7 @@ defmodule Api.Waitlist.WaitlistEntryTest do
       scope = scope_for(owner, clinic)
       Waitlist.enqueue_entry(scope, %{patient_id: patient(clinic, owner).id})
 
-      assert %{entries: [_], page: %{total: 1, more: false}} = Waitlist.list_entries(scope)
+      assert %{entries: [_], page: %{count: 1, more?: false}} = Waitlist.list_entries(scope)
     end
 
     test "limit e offset absurdos não derrubam a request" do

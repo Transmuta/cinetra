@@ -66,7 +66,20 @@ services:
       RESEND_WEBHOOK_SECRET: ${RESEND_WEBHOOK_SECRET:-}
       MAIL_FROM: ${MAIL_FROM:-}
       MAIL_FROM_NAME: ${MAIL_FROM_NAME:-Cinetra}
+      # WhatsApp (doc 65, fase 2). São **duas** chaves em série, e as duas precisam chegar aqui:
+      # a flag diz que DEVE falar WhatsApp, as credenciais dizem que PODE
+      # (`Api.Messaging.Transport.disponivel?/1` exige as duas).
+      #
+      # As quatro da Zernio faltavam neste arquivo — só a flag era repassada. O efeito era o pior
+      # tipo de silêncio: `WHATSAPP_HABILITADO=true` no `.env`, o container recriado, e toda
+      # mensagem continuando a sair por e-mail sem erro nenhum, porque o adapter sem credencial
+      # deixa o canal indisponível e o `Dispatch` cai para a reserva — exatamente como deve.
+      # `compose.dokploy.yml` já as repassava; o dev ficou para trás quando a fase 2 entrou.
       WHATSAPP_HABILITADO: ${WHATSAPP_HABILITADO:-false}
+      ZERNIO_API_KEY: ${ZERNIO_API_KEY:-}
+      ZERNIO_ACCOUNT_ID: ${ZERNIO_ACCOUNT_ID:-}
+      ZERNIO_BASE_URL: ${ZERNIO_BASE_URL:-}
+      ZERNIO_WEBHOOK_SECRET: ${ZERNIO_WEBHOOK_SECRET:-}
       # ---- Traces (doc 76) --------------------------------------------------------------------
       #
       # VAZIO por padrão: sem endpoint o exportador é `:none` e os spans morrem em memória — dev

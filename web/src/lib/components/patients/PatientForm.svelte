@@ -26,8 +26,10 @@
 	import { avatarStyle } from '$lib/avatar';
 	import { patientColor, idade, stripTitle, emailValido, nascimentoValido, type Patient } from '$lib/patients';
 	import { profColor, type Professional } from '$lib/professionals';
-	import { maskCpf, maskTel, maskCep, maskMy, maskUf } from '$lib/masks';
-	import { criarCep } from '$lib/cep.svelte';
+	import { maskCpf, maskTel, maskCep, maskMy } from '$lib/masks';
+	// O bloco de endereço inteiro (CEP com busca, status e os campos que ele preenche) mora aqui —
+	// era a segunda cópia do mesmo markup, e a clínica seria a terceira.
+	import AddressFields from '$lib/components/AddressFields.svelte';
 	import { formatarTelefone, recebeWhatsapp, telefoneValido } from '$lib/telefone';
 	import { isValidCpf } from '$lib/cpf';
 
@@ -213,11 +215,6 @@
 			removeTag(tags[tags.length - 1]);
 		}
 	}
-
-	// CEP → autopreenchimento pelo BFF, com status na tela e guarda de resposta atrasada. A
-	// máquina inteira mora em `$lib/cep.svelte`: era escrita duas vezes, byte a byte a menos do
-	// nome de uma variável local (doc 94 §D-1), e nenhuma das duas cópias tinha teste próprio.
-	const cep = criarCep(f);
 
 	// ---- Validação: nome e telefone são obrigatórios ----
 	const nomeOk = $derived(f.nome.trim().length > 0);
@@ -464,55 +461,7 @@
 						     mora na seção de identificação, que é onde a recepção está olhando. -->
 						<input bind:value={f.email} oninput={scheduleDupCheck} placeholder="email@exemplo.com" class={inputCls} />
 					</label>
-					<div class="grid grid-cols-1 gap-3 md:grid-cols-[0.9fr_2.3fr]">
-						<label class="block">
-							{@render label('CEP')}
-							<input value={f.cep} oninput={cep.aoDigitar} onblur={() => cep.consultar(f.cep)} inputmode="numeric" placeholder="00000-000" class="{inputCls} font-mono" />
-						</label>
-						<label class="block">
-							{@render label('Endereço residencial')}
-							<input bind:value={f.endereco} placeholder="Preenchido automaticamente pelo CEP" class={inputCls} />
-						</label>
-					</div>
-					{#if cep.status}
-						<span
-							class="mt-1 block text-meta {cep.status === 'ok'
-								? 'text-accent-text'
-								: cep.status === 'loading'
-									? 'text-muted'
-									: 'text-danger'}"
-						>
-							{cep.status === 'loading'
-								? 'Buscando endereço…'
-								: cep.status === 'ok'
-									? 'Endereço preenchido pelo CEP'
-									: cep.status === 'notfound'
-										? 'CEP não encontrado — preencha manualmente'
-										: 'Não foi possível consultar o CEP agora'}
-						</span>
-					{/if}
-					<div class="mt-3 grid grid-cols-2 gap-3 md:grid-cols-[1.5fr_1.6fr_0.5fr_0.7fr]">
-						<label class="block">
-							{@render label('Bairro')}
-							<input bind:value={f.bairro} class={inputCls} />
-						</label>
-						<label class="block">
-							{@render label('Cidade')}
-							<input bind:value={f.cidade} class={inputCls} />
-						</label>
-						<label class="block">
-							{@render label('UF')}
-							<input value={f.uf} oninput={(e) => (f.uf = maskUf(e.currentTarget.value))} maxlength="2" placeholder="SP" class="{inputCls} uppercase" />
-						</label>
-						<label class="block">
-							{@render label('Nº')}
-							<input bind:value={f.numero} placeholder="000" class={inputCls} />
-						</label>
-					</div>
-					<label class="mt-3 block">
-						{@render label('Complemento')}
-						<input bind:value={f.complemento} placeholder="Apto / bloco (opcional)" class={inputCls} />
-					</label>
+					<AddressFields campos={f} {inputCls} rotuloEndereco="Endereço residencial" />
 				</section>
 
 				<!-- 3. Emergência -->

@@ -92,6 +92,28 @@ defmodule Api.Scheduling.Attendance do
   actions do
     defaults [:read]
 
+    # As presenças **previstas** que começam na janela `[de, ate)` — o recorte do lembrete por
+    # relógio (doc 52 §7).
+    #
+    # Mora aqui, e não solta no worker (doc 96, A-4): "quem ainda vai ser atendido nesta janela" é
+    # regra do recurso, e escrita no cron ela ficava fora do alcance de qualquer outra leitura que
+    # precisasse da mesma pergunta — inclusive da policy, que num filtro solto não tem onde entrar.
+    #
+    # `session_starts_at` mora na presença (não no bloco) desde a A2, e quem serve esta varredura é
+    # `attendances_clinic_session_starts_at_index`. O `status` fica **fora** do índice de propósito
+    # (ver o moduledoc da migration `LembretePorJanelaDeTempo`).
+    read :na_janela do
+      description "Presenças previstas que começam em [de, ate)."
+
+      argument :de, :utc_datetime, allow_nil?: false
+      argument :ate, :utc_datetime, allow_nil?: false
+
+      filter expr(
+               session_starts_at >= ^arg(:de) and session_starts_at < ^arg(:ate) and
+                 status == :prevista
+             )
+    end
+
     create :create do
       primary? true
       # `package_id` entra aqui (doc 41 etapa 2) porque quem cria a presença é o

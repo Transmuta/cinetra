@@ -46,8 +46,9 @@ defmodule Api.Messaging.Zernio do
 
   ## O que este módulo NÃO faz
 
-  Não cria template na Meta (isso é `mix cinetra.whatsapp.templates`, uma vez por conta, com lead
-  time de dias) e não lê conversa. Ler a caixa de entrada do WhatsApp seria outra funcionalidade —
+  Não cria template na Meta — o cadastro é **manual**, no painel, uma vez por conta e com lead
+  time de dias; `Api.Messaging.Templates.hsm_payload/2` é a referência do que registrar. Também
+  não lê conversa. Ler a caixa de entrada do WhatsApp seria outra funcionalidade —
   e, pelo §9.1.5, é a que reabriria a decisão do número compartilhado.
   """
   @behaviour Api.Messaging.Transport
@@ -100,19 +101,6 @@ defmodule Api.Messaging.Zernio do
   """
   def conta(%{vars: %{"zernio_account_id" => id}}) when is_binary(id) and id != "", do: id
   def conta(_message), do: config()[:account_id]
-
-  @doc """
-  Submete um template à aprovação da Meta (`POST /whatsapp/templates`).
-
-  Fora do caminho de envio de propósito: roda **uma vez por conta**, pela mix task, e tem lead
-  time de dias do outro lado. Devolve `{:ok, corpo}` ou `{:error, motivo}`.
-  """
-  def criar_template(payload) when is_map(payload) do
-    case requisicao(:post, "/whatsapp/templates", payload, nil) do
-      {:ok, %{status: status, body: body}} when status in 200..299 -> {:ok, body}
-      outro -> interpretar(outro)
-    end
-  end
 
   # ---- interno ----
 

@@ -295,6 +295,12 @@ porque o funil está na ordem certa.
 
 1. **`LoggerJSON`** como formatter em produção. Dev fica como está — texto colorido é melhor para
    humano.
+
+   > **Atualizado em 2026-08-01 ([ADR-024](00-decisoes.md#adr-024--o-log-json-tem-os-campos-na-raiz-e-o-formatter-é-do-projeto)).**
+   > O formatter passou a ser `Api.LogFormatter`, do projeto, e não o `LoggerJSON.Formatters.Basic`:
+   > o Basic aninha o metadata sob a chave `metadata`, o `| json` do Loki achata isso com `_`, e os
+   > painéis que consultavam `status` liam um campo que não existia — abrindo **"No data"** com o
+   > log inteiro presente. Diagnóstico em [doc 99](99-o-painel-vazio-e-o-formato-do-log.md).
 2. **Carimbo de contexto no [`LoadScope`](../api/lib/api_web/plugs/load_scope.ex#L34).** É o ponto
    certo: já resolve `actor` e `clinic_id`, e **toda rota de domínio passa por ele**. Um
    `Logger.metadata(clinic_id: ..., actor_id: ...)` ali dá contexto a todo log daquela requisição de

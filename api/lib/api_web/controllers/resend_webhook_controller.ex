@@ -25,6 +25,7 @@ defmodule ApiWeb.ResendWebhookController do
 
   require Logger
 
+  alias Api.Messaging
   alias Api.Messaging.Svix
   alias Api.Messaging.Webhooks
   alias ApiWeb.Plugs.CacheRawBody
@@ -35,7 +36,16 @@ defmodule ApiWeb.ResendWebhookController do
 
     case Svix.verificar(corpo, conn.req_headers, segredo()) do
       :ok ->
-        Webhooks.processar(params)
+        # A mesma barreira do irmão da Zernio (doc 96, S-7). Aqui ela é **cinto e suspensório**: o
+        # Svix já valida timestamp com tolerância de 300 s, então o replay tardio não passa da
+        # assinatura. Entra assim mesmo porque a propriedade "um evento é processado uma vez" não
+        # deve depender de qual provider mandou — a diferença entre os dois é acidente de qual
+        # biblioteca cada um escolheu, e uma barreira que existe só em um dos caminhos é a que
+        # some quando alguém trocar de provider.
+        if Messaging.webhook_visto("resend", corpo) == :novo do
+          Webhooks.processar(params)
+        end
+
         json(conn, %{ok: true})
 
       {:error, motivo} ->

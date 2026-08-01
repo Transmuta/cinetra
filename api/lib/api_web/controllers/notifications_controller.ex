@@ -35,7 +35,7 @@ defmodule ApiWeb.NotificationsController do
       json(conn, %{
         notifications: Enum.map(page.results, &NotificationsJSON.notification/1),
         unread: unread,
-        page: %{limit: page.limit, offset: page.offset, more: page.more?}
+        page: page_json(page)
       })
     end)
   end

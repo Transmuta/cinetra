@@ -12,6 +12,12 @@ export type SemEnvio =
 	| 'sem_consentimento'
 	| 'sem_contato'
 	| 'canal_indisponivel'
+	/**
+	 * O transporte está de pé, mas **esta clínica** não ligou o canal em /configuracoes/comunicacao.
+	 * Separado de `canal_indisponivel` porque o conserto tem outro dono: aqui é um interruptor que a
+	 * própria clínica vira, e chamar isso de "indisponível" manda abrir chamado à toa.
+	 */
+	| 'whatsapp_desligado'
 	| 'opt_out'
 	/**
 	 * Já há uma mensagem deste tipo esperando na fila para esta presença.
@@ -63,31 +69,31 @@ export interface Message {
 	 * É este que vai para a tela: o provider fala inglês técnico, e quem lê a timeline é a recepção
 	 * no balcão. Texto em inglês ali não informa — gera chamado de suporte.
 	 */
-	erroTexto: string | null;
+	erro_texto: string | null;
 	resposta: 'confirmou' | 'quer_remarcar' | null;
 	/** Nulo do lado da API = ninguém clicou. É o que distingue "automático" de "alguém mandou". */
 	automatico: boolean;
-	enfileiradoEm: string | null;
+	enfileirado_em: string | null;
 	/** Preenchido só quando a janela de silêncio adiou o envio — ver `previsaoDeEnvio`. */
-	agendadoPara: string | null;
-	enviadoEm: string | null;
-	entregueEm: string | null;
-	lidoEm: string | null;
-	falhouEm: string | null;
+	agendado_para: string | null;
+	enviado_em: string | null;
+	entregue_em: string | null;
+	lido_em: string | null;
+	falhou_em: string | null;
 	/** Preenchido só quando a mensagem foi retirada da fila — ver `descarteTexto`. */
-	descartadaEm: string | null;
-	descarteMotivo: DescarteMotivo | null;
-	respondidoEm: string | null;
+	descartada_em: string | null;
+	descarte_motivo: DescarteMotivo | null;
+	respondido_em: string | null;
 	titulo: string;
 }
 
 export interface MessageParticipant {
-	attendanceId: string;
-	patientId: string;
+	attendance_id: string;
+	patient_id: string;
 	paciente: string;
 	mensagens: Message[];
 	/** Preenchido só quando NÃO há mensagem nenhuma — ver `semEnvioTexto`. */
-	semEnvio: SemEnvio | null;
+	sem_envio: SemEnvio | null;
 }
 
 export interface MessagesData {
@@ -103,6 +109,7 @@ const SEM_ENVIO_MOTIVO: Record<SemEnvio, string> = {
 	sem_consentimento: 'sem consentimento de comunicação na ficha',
 	sem_contato: 'sem e-mail nem telefone cadastrado',
 	canal_indisponivel: 'o WhatsApp está indisponível e não há e-mail na ficha',
+	whatsapp_desligado: 'o WhatsApp está desligado nas configurações e não há e-mail na ficha',
 	opt_out: 'o paciente pediu para não receber',
 	// Os três abaixo não pedem ação nenhuma — pelo contrário, dizem que já foi feito o que havia
 	// para fazer. Some do balcão a impressão de que o clique falhou, que é o que faz a recepção
@@ -137,11 +144,11 @@ export const SEM_COMUNICACAO = 'Nenhuma comunicação enviada até agora';
 
 /** O que a API responde por participante no disparo manual (`POST .../messages`). */
 export interface SendOutcome {
-	patientId: string;
+	patient_id: string;
 	enviado: boolean;
 	motivo?: string | null;
 	/** Aceita, mas adiada pela janela de silêncio (§7) — não saiu ainda. */
-	agendadoPara?: string | null;
+	agendado_para?: string | null;
 }
 
 /**
@@ -165,7 +172,7 @@ export function textoDoEnvio(resultados: SendOutcome[]): string {
 	// ali é o mesmo "Feito" que não enviava, só que por outra causa. A hora exata fica na
 	// timeline logo abaixo, que sabe o fuso da clínica; o toast não sabe, e prometer hora errada
 	// seria pior do que não prometer nenhuma.
-	const adiados = enviados.filter((r) => r.agendadoPara);
+	const adiados = enviados.filter((r) => r.agendado_para);
 
 	if (!pulado) {
 		if (adiados.length === enviados.length) {
@@ -211,7 +218,7 @@ export function descarteTexto(m: Message): string | null {
 	if (m.status !== 'descartada') return null;
 
 	// Motivo novo no backend não pode virar `undefined` na tela — mesma defesa do `motivoTexto`.
-	return m.descarteMotivo ? (DESCARTE_TEXTO[m.descarteMotivo] ?? null) : null;
+	return m.descarte_motivo ? (DESCARTE_TEXTO[m.descarte_motivo] ?? null) : null;
 }
 
 const KIND_TEXTO: Record<Message['kind'], string> = {
@@ -238,7 +245,7 @@ export function statusTexto(m: Message): string {
 /** O instante que interessa exibir: o mais avançado que a mensagem alcançou. */
 export function instanteDoStatus(m: Message): string | null {
 	return (
-		m.descartadaEm ?? m.falhouEm ?? m.lidoEm ?? m.entregueEm ?? m.enviadoEm ?? m.enfileiradoEm
+		m.descartada_em ?? m.falhou_em ?? m.lido_em ?? m.entregue_em ?? m.enviado_em ?? m.enfileirado_em
 	);
 }
 
@@ -252,13 +259,13 @@ export function instanteDoStatus(m: Message): string | null {
  * tinha previsto (§6).
  *
  * Só vale enquanto a mensagem está parada: depois que ela sai, o que interessa é o que aconteceu,
- * não o que se previa. E `agendadoPara` no passado não vira promessa — ali o job está atrasado ou
+ * não o que se previa. E `agendado_para` no passado não vira promessa — ali o job está atrasado ou
  * em retentativa, e "sai às 8h" às 9h seria a tela mentindo com precisão.
  */
 export function previsaoDeEnvio(m: Message, agora: string | number = Date.now()): string | null {
-	if (m.status !== 'pendente' || !m.agendadoPara) return null;
+	if (m.status !== 'pendente' || !m.agendado_para) return null;
 
-	return Date.parse(m.agendadoPara) > new Date(agora).getTime() ? m.agendadoPara : null;
+	return Date.parse(m.agendado_para) > new Date(agora).getTime() ? m.agendado_para : null;
 }
 
 const RESPOSTA_TEXTO: Record<NonNullable<Message['resposta']>, string> = {
@@ -282,7 +289,7 @@ export function respostaTexto(m: Message): string | null {
  * pergunta — e o do rodapé é o que a recepção já procura. O que fica no lugar do antigo "Enviar
  * agora" é a linha do `SEM_COMUNICACAO`: o silêncio continua explicado, sem virar oferta de ação.
  *
- * `semEnvio` preenchido é exatamente o `{:skip, motivo}` do `Dispatch.avaliar/2` (o BFF só o
+ * `sem_envio` preenchido é exatamente o `{:skip, motivo}` do `Dispatch.avaliar/2` (o BFF só o
  * devolve quando não há mensagem), e agora cai na mesma regra: sem mensagem, sem botão.
  *
  * O `opt_out` era o único caso barrado aqui (§10.4) — continua barrado, agora pela regra geral.
@@ -318,7 +325,7 @@ export function podeReenviar(p: MessageParticipant): boolean {
 export function algumPodeReceber(participantes: MessageParticipant[] | null): boolean {
 	if (participantes === null) return true;
 
-	return participantes.some((p) => !p.semEnvio && !travaDeRepeticao(p));
+	return participantes.some((p) => !p.sem_envio && !travaDeRepeticao(p));
 }
 
 /**
@@ -334,7 +341,7 @@ export function motivoDoBloqueio(participantes: MessageParticipant[] | null): st
 	if (participantes === null || participantes.length === 0) return null;
 	if (algumPodeReceber(participantes)) return null;
 
-	const motivos = new Set(participantes.map((p) => p.semEnvio ?? travaDeRepeticao(p)));
+	const motivos = new Set(participantes.map((p) => p.sem_envio ?? travaDeRepeticao(p)));
 
 	return motivos.size === 1 ? motivoTexto([...motivos][0] as string) : null;
 }

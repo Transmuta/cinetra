@@ -51,7 +51,8 @@ defmodule Api.Housekeeping.PruneNotifications do
             OR (read_at IS NULL AND inserted_at < $3)
           )
           """,
-          [Ecto.UUID.dump!(clinic_id), corte_lidas, corte_geral]
+          [Ecto.UUID.dump!(clinic_id), corte_lidas, corte_geral],
+          clinic_id
         )
       end)
 

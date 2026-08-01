@@ -905,6 +905,66 @@ defmodule Api.RlsSmokeTest do
 
       assert map_size(blocos) > 0, "o cron não enxergou a agenda (GUC faltando na varredura?)"
     end
+
+    # Regressão do doc 96, B-11, preservada depois de o `ReminderJob` sair (2026-08-01).
+    #
+    # O job fazia a varredura INTEIRA de uma clínica dentro de um `with_clinic/2` — leitura e os N
+    # `Dispatch.dispatch` juntos. A correção separou as fases, e com isso a responsabilidade da GUC
+    # passou a ser do `Dispatch`, que a assume por escrito ("é chamado FORA de qualquer transação
+    # com GUC").
+    #
+    # O cron que motivou a regra não existe mais, mas a afirmação continua no moduledoc e continua
+    # valendo para quem chama hoje: o clique da recepção (`ApiWeb.MessagesController`) e o
+    # `Api.Messaging.Notifier`. Por isso o teste passou a exercitar o `Dispatch` direto, com a GUC
+    # zerada — que é a única coisa que ele sempre provou de fato. Sem isso, uma dependência de GUC
+    # reintroduzida ali não geraria mensagem nenhuma **e devolveria `:ok` do mesmo jeito**.
+    test "o Dispatch grava com a GUC zerada — quem chama não precisa abrir transação" do
+      ctx = fixture()
+      _ = alcancavel(ctx)
+      tz = Scheduling.clinic_timezone(ctx.clinic.id)
+      amanha = Api.Generators.proximo_dia_util(Date.add(Date.utc_today(), 1))
+      {:ok, as_nove} = Scheduling.LocalTime.to_utc(amanha, "09:00", tz)
+
+      {:ok, appointment} =
+        Scheduling.schedule_appointment(
+          %{
+            starts_at: as_nove,
+            professional_id: ctx.prof.id,
+            appointment_type_id: ctx.tipo.id,
+            patient_ids: [ctx.paciente.id]
+          },
+          scope: ctx.scope
+        )
+
+      [presenca | _] = bloco(ctx, appointment.id).attendances
+
+      paciente =
+        Api.Tenancy.in_clinic(ctx.clinic.id, fn ->
+          Api.Records.get_patient!(presenca.patient_id, tenant: ctx.clinic.id, authorize?: false)
+        end)
+
+      clinic = Api.Accounts.get_clinic!(ctx.clinic.id, authorize?: false)
+
+      # A GUC zerada AQUI é o ponto: quem chama o `Dispatch` hoje (o clique da recepção, o
+      # `Notifier`) não abre transação para ele.
+      :ok = sem_guc()
+
+      assert {:ok, _mensagem} =
+               Api.Messaging.Dispatch.dispatch(clinic, presenca, paciente, :confirmacao,
+                 disparado_por_id: ctx.owner.id
+               )
+
+      mensagens =
+        Api.Tenancy.in_clinic(ctx.clinic.id, fn ->
+          Api.Messaging.list_attendance_messages!(presenca.id,
+            tenant: ctx.clinic.id,
+            authorize?: false
+          )
+        end)
+
+      assert mensagens != [],
+             "a mensagem não nasceu — o Dispatch dependia da GUC de quem o chamava"
+    end
   end
 
   # Doc 51. A fatia nasceu sem cobertura aqui, e o buraco cobrou na primeira remoção real: o
@@ -1090,14 +1150,15 @@ defmodule Api.RlsSmokeTest do
                Api.Notifications.list_inbox(ctx.scope).results
     end
 
-    test "o aviso da massa por pacote alcança o paciente sob cinetra_app" do
-      # `avisa_o_paciente/6` acha a âncora, lê a clínica e grava a mensagem — três leituras
-      # por-tenant depois do commit da massa. Sem GUC, a âncora volta `nil` e a mensagem some em
-      # silêncio: a massa "funciona" e o paciente não é avisado.
+    test "a massa por pacote NÃO fala mais com o paciente" do
+      # Este teste já provou o contrário: que o aviso da massa alcançava o paciente sob
+      # `cinetra_app`. O disparo saiu em 2026-08-01 — quem avisa o paciente de mudança em pacote é
+      # a recepção, pelo telefone que agora vai dentro de toda mensagem.
       #
-      # As sessões são criadas **pela porta de agendar**, e não pelo materializador do pacote, de
-      # propósito: o caminho do materializador está vermelho na árvore por outra causa (doc 60 §5,
-      # trabalho de outra fatia), e um teste que depende dele não prova o que este quer provar.
+      # O que ele guarda agora é a ausência: a massa roda inteira sob `cinetra_app` e **nenhuma**
+      # mensagem ao paciente nasce. A metade que ficou — a caixa do profissional dono da coluna —
+      # é coberta pelos testes de `Api.Packages.Bulk`, que sabem qual usuário é o dono da coluna;
+      # aqui a `ctx.scope` é a do owner, que não é.
       ctx = fixture()
 
       paciente =
@@ -1124,20 +1185,17 @@ defmodule Api.RlsSmokeTest do
 
       :ok = sem_guc()
 
-      assert {:ok, %{afetadas: afetadas}} =
-               Packages.bulk_cancel(ctx.scope, pkg.id, %{escopo: :todas})
-
-      assert afetadas == 2
+      assert {:ok, %{afetadas: 2}} = Packages.bulk_cancel(ctx.scope, pkg.id, %{escopo: :todas})
 
       avisos =
         Api.Tenancy.in_clinic(ctx.clinic.id, fn ->
           Api.Messaging.Message
           |> Ash.Query.for_read(:read, %{}, tenant: ctx.clinic.id, authorize?: false)
-          |> Ash.Query.filter(kind == :pacote_cancelado)
+          |> Ash.Query.filter(kind in [:pacote_cancelado, :pacote_remarcado])
           |> Ash.read!(authorize?: false)
         end)
 
-      assert length(avisos) == 1, "o aviso da massa não saiu — a GUC não chegou na âncora"
+      assert avisos == [], "a massa voltou a mandar mensagem ao paciente"
     end
 
     test "o opt-out global é legível e gravável sem GUC" do

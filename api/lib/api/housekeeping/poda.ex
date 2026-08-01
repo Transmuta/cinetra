@@ -16,6 +16,25 @@ defmodule Api.Housekeeping.Poda do
     * **`ctid` no `IN`** — as tabelas podadas não têm chave natural para o recorte, e passar pelo
       `id` seria um caminho mais caro para o mesmo lugar.
 
+  ## Onde a transação começa e termina (doc 96, P-3)
+
+  **Uma transação por lote, não por clínica.** Isto já foi ao contrário, e o lote não protegia
+  nada: `por_clinica/1` abria a transação e `em_lote/4` recursava lá dentro, de modo que o `LIMIT`
+  reduzia o tamanho de cada `DELETE` mas **não o da transação**. Uma clínica com 300 mil eventos
+  ainda produzia um COMMIT de 300 mil linhas com a conexão presa a passada inteira — exatamente o
+  que o segundo item acima diz querer evitar.
+
+  Agora `por_clinica/1` só itera, e quem abre transação é `em_lote/4`, **a cada lote**. Duas
+  consequências que valem conhecer:
+
+    * cada `DELETE` tem sua própria GUC (é `with_clinic/2` por lote), então a disciplina de RLS
+      continua idêntica — e o gate `mix test --only rls` continua sendo quem a prova;
+    * a poda passa a ser **retomável**: se a rodada morrer no meio, os lotes já commitados ficam
+      apagados em vez de voltarem todos. Para poda isso é o comportamento desejável — não há
+      invariante entre um lote e o seguinte.
+
+  É a mesma estrutura que `PruneAttachments` já usava e documentava.
+
   ## Sobre a interpolação do nome da tabela
 
   `em_lote/3` interpola `tabela` direto no SQL, porque nome de relação não é parâmetro em
@@ -23,22 +42,28 @@ defmodule Api.Housekeeping.Poda do
   mão) — nunca de args do job, params de request ou varredura do catálogo.
   """
 
-  # Teto por rodada. Repetimos até a tabela não devolver mais nada.
   require Ash.Query
 
-  @lote 5_000
+  # Teto por lote. Repetimos até a tabela não devolver mais nada.
+  #
+  # Configurável só para o teste conseguir exercitar a **recursão** sem criar 5.000 linhas: com o
+  # teto de produção, um único `DELETE` sempre dá conta e o laço nunca dá a segunda volta — ou
+  # seja, o caminho que este módulo existe para ter ficaria sem cobertura nenhuma.
+  @lote_padrao 5_000
 
   @doc """
-  Roda `fun` uma vez por clínica, cada uma sob a própria GUC, e soma os inteiros devolvidos.
+  Roda `fun` uma vez por clínica e soma os inteiros devolvidos.
 
   `fun` recebe o `clinic_id` e devolve quantas linhas apagou.
+
+  **Não abre transação** (doc 96, P-3): quem a abre é `em_lote/4`, a cada lote. Isto é contrato,
+  não detalhe — `fun` é responsável por pôr a GUC de tenant em toda operação que fizer, e o jeito
+  suportado de fazer isso é justamente chamar `em_lote/4`. Sem GUC, sob `cinetra_app`, o `DELETE`
+  apaga zero linha **em silêncio**.
   """
   @spec por_clinica((String.t() -> non_neg_integer())) :: non_neg_integer()
   def por_clinica(fun) when is_function(fun, 1) do
-    Enum.reduce(clinicas(), 0, fn clinic_id, total ->
-      {:ok, n} = Api.Repo.with_clinic(clinic_id, fn -> fun.(clinic_id) end)
-      total + n
-    end)
+    Enum.reduce(clinicas(), 0, fn clinic_id, total -> total + fun.(clinic_id) end)
   end
 
   @doc """
@@ -57,20 +82,44 @@ defmodule Api.Housekeeping.Poda do
   end
 
   @doc """
-  `DELETE` em lotes até esgotar, e devolve o total apagado.
+  `DELETE` em lotes até esgotar, **um lote por transação**, e devolve o total apagado.
 
   `condicao` é o `WHERE` (com `$1`, `$2`… casando com `params`); `tabela` **precisa** ser
-  literal do módulo chamador — ver o aviso no moduledoc.
+  literal do módulo chamador — ver o aviso no moduledoc. `clinic_id` é a clínica cuja GUC vale
+  para cada lote; ele costuma aparecer **também** em `params`, porque a condição de recorte por
+  tenant é escrita à mão (a RLS já filtra, mas o `WHERE` explícito é o que faz o `LIMIT` recortar
+  a clínica certa em vez de um lote arbitrário da tabela inteira).
   """
-  #
-  # ⚠️ Esta função recursa **dentro** da transação aberta por `por_clinica/1`. O `LIMIT` reduz o
-  # tamanho de cada `DELETE`, **não o da transação**: uma clínica com 300 mil eventos ainda produz
-  # um COMMIT de 300 mil linhas com a conexão presa o tempo todo — que é justamente o que o
-  # moduledoc diz querer evitar (doc 96, P-3). Inverter (laço de lotes fora, cada `DELETE` no seu
-  # próprio `with_clinic`) é a estrutura que `PruneAttachments` já usa; mexe na assinatura de
-  # `por_clinica/1` e nos quatro chamadores, e fica para fatia própria.
-  @spec em_lote(String.t(), String.t(), [term()], non_neg_integer()) :: non_neg_integer()
-  def em_lote(tabela, condicao, params, total \\ 0) do
+  @spec em_lote(String.t(), String.t(), [term()], String.t()) :: non_neg_integer()
+  def em_lote(tabela, condicao, params, clinic_id) do
+    laco(tabela, condicao, params, clinic_id, 0)
+  end
+
+  @doc """
+  O mesmo `DELETE` em lotes, para tabela **sem** `clinic_id` — hoje só `webhook_events`.
+
+  Sem GUC porque não há coluna de clínica para uma policy comparar; a tabela está fora da RLS por
+  desenho (o evento de webhook chega antes de existir tenant). Cada lote continua na sua própria
+  transação, pela mesma razão de sempre.
+
+  Existe separada de `em_lote/4` de propósito: um `clinic_id` opcional ali convidaria a chamar a
+  versão por-tenant **sem** ele por engano, e o sintoma seria apagar zero linha em silêncio — a
+  armadilha que o moduledoc inteiro existe para evitar.
+  """
+  @spec em_lote_global(String.t(), String.t(), [term()]) :: non_neg_integer()
+  def em_lote_global(tabela, condicao, params, total \\ 0) do
+    n = apagar_lote(tabela, condicao, params)
+
+    if n < lote(), do: total + n, else: em_lote_global(tabela, condicao, params, total + n)
+  end
+
+  defp laco(tabela, condicao, params, clinic_id, total) do
+    {:ok, n} = Api.Repo.with_clinic(clinic_id, fn -> apagar_lote(tabela, condicao, params) end)
+
+    if n < lote(), do: total + n, else: laco(tabela, condicao, params, clinic_id, total + n)
+  end
+
+  defp apagar_lote(tabela, condicao, params) do
     {:ok, %{num_rows: n}} =
       Api.Repo.query(
         """
@@ -78,14 +127,16 @@ defmodule Api.Housekeeping.Poda do
         WHERE ctid IN (
           SELECT ctid FROM #{tabela}
           WHERE #{condicao}
-          LIMIT #{@lote}
+          LIMIT #{lote()}
         )
         """,
         params
       )
 
-    if n < @lote, do: total + n, else: em_lote(tabela, condicao, params, total + n)
+    n
   end
+
+  defp lote, do: Application.get_env(:api, __MODULE__, [])[:lote] || @lote_padrao
 
   @doc """
   O instante de corte de uma janela de retenção em dias.

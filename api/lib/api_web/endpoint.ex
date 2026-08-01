@@ -59,8 +59,21 @@ defmodule ApiWeb.Endpoint do
   plug ApiWeb.Plugs.TraceMetadata
   plug Plug.Telemetry, event_prefix: [:phoenix, :endpoint]
 
+  # **O estágio de borda do rate limit, aqui e não no router** (doc 96, L-2).
+  #
+  # Ele já foi pipeline do router, e ali chegava tarde: `Plug.Parsers` roda logo abaixo, é plug do
+  # endpoint, e portanto vinha ANTES — uma requisição destinada a levar 429 já tinha lido e
+  # decodificado o corpo inteiro (até 8 MB). "Cortar a enxurrada antes do trabalho" só é verdade
+  # deste lado da linha.
+  #
+  # Depois do `Plug.Telemetry` de propósito: a requisição barrada ainda precisa ser medida e
+  # logada, senão o 429 vira o buraco de observabilidade que L-5 acabou de fechar.
+  #
+  # As isenções (`/webhooks`, health checks) são do próprio plug — ver `@sem_teto_de_borda`.
+  plug ApiWeb.Plugs.RateLimitGlobal, stage: :edge
+
   plug Plug.Parsers,
-    parsers: [:urlencoded, :multipart, :json, AshJsonApi.Plug.Parser],
+    parsers: [:urlencoded, :multipart, :json],
     pass: ["*/*"],
     json_decoder: Phoenix.json_library(),
     # Doc 52 §10.2: o webhook do Resend assina os **bytes** do corpo. Depois da decodificação,
@@ -70,5 +83,12 @@ defmodule ApiWeb.Endpoint do
 
   plug Plug.Head
   plug Plug.Session, @session_options
+
+  # Guarda o corpo da resposta das requisições RECUSADAS, para o `RequestLogger` logá-lo
+  # (ADR-025). Precisa ficar aqui, imediatamente antes do router: `register_before_send/2` roda
+  # os callbacks na ordem INVERSA do registro, então este é o último a ser registrado e o
+  # primeiro a rodar — vê o corpo antes de qualquer outro plug ter chance de mexer nele.
+  plug ApiWeb.Plugs.CapturarResposta
+
   plug ApiWeb.Router
 end

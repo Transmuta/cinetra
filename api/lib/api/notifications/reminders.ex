@@ -104,18 +104,26 @@ defmodule Api.Notifications.Reminders do
   esta função só recebia o resultado — a ordem certa dependia de cada chamador lembrar.
   """
   def por_dono_da_coluna(clinic_id, %DateTime{} = de, %DateTime{} = ate, fun)
-      when is_function(fun, 2) do
+      when is_function(fun, 3) do
     case Fanout.professional_users(clinic_id) do
       donos when map_size(donos) == 0 ->
         0
 
       donos ->
+        # O fuso é resolvido **aqui**, depois do teste barato e uma vez por clínica, e vai para o
+        # callback (doc 96, P-8). O `SessionSoonJob` o resolvia antes de chamar esta função — ou
+        # seja, pagava uma leitura de `clinics` a cada 5 minutos justamente nas clínicas que não
+        # têm ninguém a avisar, que são a maioria (21 de 23 no dev). É a lição do parágrafo acima
+        # cobrada de novo, e aplicada do mesmo jeito: **estrutural**, dentro desta função, para
+        # nenhum chamador novo poder inverter a ordem.
+        tz = Api.Scheduling.clinic_timezone(clinic_id)
+
         clinic_id
         |> blocos_por_profissional(de, ate)
         |> Enum.reduce(0, fn {professional_id, blocos}, total ->
           case Map.get(donos, professional_id) do
             nil -> total
-            user_id -> total + fun.(user_id, blocos)
+            user_id -> total + fun.(user_id, blocos, tz)
           end
         end)
     end
@@ -131,4 +139,23 @@ defmodule Api.Notifications.Reminders do
   def hora_local(tz) do
     DateTime.utc_now() |> DateTime.shift_zone!(tz) |> Map.fetch!(:hour)
   end
+
+  @doc """
+  O instante-base de um cron: o `"agora"` dos args quando o teste o injeta, senão o relógio real.
+
+  É a disciplina do relógio injetável da ADR-009 aplicada ao cron — a mesma razão de `scope.now`
+  existir no caminho de request. Em produção o argumento nunca vem: o `Oban.Plugins.Cron` não passa
+  args, e o default é `DateTime.utc_now/0`.
+
+  Mora aqui porque estava **idêntica** em `Api.Messaging.ReminderJob` e
+  `Api.Notifications.SessionSoonJob` (doc 96, R-4), e é o tipo de cópia que diverge calada: os dois
+  jobs derivam janela do mesmo instante, e um deles passar a arredondar (ou a aceitar outro formato)
+  desalinharia as janelas sem nenhum teste reclamar.
+  """
+  def instante_dos_args(%{"agora" => iso}) when is_binary(iso) do
+    {:ok, instante, _} = DateTime.from_iso8601(iso)
+    instante
+  end
+
+  def instante_dos_args(_args), do: DateTime.utc_now()
 end

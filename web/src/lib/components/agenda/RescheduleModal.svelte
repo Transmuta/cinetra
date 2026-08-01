@@ -94,6 +94,8 @@
 	const envio = criarEnvio({ reset: false });
 
 	const mudou = $derived(startsAt !== appt.starts_at || profId !== appt.professional_id || encaixe);
+
+	let avisar = $state(true);
 </script>
 
 <Modal title="Remarcar sessão" {onClose} maxWidth="max-w-[460px]">
@@ -139,6 +141,24 @@
 		</Field>
 
 		<EncaixeCheckbox bind:checked={encaixe} {podeEncaixe} />
+
+		<!-- A pergunta que remarcar passou a fazer (2026-08-01): o disparo deixou de ser automático.
+		     Nasce marcada — quem remarca de propósito quase sempre quer avisar —, ao contrário do
+		     default do servidor, que cala por omissão porque omissão ali é falha, não escolha.
+
+		     A escolha é do BLOCO: numa turma de quatro, remarcar move os quatro, então a pergunta é
+		     uma só e vale para todos. -->
+		<label class="mt-3 flex items-start gap-2">
+			<input type="checkbox" bind:checked={avisar} class="mt-0.5 size-4 shrink-0 accent-accent" />
+			<span class="text-corpo">
+				Avisar o paciente
+				<span class="mt-0.5 block text-rotulo text-muted">
+					Sai uma mensagem com o horário novo. Só recebe quem tem consentimento e contato na ficha.
+				</span>
+			</span>
+		</label>
+		<!-- Checkbox desmarcado não entra no FormData; o hidden é quem sempre manda a resposta. -->
+		<input type="hidden" name="avisar_paciente" value={avisar ? 'on' : ''} />
 
 		<ConflictErrorBox {erro} {ofereceEncaixe} onEncaixe={() => (encaixe = true)} />
 	</form>

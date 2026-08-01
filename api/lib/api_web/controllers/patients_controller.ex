@@ -28,7 +28,7 @@ defmodule ApiWeb.PatientsController do
 
       json(conn, %{
         patients: Enum.map(page.results, &patient_json/1),
-        page: %{limit: page.limit, offset: page.offset, total: page.count, more: page.more?},
+        page: page_json(page),
         counts: Records.clinic_patient_counts(scope)
       })
     end)

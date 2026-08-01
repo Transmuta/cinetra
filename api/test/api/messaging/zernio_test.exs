@@ -162,24 +162,4 @@ defmodule Api.Messaging.ZernioTest do
       assert_raise RuntimeError, ~r/indisponível/, fn -> Zernio.entregar(@message, @corpo) end
     end
   end
-
-  describe "criar_template/1" do
-    test "devolve o corpo em caso de sucesso e o motivo em caso de recusa" do
-      {:ok, payload} = Api.Messaging.Templates.hsm_payload("confirmacao_v1", "https://x.test")
-
-      responder(fn conn ->
-        assert conn.request_path =~ "/whatsapp/templates"
-        Req.Test.json(conn, %{"id" => "tpl_1", "status" => "PENDING"})
-      end)
-
-      assert {:ok, %{"status" => "PENDING"}} = Zernio.criar_template(payload)
-
-      responder(fn conn ->
-        conn |> Plug.Conn.put_status(422) |> Req.Test.json(%{"error" => "invalid body text"})
-      end)
-
-      assert {:error, motivo} = Zernio.criar_template(payload)
-      assert motivo =~ "422"
-    end
-  end
 end

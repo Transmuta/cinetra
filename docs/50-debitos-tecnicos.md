@@ -416,6 +416,34 @@ segue cego para leitura interna. O débito é o *limite do arnês*, não a falta
 é que agora quem escreve teste de RLS é avisado de que precisa mutar a regra para saber se o teste
 vale algo.
 
+**Alcance revisado (2026-08-01, doc 96 E-3 + T-0 + T-1).** Duas coisas mudaram, e as duas apertam a
+descrição acima:
+
+1. **O gate também não pega leitura depois de escrita dentro do mesmo job.** É o caso T-1
+   (`Api.Packages.Sessions.segura/3` lê `appointments` depois do commit do `schedule_appointment`).
+   O cenário foi rodado sob `cinetra_app` e ficou **verde** mesmo sem a GUC — pelo mesmo motivo do
+   parágrafo acima, a GUC da escrita anterior ainda estava pendurada na transação do sandbox. É uma
+   instância **nova** da classe, não um caso do mesmo formato: aqui nem sequer há uma "porta de
+   entrada" anterior no fluxo de leitura, o que engana quem raciocina pelo desenho do gate.
+2. **O modo de falha agora é 0 linhas, não exceção.** Antes do T-0, 15 tabelas levantavam `22P02`
+   sem GUC e 2 devolviam vazio. A migration `20260731120000_rls_fail_closed_uniforme` uniformizou
+   em `nullif` — **toda** tabela por-tenant devolve zero linhas silenciosamente. Isso torna o
+   esquecimento *mais* silencioso, e é o que justifica a contrapartida abaixo.
+
+**Contrapartida que entrou junto:** o `rls_smoke_test.exs` passou a varrer as 17 tabelas com a GUC
+**explicitamente zerada** (`sem_guc()`) exigindo que nenhuma levante. Isso não substitui a mutação
+manual — continua sendo um teste de porta de entrada —, mas fixa o modo de falha uniforme, que é a
+premissa de todo o resto. **Verificado ao vivo em 2026-08-01**, sob `cinetra_app`, fechando a
+verificação pendente do T-1:
+
+```
+sem GUC   : appointments 0 · professionals 0 · messages 0     (nenhuma levanta)
+com a GUC : appointments 30  = mesmo número que o superusuário lê para a mesma clínica
+```
+
+O controle positivo importa tanto quanto o negativo: sem ele, "0 linhas" não distingue *RLS
+funcionando* de *tabela vazia*.
+
 ---
 
 ## D-16 · `x-forwarded-for` é confiado pelo primeiro item, e o proxy anexa
@@ -441,6 +469,12 @@ limit por IP viram controláveis pelo cliente, do mesmo jeito da causa B do
 esquerda o número de proxies confiáveis da topologia (é o que o `XFF_DEPTH` do adapter-node faz do
 lado do BFF), e configurá-la junto com o proxy, como já é a regra para a lista de headers
 confiáveis. Meia hora, mais uma decisão explícita sobre quantos hops confiar.
+
+**PAGO (2026-07-31, doc 96 L-4 → doc 97).** Foi exatamente o remédio acima:
+[`ApiWeb.ClientIp`](../api/lib/api_web/client_ip.ex) conta a partir do fim, e o número de saltos
+confiáveis é configuração explícita (`:trusted_proxy_hops`, default 1 = Traefik sozinho). A nuance
+que o débito não tinha: "último elemento" só vale com **um** salto — com dois, o cliente é o
+penúltimo. Por isso virou número configurável, com teste para os dois casos, e não uma constante.
 
 ---
 
@@ -582,3 +616,100 @@ item — desenho, não varredura — e por isso ficou de fora.
 `--color-success-solid` não têm uso hoje e **ficaram**, porque são membros de famílias que o
 `contraste.test.ts` mede por inteiro. Removê-los quebrou aquele teste na primeira tentativa. O
 tripwire tem de distinguir "sobra" de "membro de família", ou vai empurrar para remoções erradas.
+
+---
+
+## D-21 · O Dokploy builda na máquina de produção — 90% de CPU, medido só sem carga real
+
+**O que é.** O Dokploy clona e builda a imagem **na própria VPS** de produção
+([doc 59 §2](59-deploy-dokploy-oci.md)): `mix release` (compilação Elixir) e `vite build` disputam
+os 2 vCPU do KVM 2 com a BEAM, o Node e o Postgres que estão servindo. Medido em 2026-07-31:
+**≈ 90% de CPU durante o build**.
+
+**Por que virou débito, e não achado.** Porque a pergunta que importa — *o build degrada quem está
+sendo servido?* — **não foi respondida**. O operador relatou não perceber perda de desempenho, e
+isso é sinal válido, mas foi observado **com carga real baixa ou nula**: sem ninguém usando, não há
+com quem o build competir, e 90% de CPU num build é o comportamento esperado, não um sintoma. A
+medição que decide é outra, e agora é possível fazer: **p95 da API e `run_queue` da BEAM na janela
+do deploy**, no Grafana que já está no ar.
+
+É o **R-M12** do [doc 95](95-analise-infraestrutura.md) visto pelo outro lado: lá o achado é que
+**nenhum container tem limite de CPU**, então build e produção competem em pé de igualdade. O
+`mem_limit` que a Faixa 0 pede não contém isso — memória e CPU são recursos diferentes.
+
+**O que custa hoje.** Provavelmente nada, enquanto a carga for baixa. O custo aparece no dia em que
+um deploy coincidir com a clínica trabalhando — e o modo de falha é o mais chato de diagnosticar:
+latência que sobe por alguns minutos, some sozinha, e não deixa erro em log nenhum. Com HML e prod
+no mesmo host, a frequência dobra ([risco #5 do doc 59 §10](59-deploy-dokploy-oci.md)).
+
+**O que o paga — e por que é barato agora.** Não é limitar o build; é **tirá-lo da máquina**. É o
+**item 16 da Faixa 1** do [doc 95 §2](95-analise-infraestrutura.md): construir a imagem no CI e
+fazer o Dokploy consumir por digest. Uma mudança que fecha quatro coisas:
+
+- os 90% de CPU saem do servidor de produção, e com eles o pico de RAM do build;
+- **R-M4** — a guarda de sourcemap de `web/Dockerfile.prod:44-48`, hoje a última fronteira contra o
+  código-fonte ir para produção, **nunca roda antes do merge**; passaria a rodar em PR;
+- **R-M8** — imagem fixada por digest: o que o CI testou é literalmente o que sobe;
+- **R-M5** — o passo de deploy deixa de ser fire-and-forget sobre um build que nem começou.
+
+E ficou **mais barato do que seria no plano original**: a Hostinger é x86_64 igual aos runners do
+GitHub ([ADR-023](00-decisoes.md)), então é build nativo — sem QEMU, sem cross-compile, que é o que
+o A1 ARM teria exigido.
+
+**Enquanto isso não acontece**, se a medição de p95 mostrar degradação: `cpus:` nos serviços de
+longa duração do [`compose.dokploy.yml`](../compose.dokploy.yml), para eles vencerem o builder na
+disputa; e deploy de HML fora do horário de atendimento.
+
+**Item irmão, no mesmo pacote de medição.** Os **3,5 GB** residentes de
+[doc 87 §2.1](87-servidor-hostinger-riscos-e-cuidados.md#21-o-que-a-máquina-de-verdade-mediu-2026-07-31--a-estimativa-acima-estava-errada)
+têm a mesma limitação: são um ponto sob carga baixa, não um teto. A mesma janela de medição responde
+os dois.
+
+---
+
+## D-22 · A capacidade da turma pode estourar em um, sob concorrência
+
+**O que é.** [`GroupCapacity.check/4`](../api/lib/api/scheduling/appointment/validations/group_capacity.ex)
+conta os participantes numa transação própria; o `manage_relationship` grava em **outra**. Dois
+`add_participant` concorrentes numa turma com uma vaga passam os dois, e a turma fecha com
+capacidade + 1. O `identity :one_per_patient_per_appt` impede o **mesmo** paciente duas vezes — não
+o estouro do teto.
+
+**Por que é débito aceito, e não achado a consertar** (decisão de 2026-08-01, sobre o **B-12** do
+[doc 96](96-auditoria-backend.md)). A capacidade é orientação de sala, não invariante de dinheiro
+nem de segurança: um a mais numa turma é algo que a recepção resolve na hora, remanejando. O
+remédio custa um `before_action` com `FOR UPDATE` em **todo** `add_participant` — lock no caminho
+mais clicado da agenda, para evitar um caso raro, visível e reversível.
+
+**A armadilha, para quem reabrir.** O remédio óbvio não funciona: `Ash.Query.lock(:for_update)`
+**a partir da validação** é inócuo — validação do Ash roda *antes* da transação da ação, e o lock
+morreria no commit da transação da contagem, antes da escrita. Chegou a ser aplicado e foi
+revertido por isso. Fechar de verdade exige `before_action` ou constraint no banco, e as duas mexem
+no contrato de erro da ação. A armadilha está escrita **no código**, no ponto exato, porque é lá
+que o próximo leitor vai procurar.
+
+---
+
+## D-23 · Salvar o expediente varre toda a agenda futura, dentro da transação de escrita
+
+**O que é.** [`Api.Scheduling.future_conflicts/2`](../api/lib/api/scheduling.ex) lê **todos** os
+agendamentos abertos daqui para a frente e roda **dentro** do `Api.Repo.transaction` de
+`update_clinic_hours/2` e `update_professional_hours/3`. O `total` é sem teto por decisão de
+produto — a tela promete "quantos conflitos ao todo", e um número truncado seria pior que nenhum
+(só os detalhes são limitados, a `@conflitos_detalhados`).
+
+**Por que é débito aceito.** É o **P-6** do [doc 96](96-auditoria-backend.md), e a análise de lá
+continua valendo: *aceitável hoje, vira problema com anos de agenda*. Salvar expediente é uma ação
+rara (configuração da clínica), feita por owner/admin, fora do caminho quente. A varredura precisa
+mesmo estar na transação: é ela que decide se a escrita prossegue ou aborta — tirá-la de dentro
+reabre a janela entre analisar e escrever, que é o **D-5** deste mesmo documento, num lugar onde
+hoje ela não existe.
+
+**O que custa hoje.** Nada mensurável — o banco de dev não tem volume para medir (é o mesmo limite
+do **P-9**). O custo aparece com anos de histórico: uma transação longa segurando conexão do pool,
+no exato desenho que a poda foi consertada para não ter (**P-3**).
+
+**O que o paga.** Um recorte de horizonte no `agendamentos_futuros/3` (por exemplo, 12 meses) — que
+é **decisão de produto**, não de implementador: muda o que o número na tela significa. Ou medir
+primeiro, com volume real, junto com o **P-9** e o trabalho de carga do
+[doc 98](98-teste-de-carga-em-producao.md).

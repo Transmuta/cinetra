@@ -27,18 +27,18 @@ function msg(over: Partial<Message> = {}): Message {
 		status: 'enviado',
 		destino: 'ana@example.com',
 		erro: null,
-		erroTexto: null,
+		erro_texto: null,
 		resposta: null,
 		automatico: true,
-		enfileiradoEm: '2026-08-10T12:00:00Z',
-		agendadoPara: null,
-		enviadoEm: '2026-08-10T12:00:05Z',
-		entregueEm: null,
-		lidoEm: null,
-		falhouEm: null,
-		descartadaEm: null,
-		descarteMotivo: null,
-		respondidoEm: null,
+		enfileirado_em: '2026-08-10T12:00:00Z',
+		agendado_para: null,
+		enviado_em: '2026-08-10T12:00:05Z',
+		entregue_em: null,
+		lido_em: null,
+		falhou_em: null,
+		descartada_em: null,
+		descarte_motivo: null,
+		respondido_em: null,
 		titulo: 'Clínica: sua sessão',
 		...over
 	};
@@ -46,11 +46,11 @@ function msg(over: Partial<Message> = {}): Message {
 
 function participante(over: Partial<MessageParticipant> = {}): MessageParticipant {
 	return {
-		attendanceId: 'a1',
-		patientId: 'p1',
+		attendance_id: 'a1',
+		patient_id: 'p1',
 		paciente: 'Ana',
 		mensagens: [],
-		semEnvio: null,
+		sem_envio: null,
 		...over
 	};
 }
@@ -116,17 +116,17 @@ describe('textoDoEnvio', () => {
 		// O pecado que esta função existe para não cometer: a API aceita o pedido (201) e o
 		// Dispatch pula. Dizer "Feito" ali faz a recepção supor que a mensagem saiu — é o mesmo
 		// silêncio que a timeline inteira foi desenhada para não produzir (§6).
-		expect(textoDoEnvio([{ patientId: 'p1', enviado: false, motivo: 'canal_indisponivel' }])).toMatch(
+		expect(textoDoEnvio([{ patient_id: 'p1', enviado: false, motivo: 'canal_indisponivel' }])).toMatch(
 			/WhatsApp/
 		);
 	});
 
 	it('todos enviados diz que enviou', () => {
-		expect(textoDoEnvio([{ patientId: 'p1', enviado: true }])).toBe('Mensagem enviada');
+		expect(textoDoEnvio([{ patient_id: 'p1', enviado: true }])).toBe('Mensagem enviada');
 		expect(
 			textoDoEnvio([
-				{ patientId: 'p1', enviado: true },
-				{ patientId: 'p2', enviado: true }
+				{ patient_id: 'p1', enviado: true },
+				{ patient_id: 'p2', enviado: true }
 			])
 		).toMatch(/2 pacientes/);
 	});
@@ -135,8 +135,8 @@ describe('textoDoEnvio', () => {
 		// "Enviada" com um participante fora seria mentira para aquele participante — a mesma
 		// lição que a A2 já cobrou com a falta do bloco.
 		const texto = textoDoEnvio([
-			{ patientId: 'p1', enviado: true },
-			{ patientId: 'p2', enviado: false, motivo: 'sem_contato' }
+			{ patient_id: 'p1', enviado: true },
+			{ patient_id: 'p2', enviado: false, motivo: 'sem_contato' }
 		]);
 
 		expect(texto).toMatch(/1 de 2/);
@@ -152,7 +152,7 @@ describe('textoDoEnvio', () => {
 		// Dizer "Mensagem enviada" manda a recepção esperar no telefone do paciente por algo que
 		// só sai às 8h — a mesma classe de mentira do "Feito" que não enviava.
 		const um = textoDoEnvio([
-			{ patientId: 'p1', enviado: true, agendadoPara: '2026-08-11T11:00:00Z' }
+			{ patient_id: 'p1', enviado: true, agendado_para: '2026-08-11T11:00:00Z' }
 		]);
 
 		expect(um).toMatch(/na fila/i);
@@ -160,8 +160,8 @@ describe('textoDoEnvio', () => {
 
 		expect(
 			textoDoEnvio([
-				{ patientId: 'p1', enviado: true, agendadoPara: '2026-08-11T11:00:00Z' },
-				{ patientId: 'p2', enviado: true, agendadoPara: '2026-08-11T11:00:00Z' }
+				{ patient_id: 'p1', enviado: true, agendado_para: '2026-08-11T11:00:00Z' },
+				{ patient_id: 'p2', enviado: true, agendado_para: '2026-08-11T11:00:00Z' }
 			])
 		).toMatch(/2 mensagens na fila/i);
 	});
@@ -170,7 +170,7 @@ describe('textoDoEnvio', () => {
 describe('instanteDoStatus', () => {
 	it('mostra o ponto mais avançado que a mensagem alcançou', () => {
 		expect(instanteDoStatus(msg())).toBe('2026-08-10T12:00:05Z');
-		expect(instanteDoStatus(msg({ entregueEm: '2026-08-10T12:01:00Z' }))).toBe(
+		expect(instanteDoStatus(msg({ entregue_em: '2026-08-10T12:01:00Z' }))).toBe(
 			'2026-08-10T12:01:00Z'
 		);
 	});
@@ -178,7 +178,7 @@ describe('instanteDoStatus', () => {
 	it('a falha vence tudo — é o que a recepção precisa ver', () => {
 		expect(
 			instanteDoStatus(
-				msg({ status: 'falhou', entregueEm: '2026-08-10T12:01:00Z', falhouEm: '2026-08-10T12:02:00Z' })
+				msg({ status: 'falhou', entregue_em: '2026-08-10T12:01:00Z', falhou_em: '2026-08-10T12:02:00Z' })
 			)
 		).toBe('2026-08-10T12:02:00Z');
 	});
@@ -190,25 +190,25 @@ describe('previsaoDeEnvio', () => {
 	it('mensagem parada e adiada promete a hora de saída', () => {
 		// A janela de silêncio (§7) adia; a tela mostrava só "Na fila" e o instante em que ela
 		// ENTROU na fila, e quem lê conclui "não está enviando" — foi o relato ao vivo.
-		const m = msg({ status: 'pendente', enviadoEm: null, agendadoPara: '2026-08-11T11:00:00Z' });
+		const m = msg({ status: 'pendente', enviado_em: null, agendado_para: '2026-08-11T11:00:00Z' });
 
 		expect(previsaoDeEnvio(m, agora)).toBe('2026-08-11T11:00:00Z');
 	});
 
 	it('sem adiamento não há promessa nenhuma', () => {
-		expect(previsaoDeEnvio(msg({ status: 'pendente', agendadoPara: null }), agora)).toBeNull();
+		expect(previsaoDeEnvio(msg({ status: 'pendente', agendado_para: null }), agora)).toBeNull();
 	});
 
 	it('depois que saiu, a previsão não interessa mais', () => {
 		// O que importa numa mensagem entregue é o que aconteceu, não o que se previa.
-		const m = msg({ status: 'entregue', agendadoPara: '2026-08-11T11:00:00Z' });
+		const m = msg({ status: 'entregue', agendado_para: '2026-08-11T11:00:00Z' });
 
 		expect(previsaoDeEnvio(m, agora)).toBeNull();
 	});
 
 	it('hora já passada não vira promessa — ali o job está atrasado', () => {
 		// "Sai às 8h" às 9h seria a tela mentindo com precisão.
-		const m = msg({ status: 'pendente', enviadoEm: null, agendadoPara: '2026-08-10T11:00:00Z' });
+		const m = msg({ status: 'pendente', enviado_em: null, agendado_para: '2026-08-10T11:00:00Z' });
 
 		expect(previsaoDeEnvio(m, agora)).toBeNull();
 	});
@@ -218,10 +218,10 @@ describe('previsaoDeEnvio', () => {
 		// prometendo "sai qua., 08:00" para uma mensagem que não vai mais sair.
 		const m = msg({
 			status: 'descartada',
-			enviadoEm: null,
-			agendadoPara: '2026-08-11T11:00:00Z',
-			descartadaEm: '2026-08-10T23:45:00Z',
-			descarteMotivo: 'sessao_cancelada'
+			enviado_em: null,
+			agendado_para: '2026-08-11T11:00:00Z',
+			descartada_em: '2026-08-10T23:45:00Z',
+			descarte_motivo: 'sessao_cancelada'
 		});
 
 		expect(previsaoDeEnvio(m, agora)).toBeNull();
@@ -230,12 +230,12 @@ describe('previsaoDeEnvio', () => {
 
 describe('descarteTexto', () => {
 	it('explica por que a mensagem parou, para cada motivo', () => {
-		expect(descarteTexto(msg({ status: 'descartada', descarteMotivo: 'sessao_cancelada' }))).toBe(
+		expect(descarteTexto(msg({ status: 'descartada', descarte_motivo: 'sessao_cancelada' }))).toBe(
 			'a sessão foi cancelada antes de ela sair'
 		);
 
 		expect(
-			descarteTexto(msg({ status: 'descartada', descarteMotivo: 'agendamento_excluido' }))
+			descarteTexto(msg({ status: 'descartada', descarte_motivo: 'agendamento_excluido' }))
 		).toBe('o agendamento foi excluído antes de ela sair');
 	});
 
@@ -246,7 +246,7 @@ describe('descarteTexto', () => {
 	it('motivo desconhecido não vira `undefined` na tela', () => {
 		// Um átomo novo no backend chega aqui antes de o front saber dele; a linha continua
 		// dizendo "Não enviada" sem despejar lixo no meio da frase.
-		const m = msg({ status: 'descartada', descarteMotivo: 'motivo_novo' as never });
+		const m = msg({ status: 'descartada', descarte_motivo: 'motivo_novo' as never });
 
 		expect(descarteTexto(m)).toBeNull();
 	});
@@ -258,9 +258,9 @@ describe('descarteTexto', () => {
 	it('o instante mostrado é o do descarte, não o da entrada na fila', () => {
 		const m = msg({
 			status: 'descartada',
-			enviadoEm: null,
-			enfileiradoEm: '2026-08-10T22:00:00Z',
-			descartadaEm: '2026-08-10T23:45:00Z'
+			enviado_em: null,
+			enfileirado_em: '2026-08-10T22:00:00Z',
+			descartada_em: '2026-08-10T23:45:00Z'
 		});
 
 		expect(instanteDoStatus(m)).toBe('2026-08-10T23:45:00Z');
@@ -272,17 +272,17 @@ describe('podeReenviar', () => {
 		// O "Enviar agora" por participante saiu da timeline: ela é histórico, não ação, e o
 		// "Enviar confirmação" do rodapé já dispara para todo mundo. Dois botões para o mesmo
 		// disparo davam à recepção duas respostas para a mesma pergunta.
-		expect(podeReenviar(participante({ semEnvio: null }))).toBe(false);
+		expect(podeReenviar(participante({ sem_envio: null }))).toBe(false);
 	});
 
 	it('NÃO oferece quando o envio é impossível agora', () => {
 		// Todo motivo aqui é um `{:skip, _}` do Dispatch: o clique voltaria com a MESMA frase que a
 		// linha acima já mostra. O opt-out é o §10.4 (não se contorna por insistência de botão); o
 		// canal indisponível nem é da recepção.
-		expect(podeReenviar(participante({ semEnvio: 'opt_out' }))).toBe(false);
-		expect(podeReenviar(participante({ semEnvio: 'sem_contato' }))).toBe(false);
-		expect(podeReenviar(participante({ semEnvio: 'sem_consentimento' }))).toBe(false);
-		expect(podeReenviar(participante({ semEnvio: 'canal_indisponivel' }))).toBe(false);
+		expect(podeReenviar(participante({ sem_envio: 'opt_out' }))).toBe(false);
+		expect(podeReenviar(participante({ sem_envio: 'sem_contato' }))).toBe(false);
+		expect(podeReenviar(participante({ sem_envio: 'sem_consentimento' }))).toBe(false);
+		expect(podeReenviar(participante({ sem_envio: 'canal_indisponivel' }))).toBe(false);
 	});
 
 	it('oferece reenvio quando a última tentativa falhou', () => {
@@ -310,8 +310,8 @@ describe('algumPodeReceber', () => {
 		// O botão do rodapé dispara para todos: com um participante alcançável, ele tem o que fazer.
 		expect(
 			algumPodeReceber([
-				participante({ semEnvio: 'canal_indisponivel' }),
-				participante({ attendanceId: 'a2', patientId: 'p2', semEnvio: null })
+				participante({ sem_envio: 'canal_indisponivel' }),
+				participante({ attendance_id: 'a2', patient_id: 'p2', sem_envio: null })
 			])
 		).toBe(true);
 	});
@@ -319,8 +319,8 @@ describe('algumPodeReceber', () => {
 	it('com a turma inteira barrada, não há o que enviar', () => {
 		expect(
 			algumPodeReceber([
-				participante({ semEnvio: 'canal_indisponivel' }),
-				participante({ attendanceId: 'a2', patientId: 'p2', semEnvio: 'opt_out' })
+				participante({ sem_envio: 'canal_indisponivel' }),
+				participante({ attendance_id: 'a2', patient_id: 'p2', sem_envio: 'opt_out' })
 			])
 		).toBe(false);
 	});
@@ -430,7 +430,7 @@ describe('algumPodeReceber', () => {
 			mensagens: [msg({ kind: 'confirmacao', status: 'entregue', resposta: 'confirmou' })]
 		});
 
-		const livre = participante({ attendanceId: 'a2', patientId: 'p2', semEnvio: null });
+		const livre = participante({ attendance_id: 'a2', patient_id: 'p2', sem_envio: null });
 
 		expect(algumPodeReceber([confirmou, livre])).toBe(true);
 	});
@@ -454,7 +454,7 @@ describe('motivoDoBloqueio', () => {
 	});
 
 	it('quem pode receber não tem bloqueio a explicar', () => {
-		expect(motivoDoBloqueio([participante({ semEnvio: null })])).toBeNull();
+		expect(motivoDoBloqueio([participante({ sem_envio: null })])).toBeNull();
 		expect(motivoDoBloqueio(null)).toBeNull();
 	});
 
@@ -466,9 +466,9 @@ describe('motivoDoBloqueio', () => {
 		});
 
 		const semContato = participante({
-			attendanceId: 'a2',
-			patientId: 'p2',
-			semEnvio: 'sem_contato'
+			attendance_id: 'a2',
+			patient_id: 'p2',
+			sem_envio: 'sem_contato'
 		});
 
 		expect(motivoDoBloqueio([confirmou, semContato])).toBeNull();

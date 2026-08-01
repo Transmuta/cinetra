@@ -103,6 +103,51 @@ defmodule Api.Messaging.DispatchTest do
                  authorize?: false
                )
     end
+
+    # Regressão da corrida do doc 96, A-5. O teste acima passa pelo guard de leitura do
+    # `opt_out/4`; este vai **direto na escrita**, que é exatamente o que duas entregas
+    # concorrentes fazem — a Zernio reentrega o mesmo evento até 7× em 24 h, e o Resend
+    # reentrega o `complained` se o webhook demorar.
+    #
+    # Este caso é *mais fraco* que a corrida real (aqui as escritas são sequenciais) e por isso
+    # é a prova certa: se nem sequencialmente a segunda gravação é barrada, concorrente também
+    # não é. E o que barra as duas é a mesma coisa — a unicidade no banco, que só o índice dá.
+    test "duas gravações do mesmo destino não produzem duas linhas vigentes" do
+      ctx = clinica()
+      attrs = %{canal: :email, destino: "corrida@example.com", origem: "spam"}
+
+      Messaging.register_opt_out!(attrs, authorize?: false)
+      Messaging.register_opt_out!(attrs, authorize?: false)
+
+      assert [_uma] =
+               Messaging.list_opt_outs!(:email, "corrida@example.com", ctx.clinic.id,
+                 authorize?: false
+               )
+    end
+
+    # O par do teste acima: a unicidade é dos **vigentes**, não do destino para sempre. Sem este
+    # recorte, um índice único simples proibiria o ciclo legítimo "parar → voltar → parar de
+    # novo", e a segunda parada ou estouraria ou sobrescreveria a revogação — apagando o
+    # histórico que este recurso existe para guardar (ele não tem AshPaperTrail justamente
+    # porque a linha *é* o histórico).
+    test "depois de revogar, o mesmo destino pode pedir para parar de novo" do
+      ctx = clinica()
+      attrs = %{canal: :email, destino: "ciclo@example.com", origem: "link"}
+
+      Messaging.register_opt_out!(attrs, authorize?: false)
+      :ok = Messaging.revoke_opt_out(ctx.scope, :email, "ciclo@example.com")
+      Messaging.register_opt_out!(attrs, authorize?: false)
+
+      assert [_vigente] =
+               Messaging.list_opt_outs!(:email, "ciclo@example.com", ctx.clinic.id,
+                 authorize?: false
+               )
+
+      assert 2 =
+               Api.Messaging.OptOut
+               |> Ash.read!(authorize?: false)
+               |> Enum.count(&(&1.destino == "ciclo@example.com"))
+    end
   end
 
   describe "normalizar/2" do
@@ -355,12 +400,14 @@ defmodule Api.Messaging.DispatchTest do
       assert message.agendado_para == nil
     end
 
-    test "o LEMBRETE não é adiado — dentro do silêncio ele sai assim mesmo" do
-      # A exceção de 2026-07-31 (doc 98), e a razão dela é aritmética. Adiar serve a uma mensagem
-      # que continua verdadeira horas depois; o lembrete de 2 h não é: gerado às 5h30 para uma
-      # sessão das 7h30, ele sairia às 8h — meia hora DEPOIS da sessão que anuncia, dizendo que ela
-      # ainda vai acontecer. O silêncio continua valendo para os outros tipos, e o teste acima é
-      # quem prova isso.
+    test "o lembrete perdeu a exceção junto com o gatilho — hoje TUDO é adiado" do
+      # Houve uma exceção aqui: o lembrete saía na hora mesmo dentro do silêncio, porque adiar um
+      # aviso de 2 h produzia mensagem falsa (doc 98 §3 — gerado às 5h30 para uma sessão das 7h30,
+      # sairia às 8h anunciando como futuro algo que já passou).
+      #
+      # O gatilho automático saiu em 2026-08-01 e a exceção foi junto. O que sobrou nasce de um
+      # clique da recepção e continua verdadeiro horas depois, que é a condição para adiar. Este
+      # teste existe para que reintroduzir a exceção sem reintroduzir o motivo dela seja vermelho.
       ctx = clinica()
       clinic = com_janela(ctx.clinic, :agora_dentro)
       paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
@@ -369,8 +416,7 @@ defmodule Api.Messaging.DispatchTest do
 
       assert {:ok, message} = Dispatch.dispatch(clinic, presenca, paciente, :lembrete)
 
-      assert message.agendado_para == nil
-      assert_enqueued(worker: Api.Messaging.SendJob)
+      refute message.agendado_para == nil
     end
 
     test "não enfileira a segunda enquanto a primeira espera" do

@@ -73,14 +73,15 @@ defmodule ApiWeb.PatientReplyController do
     end
   end
 
+  # Sem `with_clinic/2` (doc 96, B-11): `:record_reply` carrega `SetTenantGuc`. A transação de fora
+  # não punha tenancy nenhuma — e o `|> elem(1)` que ela obrigava era uma das cópias do desembrulho
+  # que o doc 96 lista em R-4, com o agravante de que `elem(1)` sobre `{:error, motivo}` devolve o
+  # motivo cru como se fosse o registro.
   defp gravar(message, resposta) do
-    Api.Repo.with_clinic(message.clinic_id, fn ->
-      Messaging.do_record_reply!(message, %{resposta: resposta},
-        tenant: message.clinic_id,
-        authorize?: false
-      )
-    end)
-    |> elem(1)
+    Messaging.do_record_reply!(message, %{resposta: resposta},
+      tenant: message.clinic_id,
+      authorize?: false
+    )
   end
 
   # Avisa a recepção **na transição**, não em toda chamada — e essa distinção é de segurança,
@@ -144,7 +145,7 @@ defmodule ApiWeb.PatientReplyController do
       data: message.vars["data"],
       hora: message.vars["hora"],
       resposta: message.resposta,
-      respondidoEm: message.respondido_em
+      respondido_em: message.respondido_em
     }
   end
 

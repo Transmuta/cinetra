@@ -305,6 +305,24 @@
 	let motivo = $state('');
 	let cancelForm = $state<HTMLFormElement>();
 
+	// A pergunta que o cancelar passou a fazer (2026-08-01): o disparo deixou de ser automático, e
+	// quem decide se o paciente é avisado é quem está cancelando.
+	//
+	// **Nasce marcado**, ao contrário do default do servidor. Não é contradição: o servidor cala
+	// por omissão porque omissão é falha (campo que não chega, script, console), e mensagem
+	// enviada não volta; a tela sugere avisar porque, quando alguém cancela de propósito, avisar é
+	// quase sempre o certo. As duas escolhem o lado seguro do seu próprio erro.
+	//
+	// A escolha é **do bloco**: numa turma de quatro, cancelar avisa os quatro ou nenhum — remarcar
+	// e cancelar movem o bloco inteiro, então a pergunta é uma só.
+	let avisarNoCancelar = $state(true);
+
+	function abrirCancelamento() {
+		avisarNoCancelar = true;
+		motivo = '';
+		cancelando = true;
+	}
+
 	function confirmarCancelamento() {
 		cancelForm?.requestSubmit();
 	}
@@ -885,7 +903,7 @@
 			{#if cancelar && !cancelar.on}
 				<button
 					type="button"
-					onclick={() => (cancelando = true)}
+					onclick={abrirCancelamento}
 					class="flex w-full items-center justify-center gap-1.5 rounded-controle border border-edge px-2 py-2 text-rotulo font-semibold text-muted transition-colors hover:border-danger hover:text-danger focus-visible:border-danger focus-visible:text-danger"
 				>
 					<X size={14} /> Cancelar sessão
@@ -904,6 +922,10 @@
 				<input type="hidden" name="id" value={appt.id} />
 				<input type="hidden" name="expected_version" value={appt.version} />
 				<input type="hidden" name="cancel_reason" value={motivo} />
+				<!-- Checkbox não entra no FormData quando desmarcado; o hidden é quem sempre manda.
+				     Mesma armadilha do `SwitchToggle` na tela de comunicação (doc 98 §6), e aqui o
+				     efeito de errar é uma mensagem paga saindo sem ninguém ter pedido. -->
+				<input type="hidden" name="avisar_paciente" value={avisarNoCancelar ? 'on' : ''} />
 			</form>
 
 			<!-- Excluir (doc 40): submetido pela confirmação do rodapé. Fica aqui, sob `podeMexer`,
@@ -984,6 +1006,21 @@
 				placeholder="Ex.: paciente pediu, imprevisto do profissional…"
 				class="w-full rounded-controle border border-edge bg-surface px-2.5 py-2 text-corpo text-ink placeholder:text-faint focus:border-accent focus:outline-none"
 			/>
+		</label>
+
+		<label class="mt-3 flex items-start gap-2">
+			<input
+				type="checkbox"
+				bind:checked={avisarNoCancelar}
+				class="mt-0.5 size-4 shrink-0 accent-accent"
+			/>
+			<span class="text-corpo">
+				Avisar o paciente
+				<span class="mt-0.5 block text-rotulo text-muted">
+					Sai uma mensagem dizendo que a sessão foi cancelada. Só recebe quem tem consentimento e
+					contato na ficha.
+				</span>
+			</span>
 		</label>
 	</ConfirmDialog>
 {/if}

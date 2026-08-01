@@ -149,7 +149,7 @@ describe('POST /api/client-error', () => {
 	});
 });
 
-describe('POST /api/client-error — agrupamento (doc 78 §opção C)', () => {
+describe('POST /api/client-error — agrupamento (doc 98 §opção C)', () => {
 	// Afirma a PRESENÇA antes de devolver. Sem isto, os testes de igualdade abaixo passariam com o
 	// campo ausente — `undefined === undefined` é verde, e quatro deles deram verde antes de a
 	// implementação existir. Um teste que passa sem o código é pior que nenhum.

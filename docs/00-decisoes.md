@@ -108,7 +108,7 @@ Status possíveis: `Aceita` · `Proposta` · `Substituída por ADR-nn`
 
 ## ADR-008 — Deploy em Fly.io, observabilidade via OpenTelemetry sem vendor lock
 
-**Status:** Aceita
+**Status:** **Substituída por [ADR-023](#adr-023--produção-na-hostinger-kvm-2-o-a1-da-oracle-fica-adiado-não-descartado)** (2026-07-31) — quanto ao **alvo de deploy**. A metade sobre **OpenTelemetry sem vendor lock continua valendo** e, de fato, foi o que permitiu a troca: o stack de observabilidade é self-hosted (Loki/Grafana/Prometheus/Tempo) e nenhum SDK proprietário atou o projeto a provedor. Fly.io nunca chegou a ser provisionado.
 
 **Decisão.** Dois apps Fly (`cinetra-api` em Elixir, `cinetra-web` em Node), Postgres gerenciado, object storage compatível com S3 (Tigris ou Cloudflare R2). Instrumentação com **OpenTelemetry puro**; o backend de telemetria (Grafana Cloud, Honeycomb) é configuração, não código.
 
@@ -448,6 +448,145 @@ Registrar isso é o ponto do ADR: pela regra de [`.claude/rules/testes.md`](../.
 - O **Gate G1** ([08 §6](08-roadmap.md)) perde a maior parte do peso na v1, mas **não** é eliminado: o que sobra depende das sub-decisões 1–3.
 - A **Fatia 6** do roadmap ([08 §4](08-roadmap.md)) deixa de ser "prontuário completo" e passa a ser "ficha do paciente"; o prontuário migra para v2.
 - Não anula o [ADR-007](#adr-007--dado-de-saúde-é-tratado-como-categoria-especial-da-lgpd): quando o prontuário entrar (v2), o ADR-007 volta a valer integralmente.
+
+---
+
+## ADR-023 — Produção na Hostinger KVM 2; o A1 da Oracle fica adiado, não descartado
+
+**Status:** Aceita · **Data:** 2026-07-31 · **Substitui o [ADR-008](#adr-008--deploy-em-flyio-observabilidade-via-opentelemetry-sem-vendor-lock)**
+
+**Contexto.** O ADR-008 dizia "Deploy em Fly.io" e estava vencido há meses sem ADR que o
+substituísse — o [doc 95, R-B10](95-analise-infraestrutura.md) registrou isso como achado, contra a
+regra da linha 4 deste próprio arquivo (*"uma decisão só muda por um novo ADR"*). No meio do
+caminho o [doc 59](59-deploy-dokploy-oci.md) desenhou o alvo como **Oracle Cloud A1 (ARM, Always
+Free, 4 OCPU / 24 GB, Vinhedo)** e o [doc 87](87-servidor-hostinger-riscos-e-cuidados.md) o moveu
+para uma **VPS Hostinger**, mas nenhum dos dois é um ADR. Este fecha os três.
+
+**O fato novo que decidiu.** Em **15/06/2026 a Oracle cortou o Always Free A1 de 4 OCPU / 24 GB
+para 2 OCPU / 12 GB**, sem anúncio público — só atualizando a documentação; instâncias free acima do
+novo teto foram desligadas até serem redimensionadas. Se PAYG mantém a franquia antiga é **incerto
+por declaração da própria Oracle**: agentes de suporte deram respostas contraditórias e não há
+posição pública. O plano do doc 59 foi desenhado inteiro dentro dos 24 GB — inclusive a decisão de
+co-hospedar a observabilidade ([doc 62 §3](62-plano-de-logs.md)).
+
+**Decisão.** Produção do Cinetra roda numa **VPS Hostinger KVM 2 (2 vCPU / 8 GB / 100 GB, x86_64,
+São Paulo)**, com Dokploy + Traefik e os três stacks (prod, HML, observabilidade) na mesma máquina.
+O A1 da Oracle sai do caminho crítico e vira **opção de reavaliação futura**, não plano ativo.
+
+**Alternativas descartadas, com o motivo:**
+
+| Alternativa | Por que não |
+|---|---|
+| **A1 4/24 apostando que PAYG mantém a franquia** | Depende de uma política que a Oracle não confirma por escrito e que ela já mudou uma vez sem avisar. Custo do erro: ≈ US$ 27/mês surpresa, ou instância desligada |
+| **A1 4/24 pagando o excedente** | ≈ US$ 27/mês ≈ R$ 150. Mais barato que o KVM 4 estimado, mas não que o KVM 2 vigente (R$ 108,99) — e paga-se em dólar, com IOF |
+| **A1 2/12 grátis** | Abaixo do que a estimativa do doc 87 §2 pedia na época. *(A estimativa depois provou-se errada — ver "Nota" abaixo — mas a decisão foi tomada com a informação de então, e o desempate real foi a incerteza de política, não o número)* |
+| **KVM 4 (16 GB)** | O doc 87 §2 o exigia. Medição posterior mostrou que **não era necessário** — R$ 111/mês de diferença por folga que não estava sendo usada |
+
+**Consequências.**
+
+1. **x86_64 em vez de ARM.** O risco nº 3 do [doc 59 §10](59-deploy-dokploy-oci.md) ("build ARM que
+   o CI x86 não vê") **deixa de existir**, e o follow-up "confirmar arm64 cedo" do doc 59 §14 sai da
+   lista. Ganho de tabela que ninguém tinha escrito: como os runners do GitHub também são x86_64,
+   **buildar a imagem no CI passa a ser build nativo** — sem QEMU, sem cross-compile. Isso barateia
+   o item 16 da Faixa 1 do [doc 95 §2](95-analise-infraestrutura.md), que é a correção do
+   [D-21](50-debitos-tecnicos.md).
+2. **Quatro portas root-equivalentes em vez de três** — entra o hPanel, e com ele o restore de
+   backup como caminho de escrita total. MFA na conta Hostinger vira controle de segurança, não
+   higiene ([doc 87 §3.1](87-servidor-hostinger-riscos-e-cuidados.md)).
+3. **Uma camada de firewall gerenciada, com armadilha invertida** — o modelo da Hostinger é
+   drop-all; o erro deixa de ser "esqueci a segunda camada" e passa a ser "apliquei grupo vazio e
+   derrubei tudo" ([doc 87 §3.2](87-servidor-hostinger-riscos-e-cuidados.md)).
+4. **O `compose.dokploy.yml` não muda uma linha.** Toda a mecânica de segurança da Onda 5 — BFF-only,
+   isolamento de rede, dois roles de RLS, HSTS no BFF, CSP por ambiente — é independente de provedor.
+5. **[doc 59](59-deploy-dokploy-oci.md) fica como plano em espera**, não como runbook ativo. Quem
+   provisionar deve ler o 87, não o 59.
+6. **Custo:** piso de **R$ 135,08/mês** ([doc 91 §2](91-custos.md)), contra os ≈ R$ 246 que a
+   hipótese KVM 4 implicava.
+
+**Nota sobre a qualidade da decisão, porque a lição vale mais que ela.** O KVM 4 quase foi
+contratado por causa de uma estimativa que **somava `mem_limit` como se fosse consumo**. Teto de
+container existe para conter o pior caso; usá-lo para prever o caso comum superestimou a memória em
+**~3×** (8,5–12 GB estimados contra **3,5 GB medidos**, com tudo no ar). Custo evitado: R$ 111/mês
+por folga que não seria usada. A regra que fica: **teto declarado não é medição** — e o doc 87 §9
+já dizia que a conta era estimativa, o que salvou a decisão de ser tomada às cegas.
+
+**Gatilho de reavaliação.** Voltar a considerar a Oracle (ou o KVM 4/8) se **qualquer** um ocorrer:
+
+- a medição sob carga real do [D-21](50-debitos-tecnicos.md) mostrar aperto de RAM, CPU ou disco;
+- a Hostinger subir o preço na renovação (§6 do doc 91 prevê +50–100%) a ponto de cruzar a linha do
+  A1 pago;
+- a Oracle publicar posição **oficial e por escrito** sobre a franquia em PAYG;
+- o teto de 32 GB do KVM 8 virar restrição real — caso em que a resposta provavelmente **não** é
+  máquina maior, e sim tirar carga do host: Postgres gerenciado externo
+  ([doc 59 §13](59-deploy-dokploy-oci.md)) ou observabilidade em máquina separada
+  ([doc 87 §2](87-servidor-hostinger-riscos-e-cuidados.md)).
+
+---
+
+## ADR-024 — O log JSON tem os campos na RAIZ, e o formatter é do projeto
+
+**Status:** Aceita · **Data:** 2026-08-01 · **Diagnóstico completo:** [doc 99](99-o-painel-vazio-e-o-formato-do-log.md)
+
+**Contexto.** Todo painel de 4xx do Grafana abria **"No data"** em produção com o log inteiro
+presente no Loki. O `LoggerJSON.Formatters.Basic` aninha o metadata sob a chave `metadata`; o
+`| json` do Loki achata objeto aninhado com `_`; o rótulo real era `metadata_status` e os treze
+dashboards perguntavam por `status`. Consulta certa sobre campo inexistente **não dá erro — devolve
+zero linhas**, e um painel vazio é indistinguível de "não houve nenhum 4xx". Além do 04, estavam
+cegos os painéis de status, latência, rota, clínica e job dos dashboards 01, 02, 03, 05 e 09.
+
+**Decisão.** A linha de log da API sai **achatada**: `time`, `severity` e `message` como estrutura,
+e todo campo do evento na raiz. Quem faz isso é `Api.LogFormatter`, módulo do projeto, e não um
+formatter de prateleira. O BFF já emitia assim — a afirmação do `web/src/lib/server/log.ts` de que
+"o formato acompanha o do lado Elixir" passou a ser verdade.
+
+**Alternativas descartadas, com o motivo:**
+
+| Alternativa | Por que não |
+|---|---|
+| **Mapear `metadata.status` nas consultas dos dashboards** | Conserta os 30 dias já gravados e dispensa redeploy, mas embute o mapeamento numa variável com vírgulas escapadas em 6 arquivos, e todo painel novo precisa lembrar de usar `$parser`. Fica disponível como remendo temporário se a janela antiga importar |
+| **`LoggerJSON.Formatters.Elastic`** | Achata, mas renomeia `severity` para `log.level` — e é de `severity` que o Alloy extrai o rótulo `level`. Consertaria os 4xx apagando o `level` em silêncio, repetindo um defeito que o comentário daquele estágio já conta ter cometido |
+
+**Consequências.** Vale para linha nova: o log anterior ao deploy continua aninhado e invisível
+para os painéis (legível no Explore por `metadata_*`). O contrato dos campos é normativo — mexer em
+`time`/`severity`/`message` quebra o rótulo `level` e a correlação com o Tempo, e há teste guardando
+isso, inclusive um que lê o `config/prod.exs` para pegar formatter certo com configuração errada.
+
+---
+
+## ADR-025 — Payload e resposta entram no log, só em 4xx/5xx e redigidos
+
+**Status:** Aceita · **Data:** 2026-08-01 · **Detalhe:** [doc 99 §8](99-o-painel-vazio-e-o-formato-do-log.md)
+
+**Contexto.** A linha de log dizia *que* uma requisição foi recusada (`status`, `route`, `actor`,
+`clinic`), nunca **por quê**. Num 422 as mensagens de validação iam na resposta e não eram
+registradas em lugar nenhum; a trilha de auditoria não cobre o caso, porque um 422 é recusado
+**antes** de a ação rodar e nada chega ao `audit_events`. O sintoma prático: "a secretária não
+consegue salvar a ficha" só se investigava reproduzindo.
+
+**Decisão.** A linha de uma requisição **recusada** passa a carregar `payload` (o `body_params`),
+`query` (quando há) e `response` (o corpo devolvido, capturado por `ApiWeb.Plugs.CapturarResposta`,
+porque no momento da telemetria `conn.resp_body` já é `nil`). Os três passam por `Api.LogRedacao`,
+que troca por `"***"` o valor de todo campo de uma **blocklist**, em duas camadas: na origem e como
+`redactors:` do formatter.
+
+**As duas escolhas, e o que cada uma custa:**
+
+| Escolha | O que compra | O que custa |
+|---|---|---|
+| **Só 4xx/5xx** (e não toda requisição) | Payload de paciente fica fora do log em ~todo o tráfego; a retenção de 30 dias do doc 62 continua de pé | Não dá para reconstruir uma operação bem-sucedida pelo log |
+| **Blocklist** (e não allowlist) | Investigação legível: `nascimento`, `convenio` e `status` visíveis contam a história de um 422 | **Erra aberto** — campo novo em `Patient` fora da lista vai em claro para o Loki, e nada avisa |
+
+**O risco aceito, explicitamente.** O log vive fora do banco, **sem RLS**, 30 dias, sob uma conta
+de Grafana compartilhada e sem trilha de leitura ([doc 95, R-M17](95-analise-infraestrutura.md)).
+Payload de paciente ali é uma superfície nova, e a redação a reduz sem eliminá-la. Três coisas
+seguram o risco e nenhuma basta sozinha: o teste que cobra a blocklist contra os atributos reais
+dos recursos e contra o `Api.Audit.Sensiveis`; a redação por forma do valor no Alloy; e o escopo
+restrito às requisições recusadas. **Revisar a lista é uma tarefa recorrente, não um evento** —
+campo sensível novo em ficha de paciente ou de profissional precisa entrar nela no mesmo commit.
+
+**Consequência sobre uma decisão anterior.** O [doc 05 §1.3](05-observabilidade-e-producao.md) diz
+que corpo de request/response não sai do processo. Este ADR o emenda para o caso 4xx/5xx redigido;
+o resto da regra continua valendo, inclusive a proibição de `patient_id` em rota.
 
 ---
 

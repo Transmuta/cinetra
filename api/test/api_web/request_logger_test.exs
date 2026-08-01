@@ -14,6 +14,18 @@ defmodule ApiWeb.RequestLoggerTest do
 
   alias ApiWeb.RequestLogger
 
+  defmodule Coletor do
+    @moduledoc """
+    Handler do `:logger` que reenvia o evento cru para o processo de teste.
+
+    Existe porque o metadata que interessa (`payload`, `response`) não aparece no texto do
+    `capture_log`: o formatter de teste tem a própria lista de chaves, e o que não está nela é
+    descartado antes de virar texto. Um teste montado sobre o texto mediria a lista do formatter,
+    não o que o `RequestLogger` produziu.
+    """
+    def log(evento, %{config: %{pai: pai}}), do: send(pai, {:linha, evento})
+  end
+
   describe "rota/1 — barreira de identificador" do
     test "UUID vira :id" do
       assert RequestLogger.rota("/api/json/patients/019f7c5b-1bee-7a32-9fad-c3d6f0a83177") ==
@@ -126,6 +138,114 @@ defmodule ApiWeb.RequestLoggerTest do
           nil
         )
       end)
+    end
+
+    # O metadata **real** do evento, e não o texto formatado.
+    #
+    # `payload` e `response` não estão na lista de metadata do formatter de teste, então eles
+    # simplesmente não apareceriam no `capture_log` — e o teste passaria por vazio, medindo a
+    # lista do formatter em vez do que o `RequestLogger` produziu. Este coletor é um handler do
+    # `:logger` de verdade: ele recebe o evento com o metadata intacto, que é o que segue para o
+    # formatter em produção.
+    defp metadados(conn_extra) do
+      :logger.add_handler(:coletor_de_teste, Coletor, %{config: %{pai: self()}})
+      on_exit(fn -> :logger.remove_handler(:coletor_de_teste) end)
+
+      conn =
+        Map.merge(
+          %Plug.Conn{
+            method: "POST",
+            request_path: "/api/coletor",
+            status: 200,
+            req_headers: [],
+            remote_ip: {127, 0, 0, 1}
+          },
+          conn_extra
+        )
+
+      RequestLogger.handle(
+        [:phoenix, :endpoint, :stop],
+        %{duration: 1_000_000},
+        %{conn: conn},
+        nil
+      )
+
+      receber_linha()
+    end
+
+    defp receber_linha do
+      receive do
+        {:linha, %{meta: meta, msg: {:string, "requisição"}}} ->
+          Enum.to_list(meta)
+
+        {:linha, _outro} ->
+          receber_linha()
+      after
+        500 -> flunk("o RequestLogger não emitiu a linha de requisição")
+      end
+    end
+
+    test "200 não carrega payload nem resposta" do
+      # O escopo do ADR-025 é 4xx/5xx. Se o caminho feliz carregasse payload, seria dado de
+      # paciente de TODA operação bem-sucedida indo para o Loki — exatamente o que a decisão
+      # evitou.
+      meta = metadados(%{status: 200, body_params: %{"cpf" => "12345678901"}})
+
+      refute Keyword.has_key?(meta, :payload)
+      refute Keyword.has_key?(meta, :response)
+    end
+
+    test "422 carrega o payload, redigido" do
+      meta =
+        metadados(%{
+          status: 422,
+          body_params: %{"cpf" => "12345678901", "clinic_id" => "019f"}
+        })
+
+      assert meta[:payload] == %{"cpf" => "***", "clinic_id" => "019f"}
+    end
+
+    test "422 carrega a resposta capturada pelo plug, redigida" do
+      meta =
+        metadados(%{
+          status: 422,
+          private: %{resposta_capturada: ~s({"errors":[{"field":"cpf"}],"nome":"Maria"})}
+        })
+
+      assert meta[:response] == %{"errors" => [%{"field" => "cpf"}], "nome" => "***"}
+    end
+
+    test "500 também carrega os dois" do
+      meta =
+        metadados(%{
+          status: 500,
+          body_params: %{"tel" => "11987654321"},
+          private: %{resposta_capturada: ~s({"error":"boom"})}
+        })
+
+      assert meta[:payload] == %{"tel" => "***"}
+      assert meta[:response] == %{"error" => "boom"}
+    end
+
+    test "a query string de uma requisição recusada entra, sem a credencial" do
+      # `GET /api/auth/magic-link/callback?token=…` é o caminho onde a query É o payload — e onde
+      # ela carrega a credencial que assina a sessão. Logar a query sem redigir `token` seria
+      # publicar sessão no Grafana.
+      meta =
+        metadados(%{
+          status: 401,
+          query_params: %{"token" => "SFMyNTY.longo", "clinic" => "019f"}
+        })
+
+      assert meta[:query] == %{"token" => "***", "clinic" => "019f"}
+    end
+
+    test "4xx sem corpo nenhum não inventa campo vazio" do
+      meta = metadados(%{status: 404})
+
+      refute Keyword.has_key?(meta, :payload)
+      refute Keyword.has_key?(meta, :response)
+      refute Keyword.has_key?(meta, :query)
     end
 
     test "health check com sucesso NÃO gera linha" do

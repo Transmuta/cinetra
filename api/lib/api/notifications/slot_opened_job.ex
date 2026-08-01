@@ -78,8 +78,9 @@ defmodule Api.Notifications.SlotOpenedJob do
         not_found_error?: false
       )
     end)
+    |> Api.Repo.unwrap()
     |> case do
-      {:ok, {:ok, %{} = appointment}} -> appointment
+      {:ok, %{} = appointment} -> appointment
       _ -> nil
     end
   end

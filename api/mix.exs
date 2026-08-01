@@ -55,8 +55,6 @@ defmodule Api.MixProject do
       {:ash_authentication_phoenix, "~> 2.0"},
       {:swoosh, "~> 1.16"},
       {:sourceror, "~> 1.8", only: [:dev, :test]},
-      {:open_api_spex, "~> 3.0"},
-      {:ash_json_api, "~> 1.0"},
       # Trilha de auditoria (A-D6c, doc 25 §11): uma linha por escrita em `Appointment` e
       # `Attendance`. Escolhida sobre as duas colunas de autoria porque `updated_by_id`
       # sobrescreve o autor anterior — numa tela operada por 3–4 pessoas, a remarcação some.

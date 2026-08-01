@@ -30,8 +30,9 @@ defmodule ApiWeb.WaitlistController do
         # (tracejada) sem refazer o cálculo de fuso no cliente.
         today: Date.to_iso8601(today),
         # F6: o "X–Y de Z" da tela. Os tetos são do domínio (`Api.Waitlist`), não daqui — a
-        # fronteira só converte a string do query param em inteiro.
-        page: page,
+        # fronteira só converte a string do query param em inteiro, e nomeia o `page` do wire
+        # (doc 96, H-8).
+        page: page_json(page),
         # As contagens da sidebar vêm do servidor **porque** a lista é paginada: contar o que
         # chegou contaria só a página.
         counts: Waitlist.entry_counts(scope)
@@ -109,7 +110,10 @@ defmodule ApiWeb.WaitlistController do
   # página. O cliente pede a mesma janela nas duas chamadas.
   def all_slots(conn, params) do
     with_member_scope(conn, fn scope ->
-      %{entries: entries} = Waitlist.list_entries(scope, opcoes(params))
+      # `list_entries_only/2` e não `list_entries/2` (doc 96, P-8): esta rota só precisa de **quem
+      # está na página**, e a irmã traz junto o `COUNT(*) OVER ()` da paginação e a lista completa
+      # de profissionais ativos — as duas descartadas aqui, em toda chamada.
+      entries = Waitlist.list_entries_only(scope, opcoes(params))
       by_entry = Waitlist.slots_by_entry(scope, entries)
 
       json(conn, %{

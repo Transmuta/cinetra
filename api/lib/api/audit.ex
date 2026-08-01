@@ -120,14 +120,10 @@ defmodule Api.Audit do
           page: [limit: limit, offset: offset, count: false]
         )
 
-      %{
-        entries: enrich(scope, page.results),
-        page: %{
-          limit: page.limit,
-          offset: page.offset,
-          more: page.more?
-        }
-      }
+      # O `page` **cru** do Ash: quem o nomeia para o wire é a fronteira
+      # (`ApiWeb.TenantScope.page_json/1`, doc 96 H-8). Montá-lo aqui era o domínio decidindo a
+      # forma do JSON — e foi assim que nasceram quatro formas diferentes para a mesma coisa.
+      %{entries: enrich(scope, page.results), page: page}
     end)
   end
 

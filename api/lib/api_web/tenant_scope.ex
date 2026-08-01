@@ -100,6 +100,24 @@ defmodule ApiWeb.TenantScope do
   """
   def bad_request(conn), do: conn |> put_status(:bad_request) |> json(%{error: "bad_request"})
 
+  @doc """
+  O `page` do wire, a partir de um `Ash.Page.Offset` — **a forma única de toda lista paginada**
+  (doc 96, H-8).
+
+  Havia quatro formas: duas com `total`, duas sem, e duas delas montadas **dentro do domínio**
+  (`Api.Audit` e `Api.Waitlist`), contra a regra que o próprio `AppointmentsController` enuncia —
+  *"a fronteira nomeia o wire… e não o domínio"*.
+
+  As quatro chaves saem sempre, e `total` sai **`nil`** quando a leitura não contou. A ausência
+  do campo era o problema real: o cliente tinha de saber, endpoint a endpoint, se ele existiria —
+  e `page.total === undefined` e `page.total === null` pedem código diferente para o mesmo fato
+  ("não sabemos quantos ao todo"). Contar continua sendo escolha do domínio, e uma escolha cara:
+  `Api.Pagination` documenta o `count: false` custando 400× menos buffers.
+  """
+  def page_json(%{limit: limit, offset: offset, more?: more?} = page) do
+    %{limit: limit, offset: offset, total: Map.get(page, :count), more: more?}
+  end
+
   def not_found(conn), do: conn |> put_status(:not_found) |> json(%{error: "not_found"})
 
   @doc """

@@ -490,21 +490,12 @@ defmodule Api.Messaging.Dispatch do
   defp consentiu?(%{comunicacao: true}), do: true
   defp consentiu?(_patient), do: false
 
-  # O lembrete **ignora a janela de silêncio**; todo o resto a respeita (decisão de 2026-07-31,
-  # doc 98).
+  # Toda mensagem passa pela janela de silêncio (§7).
   #
-  # A exceção é aritmética, não preferência. Adiar serve a uma mensagem que continua verdadeira
-  # horas depois — a confirmação de uma sessão da semana que vem é. O lembrete, desde que passou a
-  # sair **2 h** antes (`Clinic.msg_lembrete_horas`), não é: com a janela padrão 21h→8h, o lembrete
-  # de uma sessão das 7h30 é gerado às 5h30, adiado para as 8h e entregue **meia hora depois** de a
-  # sessão começar — anunciando como futuro algo que já passou. Adiar aqui não protege o sono de
-  # ninguém; só produz uma mensagem errada.
-  #
-  # O outro lado da escolha, registrado para não ser redescoberto como bug: uma sessão bem cedo faz
-  # o lembrete sair dentro da madrugada. É aceito porque a mensagem é sobre algo que o paciente
-  # está prestes a fazer — quem tem sessão às 7h30 já está de pé às 5h30 —, e porque o alternativo
-  # (descartar) cala justamente o aviso mais útil do dia.
-  defp quando_sai(:lembrete, _clinic), do: nil
+  # O lembrete era a exceção — ele ignorava a janela porque, saindo 2 h antes, adiar produzia
+  # mensagem falsa (doc 98 §3). O gatilho saiu em 2026-08-01 e a exceção foi junto: o que sobrou
+  # nasce de um clique da recepção e continua verdadeiro horas depois, que é a condição para
+  # adiar em vez de descartar.
   defp quando_sai(_kind, clinic), do: quando_enviar(clinic)
 
   @doc """

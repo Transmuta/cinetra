@@ -47,17 +47,18 @@ defmodule Api.Notifications.SessionSoonJob do
   @impl Oban.Worker
   def perform(%Oban.Job{args: args}) do
     antecedencia = Map.get(args, "antecedencia_min", antecedencia_configurada())
-    agora = agora(args)
+    agora = Api.Notifications.Reminders.instante_dos_args(args)
 
     de = DateTime.add(agora, antecedencia * 60, :second)
     ate = DateTime.add(de, @passo_min * 60, :second)
 
     enviados =
       Enum.reduce(Api.Housekeeping.Poda.clinicas(), 0, fn clinic_id, total ->
-        tz = Api.Scheduling.clinic_timezone(clinic_id)
-
+        # O fuso chega do `por_dono_da_coluna/4`, que o resolve **depois** do teste barato de
+        # "esta clínica tem alguém a avisar?" (doc 96, P-8). Resolvê-lo aqui custava uma leitura
+        # de `clinics` por clínica, a cada 5 minutos, inclusive nas que não avisam ninguém.
         total +
-          Reminders.por_dono_da_coluna(clinic_id, de, ate, fn user_id, blocos ->
+          Reminders.por_dono_da_coluna(clinic_id, de, ate, fn user_id, blocos, tz ->
             # Um aviso por bloco: numa turma o profissional tem UM bloco, e dois blocos
             # distintos na mesma janela são dois compromissos de verdade.
             Enum.each(blocos, &Fanout.session_soon(clinic_id, user_id, &1, tz))
@@ -74,10 +75,4 @@ defmodule Api.Notifications.SessionSoonJob do
 
   # `agora` injetável pelos args: o teste precisa fixar o instante para montar a janela, e é a
   # mesma disciplina de relógio do resto do projeto (ADR-009 — relógio é entrada, não ambiente).
-  defp agora(%{"agora" => iso}) when is_binary(iso) do
-    {:ok, dt, _} = DateTime.from_iso8601(iso)
-    dt
-  end
-
-  defp agora(_args), do: DateTime.utc_now()
 end

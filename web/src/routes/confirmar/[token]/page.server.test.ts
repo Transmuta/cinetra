@@ -28,7 +28,7 @@ const resumo = {
 	data: '10/08/2026',
 	hora: '09:00',
 	resposta: null,
-	respondidoEm: null
+	respondido_em: null
 };
 
 let fetchMock: ReturnType<typeof vi.fn>;
@@ -102,7 +102,7 @@ describe('load', () => {
 
 describe('action', () => {
 	it('encaminha a resposta e devolve o novo estado', async () => {
-		const respondido = { ...resumo, resposta: 'confirmou', respondidoEm: '2026-08-10T18:41:00Z' };
+		const respondido = { ...resumo, resposta: 'confirmou', respondido_em: '2026-08-10T18:41:00Z' };
 		fetchMock.mockResolvedValueOnce(res(200, respondido));
 
 		const out = await actions.default(evento('tk', 'confirmou'));

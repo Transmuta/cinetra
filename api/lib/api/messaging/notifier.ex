@@ -21,13 +21,25 @@ defmodule Api.Messaging.Notifier do
   As duas são o **C7(b)**, que a fase 1 deixou de fora por ser "copy nova, não estrutura nova".
   Era verdade: entraram sem mexer no `Dispatch`, no `SendJob` nem no transporte.
 
+  ## As duas só saem se a recepção pedir (2026-08-01)
+
+  Eram automáticas. Passaram a depender do argumento `avisar_paciente` das ações `:reschedule` e
+  `:cancel` — a pergunta que o modal faz antes de executar o gesto.
+
+  A escolha é **do bloco**, não do participante, e isso não mudou: remarcar move a turma inteira,
+  então a pergunta é uma só e vale para os quatro. O que mudou é que ela é feita.
+
+  O default é `false` (ver o argumento na `Api.Scheduling.Appointment`), então **omitir o campo
+  cala**. É a direção certa do erro: um `true` por omissão faria a tela prometer uma escolha que o
+  servidor atropela quando o campo não chega — e mensagem enviada não volta.
+
   ## `:schedule` saiu da tabela (2026-07-31, doc 98)
 
-  Criar um agendamento disparava `:confirmacao` na hora. **Não dispara mais**, e o que ocupou o
-  lugar é o lembrete por relógio (`Api.Messaging.ReminderJob`), agora ligado por padrão a 2 h da
-  sessão. A confirmação continua existindo como **gesto da recepção** — o botão do drawer, via
-  `ApiWeb.MessagesController` —, que é o caso em que alguém decidiu que aquele paciente precisa
-  ser procurado.
+  Criar um agendamento disparava `:confirmacao` na hora. **Não dispara mais.** Por um dia o lugar
+  foi ocupado pelo lembrete por relógio; em 2026-08-01 ele saiu também, e com ele o último disparo
+  automático do sistema. A confirmação continua existindo como **gesto da recepção** — o botão do
+  drawer, via `ApiWeb.MessagesController` —, que é o caso em que alguém decidiu que aquele paciente
+  precisa ser procurado.
 
   O que a remoção levou junto: a dedupe por presença que existia só por causa do
   `:add_participant` (entrar numa turma dispara o notifier para o bloco inteiro, e sem ela quem já
@@ -115,9 +127,11 @@ defmodule Api.Messaging.Notifier do
   def notify(%Ash.Notifier.Notification{
         resource: Api.Scheduling.Appointment,
         action: %{name: :reschedule},
-        data: appointment
-      }),
-      do: avisar(appointment, :remarcacao)
+        data: appointment,
+        changeset: changeset
+      }) do
+    if pediu_para_avisar?(changeset), do: avisar(appointment, :remarcacao), else: :ok
+  end
 
   # A ordem das duas linhas é contrato: **descarta antes de avisar**. Invertido, o `:cancelamento`
   # que acabou de entrar na fila seria varrido pelo próprio descarte — `pending_for_appointment`
@@ -126,10 +140,15 @@ defmodule Api.Messaging.Notifier do
   def notify(%Ash.Notifier.Notification{
         resource: Api.Scheduling.Appointment,
         action: %{name: :cancel},
-        data: appointment
+        data: appointment,
+        changeset: changeset
       }) do
+    # O descarte roda **sempre**, mesmo sem avisar: ele não fala com ninguém — faz o contrário,
+    # tira da fila o que não pode mais sair. Condicioná-lo à escolha da recepção deixaria uma
+    # confirmação parada na janela de silêncio anunciando, às 8h, uma sessão cancelada às 22h45.
     descartar_pendentes(appointment, motivo_do_descarte(:cancel))
-    avisar(appointment, :cancelamento)
+
+    if pediu_para_avisar?(changeset), do: avisar(appointment, :cancelamento), else: :ok
   end
 
   # Excluir não avisa (ver o moduledoc) — mas **precisa** desfazer o aviso que já estava na fila.
@@ -146,6 +165,14 @@ defmodule Api.Messaging.Notifier do
 
   @impl true
   def notify(_notification), do: :ok
+
+  # A pergunta do modal, lida do changeset depois do commit.
+  #
+  # `Map.get` com default, e não `Map.fetch!`: uma ação chamada por código que ainda não conhece o
+  # argumento (teste antigo, script, console) cai no silêncio em vez de estourar — e silêncio é o
+  # lado seguro de errar aqui.
+  defp pediu_para_avisar?(%{arguments: %{avisar_paciente: true}}), do: true
+  defp pediu_para_avisar?(_changeset), do: false
 
   # A autoridade única do par ação → motivo. As três cláusulas de descarte passam por aqui: o
   # lote e as duas normais, para que trocar um motivo não deixe a outra porta dizendo o antigo.

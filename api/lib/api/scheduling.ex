@@ -49,6 +49,10 @@ defmodule Api.Scheduling do
     resource Api.Scheduling.Attendance do
       define :list_attendances, action: :read
 
+      # O recorte do lembrete por relógio (doc 96, A-4): estava escrito à mão dentro do
+      # `Api.Messaging.ReminderJob`, com filtro solto sobre a query crua.
+      define :list_attendances_na_janela, action: :na_janela, args: [:de, :ate]
+
       # Segura/solta a presença na pausa do pacote (doc 43 §5c) — cascata interna de `Api.Packages`.
       define :set_attendance_pkg_hold, action: :set_pkg_hold
 
@@ -219,16 +223,16 @@ defmodule Api.Scheduling do
   defp normalize_tenant(nil), do: nil
   defp normalize_tenant(tenant), do: to_string(tenant)
 
-  # A leitura precisa da GUC (ADR-018) — e `in_clinic/2` exige um `Api.Scope`. Chamada interna
-  # com `tenant:` cru (seed, teste) usa o `with_clinic` direto.
+  # A leitura precisa da GUC (ADR-018). `in_clinic/2` aceita as duas formas — `Api.Scope` ou o
+  # `clinic_id` cru —, então o que muda entre os ramos é só de onde sai o tenant: do escopo, quando
+  # há sessão; do `tenant:` cru, na chamada interna (seed, teste).
+  #
+  # O ramo de baixo já foi um `{:ok, result} = with_clinic(...); result` escrito à mão — a terceira
+  # cópia do desembrulho que `in_clinic/2` faz, e a que o doc 96 conta em R-2/E-2.
   defp in_clinic_or_tenant(opts, clinic_id, fun) do
     case Keyword.get(opts, :scope) do
-      %Api.Scope{} = scope ->
-        in_clinic(scope, fun)
-
-      _ ->
-        {:ok, result} = Api.Repo.with_clinic(clinic_id, fun)
-        result
+      %Api.Scope{} = scope -> in_clinic(scope, fun)
+      _ -> in_clinic(clinic_id, fun)
     end
   end
 
@@ -1121,106 +1125,6 @@ defmodule Api.Scheduling do
     end
   end
 
-  # ---- ClinicHours (expediente semanal) ----
-
-  @doc "As 7 linhas do expediente da clínica ativa, ordenadas por dia-da-semana."
-  def list_clinic_hours(%Api.Scope{} = scope) do
-    in_clinic(scope, fn -> list_clinic_hours_rows!(scope: scope) end)
-  end
-
-  @doc """
-  Substitui o expediente dos dias em `week` (mapa `%{dow => periods}`), **atomicamente e numa
-  única transação**. Valida a semana inteira **antes** de escrever, então nenhuma ação falha no
-  meio — o que, sob transação manual, viraria 500 em vez de 422 (ver `SetTenantGuc`). Os upserts
-  compartilham a transação (a GUC de cada um, `SET LOCAL`, persiste nela), então é 1 checkout em
-  vez de 7. Pedimos as notificações de volta (`return_notifications?`) e as emitimos fora, para
-  não perder eventual notifier e não disparar o alerta do Ash. Só os dias no mapa são tocados.
-
-  **O gate do A3/D12 é absoluto** e roda **dentro da transação que escreve**: se a semana nova
-  deixasse algum agendamento futuro fora do expediente, a transação é revertida e volta
-  `{:error, {:future_conflicts, %{conflicts: [...], total: n}}}`. Não há como forçar — mudar
-  horário por cima de agenda marcada não é uma opção do produto; a lista existe para a recepção
-  remarcar um a um e tentar de novo.
-
-  Retornos: `{:ok, rows}` · `{:error, {:invalid, details}}` (períodos malformados) ·
-  `{:error, {:future_conflicts, analise}}`.
-  """
-  def update_clinic_hours(%Api.Scope{} = scope, week) when is_map(week) do
-    case validate_week(week) do
-      :ok -> escrever_semana_da_clinica(scope, week)
-      {:error, details} -> {:error, {:invalid, details}}
-    end
-  end
-
-  # O **recheck** do A3/D12: a análise roda dentro da mesma transação dos upserts, e não antes
-  # dela. Entre "analisei e não achou conflito" e "gravei" cabe um agendamento novo — é a mesma
-  # razão de o `CheckAvailability` conferir o expediente dentro da ação de agendar, e não na
-  # fronteira. Conflito vira `Repo.rollback`, que é saída controlada: nada foi escrito.
-  #
-  # Os upserts **não** falham aqui (a semana foi validada antes), então não há erro do Ash
-  # arrebentando a transação de fora — a armadilha que `Api.Tenancy` documenta.
-  defp escrever_semana_da_clinica(scope, week) do
-    resultado =
-      Api.Repo.transaction(fn ->
-        case future_conflicts(scope, {:clinic_hours, week}) do
-          %{total: 0} ->
-            Enum.flat_map(week, fn {dow, periods} ->
-              {:ok, _row, notifications} =
-                set_clinic_hours_day(%{dow: dow, periods: periods},
-                  scope: scope,
-                  return_notifications?: true
-                )
-
-              notifications
-            end)
-
-          analise ->
-            Api.Repo.rollback({:future_conflicts, analise})
-        end
-      end)
-
-    case resultado do
-      {:ok, notifications} ->
-        Ash.Notifier.notify(notifications)
-        {:ok, list_clinic_hours(scope)}
-
-      {:error, motivo} ->
-        {:error, motivo}
-    end
-  end
-
-  defp validate_week(week) do
-    Enum.reduce_while(week, :ok, fn {dow, periods}, :ok ->
-      case Api.Scheduling.Periods.validate(periods) do
-        :ok ->
-          {:cont, :ok}
-
-        {:error, message} ->
-          {:halt, {:error, [%{field: :periods, message: "dia #{dow}: #{message}"}]}}
-      end
-    end)
-  end
-
-  @doc """
-  Seed do expediente inicial de uma clínica (do `Clinic.onboard`). Recebe `clinic_id` cru — e
-  não um `Api.Scope` — porque roda no `onboard`, quando o tenant acabou de nascer e ainda não
-  há escopo. A GUC de cada upsert é setada pelo `SetTenantGuc` da própria ação.
-
-  `audit_cascade` cala a trilha destes sete upserts (ver `Api.Audit.Capture`): a semana padrão
-  não é decisão de ninguém, e sete "Mudou o expediente" no minuto zero da clínica afogavam a
-  única linha que conta o fato — "Criou a clínica". Mudar um dia depois tem linha própria.
-  """
-  def seed_clinic_hours(clinic_id, week) when is_binary(clinic_id) and is_list(week) do
-    Enum.map(
-      week,
-      &set_clinic_hours_day!(&1,
-        tenant: clinic_id,
-        authorize?: false,
-        context: %{audit_cascade: true}
-      )
-    )
-  end
-
   # ---- ScheduleException (feriados/exceções da clínica) ----
 
   @doc """
@@ -1286,220 +1190,31 @@ defmodule Api.Scheduling do
     end)
   end
 
-  @doc """
-  As datas de **feriado** da clínica como `MapSet` — exceções da clínica cujo tipo **não** é
-  `:horario` (RN-20: só `:fechado` pula a série; expediente especial é dia normal). Recebe o
-  `clinic_id` cru, sem `Api.Scope`, porque quem chama pode ser um job de fundo (a materialização do
-  pacote) que não tem usuário. Roda sob a GUC de tenant (`in_clinic`), `authorize?: false`.
-  """
-  def clinic_holidays(clinic_id) when is_binary(clinic_id) do
-    query =
-      Api.Scheduling.ScheduleException
-      |> Ash.Query.filter(is_nil(professional_id))
-      |> Ash.Query.filter(tipo != :horario)
+  # ---- Expediente e exceções: a fachada de `Api.Scheduling.Hours` ----
+  #
+  # O bloco inteiro (expediente da clínica, grade do profissional e as exceções dos dois — 314
+  # linhas) saiu para `Api.Scheduling.Hours` na segunda fatia de E-1 (doc 96). Ficou aqui só a
+  # fachada, pelo mesmo motivo de `load_summary/5`: a fronteira não precisa saber em qual módulo
+  # interno a regra mora, e é isso que permitiu a mudança sem tocar em controller nem em teste.
+  #
+  # Por que este bloco demorou mais que o dos relatórios: ele tem quatro dependências cruzadas com
+  # o que sobra aqui (`in_clinic/2`, `future_conflicts/2`, `clinic_now/1` e as code interfaces do
+  # domínio), contra as três funções que os relatórios tocavam. Elas continuam sendo chamadas de
+  # lá — via `import` explícito, que é o que torna a dependência visível em vez de difusa.
+  defdelegate list_clinic_hours(scope), to: Api.Scheduling.Hours
+  defdelegate update_clinic_hours(scope, week), to: Api.Scheduling.Hours
+  defdelegate seed_clinic_hours(clinic_id, week), to: Api.Scheduling.Hours
+  defdelegate clinic_holidays(clinic_id), to: Api.Scheduling.Hours
+  defdelegate list_clinic_exceptions(scope), to: Api.Scheduling.Hours
+  defdelegate fetch_clinic_exception(scope, id), to: Api.Scheduling.Hours
+  defdelegate create_clinic_exception(scope, attrs), to: Api.Scheduling.Hours
+  defdelegate destroy_clinic_exception(scope, exception), to: Api.Scheduling.Hours
+  defdelegate list_professional_hours(scope, professional_id), to: Api.Scheduling.Hours
+  defdelegate update_professional_hours(scope, professional_id, days), to: Api.Scheduling.Hours
 
-    in_clinic(clinic_id, fn ->
-      query
-      |> list_schedule_exceptions_query(tenant: clinic_id, authorize?: false)
-      |> MapSet.new(& &1.data)
-    end)
-  end
+  defdelegate create_professional_exception(scope, professional_id, attrs),
+    to: Api.Scheduling.Hours
 
-  defp list_schedule_exceptions_query(query, opts) do
-    list_schedule_exceptions!(Keyword.put(opts, :query, query))
-  end
-
-  @doc "Exceções **da clínica** (professional_id nulo) ativas do escopo, ordenadas por data."
-  def list_clinic_exceptions(%Api.Scope{} = scope) do
-    # Filtro por `is_nil(professional_id)` via `Ash.Query` (o açúcar `filter: [professional_id:
-    # nil]` do code interface não vira `IS NULL`). Passado pela interface, não por `Ash.read!`
-    # cru (ash.md).
-    query = Ash.Query.filter(Api.Scheduling.ScheduleException, is_nil(professional_id))
-    in_clinic(scope, fn -> list_schedule_exceptions!(query: query, scope: scope) end)
-  end
-
-  @doc """
-  Uma exceção da clínica ativa por id. De outra clínica é indistinguível de inexistente
-  (o filtro por atributo não a enxerga) → `{:ok, nil}`, que o controller traduz em 404.
-  """
-  def fetch_clinic_exception(%Api.Scope{} = scope, id) when is_binary(id) do
-    in_clinic(scope, fn -> get_schedule_exception(id, scope: scope) end)
-  end
-
-  @doc """
-  Cria uma exceção **da clínica** (professional_id nulo — não é aceito no corpo nesta fatia).
-
-  O gate do A3/D12 roda **dentro da ação** (`CheckFutureConflicts`, um `before_action`): um
-  feriado sobre um dia com agenda marcada é recusado, e o erro carrega a lista.
-  """
-  def create_clinic_exception(%Api.Scope{} = scope, attrs) do
-    create_schedule_exception(attrs, scope: scope)
-  end
-
-  @doc "Apaga uma exceção da clínica (doc 22 H4: destroy de verdade)."
-  def destroy_clinic_exception(%Api.Scope{} = scope, exception) do
-    destroy_schedule_exception(exception, scope: scope)
-  end
-
-  # ---- ProfessionalHours (grade semanal do profissional) ----
-
-  @doc "A grade de um profissional (só os dias que ele configurou), ordenada por dia-da-semana."
-  def list_professional_hours(%Api.Scope{} = scope, professional_id)
-      when is_binary(professional_id) do
-    query =
-      Ash.Query.filter(Api.Scheduling.ProfessionalHours, professional_id == ^professional_id)
-
-    in_clinic(scope, fn -> list_professional_hours_rows!(query: query, scope: scope) end)
-  end
-
-  @doc """
-  Substitui a grade de `professional_id` nos dias em `days` (lista de `%{dow:, modo:, periods:}`),
-  **atomicamente e numa única transação**. Valida a semana inteira **antes** de escrever —
-  forma dos períodos, coerência `modo`↔`periods` e o invariante **prof ⊆ clínica** (custom só
-  cabe dentro do expediente da clínica no dia) —, então nenhuma escrita falha no meio. Só os
-  dias na lista são tocados (mesmo desenho de `update_clinic_hours/2`).
-
-  Passa pelo mesmo recheck do `update_clinic_hours/2`, **dentro da transação de escrita**:
-  estreitar a grade sobre uma sessão já marcada é recusado, e a lista sobe no erro.
-
-  Retornos: `{:ok, rows}` · `{:error, :professional_not_in_clinic}` ·
-  `{:error, {:invalid, details}}` · `{:error, {:future_conflicts, analise}}`.
-  """
-  def update_professional_hours(%Api.Scope{} = scope, professional_id, days)
-      when is_binary(professional_id) and is_list(days) do
-    with :ok <- ensure_professional_in_clinic(scope, professional_id),
-         :ok <- validate_professional_week(scope, days) do
-      escrever_grade(scope, professional_id, days)
-    end
-  end
-
-  # Mesmo desenho de `escrever_semana_da_clinica/2`: o recheck acontece **dentro** da transação
-  # que grava, e conflito sai por `Repo.rollback` — controlado, sem nada escrito.
-  defp escrever_grade(scope, professional_id, days) do
-    resultado =
-      Api.Repo.transaction(fn ->
-        case future_conflicts(scope, {:professional_hours, professional_id, days}) do
-          %{total: 0} ->
-            Enum.flat_map(days, fn day ->
-              {:ok, _row, notifications} =
-                day
-                |> Map.put(:professional_id, professional_id)
-                |> set_professional_hours_day(scope: scope, return_notifications?: true)
-
-              notifications
-            end)
-
-          analise ->
-            Api.Repo.rollback({:future_conflicts, analise})
-        end
-      end)
-
-    case resultado do
-      {:ok, notifications} ->
-        Ash.Notifier.notify(notifications)
-        {:ok, list_professional_hours(scope, professional_id)}
-
-      {:error, motivo} ->
-        {:error, motivo}
-    end
-  end
-
-  defp ensure_professional_in_clinic(%Api.Scope{clinic_id: clinic_id}, professional_id) do
-    if Api.Directory.professional_in_clinic?(professional_id, clinic_id),
-      do: :ok,
-      else: {:error, :professional_not_in_clinic}
-  end
-
-  # Confere a semana do profissional contra o expediente da clínica (carregado uma vez).
-  defp validate_professional_week(scope, days) do
-    clinic = clinic_week_map(scope)
-
-    Enum.reduce_while(days, :ok, fn day, :ok ->
-      dow = day[:dow] || day["dow"]
-
-      case validate_professional_day(day, Map.get(clinic, dow, [])) do
-        :ok ->
-          {:cont, :ok}
-
-        {:error, message} ->
-          {:halt, {:error, {:invalid, [%{field: :periods, message: "dia #{dow}: #{message}"}]}}}
-      end
-    end)
-  end
-
-  @modos_validos Api.Scheduling.WeekdayMode.values()
-
-  defp validate_professional_day(day, clinic_periods) do
-    modo = day[:modo] || day["modo"]
-    periods = day[:periods] || day["periods"] || []
-
-    cond do
-      # `modo` é escolha do cliente e não estava validado aqui: um valor inventado atravessava e
-      # só morria no `{:ok, _} = set_professional_hours_day(...)` lá embaixo, dentro da
-      # transação — `MatchError`, ou seja **500** para entrada malformada (bate-volta doc 49).
-      # A escada deste endpoint é 422, como em todo o resto da fronteira.
-      not modo_valido?(modo) ->
-        {:error, "modo inválido"}
-
-      modo in [:herda, :fechado, "herda", "fechado"] and periods != [] ->
-        {:error, "modo #{modo} não carrega períodos próprios"}
-
-      modo in [:custom, "custom"] and periods == [] ->
-        {:error, "informe ao menos um período para um horário próprio"}
-
-      modo in [:custom, "custom"] ->
-        with :ok <- Api.Scheduling.Periods.validate(periods) do
-          Api.Scheduling.Periods.within(periods, clinic_periods)
-        end
-
-      true ->
-        Api.Scheduling.Periods.validate(periods)
-    end
-  end
-
-  defp modo_valido?(modo) when is_atom(modo) and not is_nil(modo), do: modo in @modos_validos
-
-  defp modo_valido?(modo) when is_binary(modo),
-    do: Enum.any?(@modos_validos, &(Atom.to_string(&1) == modo))
-
-  defp modo_valido?(_modo), do: false
-
-  # `%{dow => periods}` do expediente da clínica ativa, para o invariante prof ⊆ clínica.
-  defp clinic_week_map(scope) do
-    scope
-    |> list_clinic_hours()
-    |> Map.new(fn row -> {row.dow, row.periods} end)
-  end
-
-  # ---- ScheduleException do profissional (folgas/horários pontuais) ----
-
-  @doc """
-  Cria uma exceção **de um profissional** (folga ou horário pontual). O `professional_id` é
-  amarrado aqui (não vem do corpo livre) e precisa ser da clínica ativa.
-
-  O gate do A3/D12 roda **dentro da ação** e é recortado por profissional: a folga só é barrada
-  pelas sessões **daquele** profissional; a agenda dos colegas não entra.
-
-  Retornos: `{:ok, exception}` · `{:error, :professional_not_in_clinic}` · `{:error, changeset}`.
-  """
-  def create_professional_exception(%Api.Scope{} = scope, professional_id, attrs)
-      when is_binary(professional_id) do
-    with :ok <- ensure_professional_in_clinic(scope, professional_id) do
-      attrs = Map.put(attrs, :professional_id, professional_id)
-      create_schedule_exception(attrs, scope: scope)
-    end
-  end
-
-  @doc """
-  Uma exceção de profissional por id (para o DELETE do controller). De outra clínica é
-  indistinguível de inexistente → `{:ok, nil}`, que o controller traduz em 404.
-  """
-  def fetch_professional_exception(%Api.Scope{} = scope, id) when is_binary(id) do
-    in_clinic(scope, fn -> get_schedule_exception(id, scope: scope) end)
-  end
-
-  @doc "Apaga uma exceção de profissional (destroy de verdade, como as da clínica)."
-  def destroy_professional_exception(%Api.Scope{} = scope, exception) do
-    destroy_schedule_exception(exception, scope: scope)
-  end
+  defdelegate fetch_professional_exception(scope, id), to: Api.Scheduling.Hours
+  defdelegate destroy_professional_exception(scope, exception), to: Api.Scheduling.Hours
 end

@@ -97,8 +97,8 @@ defmodule ApiWeb.ClinicController do
     end)
   end
 
-  # Os inteiros podem chegar em branco, e **branco é `nil`** — que para `msg_lembrete_horas`
-  # significa DESLIGADO, não zero. Tratá-lo como 0 ligaria o lembrete para o instante da sessão.
+  # Os inteiros da janela de silêncio podem chegar em branco, e **branco é `nil`** — as duas
+  # pontas nulas significam "sem janela".
   defp messaging_params(params) do
     %{
       # Booleano vem do form como string. `parse_bool/1` trata ausente como `false` de propósito:
@@ -107,7 +107,6 @@ defmodule ApiWeb.ClinicController do
       # DESLIGAR pela tela. É exatamente o bug que o doc 98 §6 pegou ao vivo na janela de
       # silêncio, e ele não vai acontecer duas vezes.
       msg_whatsapp_ativo: parse_bool(params["msg_whatsapp_ativo"]),
-      msg_lembrete_horas: parse_int(params["msg_lembrete_horas"]),
       msg_silencio_inicio: parse_int(params["msg_silencio_inicio"]),
       msg_silencio_fim: parse_int(params["msg_silencio_fim"])
     }
@@ -129,7 +128,6 @@ defmodule ApiWeb.ClinicController do
   defp messaging_json(c) do
     %{
       msg_whatsapp_ativo: c.msg_whatsapp_ativo,
-      msg_lembrete_horas: c.msg_lembrete_horas,
       msg_silencio_inicio: c.msg_silencio_inicio,
       msg_silencio_fim: c.msg_silencio_fim
     }

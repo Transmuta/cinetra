@@ -63,21 +63,20 @@ defmodule Api.Messaging.OptOut do
     end
 
     custom_indexes do
-      # A pergunta do `Dispatch`, feita antes de **toda** mensagem: "este destino pediu para
-      # parar neste canal?". Parcial nos vigentes: revogado é histórico, não regra em vigor.
-      #
-      # O `::timestamp` no predicado é a lição do doc 35 cobrada de novo (ver o índice parcial
-      # de `notifications`): o AshPostgres emite `revogado_em::timestamp IS NULL`, e o Postgres
-      # não prova a implicação através do cast — sem ele o índice fica íntegro e **nunca é
-      # escolhido**.
-      index [:canal, :destino],
-        where: "(revogado_em)::timestamp IS NULL",
-        name: "message_opt_outs_vigentes_index",
-        all_tenants?: true
-
       index [:clinic_id], all_tenants?: true
       index [:revogado_por_id], all_tenants?: true
     end
+
+    # O SQL do `where` da identity `:vigente_por_destino`, exigido pelo AshPostgres para usá-la
+    # como alvo de upsert: ele precisa repetir o predicado no `ON CONFLICT (…) WHERE …`, e não
+    # traduz o `expr` sozinho nesse ponto.
+    #
+    # O `::timestamp` é a lição do doc 35 cobrada de novo (ver o índice parcial de
+    # `notifications`): o AshPostgres emite `revogado_em::timestamp IS NULL` nas leituras, e o
+    # Postgres não prova a implicação através do cast. O predicado do índice, o da leitura e este
+    # aqui têm de ser **o mesmo texto** — se divergirem, o índice fica íntegro e nunca é
+    # escolhido, e o `ON CONFLICT` deixa de inferi-lo.
+    identity_wheres_to_sql vigente_por_destino: "(revogado_em)::timestamp IS NULL"
   end
 
   # Sem `AshPaperTrail` pela mesma razão da `Message`: o registro já é o histórico. Um opt-out
@@ -105,6 +104,21 @@ defmodule Api.Messaging.OptOut do
       description "Registra que este destino pediu para parar."
 
       accept [:clinic_id, :canal, :destino, :origem, :motivo]
+
+      # **Upsert, e não read-then-write** (doc 96, A-5). As fontes repetem por desenho: a Zernio
+      # reentrega o mesmo evento até 7× em 24 h, o Resend reentrega o `complained` se o webhook
+      # demorar, e o paciente clica duas vezes no descadastro. O guard que existia em
+      # `Api.Messaging.opt_out/4` — "já está na lista? então não grava" — é *check-then-act*: duas
+      # entregas simultâneas leem "não" as duas e gravam as duas. Sem índice único, nada barra.
+      #
+      # `upsert_fields []` é deliberado: conflito não muda nada. A `origem` e o `motivo` que valem
+      # são os do **primeiro** pedido — é a hora em que o paciente pediu para parar, e reescrevê-la
+      # com a de uma reentrega do provider seria falsear o registro. Com a lista vazia, o
+      # AshPostgres cai nas próprias chaves do conflito (`SET canal = EXCLUDED.canal, …`), o que é
+      # um no-op que ainda devolve a linha — inclusive sem tocar em `updated_at`.
+      upsert? true
+      upsert_identity :vigente_por_destino
+      upsert_fields []
 
       # A GUC de tenant, como TODA escrita de recurso com RLS (doc 96, T-2).
       #
@@ -173,5 +187,27 @@ defmodule Api.Messaging.OptOut do
     # Nulo = global. Ver o moduledoc — é o único recurso do projeto onde isso é verdade.
     belongs_to :clinic, Api.Accounts.Clinic, allow_nil?: true
     belongs_to :revogado_por, Api.Accounts.User
+  end
+
+  # A unicidade é dos **vigentes**, não do destino para sempre (doc 96, A-5).
+  #
+  # O recorte por `is_nil(revogado_em)` é o que preserva o ciclo legítimo "parar → voltar → parar
+  # de novo": a segunda parada nasce como linha nova, e a revogação anterior continua no banco com
+  # nome e hora. Um índice único simples proibiria o ciclo — ou, num upsert que sobrescrevesse,
+  # apagaria a revogação. Este recurso não tem `AshPaperTrail` justamente porque a linha *é* o
+  # histórico; um índice que o apague desfaz essa decisão pela porta dos fundos.
+  #
+  # `nils_distinct? false` porque `clinic_id` nulo é o caso NORMAL aqui, não a exceção: nulo =
+  # opt-out global (C10/C11 no moduledoc), que é o que a v1 grava o tempo todo. No default do
+  # Postgres dois nulos não colidem, e a constraint não pegaria justamente o caso que existe.
+  #
+  # Sem `pre_check?`: o caminho é upsert, então a colisão é resolvida pelo `ON CONFLICT` e nunca
+  # vira `unique_violation`. (O `pre_check?` de `Patient` existe por outro motivo — sob RLS o
+  # Postgres omite o DETAIL do erro e o AshPostgres o lê; aqui não há erro para ler.)
+  identities do
+    identity :vigente_por_destino, [:canal, :destino, :clinic_id] do
+      where expr(is_nil(revogado_em))
+      nils_distinct? false
+    end
   end
 end

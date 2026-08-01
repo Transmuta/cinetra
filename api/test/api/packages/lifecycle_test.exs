@@ -658,6 +658,36 @@ defmodule Api.Packages.LifecycleTest do
 
       assert {:error, :sem_sessao_futura} = Packages.remove_session(scope_before(ctx), pkg.id)
     end
+
+    # Regressão do doc 96, B-13. O `−1` fazia duas escritas **sem transação**: cancelava a sessão
+    # e só então baixava o total. Quando a segunda falha, a primeira fica — e a segunda tem um
+    # jeito banal de falhar, que não é hipótese nenhuma: `total` tem `min: 1` no recurso, então
+    # num pacote de UMA sessão o `set_package_total` recusa `0`.
+    #
+    # O estado que sobrava é o pior do domínio, e o próprio código o nomeia noutro lugar: "pacote
+    # vendido com N sessões e zero na agenda". A recepção via 1 vendida, o paciente não tinha
+    # nenhuma marcada, e nada no sistema dizia que houve um erro.
+    test "recusa do total NÃO deixa a sessão cancelada para trás" do
+      ctx = setup_clinic()
+
+      {:ok, pkg} =
+        Packages.create_series(
+          scope_before(ctx),
+          params(ctx, %{total: 1, nome: "Avulsa #{unico()}"})
+        )
+
+      Oban.drain_queue(queue: :housekeeping)
+
+      [unica] = sessoes(ctx, pkg)
+
+      # `min: 1` no `total` faz o segundo passo recusar. O primeiro já rodou.
+      assert {:error, _} = Packages.remove_session(scope_before(ctx), pkg.id)
+
+      assert Packages.get_package!(pkg.id, scope: ctx.scope).total == 1
+
+      assert Scheduling.get_appointment!(unica.id, scope: ctx.scope).status == :agendado,
+             "a sessão foi cancelada e o total não baixou — pacote vendido com 1, zero na agenda"
+    end
   end
 
   # A trilha é a SÉRIE, não o cemitério dela. Sessão cancelada (pelo `−1`, pela massa, pela

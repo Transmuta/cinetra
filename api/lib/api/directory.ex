@@ -115,12 +115,7 @@ defmodule Api.Directory do
 
   def list_clinic_professionals(%Api.Scope{clinic_id: clinic_id} = scope, opts)
       when is_binary(clinic_id) do
-    {:ok, professionals} =
-      Api.Repo.with_clinic(clinic_id, fn ->
-        list_professionals!([scope: scope] ++ opts)
-      end)
-
-    professionals
+    in_clinic(clinic_id, fn -> list_professionals!([scope: scope] ++ opts) end)
   end
 
   @doc """
@@ -165,18 +160,24 @@ defmodule Api.Directory do
     reactivate_professional(professional, %{}, scope: scope)
   end
 
+  # As quatro perguntas abaixo têm a mesma moldura: **ler uma linha sob a GUC da clínica e
+  # classificar o que voltou**. A moldura estava escrita quatro vezes, com o desembrulho
+  # `{:ok, x} = with_clinic(...)` copiado em cada uma (doc 96, R-4) — e `Api.Tenancy.in_clinic/2`,
+  # que já faz exatamente esse desembrulho e aceita `clinic_id` cru, existe desde a Onda 3.
+  #
+  # O que de fato difere entre elas é só a code interface chamada e o `case` de classificação;
+  # é isso que cada uma continua escrevendo, e nada mais.
+  defp sob_a_guc(clinic_id, fun), do: Api.Tenancy.in_clinic(clinic_id, fun)
+
   @doc "Verdadeiro se `professional_id` é um `Professional` da clínica `clinic_id`."
   def professional_in_clinic?(professional_id, clinic_id)
       when is_binary(professional_id) and is_binary(clinic_id) do
-    {:ok, found?} =
-      Api.Repo.with_clinic(clinic_id, fn ->
-        case get_professional(professional_id, tenant: clinic_id, authorize?: false) do
-          {:ok, %Api.Directory.Professional{}} -> true
-          _ -> false
-        end
-      end)
-
-    found?
+    sob_a_guc(clinic_id, fn ->
+      case get_professional(professional_id, tenant: clinic_id, authorize?: false) do
+        {:ok, %Api.Directory.Professional{}} -> true
+        _ -> false
+      end
+    end)
   end
 
   def professional_in_clinic?(_professional_id, _clinic_id), do: false
@@ -191,19 +192,16 @@ defmodule Api.Directory do
   """
   def professional_inactive?(professional_id, clinic_id)
       when is_binary(professional_id) and is_binary(clinic_id) do
-    {:ok, inactive?} =
-      Api.Repo.with_clinic(clinic_id, fn ->
-        case get_professional(professional_id,
-               tenant: clinic_id,
-               authorize?: false,
-               not_found_error?: false
-             ) do
-          {:ok, %Api.Directory.Professional{ativo: false}} -> true
-          _ -> false
-        end
-      end)
-
-    inactive?
+    sob_a_guc(clinic_id, fn ->
+      case get_professional(professional_id,
+             tenant: clinic_id,
+             authorize?: false,
+             not_found_error?: false
+           ) do
+        {:ok, %Api.Directory.Professional{ativo: false}} -> true
+        _ -> false
+      end
+    end)
   end
 
   def professional_inactive?(_professional_id, _clinic_id), do: false
@@ -214,19 +212,16 @@ defmodule Api.Directory do
   """
   def appointment_type_archived?(type_id, clinic_id)
       when is_binary(type_id) and is_binary(clinic_id) do
-    {:ok, archived?} =
-      Api.Repo.with_clinic(clinic_id, fn ->
-        case get_appointment_type(type_id,
-               tenant: clinic_id,
-               authorize?: false,
-               not_found_error?: false
-             ) do
-          {:ok, %Api.Directory.AppointmentType{ativo: false}} -> true
-          _ -> false
-        end
-      end)
-
-    archived?
+    sob_a_guc(clinic_id, fn ->
+      case get_appointment_type(type_id,
+             tenant: clinic_id,
+             authorize?: false,
+             not_found_error?: false
+           ) do
+        {:ok, %Api.Directory.AppointmentType{ativo: false}} -> true
+        _ -> false
+      end
+    end)
   end
 
   def appointment_type_archived?(_type_id, _clinic_id), do: false
@@ -239,20 +234,17 @@ defmodule Api.Directory do
   """
   def appointment_type_capacity(type_id, clinic_id)
       when is_binary(type_id) and is_binary(clinic_id) do
-    {:ok, result} =
-      Api.Repo.with_clinic(clinic_id, fn ->
-        case get_appointment_type(type_id,
-               tenant: clinic_id,
-               authorize?: false,
-               not_found_error?: false
-             ) do
-          {:ok, %Api.Directory.AppointmentType{grupo: true, capacidade: cap}} -> {:ok, cap}
-          {:ok, %Api.Directory.AppointmentType{}} -> :individual
-          _ -> :error
-        end
-      end)
-
-    result
+    sob_a_guc(clinic_id, fn ->
+      case get_appointment_type(type_id,
+             tenant: clinic_id,
+             authorize?: false,
+             not_found_error?: false
+           ) do
+        {:ok, %Api.Directory.AppointmentType{grupo: true, capacidade: cap}} -> {:ok, cap}
+        {:ok, %Api.Directory.AppointmentType{}} -> :individual
+        _ -> :error
+      end
+    end)
   end
 
   def appointment_type_capacity(_type_id, _clinic_id), do: :error

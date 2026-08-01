@@ -89,6 +89,17 @@ custou um bug:
 `adjust_grade/3` — e rodei o gate como `cinetra_app`. Resultado: **0 falhas**. Nem chamar o
 `sem_guc/0` do próprio arquivo resolve, porque a ação torna a setar a GUC antes de chegar lá.
 
+**Segunda cegueira, medida depois** (doc 96 T-1/E-3, 2026-08-01): o gate também não pega **leitura
+depois de escrita dentro do mesmo job**. `Api.Packages.Sessions.segura/3` lê `appointments` depois
+do commit do `schedule_appointment`; sem GUC, sob `cinetra_app`, o cenário roda **verde** — a GUC da
+escrita anterior continua pendurada na transação do sandbox. Este caso engana mais que o primeiro,
+porque não há nenhuma "porta de entrada" antes dele no fluxo de leitura: quem raciocina pelo desenho
+do gate conclui, errado, que ele estaria coberto.
+
+**E o modo de falha é 0 linhas em toda tabela por-tenant** — não mais exceção em umas e vazio em
+outras. A migration `20260731120000_rls_fail_closed_uniforme` uniformizou em `nullif` (doc 96, T-0),
+o que torna o esquecimento *mais* silencioso e é a razão de as duas notas acima existirem.
+
 ### O que fazer, então
 
 **Leitura por-tenant nova em caminho de escrita se prova por `psql`, sob o role restrito** — não
@@ -104,6 +115,11 @@ docker compose exec -T -e PGPASSWORD=cinetra_app db psql -U cinetra_app -d cinet
   -c "begin; select set_config('cinetra.clinic_id','<uuid-da-clinica>',true);
       select count(*) from professionals; commit;"
 ```
+
+**Sempre com o controle positivo junto.** "0 linhas" sozinho não distingue *RLS funcionando* de
+*tabela vazia* — o segundo comando existe para isso, e o número dele tem de bater com o que o
+superusuário lê para a mesma clínica. Foi assim que a leitura do T-1 foi provada em 2026-08-01
+(`appointments`: 0 sem GUC, 30 com GUC, 30 pelo `postgres`).
 
 E vale para qualquer teste de RLS que você escreva: **mute a regra e confira que o teste fica
 vermelho.** Se ele continuar verde com o `in_clinic` removido, ele não está provando o que o nome

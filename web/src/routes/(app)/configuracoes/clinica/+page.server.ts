@@ -15,10 +15,27 @@ export const load: PageServerLoad = async (event) => {
 	return { clinic: result.data.clinic };
 };
 
+// Os campos opcionais que viajam SEMPRE, mesmo em branco — é assim que se limpa um deles. A lista
+// existe uma vez só porque a action e o formulário precisam concordar sobre o que atravessa: um
+// campo desenhado na tela e esquecido aqui salva em silêncio e some no recarregamento.
+const OPCIONAIS = [
+	'cnpj',
+	'telefone',
+	'cep',
+	'endereco',
+	'numero',
+	'complemento',
+	'bairro',
+	'cidade',
+	'uf'
+] as const;
+
 export const actions: Actions = {
-	// Nome, CNPJ e endereço salvos de uma vez. O CNPJ viaja como o usuário digitou (mascarado): a
-	// API é a autoridade — normaliza e valida (alfanumérico), e um 422 já vira toast de erro. Os
-	// campos opcionais vão sempre (mesmo em branco) para permitir limpá-los.
+	// Identidade, contato e endereço salvos de uma vez. O CNPJ viaja como o usuário digitou
+	// (mascarado): a API é a autoridade — normaliza e valida, e um 422 já vira toast de erro.
+	//
+	// O telefone também vai como digitado, e de propósito: ele é lido por um paciente dentro da
+	// mensagem, não discado por máquina.
 	save: async (event) => {
 		const form = await event.request.formData();
 		const nome = String(form.get('nome') ?? '').trim();
@@ -27,8 +44,7 @@ export const actions: Actions = {
 
 		const res = await updateClinic(event, {
 			nome,
-			cnpj: String(form.get('cnpj') ?? '').trim(),
-			endereco: String(form.get('endereco') ?? '').trim()
+			...Object.fromEntries(OPCIONAIS.map((c) => [c, String(form.get(c) ?? '').trim()]))
 		});
 
 		if (!res.ok) return fail(res.status || 400, { error: res.error });

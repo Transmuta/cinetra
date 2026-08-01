@@ -496,8 +496,9 @@ defmodule Api.Notifications.Fanout do
         not_found_error?: false
       )
     end)
+    |> Api.Repo.unwrap()
     |> case do
-      {:ok, {:ok, %{} = appointment}} -> appointment
+      {:ok, %{} = appointment} -> appointment
       _ -> nil
     end
   end
@@ -510,8 +511,9 @@ defmodule Api.Notifications.Fanout do
         not_found_error?: false
       )
     end)
+    |> Api.Repo.unwrap()
     |> case do
-      {:ok, {:ok, %{nome: nome}}} when is_binary(nome) -> nome
+      {:ok, %{nome: nome}} when is_binary(nome) -> nome
       _ -> "Um paciente"
     end
   end

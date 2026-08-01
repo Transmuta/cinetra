@@ -124,7 +124,6 @@ config :api, Api.Heartbeat,
   # manteria o check verde com a produção morta. Vazio quando cada ambiente tem projeto próprio.
   slug_prefix: System.get_env("HEARTBEAT_SLUG_PREFIX"),
   slugs: %{
-    "Api.Messaging.ReminderJob" => "reminder",
     "Api.Notifications.DailyDigestJob" => "digest",
     "Api.Notifications.SessionSoonJob" => "session-soon",
     "Api.Housekeeping.PruneTrail" => "prune-trail",
@@ -133,7 +132,6 @@ config :api, Api.Heartbeat,
   },
   urls:
     %{
-      "Api.Messaging.ReminderJob" => System.get_env("HEARTBEAT_URL_REMINDER"),
       "Api.Notifications.DailyDigestJob" => System.get_env("HEARTBEAT_URL_DIGEST"),
       "Api.Notifications.SessionSoonJob" => System.get_env("HEARTBEAT_URL_SESSION_SOON"),
       "Api.Housekeeping.PruneTrail" => System.get_env("HEARTBEAT_URL_PRUNE_TRAIL"),

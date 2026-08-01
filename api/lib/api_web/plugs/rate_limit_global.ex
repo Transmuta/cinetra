@@ -8,12 +8,24 @@ defmodule ApiWeb.Plugs.RateLimitGlobal do
 
   ## Dois estágios, e por que não um
 
-  O plug roda **duas vezes** em cada scope, com papéis diferentes:
+  O plug roda **duas vezes**, com papéis diferentes e em lugares diferentes da pilha:
 
-    * `stage: :edge` — **antes** do pipeline de sessão, chave por **IP**, teto folgado (2.000/min).
-      Corta enxurrada anônima antes de qualquer trabalho.
-    * `stage: :actor` — **depois** do `LoadScope`, chave por **ator** (ou IP, se anônimo), teto de
-      200/min. É o limite fino, o que a fatia prometeu.
+    * `stage: :edge` — plug do **endpoint**, entre `Plug.Telemetry` e `Plug.Parsers`. Chave por
+      **IP**, teto folgado (2.000/min). Corta enxurrada anônima antes de qualquer trabalho.
+    * `stage: :actor` — plug de **pipeline do router**, depois do `LoadScope`. Chave por **ator**
+      (ou IP, se anônimo), teto de 200/min. É o limite fino, o que a fatia prometeu.
+
+  ### Por que a borda é plug de ENDPOINT (doc 96, L-2)
+
+  Ela já foi pipeline do router, e nessa posição cumpria metade do que prometia: cortava antes do
+  **banco** (o `LoadScope` vem depois), mas não antes do **corpo** — `Plug.Parsers` é plug do
+  endpoint e roda antes do router, então uma requisição que ia levar 429 já tinha lido, alocado e
+  decodificado até 8 MB. Num servidor de 2 vCPU sem nada na frente, isso é a diferença entre
+  "cortamos a enxurrada" e "cortamos a enxurrada depois de pagar por ela".
+
+  Subir o plug para o endpoint também lhe dá a cobertura que o router não tinha: `/webhooks` e os
+  health checks nunca passavam pelo estágio de borda, porque cada scope escolhia seus pipelines.
+  Agora eles passam **por opção explícita** — ver `@sem_teto_de_borda` abaixo.
 
   O teto da borda **não** é "o limite, um pouco maior": é de outra natureza, e por isso é uma
   ordem de grandeza acima. Ele conta por **IP**, e uma clínica inteira sai por um IP só — dez
@@ -47,12 +59,26 @@ defmodule ApiWeb.Plugs.RateLimitGlobal do
   @edge_limit 2_000
   @scale :timer.minutes(1)
 
+  # As isenções do estágio de borda, agora que ele é plug de endpoint e alcança **tudo**.
+  #
+  # Cada uma tem a razão que o `router.ex` já registrava, e nenhuma é conveniência:
+  #
+  #   * `/webhooks` — a rajada legítima de uma campanha estouraria o balde do IP do provider, e a
+  #     guarda dessa rota é a assinatura, não o teto (o corpo dela tem teto próprio, no
+  #     `CacheRawBody`, que é o que L-1 fechou);
+  #   * `/api/health` e `/api/ready` — liveness não pode depender do rate limiter (doc 62 §7.1).
+  #     Um orquestrador que recebe 429 no health check reinicia uma instância que está viva.
+  #
+  # Os endpoints de auth **não** estão aqui: eles são isentos do estágio de ATOR (têm o
+  # `RateLimitAuth`, mais apertado), não do teto de infraestrutura da borda.
+  @sem_teto_de_borda ["/webhooks", "/api/health", "/api/ready"]
+
   @impl true
   def init(opts), do: Keyword.get(opts, :stage, :actor)
 
   @impl true
   def call(conn, stage) do
-    if RateLimit.enabled?(:global) do
+    if RateLimit.enabled?(:global) and not isento?(conn, stage) do
       case RateLimiter.Global.hit(key(conn, stage), scale(), limit(stage)) do
         {:allow, _count} -> conn
         {:deny, retry_after_ms} -> RateLimit.deny(conn, retry_after_ms)
@@ -61,6 +87,13 @@ defmodule ApiWeb.Plugs.RateLimitGlobal do
       conn
     end
   end
+
+  # Só a borda tem isenção por caminho: o estágio de ator continua sendo escolhido pipeline a
+  # pipeline no router, que é onde ele sempre esteve.
+  defp isento?(conn, :edge),
+    do: Enum.any?(@sem_teto_de_borda, &String.starts_with?(conn.request_path, &1))
+
+  defp isento?(_conn, :actor), do: false
 
   # Na borda o escopo ainda não existe (o plug roda antes do `LoadScope`), então a chave é sempre
   # o IP. Prefixos distintos mantêm os dois estágios em baldes separados.

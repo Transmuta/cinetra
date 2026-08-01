@@ -86,16 +86,40 @@ defmodule ApiWeb.RequestLogger do
     #
     # Cardinalidade alta não é problema aqui: no Loki isto é **campo** do JSON, não label — não
     # entra no índice e não multiplica séries.
-    metadata = [
-      method: conn.method,
-      route: rota(conn.request_path),
-      status: conn.status,
-      duration_ms: Float.round(ms, 1),
-      client_ip: ApiWeb.ClientIp.get(conn)
-    ]
+    metadata =
+      [
+        method: conn.method,
+        route: rota(conn.request_path),
+        status: conn.status,
+        duration_ms: Float.round(ms, 1),
+        client_ip: ApiWeb.ClientIp.get(conn)
+      ] ++ recusa(conn)
 
     Logger.log(nivel(conn.status), "requisição", metadata)
   end
+
+  # O que foi enviado e o que foi devolvido — **só quando a requisição falhou** (ADR-025).
+  #
+  # É o que responde "por que não salvou" sem depender de reproduzir o caso: um 422 sozinho diz
+  # que houve recusa, não qual campo nem com que forma de valor. Tudo passa por
+  # `Api.LogRedacao`, que troca por `"***"` o valor de todo campo da blocklist ANTES de o dado
+  # entrar no `Logger` — ver o moduledoc de lá para o que essa camada cobre e o que não cobre.
+  #
+  # Restringir a 4xx/5xx não é economia: é o que mantém payload de paciente **fora** do log em
+  # ~toda operação bem-sucedida, que é a esmagadora maioria do tráfego.
+  defp recusa(%{status: status} = conn) when is_integer(status) and status >= 400 do
+    [
+      payload: Api.LogRedacao.redigir(Map.get(conn, :body_params)),
+      # Num GET a query É o payload — e é por ela que viajam as duas credenciais de entrada do
+      # sistema: o `token` do magic link e o `code` do callback do Google. O contexto `:query`
+      # existe para redigir o segundo sem apagar o `code` do erro de validação numa resposta.
+      query: Api.LogRedacao.redigir(Map.get(conn, :query_params), :query),
+      response: Api.LogRedacao.resposta(ApiWeb.Plugs.CapturarResposta.corpo(conn))
+    ]
+    |> Enum.reject(fn {_chave, valor} -> is_nil(valor) end)
+  end
+
+  defp recusa(_conn), do: []
 
   # **Só 5xx é `:error`.** O nível codifica *acionabilidade*, não gravidade HTTP: 401 de sessão
   # expirada, 404 de robô e 422 de formulário são rotina, e marcá-los como `warning` treina a

@@ -51,6 +51,11 @@ defmodule Api.Messaging do
       define :list_opt_outs, action: :vigentes, args: [:canal, :destino, :clinic_id]
       define :do_revoke_opt_out, action: :revogar
     end
+
+    resource Api.Messaging.WebhookEvent do
+      define :register_webhook_event, action: :registrar
+      define :list_webhook_events, action: :por_corpo, args: [:provider, :digest]
+    end
   end
 
   @doc """
@@ -96,26 +101,26 @@ defmodule Api.Messaging do
   Idempotente porque as fontes repetem (§10.2): o Resend reentrega o mesmo `complained` se o
   webhook demorar, e o paciente pode clicar duas vezes no descadastro. Um segundo registro não
   mudaria o efeito, mas encheria a trilha de linhas iguais.
+
+  **A idempotência é do banco, não daqui** (doc 96, A-5). Isto já foi um `if opted_out?, do: :ok,
+  else: gravar` — *check-then-act*, com a janela clássica no meio: duas reentregas simultâneas do
+  mesmo evento leem "ainda não" as duas e gravam as duas. A ação `:registrar` é upsert sobre a
+  identity `:vigente_por_destino`, então quem resolve o empate é o `ON CONFLICT`, que não tem
+  janela. De quebra some uma leitura por mensagem no caminho do webhook.
   """
   def opt_out(canal, destino, origem, opts \\ []) when is_binary(destino) do
-    clinic_id = Keyword.get(opts, :clinic_id)
+    register_opt_out!(
+      %{
+        canal: canal,
+        destino: destino,
+        origem: origem,
+        motivo: Keyword.get(opts, :motivo),
+        clinic_id: Keyword.get(opts, :clinic_id)
+      },
+      authorize?: false
+    )
 
-    if opted_out?(canal, destino, clinic_id) do
-      :ok
-    else
-      register_opt_out!(
-        %{
-          canal: canal,
-          destino: destino,
-          origem: origem,
-          motivo: Keyword.get(opts, :motivo),
-          clinic_id: clinic_id
-        },
-        authorize?: false
-      )
-
-      :ok
-    end
+    :ok
   end
 
   @doc """
@@ -148,5 +153,34 @@ defmodule Api.Messaging do
     |> Enum.each(&do_revoke_opt_out!(&1, %{revogado_por_id: user && user.id}, authorize?: false))
 
     :ok
+  end
+
+  @doc """
+  Este corpo de webhook já foi processado? (doc 96, S-7)
+
+  Devolve `:novo` na primeira vez que este corpo é visto e `:repetido` daí em diante. A chave é o
+  SHA-256 do **corpo cru** — ver `Api.Messaging.WebhookEvent` para por que não é um id do provider.
+
+  Quem chama é a fronteira, que é quem tem o corpo cru; e ela chama **depois** de processar, não
+  antes: se marcasse antes, uma falha no processamento consumiria a única chance de o provider
+  reentregar aquele evento. Como o efeito de todo evento é idempotente, processar duas vezes por
+  concorrência é inofensivo — o que esta barreira existe para impedir é o replay *muito depois*,
+  contra o qual a assinatura da Zernio não protege.
+  """
+  def webhook_visto(provider, corpo) when is_binary(provider) and is_binary(corpo) do
+    digest = :sha256 |> :crypto.hash(corpo) |> Base.encode16(case: :lower)
+
+    case list_webhook_events!(provider, digest, authorize?: false) do
+      [_ja_visto | _] ->
+        :repetido
+
+      [] ->
+        # A leitura decide; a escrita é upsert só para não estourar `unique_violation` se duas
+        # reentregas simultâneas passarem pela leitura juntas. Nesse empate as duas processam — e
+        # tudo bem, porque todo efeito de webhook é idempotente. O que esta barreira existe para
+        # impedir é o replay **muito depois**, onde a janela de concorrência não é o problema.
+        register_webhook_event!(%{provider: provider, digest: digest}, authorize?: false)
+        :novo
+    end
   end
 end

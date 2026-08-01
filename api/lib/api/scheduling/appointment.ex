@@ -300,6 +300,19 @@ defmodule Api.Scheduling.Appointment do
       accept [:starts_at, :professional_id, :reschedule_reason]
       argument :encaixe, :boolean
 
+      # A recepção decide, no modal, se o paciente é avisado (2026-08-01). Quem lê é o
+      # `Api.Messaging.Notifier`, depois do commit.
+      #
+      # **Default `false`, e ele é a decisão.** O gatilho era automático; virar opt-in com default
+      # `true` seria trocar o automático por um automático que se pode desligar — e, pior, faria a
+      # tela prometer uma escolha que o servidor ignora quando o campo não chega (é assim que um
+      # checkbox some do FormData). Silêncio por omissão: mensagem enviada não volta, e no WhatsApp
+      # ela é paga.
+      #
+      # É argumento, não atributo: não é fato do agendamento, é instrução para este gesto. Guardá-lo
+      # numa coluna faria a próxima remarcação herdar a escolha da anterior.
+      argument :avisar_paciente, :boolean, default: false
+
       # Remarcar ESCOLHE profissional (a ação aceita `professional_id`), então vale a mesma
       # pergunta de `:schedule` — e só ela: o tipo vem do bloco que já existe, e checá-lo aqui
       # quebraria o §7 ("existente continua válido"). Ver o moduledoc de `ReferencesActive`.
@@ -332,6 +345,20 @@ defmodule Api.Scheduling.Appointment do
                 from: Api.Scheduling.AppointmentStatus.abertos()}
 
       accept [:cancel_reason]
+
+      # A recepção decide, no modal, se o paciente é avisado (2026-08-01). Quem lê é o
+      # `Api.Messaging.Notifier`, depois do commit.
+      #
+      # **Default `false`, e ele é a decisão.** O gatilho era automático; virar opt-in com default
+      # `true` seria trocar o automático por um automático que se pode desligar — e, pior, faria a
+      # tela prometer uma escolha que o servidor ignora quando o campo não chega (é assim que um
+      # checkbox some do FormData). Silêncio por omissão: mensagem enviada não volta, e no WhatsApp
+      # ela é paga.
+      #
+      # É argumento, não atributo: não é fato do agendamento, é instrução para este gesto. Guardá-lo
+      # numa coluna faria a próxima remarcação herdar a escolha da anterior.
+      argument :avisar_paciente, :boolean, default: false
+
       change set_attribute(:status, :cancelado)
       change {Api.Scheduling.Appointment.Changes.CascadeToAttendances, status: :cancelada}
       change Api.Scheduling.Appointment.Changes.BumpVersion

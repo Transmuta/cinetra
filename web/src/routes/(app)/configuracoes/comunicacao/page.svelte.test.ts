@@ -7,7 +7,7 @@ vi.mock('$app/forms', () => ({ enhance: () => ({ destroy() {} }) }));
 
 import Page from './+page.svelte';
 import type { Me } from '$lib/session';
-import { meFixture } from '$lib/testing/fixtures';
+import { meFixture, clinicFixture } from '$lib/testing/fixtures';
 import type { Clinic } from '$lib/server/clinics';
 
 // A tela de comunicação (doc 52 §7 / doc 98) pelo lado do FORMULÁRIO.
@@ -22,15 +22,7 @@ const owner: Me = meFixture({
 	memberships: []
 });
 
-const clinic: Clinic = {
-	id: 'c1',
-	nome: 'Clínica Vida',
-	cnpj: null,
-	endereco: null,
-	msg_lembrete_horas: 2,
-	msg_silencio_inicio: 21,
-	msg_silencio_fim: 8
-};
+const clinic: Clinic = clinicFixture();
 
 function data(c: Clinic = clinic) {
 	return { theme: null, unread: 0, me: owner, clinic: c };
@@ -64,22 +56,56 @@ describe('o que o formulário manda', () => {
 		expect(fd.get('silencio')).toBe('');
 	});
 
-	it('com o lembrete ligado, manda as horas salvas', () => {
-		const fd = enviado(render(Page, { props: { data: data(), form: null } }).container);
-
-		expect(fd.get('msg_lembrete_horas')).toBe('2');
-	});
-
-	it('com o lembrete DESLIGADO, manda o campo em branco — desligado é null, não zero', () => {
-		const semLembrete = { ...clinic, msg_lembrete_horas: null };
-		const fd = enviado(render(Page, { props: { data: data(semLembrete), form: null } }).container);
-
-		expect(fd.get('msg_lembrete_horas')).toBe('');
-	});
-
-	it('não manda mais a confirmação automática (doc 98)', () => {
+	it('não manda mais nem a confirmação automática nem o lembrete', () => {
+		// Os dois campos deixaram de existir na API (doc 98 e 2026-08-01). Um payload que ainda os
+		// carregasse seria recusado pela ação do Ash, e o sintoma na tela seria "não foi possível
+		// salvar" para QUALQUER mudança — inclusive a do interruptor de WhatsApp.
 		const fd = enviado(render(Page, { props: { data: data(), form: null } }).container);
 
 		expect(fd.get('msg_confirmacao_auto')).toBeNull();
+		expect(fd.get('msg_lembrete_horas')).toBeNull();
+	});
+
+	it('com o WhatsApp ligado, manda `whatsapp=on`', () => {
+		const comCanal = { ...clinic, telefone: '(11) 3456-7890', msg_whatsapp_ativo: true };
+		const fd = enviado(render(Page, { props: { data: data(comCanal), form: null } }).container);
+
+		expect(fd.get('whatsapp')).toBe('on');
+	});
+
+	it('com o WhatsApp DESLIGADO, manda `whatsapp` em branco — é assim que se desliga', () => {
+		// A armadilha exata do `silencio`: o `SwitchToggle` é `<button role="switch">` e botão não
+		// entra no FormData. Sem o hidden, a action leria ausente, e o canal seria impossível de
+		// desligar pela tela — com a diferença de que aqui o efeito é uma FATURA, não uma
+		// configuração perdida.
+		const fd = enviado(render(Page, { props: { data: data(), form: null } }).container);
+
+		expect(fd.get('whatsapp')).toBe('');
+	});
+});
+
+describe('o WhatsApp só liga com telefone da clínica', () => {
+	it('sem telefone, o interruptor fica desabilitado e a página diz onde resolver', () => {
+		const { getByLabelText, getByText, getByRole } = render(Page, {
+			props: { data: data(), form: null }
+		});
+
+		expect(getByLabelText('Falar por WhatsApp')).toBeDisabled();
+		expect(getByText(/cadastre antes o/i)).toBeInTheDocument();
+		// O link até a tela que resolve: interruptor apagado sem caminho manda procurar em três telas.
+		expect(getByRole('link', { name: 'Dados da clínica' })).toHaveAttribute(
+			'href',
+			'/configuracoes/clinica'
+		);
+	});
+
+	it('com telefone, o interruptor fica utilizável e o aviso some', () => {
+		const comTelefone = { ...clinic, telefone: '(11) 3456-7890' };
+		const { getByLabelText, queryByText } = render(Page, {
+			props: { data: data(comTelefone), form: null }
+		});
+
+		expect(getByLabelText('Falar por WhatsApp')).toBeEnabled();
+		expect(queryByText(/cadastre antes o/i)).toBeNull();
 	});
 });

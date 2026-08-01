@@ -102,8 +102,9 @@ defmodule Api.Messaging.SendJob do
   #
   # O `elem(1)` que estava aqui apagava a diferença entre as duas: `with_clinic/2` é
   # `Repo.transaction/1`, e num rollback `elem(1)` devolve o *reason* cru, que o `case` do
-  # `perform/1` engolia como "não achei". Casar as duas formas é o que separa "não existe" de
-  # "não consegui ler" (doc 96, B-9/B-10).
+  # `perform/1` engolia como "não achei". Separar "não existe" de "não consegui ler" é o conserto
+  # de B-9/B-10 — e virou `Api.Repo.unwrap/1` (E-2), que é a mesma decisão escrita uma vez só, em
+  # vez do `case` de cinco cláusulas que vivia aqui.
   defp ler(clinic_id, message_id) do
     Api.Repo.with_clinic(clinic_id, fn ->
       Messaging.get_message(message_id,
@@ -112,13 +113,7 @@ defmodule Api.Messaging.SendJob do
         not_found_error?: false
       )
     end)
-    |> case do
-      {:ok, {:ok, message}} -> {:ok, message}
-      {:ok, {:error, motivo}} -> {:error, motivo}
-      {:ok, %Message{} = message} -> {:ok, message}
-      {:ok, nil} -> {:ok, nil}
-      {:error, motivo} -> {:error, motivo}
-    end
+    |> Api.Repo.unwrap()
   end
 
   # Já enviada: a tentativa anterior chegou ao provider e gravou. Retentar aqui duplicaria a
@@ -178,22 +173,20 @@ defmodule Api.Messaging.SendJob do
   # O que sobra é um alerta alto o bastante para virar chamado: a linha ficou `:pendente` no banco
   # e a mensagem saiu no mundo. É a inconsistência que o `provider_message_id` do webhook resolve
   # depois, e que sem log ninguém descobriria.
+  # **Sem `with_clinic/2` em volta** (doc 96, B-11): `:mark_sent` carrega `SetTenantGuc`, então a
+  # GUC já está posta dentro da transação da própria ação. A de fora não acrescentava tenancy — e
+  # acrescentava a armadilha que `Api.Tenancy` documenta: numa falha, o rollback do Ash arrebenta a
+  # transação externa, e o erro chega deformado em vez de como exceção. O `rescue` abaixo já é o
+  # caminho de erro deste ponto, e agora é o único.
   defp marcar_enviada(%Message{} = message, provider, provider_id) do
-    Api.Repo.with_clinic(message.clinic_id, fn ->
-      Messaging.do_mark_sent!(
-        message,
-        %{provider: provider, provider_message_id: provider_id},
-        tenant: message.clinic_id,
-        authorize?: false
-      )
-    end)
-    |> case do
-      {:ok, _} ->
-        :ok
+    Messaging.do_mark_sent!(
+      message,
+      %{provider: provider, provider_message_id: provider_id},
+      tenant: message.clinic_id,
+      authorize?: false
+    )
 
-      {:error, motivo} ->
-        alertar_entregue_sem_registro(message, provider, provider_id, motivo)
-    end
+    :ok
   rescue
     erro -> alertar_entregue_sem_registro(message, provider, provider_id, erro)
   end
@@ -218,14 +211,15 @@ defmodule Api.Messaging.SendJob do
   # "endereço inválido", que vai falhar igual nas três tentativas. Gravar e sair deixa o motivo
   # na tela da recepção, que é quem consegue corrigir.
   defp falhar(%Message{} = message, motivo) do
-    Api.Repo.with_clinic(message.clinic_id, fn ->
-      Messaging.do_advance_message!(
-        message,
-        %{novo_status: :falhou, erro: to_string(motivo)},
-        tenant: message.clinic_id,
-        authorize?: false
-      )
-    end)
+    # Sem `with_clinic/2`, pela mesma razão de `marcar_enviada/3`: `:advance` já carrega
+    # `SetTenantGuc`. A transação de fora só existia por hábito — o resultado dela era descartado,
+    # e uma exceção atravessava os dois níveis igual.
+    Messaging.do_advance_message!(
+      message,
+      %{novo_status: :falhou, erro: to_string(motivo)},
+      tenant: message.clinic_id,
+      authorize?: false
+    )
 
     # **A frase classificada, nunca o texto cru** (doc 62 §7.3). O `motivo` que chega aqui é o que
     # o provider devolveu, e num bounce de e-mail ele normalmente embute o destinatário —

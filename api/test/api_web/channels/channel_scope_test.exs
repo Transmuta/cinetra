@@ -65,4 +65,65 @@ defmodule ApiWeb.ChannelScopeTest do
       assert :error == ChannelScope.authorize(outra.clinic.id, socket)
     end
   end
+
+  # Doc 96, L-3. O transporte do socket é montado **antes** do router (`endpoint.ex`), e os dois
+  # limitadores são plugs de pipeline do router — logo, `join` nunca passou por teto nenhum. Cada
+  # join custa uma query (a releitura do vínculo), e um token válido vive 15 min: dá para
+  # `join`/`leave` em laço com uma credencial legítima, sem estourar nada.
+  #
+  # Esta é a terceira porta do sistema (HTTP anônimo, HTTP autenticado, WebSocket) e era a única
+  # sem teto.
+  describe "teto de join (L-3)" do
+    setup do
+      Application.put_env(:api, :rate_limit_enabled, true)
+
+      on_exit(fn ->
+        Application.put_env(:api, :rate_limit_enabled, false)
+        Application.delete_env(:api, :rate_limit_global)
+      end)
+
+      :ok
+    end
+
+    defp limite_de_join!(n), do: Application.put_env(:api, :rate_limit_global, join_limit: n)
+
+    test "join em laço é barrado depois do teto" do
+      limite_de_join!(2)
+      ctx = clinica()
+      recep = escopo_de_membro!(ctx, :recepcao)
+      socket = socket_de(recep.user.id, ctx.clinic.id)
+
+      assert {:ok, _} = ChannelScope.authorize(ctx.clinic.id, socket)
+      assert {:ok, _} = ChannelScope.authorize(ctx.clinic.id, socket)
+
+      assert :error == ChannelScope.authorize(ctx.clinic.id, socket),
+             "o join passou do teto — o WebSocket segue fora de qualquer limite"
+    end
+
+    test "o balde é por usuário: um em laço não derruba o colega" do
+      limite_de_join!(1)
+      ctx = clinica()
+      um = escopo_de_membro!(ctx, :recepcao)
+      outro = escopo_de_membro!(ctx, :profissional, ctx.prof.id)
+
+      assert {:ok, _} =
+               ChannelScope.authorize(ctx.clinic.id, socket_de(um.user.id, ctx.clinic.id))
+
+      assert :error == ChannelScope.authorize(ctx.clinic.id, socket_de(um.user.id, ctx.clinic.id))
+
+      assert {:ok, _} =
+               ChannelScope.authorize(ctx.clinic.id, socket_de(outro.user.id, ctx.clinic.id))
+    end
+
+    test "com a enforcement desligada o teto não morde (dev e teste)" do
+      limite_de_join!(1)
+      Application.put_env(:api, :rate_limit_enabled, false)
+
+      ctx = clinica()
+      recep = escopo_de_membro!(ctx, :recepcao)
+      socket = socket_de(recep.user.id, ctx.clinic.id)
+
+      for _ <- 1..3, do: assert({:ok, _} = ChannelScope.authorize(ctx.clinic.id, socket))
+    end
+  end
 end

@@ -55,7 +55,6 @@ defmodule Api.Accounts.Clinic do
     update :update_messaging do
       accept [
         :msg_whatsapp_ativo,
-        :msg_lembrete_horas,
         :msg_silencio_inicio,
         :msg_silencio_fim
       ]
@@ -179,20 +178,6 @@ defmodule Api.Accounts.Clinic do
     # ---- Comunicação com o paciente (doc 52 §7) ----
     #
     # Por clínica, e **não** por profissional: por profissional vira matriz que ninguém mantém.
-
-    # Quantas horas antes da sessão sai o lembrete. `nil` = **desligado**.
-    #
-    # **Padrão 2 h** (decisão de 2026-07-31, doc 98), revogando o `nil` de 2026-07-27. Aquele
-    # existia porque a confirmação na criação já era o disparo automático da fatia e o cron podia
-    # nascer calado sem deixar ninguém sem comunicação; removida a confirmação, `nil` como padrão
-    # deixaria a clínica **muda** para o paciente até alguém abrir esta tela.
-    #
-    # Duas horas, e não vinte e quatro, porque o que este aviso serve é a decisão de sair de casa
-    # — não o planejamento da semana. Quem quiser a véspera troca o número na tela.
-    attribute :msg_lembrete_horas, :integer,
-      public?: true,
-      default: 2,
-      constraints: [min: 1, max: 168]
 
     # Janela de silêncio, em hora local da clínica (0–23). Mensagem que cairia dentro dela é
     # adiada para o fim da janela, não descartada — ver `Api.Messaging.Dispatch.silenciado?/2`.
