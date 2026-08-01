@@ -113,7 +113,12 @@ defmodule Api.PromEx do
       # não é o job que falhou (esse o log tem, desde que `attach_default_logger` foi ligado) —
       # é o tamanho da fila e o tempo que o job passou esperando. Fila crescendo é lembrete que
       # não vai sair no horário, e ninguém descobre isso lendo log linha a linha.
-      {Plugins.Oban, oban_supervisors: [Oban]}
+      {Plugins.Oban, oban_supervisors: [Oban]},
+
+      # A saúde do exportador de traces. Não vem do PromEx: é sinal nosso, alimentado pelo
+      # `Api.Tracing.OtlpFilter` — a métrica que substitui a linha de log que ele descarta
+      # (doc 96, O-2). Sem ela, a queda do coletor só aparece como painel vazio.
+      Api.PromEx.Otlp
     ]
   end
 end

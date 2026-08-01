@@ -25,7 +25,7 @@ defmodule Api.Messaging.DispatchTest do
       ctx = clinica()
       paciente = paciente_com(ctx, comunicacao: false, email: "quem@example.com")
 
-      assert {:skip, :sem_consentimento} = Dispatch.avaliar(paciente, clinic_id: ctx.clinic.id)
+      assert {:skip, :sem_consentimento} = Dispatch.avaliar(paciente, clinic: ctx.clinic)
     end
 
     test "consentimento sem contato nenhum é :sem_contato, não erro" do
@@ -35,7 +35,7 @@ defmodule Api.Messaging.DispatchTest do
       ctx = clinica()
       paciente = paciente_legado_sem_tel!(ctx, comunicacao: true, email: nil)
 
-      assert {:skip, :sem_contato} = Dispatch.avaliar(paciente, clinic_id: ctx.clinic.id)
+      assert {:skip, :sem_contato} = Dispatch.avaliar(paciente, clinic: ctx.clinic)
     end
 
     test "com e-mail e consentimento, sai por e-mail" do
@@ -43,7 +43,7 @@ defmodule Api.Messaging.DispatchTest do
       paciente = paciente_com(ctx, comunicacao: true, email: "Maria@Example.COM ")
 
       assert {:ok, :email, "maria@example.com"} =
-               Dispatch.avaliar(paciente, clinic_id: ctx.clinic.id)
+               Dispatch.avaliar(paciente, clinic: ctx.clinic)
     end
 
     test "o consentimento é perguntado ANTES do contato" do
@@ -52,7 +52,7 @@ defmodule Api.Messaging.DispatchTest do
       ctx = clinica()
       paciente = paciente_legado_sem_tel!(ctx, comunicacao: false, email: nil)
 
-      assert {:skip, :sem_consentimento} = Dispatch.avaliar(paciente, clinic_id: ctx.clinic.id)
+      assert {:skip, :sem_consentimento} = Dispatch.avaliar(paciente, clinic: ctx.clinic)
     end
   end
 
@@ -62,7 +62,7 @@ defmodule Api.Messaging.DispatchTest do
       paciente = paciente_com(ctx, comunicacao: true, email: "parou@example.com")
       Messaging.opt_out(:email, "parou@example.com", "link")
 
-      assert {:skip, :opt_out} = Dispatch.avaliar(paciente, clinic_id: ctx.clinic.id)
+      assert {:skip, :opt_out} = Dispatch.avaliar(paciente, clinic: ctx.clinic)
     end
 
     test "o opt-out GLOBAL (clinic_id nulo) vale para qualquer clínica" do
@@ -72,7 +72,7 @@ defmodule Api.Messaging.DispatchTest do
       paciente = paciente_com(outra, comunicacao: true, email: "global@example.com")
       Messaging.opt_out(:email, "global@example.com", "spam")
 
-      assert {:skip, :opt_out} = Dispatch.avaliar(paciente, clinic_id: outra.clinic.id)
+      assert {:skip, :opt_out} = Dispatch.avaliar(paciente, clinic: outra.clinic)
     end
 
     test "opt-out de OUTRA clínica não bloqueia esta" do
@@ -81,7 +81,7 @@ defmodule Api.Messaging.DispatchTest do
       paciente = paciente_com(b, comunicacao: true, email: "so-na-a@example.com")
       Messaging.opt_out(:email, "so-na-a@example.com", "link", clinic_id: a.clinic.id)
 
-      assert {:ok, :email, _} = Dispatch.avaliar(paciente, clinic_id: b.clinic.id)
+      assert {:ok, :email, _} = Dispatch.avaliar(paciente, clinic: b.clinic)
     end
 
     test "revogar devolve o destino ao envio" do
@@ -90,7 +90,7 @@ defmodule Api.Messaging.DispatchTest do
       Messaging.opt_out(:email, "voltou@example.com", "link")
       Messaging.revoke_opt_out(ctx.scope, :email, "voltou@example.com")
 
-      assert {:ok, :email, _} = Dispatch.avaliar(paciente, clinic_id: ctx.clinic.id)
+      assert {:ok, :email, _} = Dispatch.avaliar(paciente, clinic: ctx.clinic)
     end
 
     test "registrar duas vezes não duplica" do
@@ -133,7 +133,7 @@ defmodule Api.Messaging.DispatchTest do
       ctx = clinica()
       paciente = paciente_com(ctx, comunicacao: true, tel: "11987654321", email: "b@example.com")
 
-      assert {:ok, :email, "b@example.com"} = Dispatch.avaliar(paciente, clinic_id: ctx.clinic.id)
+      assert {:ok, :email, "b@example.com"} = Dispatch.avaliar(paciente, clinic: ctx.clinic)
     end
 
     test "só telefone, com o canal desligado, é :canal_indisponivel — NÃO :sem_contato" do
@@ -144,49 +144,49 @@ defmodule Api.Messaging.DispatchTest do
       ctx = clinica()
       paciente = paciente_com(ctx, comunicacao: true, tel: "11987654321", email: nil)
 
-      assert {:skip, :canal_indisponivel} = Dispatch.avaliar(paciente, clinic_id: ctx.clinic.id)
+      assert {:skip, :canal_indisponivel} = Dispatch.avaliar(paciente, clinic: ctx.clinic)
     end
 
     test "ficha vazia continua :sem_contato mesmo com o WhatsApp ligado" do
       # O par do teste acima: com transporte de pé, o silêncio volta a ser culpa da ficha — e é
       # aí que "abra a ficha e preencha" é a instrução certa.
       com_whatsapp(fn ->
-        ctx = clinica()
+        ctx = clinica(whatsapp: true)
         paciente = paciente_legado_sem_tel!(ctx, comunicacao: true, email: nil)
 
-        assert {:skip, :sem_contato} = Dispatch.avaliar(paciente, clinic_id: ctx.clinic.id)
+        assert {:skip, :sem_contato} = Dispatch.avaliar(paciente, clinic: ctx.clinic)
       end)
     end
 
     test "só telefone, com o canal ligado, sai por WhatsApp" do
       com_whatsapp(fn ->
-        ctx = clinica()
+        ctx = clinica(whatsapp: true)
         paciente = paciente_com(ctx, comunicacao: true, tel: "11987654321", email: nil)
 
         assert {:ok, :whatsapp, "+5511987654321"} =
-                 Dispatch.avaliar(paciente, clinic_id: ctx.clinic.id)
+                 Dispatch.avaliar(paciente, clinic: ctx.clinic)
       end)
     end
 
     test "com WhatsApp ligado, ele é o padrão" do
       com_whatsapp(fn ->
-        ctx = clinica()
+        ctx = clinica(whatsapp: true)
 
         paciente =
           paciente_com(ctx, comunicacao: true, tel: "11987654321", email: "b@example.com")
 
         assert {:ok, :whatsapp, "+5511987654321"} =
-                 Dispatch.avaliar(paciente, clinic_id: ctx.clinic.id)
+                 Dispatch.avaliar(paciente, clinic: ctx.clinic)
       end)
     end
 
     test "sem telefone, cai para o e-mail" do
       com_whatsapp(fn ->
-        ctx = clinica()
+        ctx = clinica(whatsapp: true)
         paciente = paciente_legado_sem_tel!(ctx, comunicacao: true, email: "b@example.com")
 
         assert {:ok, :email, "b@example.com"} =
-                 Dispatch.avaliar(paciente, clinic_id: ctx.clinic.id)
+                 Dispatch.avaliar(paciente, clinic: ctx.clinic)
       end)
     end
 
@@ -195,14 +195,49 @@ defmodule Api.Messaging.DispatchTest do
       # souber que ele não serve para WhatsApp. Sem isto, a mensagem sairia para um número que
       # nunca vai entregar e a falha só apareceria no webhook, horas depois.
       com_whatsapp(fn ->
-        ctx = clinica()
+        ctx = clinica(whatsapp: true)
 
         paciente =
           paciente_com(ctx, comunicacao: true, tel: "(11) 3456-7890", email: "b@example.com")
 
         assert {:ok, :email, "b@example.com"} =
-                 Dispatch.avaliar(paciente, clinic_id: ctx.clinic.id)
+                 Dispatch.avaliar(paciente, clinic: ctx.clinic)
       end)
+    end
+
+    test "clínica com o WhatsApp DESLIGADO cai para o e-mail, mesmo com transporte de pé" do
+      # São duas chaves em série. Esta prova a de baixo: a instalação fala WhatsApp
+      # (`com_whatsapp`), mas a clínica não quis o canal — e cair para a reserva é o
+      # comportamento certo, porque quem escolheu outro canal foi a clínica, não o paciente.
+      com_whatsapp(fn ->
+        ctx = clinica()
+
+        paciente =
+          paciente_com(ctx, comunicacao: true, tel: "11987654321", email: "b@example.com")
+
+        assert {:ok, :email, "b@example.com"} = Dispatch.avaliar(paciente, clinic: ctx.clinic)
+      end)
+    end
+
+    test "só telefone e o canal desligado NA CLÍNICA é :whatsapp_desligado, não :canal_indisponivel" do
+      # A distinção existe porque o conserto tem dono diferente: aqui é um interruptor em
+      # /configuracoes/comunicacao, e dizer "indisponível" mandaria a clínica abrir chamado para
+      # uma coisa que ela resolve sozinha.
+      com_whatsapp(fn ->
+        ctx = clinica()
+        paciente = paciente_com(ctx, comunicacao: true, tel: "11987654321", email: nil)
+
+        assert {:skip, :whatsapp_desligado} = Dispatch.avaliar(paciente, clinic: ctx.clinic)
+      end)
+    end
+
+    test "sem transporte, o motivo continua :canal_indisponivel — o dono do conserto é outro" do
+      # O par do teste acima, e o que impede o motivo novo de engolir o antigo: com a instalação
+      # sem WhatsApp, ligar o interruptor da clínica não resolveria nada.
+      ctx = clinica()
+      paciente = paciente_com(ctx, comunicacao: true, tel: "11987654321", email: nil)
+
+      assert {:skip, :canal_indisponivel} = Dispatch.avaliar(paciente, clinic: ctx.clinic)
     end
 
     test "OPT-OUT do WhatsApp **não** cai para o e-mail — é o §10.4" do
@@ -210,14 +245,14 @@ defmodule Api.Messaging.DispatchTest do
       # mesma mensagem chega por e-mail dez segundos depois: tecnicamente correto e, do lado de
       # lá, deboche.
       com_whatsapp(fn ->
-        ctx = clinica()
+        ctx = clinica(whatsapp: true)
 
         paciente =
           paciente_com(ctx, comunicacao: true, tel: "11987654321", email: "b@example.com")
 
         Messaging.opt_out(:whatsapp, "+5511987654321", "palavra_chave")
 
-        assert {:skip, :opt_out} = Dispatch.avaliar(paciente, clinic_id: ctx.clinic.id)
+        assert {:skip, :opt_out} = Dispatch.avaliar(paciente, clinic: ctx.clinic)
       end)
     end
   end

@@ -67,7 +67,7 @@ defmodule Api.Messaging.WhatsAppTest do
 
   describe "o envio, do agendamento ao transporte" do
     test "a confirmação sai pelo WhatsApp, com template e parâmetros na ordem" do
-      ctx = clinica()
+      ctx = clinica(whatsapp: true)
 
       paciente =
         paciente_com(ctx, nome: "Ana Maria Souza", comunicacao: true, tel: "(11) 98765-4321")
@@ -84,10 +84,15 @@ defmodule Api.Messaging.WhatsAppTest do
       assert envio.template == "confirmacao_v1"
       assert envio.idioma == "pt_BR"
 
-      # [primeiro nome, clínica, data, hora, token do botão]
-      assert [nome, clinica, _data, _hora, token] = envio.params
+      # [primeiro nome, clínica, data, hora, telefone da clínica, token do botão]
+      assert [nome, clinica, _data, _hora, telefone, token] = envio.params
       assert nome == "Ana"
       assert clinica == ctx.clinic.nome
+
+      # O telefone atravessa a fronteira inteira: coluna da clínica → `vars` da mensagem →
+      # posicional do template. É a única saída de voz que o canal oferece — o botão é URL e não
+      # trafega nada de volta pelo WhatsApp.
+      assert telefone == ctx.clinic.telefone
 
       # O token é o SUFIXO da URL, não a URL: o domínio está congelado no botão aprovado.
       refute token =~ "http"
@@ -102,7 +107,7 @@ defmodule Api.Messaging.WhatsAppTest do
       # `mix test` roda sem sandbox de transação por processo aqui (`async: false`), então
       # `in_transaction?` só é verdadeiro se **alguém acima** abriu uma: exatamente o que a
       # correção proíbe.
-      ctx = clinica()
+      ctx = clinica(whatsapp: true)
       paciente = paciente_com(ctx, comunicacao: true, tel: "11987654321")
       message = confirmacao!(ctx, paciente)
 
@@ -112,7 +117,7 @@ defmodule Api.Messaging.WhatsAppTest do
     end
 
     test "o id do provider é gravado — é a chave que o webhook usa depois" do
-      ctx = clinica()
+      ctx = clinica(whatsapp: true)
       paciente = paciente_com(ctx, comunicacao: true, tel: "11987654321")
       message = confirmacao!(ctx, paciente)
 
@@ -129,7 +134,7 @@ defmodule Api.Messaging.WhatsAppTest do
       # erro de rede, que o transporte levanta.
       WhatsAppMemory.falhar_com("400 131021: Recipient is not a valid WhatsApp user")
 
-      ctx = clinica()
+      ctx = clinica(whatsapp: true)
       paciente = paciente_com(ctx, comunicacao: true, tel: "11987654321")
       message = confirmacao!(ctx, paciente)
 
@@ -145,7 +150,7 @@ defmodule Api.Messaging.WhatsAppTest do
     test "a conta pela qual a clínica fala viaja na mensagem" do
       # §9.1.4: o número é configuração por clínica desde já, para "a clínica nº 2 quer o número
       # dela" ser um UPDATE. E é histórico: "mandamos deste número" não pode mudar depois.
-      ctx = clinica()
+      ctx = clinica(whatsapp: true)
 
       Api.Tenancy.in_clinic(ctx.clinic.id, fn ->
         ctx.clinic

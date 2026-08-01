@@ -37,7 +37,9 @@ defmodule ApiWeb.ZernioWebhookControllerTest do
 
     on_exit(fn -> Application.put_env(:api, Api.Messaging.Transport, transporte) end)
 
-    ctx = clinica()
+    # `whatsapp: true` é a segunda chave: o bloco acima liga o transporte da INSTALAÇÃO, e esta
+    # liga o canal DESTA CLÍNICA (`msg_whatsapp_ativo`). Só uma delas e a mensagem sai por e-mail.
+    ctx = clinica(whatsapp: true)
     paciente = paciente_com(ctx, comunicacao: true, tel: "11987654321")
     appt = agendamento!(ctx, paciente: paciente)
     # Disparada à mão: criar o bloco não fala mais com o paciente (doc 98).

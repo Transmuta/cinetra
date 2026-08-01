@@ -91,7 +91,7 @@ defmodule ApiWeb.MessagesController do
   end
 
   defp motivo_sem_envio(patient, clinic) do
-    case Dispatch.avaliar(patient, clinic_id: clinic.id) do
+    case Dispatch.avaliar(patient, clinic: clinic) do
       {:skip, motivo} -> to_string(motivo)
       {:ok, _canal, _destino} -> nil
     end

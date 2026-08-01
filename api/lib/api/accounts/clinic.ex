@@ -54,6 +54,7 @@ defmodule Api.Accounts.Clinic do
     # HTTP aceita o que a ação aceita, não o que o formulário desenha (09 §8).
     update :update_messaging do
       accept [
+        :msg_whatsapp_ativo,
         :msg_lembrete_horas,
         :msg_silencio_inicio,
         :msg_silencio_fim
@@ -61,19 +62,37 @@ defmodule Api.Accounts.Clinic do
 
       # Ver a nota em `update_settings`: a trilha grava num `after_action`.
       require_atomic? false
+
+      # O gate do canal. Aqui ele pega "ligar o WhatsApp sem ter telefone".
+      validate Api.Accounts.Clinic.Validations.WhatsappExigeTelefone
     end
 
     # Dados de identidade da clínica (tela /configuracoes/clinica): nome, CNPJ e endereço.
     # O CNPJ chega mascarado do form, é normalizado para a forma canônica e validado como
     # CNPJ alfanumérico (jul/2026); ambos são opcionais e podem ser limpos (branco → nil).
     update :update_info do
-      accept [:nome, :cnpj, :endereco]
+      accept [
+        :nome,
+        :cnpj,
+        :telefone,
+        :cep,
+        :endereco,
+        :numero,
+        :complemento,
+        :bairro,
+        :cidade,
+        :uf
+      ]
 
       # A validação do CNPJ (módulo 11 com aritmética por caractere) e a normalização não são
       # atômicas — a ação roda a leitura+escrita numa transação, sem UPDATE atômico.
       require_atomic? false
       validate Api.Accounts.Clinic.Validations.ValidCnpj
       change Api.Accounts.Clinic.Changes.NormalizeCnpj
+
+      # O outro lado do gate: apagar o telefone com o WhatsApp ligado. Sem esta linha a regra
+      # seria contornável pela tela vizinha, e o sintoma apareceria só na mensagem do paciente.
+      validate Api.Accounts.Clinic.Validations.WhatsappExigeTelefone
     end
   end
 
@@ -122,8 +141,31 @@ defmodule Api.Accounts.Clinic do
     # a fronteira HTTP para caber a forma mascarada (18 chars) antes da normalização.
     attribute :cnpj, :string, public?: true, constraints: [max_length: 20]
 
-    # Endereço da clínica em texto único (linha livre). Opcional; branco vira nil.
+    # ---- Contato e endereço ----
+
+    # O telefone que o **paciente** vê. Guardado como a pessoa digitou (mascarado), e não em
+    # E.164 como o da ficha do paciente: aqui ele não é destino de envio, é texto que sai dentro
+    # da mensagem ("Ligue para (11) 3456-7890"). Normalizar para `+551134567890` deixaria o
+    # paciente com um número que ele precisa reformatar de cabeça para discar.
+    #
+    # É ele que destrava `msg_whatsapp_ativo` — ver `Validations.WhatsappExigeTelefone`.
+    attribute :telefone, :string, public?: true, constraints: [max_length: 20, trim?: true]
+
+    # Endereço estruturado, com os **mesmos nomes** de `Api.Records.Patient` — é o que permite
+    # um componente de endereço só no web (`AddressFields.svelte`) servir ficha, profissional e
+    # clínica sem tradução de campo no meio.
+    #
+    # `endereco` é o logradouro. Ele já existia como linha livre de 200 caracteres ("Rua das
+    # Flores, 100 — Centro, São Paulo/SP") e **manteve o nome e o tamanho**: o valor antigo
+    # continua legível no campo de rua, e quem abrir a tela distribui o resto pelos campos
+    # novos. Adivinhar onde termina a rua e começa o bairro por heurística erraria calado.
+    attribute :cep, :string, public?: true, constraints: [max_length: 12, trim?: true]
     attribute :endereco, :string, public?: true, constraints: [max_length: 200, trim?: true]
+    attribute :numero, :string, public?: true, constraints: [max_length: 20, trim?: true]
+    attribute :complemento, :string, public?: true, constraints: [max_length: 80, trim?: true]
+    attribute :bairro, :string, public?: true, constraints: [max_length: 80, trim?: true]
+    attribute :cidade, :string, public?: true, constraints: [max_length: 80, trim?: true]
+    attribute :uf, :string, public?: true, constraints: [max_length: 2, trim?: true]
 
     # ADR-009: timezone canônico da clínica. "Hoje"/"já começou" resolvem aqui.
     attribute :timezone, :string, allow_nil?: false, default: "America/Sao_Paulo", public?: true
@@ -166,6 +208,22 @@ defmodule Api.Accounts.Clinic do
       public?: true,
       default: 8,
       constraints: [min: 0, max: 23]
+
+    # O canal de WhatsApp, ligado ou desligado — **para tudo**, não só para o lembrete.
+    # Desligado, `Api.Messaging.Dispatch` cai para o e-mail, que é o caminho de reserva que o C8
+    # já descrevia.
+    #
+    # **Nasce desligado, e isso é o oposto da decisão do doc 98** sobre o lembrete — de propósito.
+    # Lá o custo de ligar era ruído; aqui é dinheiro por mensagem. Uma clínica que nunca pediu o
+    # canal não pode passar a gastar por causa de um deploy, e o backfill que aquela migration fez
+    # (preencher todo mundo) seria, aqui, uma fatura.
+    #
+    # Só liga com `telefone` preenchido — `Validations.WhatsappExigeTelefone`, aplicada nas duas
+    # ações que podem quebrar o par.
+    attribute :msg_whatsapp_ativo, :boolean,
+      public?: true,
+      allow_nil?: false,
+      default: false
 
     # O número de WhatsApp pelo qual esta clínica fala — a conta na Zernio (doc 52 §9.1.4).
     #

@@ -37,10 +37,16 @@ defmodule Api.Messaging.Dispatch do
   ## Canal desligado não é "paciente sem contato"
 
   `Api.Messaging.Transport.disponivel?/1` responde por canal, e com WhatsApp desligado a
-  resolução cai para o e-mail pelo caminho normal. Mas **quando não há reserva** os dois casos
-  se separam: sem destino na ficha é `:sem_contato`, e destino sem transporte é
-  `:canal_indisponivel`. São ações diferentes de gente diferente — preencher a ficha é da
-  recepção, ligar o canal não é.
+  resolução cai para o e-mail pelo caminho normal. Mas **quando não há reserva** os casos se
+  separam: sem destino na ficha é `:sem_contato`, destino sem transporte é `:canal_indisponivel`,
+  e transporte de pé com o canal desligado **nesta clínica** é `:whatsapp_desligado`. São ações
+  de gente diferente — preencher a ficha é da recepção, ligar o canal é da gestão da clínica, e
+  pôr o transporte de pé é de quem opera a instalação.
+
+  São **duas chaves em série**, e confundi-las custa caro nos dois sentidos: a global
+  (`Transport.disponivel?/1`, config do nó) diz se a instalação fala WhatsApp; a por-clínica
+  (`Clinic.msg_whatsapp_ativo`) diz se aquela clínica quis o canal — e ela nasce desligada porque
+  cada mensagem é paga.
   """
   require Logger
 
@@ -79,6 +85,7 @@ defmodule Api.Messaging.Dispatch do
     * `:sem_consentimento` — a ficha não autoriza comunicação;
     * `:sem_contato` — não há e-mail nem telefone utilizável **na ficha**;
     * `:canal_indisponivel` — a ficha tem destino, mas o transporte dele não está de pé;
+    * `:whatsapp_desligado` — o transporte está de pé, mas **esta clínica** não ligou o canal;
     * `:opt_out` — o paciente pediu para parar;
     * `:ja_na_fila` — já existe uma mensagem deste tipo esperando para esta presença;
     * `:ja_confirmou` — o paciente já respondeu que vem;
@@ -92,11 +99,17 @@ defmodule Api.Messaging.Dispatch do
   celular na ficha e WhatsApp desligado lia "sem e-mail nem telefone cadastrado". Cada motivo
   existe porque leva a uma **ação diferente** — e "abra a ficha e preencha" é o conselho errado
   para quem já preencheu. `:canal_indisponivel` não é da recepção: é de quem opera a instalação.
+
+  `:whatsapp_desligado` nasceu da mesma régua, e é a razão de ele não ter sido dobrado dentro de
+  `:canal_indisponivel`: o transporte está de pé, quem não ligou o canal foi **a clínica**, e a
+  correção é um interruptor em /configuracoes/comunicacao. Dizer "indisponível" ali mandaria a
+  clínica abrir chamado para uma coisa que ela mesma resolve em dois cliques.
   """
   @type motivo ::
           :sem_consentimento
           | :sem_contato
           | :canal_indisponivel
+          | :whatsapp_desligado
           | :opt_out
           | :ja_na_fila
           | :ja_confirmou
@@ -107,11 +120,15 @@ defmodule Api.Messaging.Dispatch do
 
   **Não escreve nada** — é a pergunta, não o envio. É o que a timeline usa para explicar o
   silêncio, e o que o `dispatch/4` usa antes de gravar.
+
+  Recebe a **clínica**, não o `clinic_id`: além do tenant do opt-out, a decisão precisa saber se
+  esta clínica ligou o WhatsApp (`msg_whatsapp_ativo`). Dois argumentos para dois fatos do mesmo
+  registro convidariam a passar um sem o outro.
   """
   @spec avaliar(map(), keyword()) :: {:ok, atom(), String.t()} | {:skip, motivo()}
   def avaliar(patient, opts \\ []) do
     if consentiu?(patient) do
-      escolher_canal(patient, Keyword.get(opts, :clinic_id))
+      escolher_canal(patient, Keyword.fetch!(opts, :clinic))
     else
       {:skip, :sem_consentimento}
     end
@@ -123,28 +140,52 @@ defmodule Api.Messaging.Dispatch do
   # São duas perguntas, e separá-las é o que dá a explicação certa para cada silêncio: primeiro
   # "a ficha tem destino?", depois "esse destino tem transporte?". Uma pergunta só respondia
   # "sem contato" para as duas — ver o `@typedoc` de `motivo`.
-  defp escolher_canal(patient, clinic_id) do
+  defp escolher_canal(patient, clinic) do
     case destinos(patient) do
       [] -> {:skip, :sem_contato}
-      destinos -> por_transporte_disponivel(destinos, clinic_id)
+      destinos -> por_transporte_disponivel(destinos, clinic)
     end
   end
 
-  defp por_transporte_disponivel(destinos, clinic_id) do
-    case Enum.filter(destinos, fn {canal, _destino} -> Transport.disponivel?(canal) end) do
+  defp por_transporte_disponivel(destinos, clinic) do
+    case Enum.filter(destinos, fn {canal, _destino} -> ligado?(canal, clinic) end) do
       [] ->
-        {:skip, :canal_indisponivel}
+        {:skip, sem_transporte(destinos, clinic)}
 
       [{canal, destino} | resto] ->
         _ = resto
 
-        if Messaging.opted_out?(canal, destino, clinic_id) do
+        if Messaging.opted_out?(canal, destino, clinic.id) do
           # Aqui está o §10.4. Não é "tenta o `resto`": quem pediu para parar pediu para parar,
           # e a reserva não pode virar contorno.
           {:skip, :opt_out}
         else
           {:ok, canal, destino}
         end
+    end
+  end
+
+  # Duas chaves em série, e as duas precisam estar ligadas: a instalação tem transporte de
+  # WhatsApp (config do nó) **e** esta clínica quis o canal (coluna dela). Desligar a segunda faz
+  # o WhatsApp sumir da lista de destinos — e o e-mail, que é o próximo da ordem C8, atende. Isso
+  # é queda para a reserva, não interrupção: o §10.4 vale para quem pediu para parar de receber,
+  # não para a clínica que escolheu outro canal.
+  defp ligado?(:whatsapp, clinic),
+    do: clinic.msg_whatsapp_ativo and Transport.disponivel?(:whatsapp)
+
+  defp ligado?(canal, _clinic), do: Transport.disponivel?(canal)
+
+  # Qual dos dois silêncios explicar quando não sobrou canal nenhum. A distinção existe porque as
+  # correções têm donos diferentes: o interruptor é da clínica, o transporte é de quem opera a
+  # instalação. Só é `:whatsapp_desligado` quando o WhatsApp era de fato o destino que existia e
+  # o transporte estava de pé — senão a causa verdadeira é a outra.
+  defp sem_transporte(destinos, clinic) do
+    tinha_whatsapp? = Enum.any?(destinos, &match?({:whatsapp, _}, &1))
+
+    if tinha_whatsapp? and not clinic.msg_whatsapp_ativo and Transport.disponivel?(:whatsapp) do
+      :whatsapp_desligado
+    else
+      :canal_indisponivel
     end
   end
 
@@ -240,7 +281,7 @@ defmodule Api.Messaging.Dispatch do
   """
   @spec dispatch(map(), map(), map(), atom(), keyword()) :: {:ok, map()} | {:skip, motivo()}
   def dispatch(clinic, attendance, patient, kind, opts \\ []) do
-    with {:ok, canal, destino} <- avaliar(patient, clinic_id: clinic.id),
+    with {:ok, canal, destino} <- avaliar(patient, clinic: clinic),
          nil <- barreira(clinic, attendance, kind) do
       {:ok, gravar_e_enfileirar(clinic, attendance, patient, kind, canal, destino, opts)}
     else
@@ -406,7 +447,11 @@ defmodule Api.Messaging.Dispatch do
       "clinica" => clinic.nome,
       "paciente" => patient.nome,
       "data" => data,
-      "hora" => hora
+      "hora" => hora,
+      # O telefone viaja **na mensagem**, como o nome da clínica e pelo mesmo motivo: ele é
+      # posicional obrigatória do template, e o histórico tem de continuar dizendo o número que a
+      # mensagem de fato anunciou depois que a clínica trocar de telefone.
+      "telefone" => clinic.telefone
     }
     |> com_conta_de_whatsapp(clinic)
   end

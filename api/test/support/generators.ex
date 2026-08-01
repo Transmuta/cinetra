@@ -64,7 +64,12 @@ defmodule Api.Generators do
   """
   def clinica(opts \\ []) do
     owner = usuario!(Keyword.get(opts, :dono, "Dono"))
-    clinic = Accounts.onboard_clinic!("Clínica #{unico()}", %{}, actor: owner)
+
+    clinic =
+      "Clínica #{unico()}"
+      |> Accounts.onboard_clinic!(%{}, actor: owner)
+      |> com_whatsapp_ligado(Keyword.get(opts, :whatsapp, false), owner)
+
     ctx = %{owner: owner, clinic: clinic, scope: escopo(owner, clinic, opts)}
 
     Map.merge(ctx, %{
@@ -72,6 +77,20 @@ defmodule Api.Generators do
       tipo: tipo!(ctx, Keyword.get(opts, :tipo, [])),
       paciente: paciente!(ctx, Keyword.get(opts, :paciente, "Paciente"))
     })
+  end
+
+  # `clinica(whatsapp: true)` — a clínica que ligou o canal.
+  #
+  # São DUAS chaves, e o teste que só liga uma não prova nada: esta é a por-clínica
+  # (`msg_whatsapp_ativo`); a global é o `Transport.disponivel?/1`, que os testes ligam com o
+  # `com_whatsapp/1` deles. O telefone entra junto porque o domínio recusa o par desfeito
+  # (`Validations.WhatsappExigeTelefone`) — e porque ele é posicional obrigatória do template.
+  defp com_whatsapp_ligado(clinic, false, _owner), do: clinic
+
+  defp com_whatsapp_ligado(clinic, true, owner) do
+    clinic
+    |> Accounts.update_clinic_info!(%{telefone: "(11) 3456-7890"}, actor: owner)
+    |> Accounts.update_clinic_messaging!(%{msg_whatsapp_ativo: true}, actor: owner)
   end
 
   @doc "Um usuário novo, com e-mail globalmente único."

@@ -203,4 +203,93 @@ defmodule ApiWeb.ClinicControllerTest do
       assert base_conn |> patch(~p"/api/clinic", %{nome: "X"}) |> json_response(401)
     end
   end
+
+  describe "contato e endereço estruturado" do
+    test "o PATCH grava, e o GET seguinte devolve tudo de volta", %{base_conn: base_conn} do
+      # A ida E a volta no mesmo teste, de propósito: o defeito que a lista única de campos no
+      # controller existe para impedir é o formulário gravar um campo que a leitura seguinte não
+      # traz — a tela "perde" o valor ao recarregar, e nada estoura.
+      {owner, _clinic} = owner_with_clinic()
+      conn = authed(base_conn, owner)
+
+      campos = %{
+        telefone: "(11) 3456-7890",
+        cep: "01310-100",
+        endereco: "Av. Paulista",
+        numero: "1000",
+        complemento: "sala 5",
+        bairro: "Bela Vista",
+        cidade: "São Paulo",
+        uf: "SP"
+      }
+
+      escrito = conn |> patch(~p"/api/clinic", campos) |> json_response(200)
+      lido = base_conn |> authed(owner) |> get(~p"/api/clinic") |> json_response(200)
+
+      for {campo, valor} <- campos do
+        chave = to_string(campo)
+        assert escrito["clinic"][chave] == valor, "PATCH não devolveu #{chave}"
+        assert lido["clinic"][chave] == valor, "GET não devolveu #{chave}"
+      end
+    end
+  end
+
+  describe "PATCH /api/clinic/messaging — o interruptor de WhatsApp" do
+    test "ligar sem telefone devolve 422 apontando o telefone", %{base_conn: base_conn} do
+      {owner, _clinic} = owner_with_clinic()
+
+      body =
+        base_conn
+        |> authed(owner)
+        |> patch(~p"/api/clinic/messaging", %{msg_whatsapp_ativo: "on"})
+        |> json_response(422)
+
+      assert body["error"] == "invalid"
+      assert Enum.any?(body["details"], &(&1["field"] == "telefone"))
+    end
+
+    test "com telefone, liga — e o campo ausente DESLIGA", %{base_conn: base_conn} do
+      # A segunda metade é a que importa. Se ausente significasse "não mexe", o interruptor seria
+      # impossível de desligar pela tela — o mesmo bug que o doc 98 §6 pegou ao vivo na janela de
+      # silêncio, e que os testes de então não pegaram porque passavam o campo à mão.
+      {owner, _clinic} = owner_with_clinic()
+
+      _ = base_conn |> authed(owner) |> patch(~p"/api/clinic", %{telefone: "(11) 3456-7890"})
+
+      ligada =
+        base_conn
+        |> authed(owner)
+        |> patch(~p"/api/clinic/messaging", %{msg_whatsapp_ativo: "on"})
+        |> json_response(200)
+
+      assert ligada["clinic"]["msg_whatsapp_ativo"] == true
+
+      desligada =
+        base_conn
+        |> authed(owner)
+        |> patch(~p"/api/clinic/messaging", %{msg_lembrete_horas: "2"})
+        |> json_response(200)
+
+      assert desligada["clinic"]["msg_whatsapp_ativo"] == false
+    end
+
+    test "apagar o telefone com o canal ligado devolve 422", %{base_conn: base_conn} do
+      {owner, _clinic} = owner_with_clinic()
+
+      _ = base_conn |> authed(owner) |> patch(~p"/api/clinic", %{telefone: "(11) 3456-7890"})
+
+      _ =
+        base_conn
+        |> authed(owner)
+        |> patch(~p"/api/clinic/messaging", %{msg_whatsapp_ativo: "on"})
+
+      body =
+        base_conn
+        |> authed(owner)
+        |> patch(~p"/api/clinic", %{telefone: ""})
+        |> json_response(422)
+
+      assert Enum.any?(body["details"], &(&1["field"] == "telefone"))
+    end
+  end
 end
