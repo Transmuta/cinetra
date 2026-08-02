@@ -40,6 +40,42 @@ defmodule Api.Messaging.ZernioTest do
     )
   end
 
+  describe "a URL base quando a env vem VAZIA" do
+    test "`base_url` em branco cai no padrão, não vira caminho sem esquema" do
+      # `${ZERNIO_BASE_URL:-}` no compose entrega **string vazia**, não `nil` — a env está
+      # definida, só que sem valor. E `"" || padrao` devolve `""` em Elixir, porque string vazia é
+      # truthy. O resultado era a URL virar `/inbox/conversations`, sem host nem esquema, e o
+      # Finch levantar `scheme is required for url` — o que o Oban lê como falha de REDE e
+      # retenta três vezes, sem nunca chegar à Zernio.
+      #
+      # Medido em 2026-08-01, no primeiro envio real de WhatsApp. `compose.dokploy.yml` tem a
+      # mesma linha, então produção quebraria igual no primeiro disparo.
+      Application.put_env(:api, Api.Messaging.Zernio,
+        api_key: "sk_de_teste",
+        account_id: "conta-da-cinetra",
+        base_url: "",
+        plug: fn conn ->
+          assert conn.host == "zernio.com"
+          assert conn.request_path == "/api/v1/inbox/conversations"
+          Req.Test.json(conn, %{"data" => %{"messageId" => "wamid.1"}})
+        end
+      )
+
+      assert {:ok, "zernio", "wamid.1"} = Zernio.entregar(@message, @corpo)
+    end
+
+    test "`base_url` preenchida continua mandando" do
+      # O par do teste acima: o conserto não pode passar por cima de quem configurou de verdade
+      # (o sandbox da Zernio, um proxy de HML).
+      responder(fn conn ->
+        assert conn.host == "zernio.test"
+        Req.Test.json(conn, %{"data" => %{"messageId" => "wamid.2"}})
+      end)
+
+      assert {:ok, "zernio", "wamid.2"} = Zernio.entregar(@message, @corpo)
+    end
+  end
+
   describe "configurado?/0" do
     test "exige chave E conta" do
       responder(fn conn -> conn end)

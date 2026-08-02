@@ -112,7 +112,7 @@ defmodule Api.Messaging.Zernio do
 
     [
       method: metodo,
-      url: (config[:base_url] || @base_url_padrao) <> caminho,
+      url: base_url(config) <> caminho,
       json: corpo,
       headers: cabecalhos(config, idempotency_key),
       retry: false,
@@ -168,6 +168,20 @@ defmodule Api.Messaging.Zernio do
   defp texto(valor), do: valor |> inspect() |> String.slice(0, 200)
 
   defp somente_digitos(destino), do: Api.Texto.somente_digitos(destino)
+
+  # **Branco é ausente**, e o `||` sozinho não sabe disso: `${ZERNIO_BASE_URL:-}` no compose define
+  # a env sem valor, `System.get_env/1` devolve `""`, e string vazia é truthy em Elixir. O
+  # fallback nunca disparava e a URL virava `/inbox/conversations` — sem host, sem esquema.
+  #
+  # O sintoma escondia a causa: o Finch levanta `scheme is required for url`, o `interpretar/1`
+  # trata exceção como falha de REDE (e está certo em geral), e o Oban retentava três vezes uma
+  # requisição que nunca sairia. Nada na coluna `erro`, mensagem parada em `:pendente`.
+  #
+  # Medido no primeiro envio real de WhatsApp, em 2026-08-01. `compose.dokploy.yml` tem a mesma
+  # linha, então produção quebraria idêntico no primeiro disparo — o dev só chegou primeiro.
+  defp base_url(config) do
+    if preenchido?(config[:base_url]), do: config[:base_url], else: @base_url_padrao
+  end
 
   defp preenchido?(valor), do: is_binary(valor) and valor != ""
 
