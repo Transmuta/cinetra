@@ -77,7 +77,7 @@ defmodule ApiWeb.AuthController do
         memberships = Accounts.list_active_memberships!(user.id, authorize?: false)
 
         json(conn, %{
-          user: %{id: user.id, nome: user.nome, email: to_string(user.email)},
+          user: user_json(user),
           active_clinic_id: scope.clinic_id,
           papel: scope.papel,
           professional_id: scope.professional_id,
@@ -152,9 +152,7 @@ defmodule ApiWeb.AuthController do
       %Scope{user: user} ->
         case Accounts.update_profile(user, %{nome: params["nome"]}, actor: user) do
           {:ok, updated} ->
-            json(conn, %{
-              user: %{id: updated.id, nome: updated.nome, email: to_string(updated.email)}
-            })
+            json(conn, %{user: user_json(updated)})
 
           {:error, error} ->
             error_response(conn, error)
@@ -219,6 +217,39 @@ defmodule ApiWeb.AuthController do
         unauthorized(conn)
     end
   end
+
+  # A identidade como o cliente a vê. Fonte única do `/me` e do PATCH de perfil — as duas
+  # respostas descreviam o mesmo usuário com dois literais, e foi assim que a segunda ficaria
+  # para trás quando um campo entrasse (o `avatar_url` seria exatamente esse campo).
+  defp user_json(user) do
+    %{
+      id: user.id,
+      nome: user.nome,
+      email: to_string(user.email),
+      avatar_url: avatar_url(user)
+    }
+  end
+
+  # A foto de perfil sai como **URL assinada de vida curta**, nunca como a chave do objeto: a
+  # chave é o endereço interno no bucket e o cliente não teria o que fazer com ela.
+  #
+  # Vida de #{div(900, 60)} min, mais longa que os 5 do anexo, porque o consumo é outro: o anexo
+  # é um clique que abre uma aba, e o avatar é um `<img>` que a tela do usuário monta a cada
+  # `/me`. A URL não é segredo (aponta para uma foto de perfil), mas continua expirando —
+  # link vazado deixa de valer.
+  #
+  # Falha do storage não derruba o `/me`: sem foto, a tela cai nas iniciais, e a sessão inteira
+  # não pode depender do Cloudflare estar de pé.
+  defp avatar_url(%{avatar_key: chave}) when is_binary(chave) do
+    tipo = Api.Accounts.User.Avatar.tipo_da_chave(chave)
+
+    case Api.Storage.presign_get(chave, "avatar", tipo, expires_in: 900) do
+      {:ok, %{url: url}} -> url
+      _ -> nil
+    end
+  end
+
+  defp avatar_url(_user), do: nil
 
   # Reconstrói o scope em memória após a troca de tenant, para o /me refletir na hora.
   defp reload_scope(conn, user, clinic_id) do

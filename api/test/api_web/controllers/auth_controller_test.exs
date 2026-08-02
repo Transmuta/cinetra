@@ -173,6 +173,39 @@ defmodule ApiWeb.AuthControllerTest do
       refute Map.has_key?(body, "agora")
     end
 
+    # A foto de perfil (doc do avatar do Google): o `/me` NÃO devolve a chave do objeto, devolve
+    # uma URL assinada de vida curta. A chave é o endereço dentro do bucket — dá-la ao cliente
+    # seria contar a estrutura interna do storage sem nenhum ganho, já que ele não pode usá-la.
+    test "sem foto: avatar_url nulo (a tela cai nas iniciais)", %{conn: conn} do
+      user = create_user()
+      onboard(user)
+
+      body = conn |> authed(user) |> get(~p"/api/auth/me") |> json_response(200)
+
+      assert body["user"]["avatar_url"] == nil
+    end
+
+    test "com foto no bucket: avatar_url assinado, e a chave não vaza", %{conn: conn} do
+      user = create_user()
+      onboard(user)
+      chave = Api.Accounts.User.Avatar.chave(user.id, "image/png")
+
+      Accounts.set_user_avatar!(user, %{avatar_key: chave, avatar_origem: "https://x"},
+        authorize?: false
+      )
+
+      body = conn |> authed(user) |> get(~p"/api/auth/me") |> json_response(200)
+
+      url = body["user"]["avatar_url"]
+
+      assert url =~ "https://"
+      assert url =~ chave
+      # O tipo vai assinado junto (o bucket é privado e serve o que a URL mandar servir): sem
+      # ele, o browser receberia a foto sem `Content-Type` e não a renderizaria como imagem.
+      assert url =~ "image/png"
+      refute Map.has_key?(body["user"], "avatar_key")
+    end
+
     # O caminho que o `Enum.find_value` errava: com duas clínicas, se a ATIVA não tivesse fuso
     # resolvível, a busca escorregava para a outra e devolvia o fuso dela. Aqui as duas têm
     # fuso, e o teste exige que venha o da ativa — não o da primeira da lista.
