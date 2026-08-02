@@ -128,16 +128,37 @@ defmodule Api.Accounts.User do
       end
     end
 
+    # A foto de perfil, depois de baixada do Google e guardada no bucket (`AvatarSyncJob`).
+    # Ação separada de `update_profile` porque quem a chama é o job, não a pessoa: nenhum dos
+    # dois campos é editável na tela, e misturá-los abriria `avatar_key` (o endereço de um
+    # objeto no R2) a um PATCH de request.
+    update :set_avatar do
+      accept []
+
+      argument :avatar_key, :string, allow_nil?: true
+      argument :avatar_origem, :string, allow_nil?: true
+
+      change set_attribute(:avatar_key, arg(:avatar_key))
+      change set_attribute(:avatar_origem, arg(:avatar_origem))
+    end
+
     create :register_with_google do
       description "Registra ou identifica um usuário via Google OAuth (upsert por e-mail)."
       upsert? true
       upsert_identity :unique_email
+
+      # `avatar_key`/`avatar_origem` NÃO entram: o login não sabe nada sobre a foto ainda (ela é
+      # baixada depois, fora do request). Fora do `upsert_fields`, o que já está gravado
+      # sobrevive ao próximo login — que é o comportamento desejado.
       upsert_fields [:email, :nome]
 
       argument :user_info, :map, allow_nil?: false
       argument :oauth_tokens, :map, allow_nil?: false
 
       change Api.Accounts.User.Changes.SetFromGoogleUserInfo
+      # Enfileira a busca da foto (fora do request) quando o Google mandou uma que ainda não
+      # temos. Antes da IdentityChange/GenerateTokenChange não faz diferença — é `after_action`.
+      change Api.Accounts.User.Changes.SyncGoogleAvatar
       # Faz o upsert da UserIdentity (strategy + uid) e a liga ao usuário.
       change AshAuthentication.Strategy.OAuth2.IdentityChange
       change AshAuthentication.GenerateTokenChange
@@ -222,6 +243,24 @@ defmodule Api.Accounts.User do
       allow_nil?: false,
       public?: true,
       constraints: [casing: :lower]
+
+    # A foto de perfil vive no bucket privado (R2), como todo byte do projeto — nunca no Postgres
+    # e nunca como link para o Google. Guardar a URL do Google pareceria mais simples e traria
+    # três problemas: o browser do usuário passaria a discar para o `googleusercontent.com` em
+    # toda tela (a CSP teria de abrir esse destino, e o Google veria quem está usando o app e
+    # quando), o link morre quando a pessoa troca a foto lá, e o app perde o dado se o Google
+    # tirar o acesso. Ver `Api.Accounts.AvatarSyncJob`.
+    #
+    # `avatar_key` é o endereço no bucket (derivado do id, `Api.Accounts.User.Avatar.chave/2`);
+    # nulo = sem foto, e a tela cai nas iniciais.
+    attribute :avatar_key, :string, public?: false
+
+    # A URL da foto **no Google**, do jeito que veio no `user_info` quando o job a processou —
+    # tendo ele guardado a foto **ou recusado**. Não é para exibir: junto com `avatar_key` nula,
+    # ela é a resposta a "esta conta já passou pela busca de foto?", que é o gatilho de
+    # `Api.Accounts.User.Changes.SyncGoogleAvatar`. Sem ela, uma conta cuja foto foi recusada
+    # tentaria de novo a cada login — e a pessoa loga todo dia.
+    attribute :avatar_origem, :string, public?: false
 
     timestamps()
   end

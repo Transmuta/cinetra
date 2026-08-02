@@ -28,6 +28,10 @@ config :api, Api.Storage,
   access_key_id: "chave-de-teste",
   secret_access_key: "segredo-de-teste"
 
+# A foto do Google não é baixada de verdade na suíte: o `Req.Test` responde no lugar do
+# `googleusercontent.com` (mesmo recurso do Zernio). Sem isto, o teste do job dependeria de rede.
+config :api, Api.Accounts.AvatarSyncJob, plug: {Req.Test, Api.Accounts.AvatarSyncJob}
+
 # E-mails vão para a caixa de teste (Swoosh.Adapters.Test); assert com Swoosh.TestAssertions.
 config :api, Api.Mailer, adapter: Swoosh.Adapters.Test
 

@@ -21,6 +21,9 @@ defmodule Api.Accounts do
       # Tela "Meu perfil": editar o próprio nome e sair de todos os dispositivos.
       define :update_profile, action: :update_profile
       define :log_out_everywhere, action: :log_out_everywhere, args: [:user]
+      # Só o `Api.Accounts.AvatarSyncJob` chama (com `authorize?: false`): grava a chave da foto
+      # já guardada no bucket. Não há caminho de request para cá.
+      define :set_user_avatar, action: :set_avatar
     end
 
     resource Api.Accounts.Clinic do
