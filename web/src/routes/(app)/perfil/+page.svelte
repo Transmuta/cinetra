@@ -8,8 +8,7 @@
 	import Building2 from '@lucide/svelte/icons/building-2';
 	import Check from '@lucide/svelte/icons/check';
 	import LogOut from '@lucide/svelte/icons/log-out';
-	import { initials } from '$lib/format';
-	import { COR_DO_USUARIO_LOGADO, avatarStyle } from '$lib/avatar';
+	import UserAvatar from '$lib/components/shell/UserAvatar.svelte';
 	import { ROLE_META } from '$lib/members';
 	import { toast } from '$lib/toast.svelte';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
@@ -19,7 +18,6 @@
 
 	// `me` vem do layout do app (mesma fonte do menu do usuário). A tela não refaz /me.
 	const me = $derived(data.me);
-	const avatarInitials = $derived(initials(me.user.nome));
 
 	// Rascunho local do nome (como as demais telas de edição): edita e só então salva.
 	let nome = $state(untrack(() => data.me.user.nome));
@@ -57,12 +55,7 @@
 
 <div class="mx-auto w-full max-w-[760px] px-4 py-6 sm:px-6">
 	<header class="mb-5 flex items-center gap-3.5">
-		<div
-			class="grid size-12 shrink-0 place-items-center rounded-full text-titulo font-bold"
-			style={avatarStyle(COR_DO_USUARIO_LOGADO)}
-		>
-			{avatarInitials}
-		</div>
+		<UserAvatar nome={me.user.nome} url={me.user.avatar_url} class="size-12 text-titulo" />
 		<div class="min-w-0">
 			<!-- `h2` (ACC-22), como em /auditoria e /notificacoes: o `h1` da página é o do topbar,
 			     que já diz "Meu perfil". Esta era a ÚNICA das 19 rotas com dois `h1` (doc 93 §B-5) —

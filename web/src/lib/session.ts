@@ -16,7 +16,10 @@ export interface MembershipSummary {
 }
 
 export interface Me {
-	user: { id: string; nome: string; email: string };
+	// `avatar_url` é a foto de perfil (hoje só a que veio do Google) **já assinada** pela API: o
+	// objeto mora em bucket privado, e a URL vale poucos minutos. Nula = sem foto, e a tela cai
+	// nas iniciais — nenhum lugar do web deve assumir que ela existe.
+	user: { id: string; nome: string; email: string; avatar_url?: string | null };
 	active_clinic_id: string | null;
 	papel: Papel | null;
 	professional_id: string | null;

@@ -1,5 +1,5 @@
 import adapter from '@sveltejs/adapter-node';
-import { connectSrc } from './src/lib/csp.js';
+import { connectSrc, imgSrc } from './src/lib/csp.js';
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
@@ -21,7 +21,10 @@ const config = {
 				'default-src': ['self'],
 				'script-src': ['self'],
 				'style-src': ['self', 'unsafe-inline'],
-				'img-src': ['self', 'data:'],
+				// A foto de perfil (Google → nosso bucket) é servida por URL assinada do R2, então
+				// o `<img>` do avatar aponta para fora do BFF — mesma razão do `connect-src` abaixo,
+				// e a mesma variável de build (`R2_ACCOUNT_ID`).
+				'img-src': imgSrc(process.env.R2_ACCOUNT_ID),
 				'font-src': ['self'],
 				// O WebSocket da agenda (Entrega 3) é a única conexão do browser que NÃO passa pelo
 				// BFF: ele vai direto ao Phoenix (ADR-004/005), então `self` não basta.

@@ -4,8 +4,7 @@
 	import LogOut from '@lucide/svelte/icons/log-out';
 	import Check from '@lucide/svelte/icons/check';
 	import Building2 from '@lucide/svelte/icons/building-2';
-	import { initials } from '$lib/format';
-	import { COR_DO_USUARIO_LOGADO, avatarStyle } from '$lib/avatar';
+	import UserAvatar from './UserAvatar.svelte';
 	import { ROLE_META } from '$lib/members';
 	import type { Me } from '$lib/session';
 
@@ -16,7 +15,6 @@
 	let { me, placement = 'topbar' }: { me: Me; placement?: 'topbar' | 'rail' } = $props();
 
 	let open = $state(false);
-	const avatarInitials = $derived(initials(me.user.nome));
 
 	const popoverPos = $derived(
 		placement === 'rail' ? 'bottom-0 left-full ml-2 origin-bottom-left' : 'right-0 top-full mt-2 origin-top-right'
@@ -47,10 +45,9 @@
 		aria-haspopup="menu"
 		aria-expanded={open}
 		title={me.user.nome}
-		class="grid size-[34px] place-items-center rounded-full text-rotulo font-bold"
-		style={avatarStyle(COR_DO_USUARIO_LOGADO)}
+		class="rounded-full"
 	>
-		{avatarInitials}
+		<UserAvatar nome={me.user.nome} url={me.user.avatar_url} class="size-[34px] text-rotulo" />
 	</button>
 
 	{#if open}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { conferirOrigem, connectSrc, DEV_API_ORIGIN, wsOrigin } from './csp';
+import { conferirOrigem, connectSrc, DEV_API_ORIGIN, imgSrc, wsOrigin } from './csp';
 import { socketUrl } from './realtime';
 
 // S3 (Onda 5). O `connect-src` listava `localhost:4010` **e** o host de produção, fixos: o build
@@ -47,6 +47,34 @@ describe('connectSrc (hosts da CSP por ambiente)', () => {
 	// O ponto do S3: o host de dev NÃO pode sobrar no build de produção.
 	it('build de produção não carrega o host de dev', () => {
 		expect(connectSrc('https://cinetra.com.br').join(' ')).not.toContain('localhost');
+	});
+});
+
+// A foto de perfil do Google é copiada para o nosso bucket e servida por URL assinada — ou seja,
+// o `<img>` do avatar aponta para o R2, não para `self`. Sem o bucket no `img-src`, a foto é
+// bloqueada e o motivo fica só no console do browser de quem logou com Google (o mesmo modo de
+// falha do `PUT` do anexo, doc 51 §5.3).
+describe('imgSrc (a foto de perfil vem do bucket)', () => {
+	it('inclui self, data: e o bucket quando há conta de R2', () => {
+		expect(imgSrc('conta123')).toEqual([
+			'self',
+			'data:',
+			'https://conta123.r2.cloudflarestorage.com'
+		]);
+	});
+
+	// Sem `R2_ACCOUNT_ID` a fatia de storage já está desligada na API (503) e não há URL assinada
+	// para servir foto nenhuma — abrir um destino a mais na política seria abrir por nada.
+	it('sem conta de R2 fica só com self e data:', () => {
+		expect(imgSrc(undefined)).toEqual(['self', 'data:']);
+		expect(imgSrc('  ')).toEqual(['self', 'data:']);
+	});
+
+	// O `img-src` e o `connect-src` derivam do MESMO `r2Origin`: se um dia divergirem, o upload
+	// funcionaria e a exibição não (ou o contrário), com o motivo escondido no console.
+	it('o bucket é o mesmo host que o connect-src autoriza', () => {
+		const bucket = imgSrc('conta123').at(-1);
+		expect(connectSrc('https://cinetra.com.br', 'conta123')).toContain(bucket);
 	});
 });
 
