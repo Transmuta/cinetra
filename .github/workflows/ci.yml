@@ -64,12 +64,8 @@ jobs:
         run: mix ash.setup --quiet
 
       # `mix coveralls` roda a suíte e FALHA abaixo do minimum_coverage (coveralls.json).
-      #
-      # `--include compose` traz o `Api.ComposeEnvTest`, excluído por padrão: ele compara o
-      # `docker-compose.yml` com o `compose.dokploy.yml`, e só aqui os dois estão ao alcance (o
-      # container de dev monta apenas `api/`).
       - name: Testes + gate de cobertura
-        run: mix coveralls --include compose
+        run: mix coveralls
 
   # ---------------------------------------------------------------------------
   # O job `api` acima conecta como `postgres`, que é SUPERUSER e portanto

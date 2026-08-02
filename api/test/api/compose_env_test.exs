@@ -26,36 +26,58 @@ defmodule Api.ComposeEnvTest do
   exercitar antes do deploy**. O contrário — dev com algo a mais — é comum e legítimo (o
   `/dev/mailbox`, o seed), então a asserção é de mão única.
 
-  ## Onde ele de fato roda, e por quê
+  ## Relação com o `Api.DeployEnvTest`
 
-  **No CI, sim; dentro do container de dev, não.** O `docker-compose.yml` monta só `api/` em
-  `/app`, então os dois arquivos da raiz não existem para quem roda `mix test` lá dentro. No CI o
-  checkout traz o repositório inteiro e o job roda com `working-directory: api`, então eles estão
-  um nível acima — que é onde este teste os procura.
+  Eles se completam. Aquele cobra que o compose de **produção** passe as envs que o `runtime.exs`
+  lê — deriva a lista da configuração real, que é o desenho mais forte. Este cobra a **paridade
+  dev ↔ prod**, e é o buraco que custou a sessão de 2026-08-01: produção tinha as quatro
+  `ZERNIO_*`, o dev não tinha nenhuma, e um teste que só olha produção passa verde por cima disso.
 
-  Quando os arquivos não estão ao alcance ele **falha explicitamente em vez de passar**. Um
-  `assert true` disfarçado de cobertura seria pior do que não existir: diria "as duas configurações
-  concordam" sobre um par de arquivos que ninguém abriu. Se o skip local incomodar, o conserto é
-  montar a raiz no container — não afrouxar a asserção.
+  Se um dia o `DeployEnvTest` passar a cobrar as duas pontas a partir do `runtime.exs`, este vira
+  redundante e deve sair — lista derivada é melhor que comparação de arquivos.
   """
   use ExUnit.Case, async: true
 
-  @raiz Path.expand("../../..", __DIR__)
+  # A raiz do repositório, pelos dois caminhos em que ela aparece:
+  #
+  #   * `/repo` — o bind mount read-only que o `docker-compose.yml` monta para este teste e para o
+  #     `Api.DeployEnvTest`. É o único jeito de enxergá-la de dentro do container, que monta só
+  #     `api/` em `/app`;
+  #   * `../` — o CI, que faz checkout do repositório inteiro e roda com `working-directory: api`.
+  #
+  # Testar a existência em vez de escolher por env: um `if CI` erraria em toda máquina que não é
+  # nenhum dos dois, e o modo de falhar seria pular em silêncio.
+  @raiz if File.exists?("/repo/docker-compose.yml"),
+          do: "/repo",
+          else: Path.expand("../../..", __DIR__)
   @dev Path.join(@raiz, "docker-compose.yml")
   @prod Path.join(@raiz, "compose.dokploy.yml")
 
-  # O que prod tem a mais **por ser prod**, e que em dev não faria sentido. Lista explícita: a
-  # alternativa (ignorar toda diferença) devolveria o teste ao nada que ele substitui.
-  @so_em_producao ~w(
-    PHX_HOST
-    SECRET_KEY_BASE
-    POOL_SIZE
-    DNS_CLUSTER_QUERY
-    RELEASE_COOKIE
-  )
+  # O que prod tem a mais **por ser prod**. Lista explícita, com o motivo de cada uma: a
+  # alternativa (ignorar toda diferença) devolveria o teste ao nada que ele substitui, e uma lista
+  # sem motivo vira o lugar onde se enfia o que incomoda.
+  @so_em_producao [
+    # Dev monta a conexão de DATABASE_HOST/USER/PASSWORD separados (docker-compose.yml); a URL
+    # única é o formato que o release espera.
+    "DATABASE_URL",
+    # Só o release roda o endpoint por env; em dev o `mix phx.server` já sobe servindo.
+    "PHX_SERVER",
+    # `config/dev.exs` traz segredos fixos de desenvolvimento — não há o que injetar.
+    "TOKEN_SIGNING_SECRET",
+    "SECRET_KEY_BASE",
+    # O host público, que em dev é sempre localhost.
+    "PHX_HOST",
+    # `dev.exs` cai em `http://localhost:5173`, que é o endereço certo em dev e o único possível.
+    "WEB_APP_URL",
+    # Heartbeat de cron (doc 74): monitora job que só roda em servidor de verdade.
+    "HEARTBEAT_BASE_URL",
+    "HEARTBEAT_SLUG_PREFIX",
+    # O header de IP real vem do proxy. Em dev não há proxy, e confiar num header aqui seria
+    # deixar qualquer request escolher o próprio IP para o rate limit.
+    "TRUSTED_CLIENT_IP_HEADER"
+  ]
 
   describe "as variáveis do serviço api" do
-    @tag :compose
     test "tudo que produção repassa, o dev também repassa" do
       faltando = MapSet.difference(vars(@prod), vars(@dev))
 

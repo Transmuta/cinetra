@@ -1,8 +1,4 @@
-# `:compose` fica de fora por padrão porque o `docker-compose.yml` monta só `api/` em `/app`: de
-# dentro do container os arquivos da raiz não existem, e o teste falharia por ausência de arquivo
-# — que não é o defeito que ele procura. No CI o checkout traz o repositório inteiro, e é lá que
-# ele vale; o job da API roda `mix coveralls --include compose`.
-ExUnit.start(exclude: [:compose])
+ExUnit.start()
 
 # O storage da suíte (`config/test.exs` aponta o adaptador para cá). Iniciado uma vez, antes de
 # qualquer teste: os anexos precisam de um lugar para pôr bytes que não seja o Cloudflare.
