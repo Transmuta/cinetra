@@ -590,6 +590,43 @@ o resto da regra continua valendo, inclusive a proibição de `patient_id` em ro
 
 ---
 
+## ADR-026 — A foto de perfil do Google é **copiada** para o nosso bucket, não linkada
+
+**Status:** Aceita · **Data:** 2026-08-01 · **Detalhe:** [doc 100](100-avatar-do-google-no-r2.md)
+
+**Contexto.** O login com Google (ADR-015) já recebia `picture` no `user_info` verificado e o
+descartava. Usar essa URL direto no `<img>` é uma coluna e nenhum job — é o caminho óbvio.
+
+**Decisão.** O `picture` vira **download do servidor** (fila `notifications`, fora do request de
+login), farejado por magic bytes e guardado no bucket privado do R2 sob `user/<user_id>/avatar.<ext>`.
+O `/me` devolve **URL assinada de 15 min**, nunca a chave. Sem foto — ou com sync falhado — a tela
+cai nas iniciais, como sempre foi.
+
+A busca acontece **uma vez por conta, no cadastro**. `register_with_google` é a mesma ação para
+cadastro e login (upsert por e-mail), então o gatilho é o estado da conta, não o ponto de entrada:
+enquanto `avatar_key` e `avatar_origem` forem nulas, ela nunca passou pela busca. Recusa permanente
+carimba `avatar_origem` sem chave — senão a conta cuja foto o farejador rejeita baixaria de novo a
+cada login. **Consequência aceita: trocar a foto no Google não repropaga**; o preço de o login não
+carregar trabalho recorrente.
+
+**Alternativas descartadas, com o motivo:**
+
+| Alternativa | Por que não |
+|---|---|
+| **Guardar a URL do Google e servi-la ao browser** | O `img-src` da CSP teria de abrir `googleusercontent.com`, e o browser de quem usa o app passaria a discar para o Google em toda tela com avatar — telemetria de terceiro em cima de contexto de saúde ([06](06-seguranca-e-lgpd.md)). Além disso o link morre quando a pessoa troca a foto lá, e a regra de acesso a essas URLs é do Google, não nossa |
+| **Baixar dentro do callback OAuth** | Soma a latência de um CDN alheio ao login e faz o login **falhar** quando o download falha. A foto é enfeite; a sessão não é |
+| **Aceitar qualquer URL do `user_info`** | O `picture` é uma string que vira um `GET` do servidor: sem allowlist de host (`*.googleusercontent.com`, só https, `redirect: false`) é SSRF contra a rede interna do compose |
+
+**Consequências.** `Api.Storage` ganhou `put/3` — a primeira operação em que os bytes passam pelo
+BEAM, exceção deliberada ao ADR-008 (§"os bytes não passam pelo BFF"), válida só para conteúdo que
+o **servidor** buscou; o que o usuário sobe continua em `presign_put`. O `img-src` da CSP passou a
+derivar de `R2_ACCOUNT_ID`, sem variável nova. O `PUT` real no bucket **não é coberto pela suíte**
+(nenhuma operação HTTP do R2 é); foi medido à mão contra o bucket de dev — put/head/GET assinado/
+delete, com a saída no doc 100 §4 —, e o que segue sem prova é o encadeamento pelo job com uma
+foto vinda do Google.
+
+---
+
 ## Decisões ainda em aberto
 
 Estas **não** estão travadas e precisam de resposta antes de fatias específicas. A lista completa e priorizada está em [02-regras-e-lacunas.md](02-regras-e-lacunas.md), Parte 4.
