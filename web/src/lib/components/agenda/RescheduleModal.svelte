@@ -11,6 +11,7 @@
 	import Field, { CONTROL_CLASS, CONTROL_PX } from '$lib/components/Field.svelte';
 	import ConflictErrorBox from './ConflictErrorBox.svelte';
 	import EncaixeCheckbox from './EncaixeCheckbox.svelte';
+	import SwitchToggle from '$lib/components/scheduling/SwitchToggle.svelte';
 	import {
 		canCreateEncaixe,
 		toUtcIso,
@@ -148,15 +149,19 @@
 
 		     A escolha é do BLOCO: numa turma de quatro, remarcar move os quatro, então a pergunta é
 		     uma só e vale para todos. -->
-		<label class="mt-3 flex items-start gap-2">
-			<input type="checkbox" bind:checked={avisar} class="mt-0.5 size-4 shrink-0 accent-accent" />
+		<div class="mt-3 flex items-start gap-2">
+			<SwitchToggle
+				checked={avisar}
+				label="Avisar o paciente"
+				onchange={() => (avisar = !avisar)}
+			/>
 			<span class="text-corpo">
 				Avisar o paciente
 				<span class="mt-0.5 block text-rotulo text-muted">
 					Sai uma mensagem com o horário novo. Só recebe quem tem consentimento e contato na ficha.
 				</span>
 			</span>
-		</label>
+		</div>
 		<!-- Checkbox desmarcado não entra no FormData; o hidden é quem sempre manda a resposta. -->
 		<input type="hidden" name="avisar_paciente" value={avisar ? 'on' : ''} />
 

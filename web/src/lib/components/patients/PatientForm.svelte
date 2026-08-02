@@ -22,6 +22,7 @@
 	import X from '@lucide/svelte/icons/x';
 	import Plus from '@lucide/svelte/icons/plus';
 	import UserSearch from '@lucide/svelte/icons/user-search';
+	import SwitchToggle from '$lib/components/scheduling/SwitchToggle.svelte';
 	import { initials } from '$lib/format';
 	import { avatarStyle } from '$lib/avatar';
 	import { patientColor, idade, stripTitle, emailValido, nascimentoValido, type Patient } from '$lib/patients';
@@ -545,10 +546,14 @@
 						Registre o plano de saúde do paciente <b class="text-ink">mesmo em atendimento particular</b> —
 						fica guardado caso seja preciso encaminhar para outro tratamento coberto pelo convênio.
 					</p>
-					<label class="flex items-center gap-2.5 rounded-controle border border-edge bg-surface-2 px-3 py-2.5 text-corpo">
-						<input type="checkbox" bind:checked={temConvenio} class="size-4 accent-primary" />
+					<div class="flex items-center gap-2.5 rounded-controle border border-edge bg-surface-2 px-3 py-2.5 text-corpo">
+						<SwitchToggle
+							checked={temConvenio}
+							label="O paciente possui convênio / plano de saúde"
+							onchange={() => (temConvenio = !temConvenio)}
+						/>
 						<span class="font-semibold">O paciente possui convênio / plano de saúde</span>
-					</label>
+					</div>
 					{#if temConvenio}
 						<div class="mt-3.5 grid grid-cols-1 gap-3 md:grid-cols-[1.6fr_1.2fr_0.9fr]">
 							<label class="block">
@@ -632,18 +637,26 @@
 							<b class="text-ink">LGPD (Lei nº 13.709/2018)</b>.
 						</span>
 					</label>
-					<label class="mt-2.5 flex items-start gap-2.5 rounded-controle border border-edge bg-surface-2 px-3 py-2.5 text-rotulo">
-						<input type="checkbox" bind:checked={comunicacao} class="mt-0.5 size-4 accent-primary" />
-						<!-- O texto mudou junto com o default (doc 52 §11.2): a caixa deixou de ser
-						     "autorizar" e passou a ser algo que se DESMARCA, então ela precisa dizer o que
-						     sai por ali. Desmarcar sem saber o que se está desligando é adivinhação.
+					<!-- Este é preferência de contato, e por isso virou interruptor. O `lgpd` acima
+					     continua checkbox de propósito: aceite de termo legal se registra marcando uma
+					     caixa, não ligando uma chave — interruptor passa ideia de preferência ligável,
+					     que é o oposto de um consentimento registrado. -->
+					<div class="mt-2.5 flex items-start gap-2.5 rounded-controle border border-edge bg-surface-2 px-3 py-2.5 text-rotulo">
+						<SwitchToggle
+							checked={comunicacao}
+							label="Receber confirmação e lembrete das sessões"
+							onchange={() => (comunicacao = !comunicacao)}
+						/>
+						<!-- O texto mudou junto com o default (doc 52 §11.2): o controle deixou de ser
+						     "autorizar" e passou a ser algo que se DESLIGA, então ele precisa dizer o que
+						     sai por ali. Desligar sem saber o que se está desligando é adivinhação.
 						     A menção ao WhatsApp fica: é o canal que o paciente reconhece, e é para onde a
 						     fase 2 vai. -->
 						<span class="text-muted">
 							Receber <b class="text-ink">confirmação e lembrete das sessões</b> por e-mail ou
-							WhatsApp. Desmarque se o paciente pediu para não ser contatado.
+							WhatsApp. Desligue se o paciente pediu para não ser contatado.
 						</span>
-					</label>
+					</div>
 				</section>
 	</FichaShell>
 </form>

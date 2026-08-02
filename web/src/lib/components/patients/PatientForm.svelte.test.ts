@@ -299,10 +299,10 @@ describe('PatientForm — novo', () => {
 		expect(ficha(container).tags).toContain('lombalgia');
 	});
 
-	it('marcar "possui convênio" revela os campos do plano', async () => {
+	it('ligar "possui convênio" revela os campos do plano', async () => {
 		const { getByRole, queryByText, getByText } = render(PatientForm, { props: { professionals } });
 		expect(queryByText('Nome do convênio')).toBeNull();
-		await fireEvent.click(getByRole('checkbox', { name: /possui convênio/ }));
+		await fireEvent.click(getByRole('switch', { name: /possui convênio/ }));
 		expect(getByText('Nome do convênio')).toBeInTheDocument();
 	});
 

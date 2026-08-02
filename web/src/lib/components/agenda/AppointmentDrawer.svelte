@@ -1008,11 +1008,11 @@
 			/>
 		</label>
 
-		<label class="mt-3 flex items-start gap-2">
-			<input
-				type="checkbox"
-				bind:checked={avisarNoCancelar}
-				class="mt-0.5 size-4 shrink-0 accent-accent"
+		<div class="mt-3 flex items-start gap-2">
+			<SwitchToggle
+				checked={avisarNoCancelar}
+				label="Avisar o paciente"
+				onchange={() => (avisarNoCancelar = !avisarNoCancelar)}
 			/>
 			<span class="text-corpo">
 				Avisar o paciente
@@ -1021,7 +1021,7 @@
 					contato na ficha.
 				</span>
 			</span>
-		</label>
+		</div>
 	</ConfirmDialog>
 {/if}
 

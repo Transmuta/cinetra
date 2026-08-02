@@ -67,24 +67,25 @@ describe('RescheduleModal', () => {
 	});
 
 	describe('a pergunta de avisar o paciente', () => {
-		it('nasce marcada e manda `avisar_paciente=on`', async () => {
-			// Nasce marcada porque quem remarca de propósito quase sempre quer avisar. O default do
+		it('nasce ligado e manda `avisar_paciente=on`', async () => {
+			// Nasce ligado porque quem remarca de propósito quase sempre quer avisar. O default do
 			// SERVIDOR é o contrário (`false`), e a assimetria é deliberada: lá a omissão é falha, e
 			// mensagem enviada não volta.
 			const { container, getByRole } = render(RescheduleModal, { props: { ...base, form: null } });
 
-			expect(getByRole('checkbox', { name: /Avisar o paciente/ })).toBeChecked();
+			expect(getByRole('switch', { name: /Avisar o paciente/ })).toBeChecked();
 
 			const fd = new FormData(container.querySelector('form') as HTMLFormElement);
 			expect(fd.get('avisar_paciente')).toBe('on');
 		});
 
-		it('desmarcada, manda o campo em BRANCO — não some do FormData', async () => {
-			// Checkbox desmarcado não entra no FormData, e um campo ausente vira o default do
-			// servidor sem ninguém saber. O hidden é quem torna "não avisar" uma resposta.
+		it('desligado, manda o campo em BRANCO — não some do FormData', async () => {
+			// O controle é um `<button role="switch">`, e botão não entra no FormData; um campo
+			// ausente vira o default do servidor sem ninguém saber. O hidden é quem torna "não
+			// avisar" uma resposta.
 			const { container, getByRole } = render(RescheduleModal, { props: { ...base, form: null } });
 
-			await fireEvent.click(getByRole('checkbox', { name: /Avisar o paciente/ }));
+			await fireEvent.click(getByRole('switch', { name: /Avisar o paciente/ }));
 
 			const fd = new FormData(container.querySelector('form') as HTMLFormElement);
 			expect(fd.get('avisar_paciente')).toBe('');

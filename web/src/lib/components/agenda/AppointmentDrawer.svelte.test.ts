@@ -1086,30 +1086,30 @@ describe('AppointmentDrawer', () => {
 
 describe('cancelar pergunta antes de avisar o paciente', () => {
 	// O disparo deixou de ser automático em 2026-08-01. O que o drawer manda agora é a RESPOSTA da
-	// recepção, e ela precisa atravessar o form escondido — checkbox desmarcado não entra no
-	// FormData, e um campo ausente vira o default do servidor sem ninguém saber. Mesma armadilha
-	// do `SwitchToggle` no doc 98 §6, com uma diferença: aqui o efeito de errar é uma mensagem
-	// paga saindo sem ninguém ter pedido.
+	// recepção, e ela precisa atravessar o form escondido — o controle é um `<button role="switch">`
+	// e botão não entra no FormData, e um campo ausente vira o default do servidor sem ninguém
+	// saber. Mesma armadilha do `SwitchToggle` no doc 98 §6, com uma diferença: aqui o efeito de
+	// errar é uma mensagem paga saindo sem ninguém ter pedido.
 	function abrirDialogo(getByRole: (r: string, o: { name: RegExp | string }) => HTMLElement) {
 		return fireEvent.click(getByRole('button', { name: 'Cancelar sessão' }));
 	}
 
-	it('a caixa nasce marcada e o form manda `avisar_paciente=on`', async () => {
+	it('o interruptor nasce ligado e o form manda `avisar_paciente=on`', async () => {
 		const { container, getByRole } = render(AppointmentDrawer, { props: { appt: appt(), ...base } });
 
 		await abrirDialogo(getByRole);
 
-		expect(getByRole('checkbox', { name: /Avisar o paciente/ })).toBeChecked();
+		expect(getByRole('switch', { name: /Avisar o paciente/ })).toBeChecked();
 		expect(
 			container.querySelector<HTMLInputElement>('input[name="avisar_paciente"]')?.value
 		).toBe('on');
 	});
 
-	it('desmarcada, o hidden vai em BRANCO — a recusa é uma resposta, não uma omissão', async () => {
+	it('desligado, o hidden vai em BRANCO — a recusa é uma resposta, não uma omissão', async () => {
 		const { container, getByRole } = render(AppointmentDrawer, { props: { appt: appt(), ...base } });
 
 		await abrirDialogo(getByRole);
-		await fireEvent.click(getByRole('checkbox', { name: /Avisar o paciente/ }));
+		await fireEvent.click(getByRole('switch', { name: /Avisar o paciente/ }));
 
 		expect(
 			container.querySelector<HTMLInputElement>('input[name="avisar_paciente"]')?.value

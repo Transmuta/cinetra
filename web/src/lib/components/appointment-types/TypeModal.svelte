@@ -7,6 +7,7 @@
 	import { envio as criarEnvio } from '$lib/forms.svelte';
 	import Field from '$lib/components/Field.svelte';
 	import Modal from '$lib/components/Modal.svelte';
+	import SwitchToggle from '$lib/components/scheduling/SwitchToggle.svelte';
 	import {
 		DEFAULT_COR,
 		DEFAULT_DURACAO,
@@ -123,11 +124,15 @@
 		</Field>
 		<input type="hidden" name="icon" value={icon} />
 
-		<label class="mb-2.5 flex cursor-pointer items-center gap-2 text-corpo">
-			<input type="checkbox" bind:checked={grupo} class="size-4 accent-primary" />
+		<div class="mb-2.5 flex items-center gap-2 text-corpo">
+			<SwitchToggle
+				checked={grupo}
+				label="Atendimento em grupo"
+				onchange={() => (grupo = !grupo)}
+			/>
 			Atendimento em grupo
-		</label>
-		<!-- checkbox desmarcado não é submetido; o valor viaja neste hidden. -->
+		</div>
+		<!-- botão não é submetido; o valor viaja neste hidden. -->
 		<input type="hidden" name="grupo" value={grupo} />
 
 		{#if grupo}
