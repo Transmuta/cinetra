@@ -54,6 +54,10 @@ defmodule Api.Storage.R2Test do
 
       assert R2.presign_get("k", "a.pdf", "application/pdf", []) ==
                {:error, :storage_unconfigured}
+
+      # O `put/3` (avatar do Google) fala HTTP e por isso fica de fora daqui — menos este
+      # caminho, que nem chega a discar: sem credencial ele para antes de montar a requisição.
+      assert R2.put("k", "image/png", "bytes") == {:error, :storage_unconfigured}
     end
   end
 

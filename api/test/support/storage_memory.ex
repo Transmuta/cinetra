@@ -7,8 +7,9 @@ defmodule Api.Storage.Memory do
   sem rede, sem credencial e sem o Cloudflare de pé. Guarda os objetos num `Agent` nomeado,
   iniciado pelo `test_helper.exs`.
 
-  `subir/3` é o que o teste chama no lugar do `PUT` do browser: o servidor nunca vê esses bytes
-  em produção, então não há função de produção para reaproveitar aqui.
+  `subir/3` é o que o teste chama no lugar do `PUT` do browser: nesse caminho o servidor nunca vê
+  os bytes em produção, então não há função de produção para reaproveitar. O `put/3` do
+  behaviour (avatar do Google, que o servidor **sim** busca e guarda) escreve pelo mesmo lugar.
   """
 
   @behaviour Api.Storage
@@ -70,6 +71,13 @@ defmodule Api.Storage.Memory do
            "&tipo=#{URI.encode(content_type)}&disposicao=#{disposicao}",
        expira_em: 300
      }}
+  end
+
+  @impl true
+  def put(key, content_type, body) when is_binary(body) do
+    registrar(:put, key)
+    subir(key, content_type, body)
+    :ok
   end
 
   @impl true

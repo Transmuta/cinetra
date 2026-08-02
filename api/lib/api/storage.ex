@@ -15,11 +15,17 @@ defmodule Api.Storage do
        ([`05 §9`](../../../docs/05-observabilidade-e-producao.md)) pode obrigar a trocar. Trocar
        de adaptador é uma linha de config; trocar chamadas espalhadas é uma fatia.
 
-  ## Cinco operações, e por que não mais
+  ## Seis operações, e por que não mais
 
   `presign_put` e `presign_get` são as que o browser usa (os bytes **não** passam pelo BFF nem
   pelo BEAM — [`05 §5.5`](../../../docs/05-observabilidade-e-producao.md)). `head`, `get_range` e
   `delete` são do servidor: conferir tamanho real, farejar magic bytes e apagar.
+
+  `put` é a exceção deliberada ao "os bytes não passam pelo BEAM": o avatar do Google
+  (`Api.Accounts.AvatarSyncJob`) não tem browser do outro lado — os bytes vêm de
+  `googleusercontent.com` para o servidor, e é o servidor que os guarda. Ela não substitui
+  `presign_put` para o que o usuário sobe: um anexo de 50 MB atravessando o BEAM seria memória e
+  latência sem nenhum ganho.
 
   **Não há `list`.** Seria necessária para varrer objeto órfão (objeto sem linha), mas o desenho
   torna esse órfão impossível: a linha nasce **antes** do objeto, e a remoção apaga **primeiro o
@@ -41,6 +47,14 @@ defmodule Api.Storage do
   @doc "URL de `GET` assinada, já com `Content-Disposition`/`Content-Type` na query assinada."
   @callback presign_get(key(), nome_exibicao :: String.t(), content_type :: String.t(), keyword()) ::
               {:ok, %{url: String.t(), expira_em: pos_integer()}} | {:error, term()}
+
+  @doc """
+  Escreve bytes numa chave, direto do servidor.
+
+  Só para conteúdo que o **servidor** buscou (avatar do Google). O que o usuário sobe continua
+  indo por `presign_put`.
+  """
+  @callback put(key(), content_type :: String.t(), body :: binary()) :: :ok | {:error, term()}
 
   @doc "Tamanho real do objeto no bucket, para conferir contra o declarado."
   @callback head(key()) :: {:ok, %{bytes: non_neg_integer()}} | {:error, :not_found | term()}
@@ -80,6 +94,8 @@ defmodule Api.Storage do
 
   def presign_get(key, nome, content_type, opts \\ []),
     do: adapter().presign_get(key, nome, content_type, opts)
+
+  def put(key, content_type, body), do: adapter().put(key, content_type, body)
 
   def head(key), do: adapter().head(key)
   def get_range(key, first, last), do: adapter().get_range(key, first, last)
