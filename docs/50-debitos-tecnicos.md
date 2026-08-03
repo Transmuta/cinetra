@@ -170,11 +170,35 @@ leitura é pinado ao tipo **conferido**, então HTML posto ali é servido como `
 executa — não há caminho de XSS.
 
 **O que o paga.** Escrita condicional: assinar o `PUT` com `If-None-Match: *`, que faz o segundo
-`PUT` na mesma chave responder 412. Fecha sem tocar no TTL e sem custo por download. **Não foi
-verificado que o R2 suporta** — não havia bucket na auditoria. Teste de 2 comandos quando houver:
-subir um objeto, tentar subir de novo com o header; `412 Precondition Failed` resolve o débito.
-Se não suportar, a alternativa é reconferir os magic bytes na emissão de cada download (+1 ida ao
-R2 por clique em "abrir", que hoje custa zero).
+`PUT` na mesma chave responder 412. Fecha sem tocar no TTL e sem custo por download.
+
+**Verificado em 2026-08-03, contra o bucket real** (doc 101 §4.4) — a pergunta que segurava este
+débito tem resposta:
+
+| # | o que | resultado |
+| --- | --- | --- |
+| 1 | `PUT` com `If-None-Match: *` numa chave nova | 200 |
+| 2 | `PUT` com `If-None-Match: *` na chave existente | **412** ← o critério deste débito |
+| 3 | `PUT` sem a pré-condição na chave existente | 200 (o furo de hoje) |
+| 4 | header mandado mas **não** assinado | 412 (o R2 aplica mesmo fora da assinatura) |
+| 5 | URL assinada **com** o header, header **omitido** | **403 `SignatureDoesNotMatch`** |
+
+O caso 5 é o que torna o conserto um conserto: como o caso 4 mostrou que o R2 honra a pré-condição
+mesmo sem assinatura, a pergunta virou "e se o atacante omitir o header?". Com ele dentro de
+`X-Amz-SignedHeaders`, omiti-lo invalida a assinatura — **a pré-condição é obrigatória**. A
+alternativa (reconferir magic bytes a cada download) fica descartada.
+
+> **O que ainda bloqueia, e não é código:** o `PUT` sai do browser, então o header novo exige
+> preflight, e a política de CORS do bucket lista **só** `content-type`
+> (`OPTIONS` com `content-type, if-none-match` → **403**, medido). Subir o código antes de mudar a
+> política **quebra o upload em produção**, e a suíte não vê: ela roda contra
+> `Api.Storage.StorageMemory`. Ordem obrigatória: (1) `if-none-match` no `AllowedHeaders` do bucket,
+> no painel da Cloudflare; (2) o header no `headers:` de `R2.presign_put/4` — o componente já
+> repassa ao `XMLHttpRequest` tudo que vem de lá, então não há mudança de cliente.
+>
+> A mesma sonda achou um bug **em produção hoje**: a política do bucket só permite
+> `https://cinetra.com.br`, e o preflight de `https://hml.cinetra.com.br` responde 403 — **o upload
+> de anexo está quebrado em homologação**, independentemente deste débito.
 
 ---
 

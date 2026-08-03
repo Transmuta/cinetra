@@ -202,6 +202,51 @@ defmodule Api.Packages.MaterializeTest do
     end
   end
 
+  describe "orçamento de queries (B4)" do
+    @describetag :b4
+
+    # O invariante da série — clínica, expediente do profissional na janela, tipo de atendimento,
+    # paciente, dono do pacote — é o MESMO para as N sessões. Sem `Api.Scheduling.Warm` cada sessão
+    # o relia: é o achado B4 da análise arquitetural (doc 101 §4.5), o mesmo defeito que o doc 43
+    # §5a mediu na massa e que o `Warm` resolvia lá — e só lá.
+    #
+    # **A asserção é invariância em N, não um teto.** Um teto seria um número escolhido a dedo, que
+    # envelhece e se afrouxa sozinho no primeiro PR que o esbarra. Comparar duas séries de tamanhos
+    # diferentes pergunta exatamente o que importa: esta leitura cresce com o tamanho do lote? O que
+    # cresce legitimamente (as escritas) fica de fora da lista, e a asserção de `appointments`
+    # abaixo é o controle positivo — sem ela, um caminho que não materializasse nada passaria com
+    # zero leitura em tudo.
+    @invariante ~w(clinics appointment_types professionals clinic_hours professional_hours
+                   schedule_exceptions patients packages package_schedules)
+
+    test "o custo do invariante não cresce com o tamanho da série" do
+      quatro = materializar_e_contar(4)
+      dez = materializar_e_contar(10)
+
+      assert quatro["appointments"] == 4
+      assert dez["appointments"] == 10
+
+      for tabela <- @invariante do
+        assert Map.get(dez, tabela, 0) == Map.get(quatro, tabela, 0),
+               "#{tabela}: #{Map.get(quatro, tabela, 0)} leituras numa série de 4 e " <>
+                 "#{Map.get(dez, tabela, 0)} numa de 10 — está sendo relido por sessão.\n" <>
+                 "  4  → #{inspect(Enum.sort(quatro))}\n" <>
+                 "  10 → #{inspect(Enum.sort(dez))}"
+      end
+    end
+
+    # Clínica nova a cada chamada: o `Api.Accounts.ClinicTimezone` guarda o fuso por clínica em
+    # `:persistent_term`, então reusar a mesma faria a segunda medição nascer com cache quente e a
+    # comparação mediria o cache, não o warm.
+    defp materializar_e_contar(total) do
+      ctx = setup_clinic()
+      {:ok, _pkg} = Packages.create_series(ctx.scope, params(ctx, %{total: total}))
+
+      {_, por_tabela} = Api.QueryCounter.tally(fn -> drain(ctx) end)
+      por_tabela
+    end
+  end
+
   defp at(hhmm), do: at_date(@segunda, hhmm)
 
   defp at_date(date, hhmm) do

@@ -59,22 +59,41 @@ defmodule Api.Scheduling.Appointment.Changes.ComputeEndsAt do
   # o formulário quebrou no navegador enquanto 463 testes passavam.
   #
   # `with_clinic/2` abre transação (ou se junta à da ação, que é o caso aqui) e seta a GUC.
+  #
+  # Num LOTE (série de pacote, massa) o tipo é o MESMO para as N sessões e vem aquecido no
+  # contexto (`Api.Scheduling.Warm`) — era a última leitura de `appointment_types` que sobrava por
+  # sessão na materialização (doc 101 §4.5, B4). Estar no warm **é** existir nesta clínica: ele foi
+  # montado por `list_appointment_types!` sob o tenant. Arquivado entra, e é o certo — a leitura
+  # abaixo também não filtra `ativo`; quem recusa tipo arquivado é `ReferencesActive`, e trocar
+  # isto aqui por um filtro faria a criação morrer com a mensagem errada.
   defp duracao_do_tipo(changeset) do
     with type_id when is_binary(type_id) <-
            Ash.Changeset.get_attribute(changeset, :appointment_type_id),
          tenant when not is_nil(tenant) <- changeset.tenant,
-         {:ok, {:ok, tipo}} <-
-           Api.Repo.with_clinic(to_string(tenant), fn ->
-             Api.Directory.get_appointment_type(type_id,
-               tenant: tenant,
-               authorize?: false,
-               not_found_error?: false
-             )
-           end),
+         {:ok, tipo} <- tipo(changeset, to_string(tenant), type_id),
          %{duracao_minutos: minutos} <- tipo do
       {:ok, minutos}
     else
       _ -> :error
+    end
+  end
+
+  defp tipo(changeset, clinic_id, type_id) do
+    case Api.Scheduling.Warm.tipo(changeset, clinic_id, type_id) do
+      {:ok, tipo} ->
+        {:ok, tipo}
+
+      :miss ->
+        with {:ok, {:ok, tipo}} <-
+               Api.Repo.with_clinic(clinic_id, fn ->
+                 Api.Directory.get_appointment_type(type_id,
+                   tenant: clinic_id,
+                   authorize?: false,
+                   not_found_error?: false
+                 )
+               end) do
+          {:ok, tipo}
+        end
     end
   end
 end

@@ -139,7 +139,9 @@ defmodule Api.Packages.Materializer do
         end)
         |> Enum.reject(&MapSet.member?(ja_feitas, DateTime.to_iso8601(&1)))
 
-      {:ok, pkg, tipo, starts}
+      # `tz` sobe junto porque o warm do lote (ver `create_sessions/3`) precisa da janela em datas
+      # **locais**: os `starts` são UTC, e uma sessão das 21h de sexta em São Paulo é sábado em UTC.
+      {:ok, pkg, tipo, starts, tz}
     end
   end
 
@@ -158,8 +160,19 @@ defmodule Api.Packages.Materializer do
 
   defp create_sessions({:error, _reason} = erro, _clinic_id, _forcar), do: erro
 
-  defp create_sessions({:ok, pkg, tipo, starts}, clinic_id, forcar) do
-    # Aqui havia um `Enum.each` que **descartava** o `{:error, _}` de `create_and_stamp/5` e
+  defp create_sessions({:ok, _pkg, _tipo, [], _tz}, _clinic_id, _forcar), do: {:ok, 0}
+
+  defp create_sessions({:ok, pkg, tipo, starts, tz}, clinic_id, forcar) do
+    # O invariante da série — clínica, expediente do profissional na janela, tipo de atendimento,
+    # paciente, dono do pacote — é o MESMO para as N sessões, e sem isto cada uma o relia. Medido
+    # numa série de 10 (doc 101 §4.5): 41 leituras de `appointment_types`, 20 de `professionals`,
+    # 20 de `patients`, 12 de `clinics`. Ver `Api.Scheduling.Warm` para o que entra e por quê.
+    #
+    # `Warm.build/2` devolve `nil` quando não há o que aquecer, e aí tudo segue pelo caminho de
+    # antes: o warm é atalho, nunca autoridade.
+    warm = warm(pkg, tipo, starts, tz, clinic_id)
+
+    # Aqui havia um `Enum.each` que **descartava** o `{:error, _}` de `create_and_stamp/6` e
     # devolvia `:ok`: o Oban registrava sucesso, nenhuma linha era escrita e nada em lugar nenhum
     # dizia que a sessão não nasceu. Foi o que tornou invisível o defeito do `adjust_grade` medido
     # no bate-volta (doc 77) — as futuras eram canceladas, a re-materialização não acontecia, e o
@@ -170,7 +183,7 @@ defmodule Api.Packages.Materializer do
     # motivo. O motivo que sobe é o da PRIMEIRA sessão recusada — é a que explica o resto.
     {criadas, falhas} =
       Enum.reduce(starts, {0, []}, fn starts_at, {criadas, falhas} ->
-        case Api.Packages.Sessions.create_and_stamp(pkg, tipo, starts_at, clinic_id, forcar) do
+        case Api.Packages.Sessions.create_and_stamp(pkg, tipo, starts_at, clinic_id, forcar, warm) do
           {:ok, _appt} ->
             {criadas + 1, falhas}
 
@@ -196,6 +209,26 @@ defmodule Api.Packages.Materializer do
 
         {:error, primeiro}
     end
+  end
+
+  # O warm do lote. A janela é a das sessões a criar, em datas **locais** — `Warm.sources/4` recusa
+  # (`:miss`) uma data fora dela de propósito, porque as exceções foram lidas só do intervalo.
+  #
+  # Roda **fora** do `in_clinic` de `materializar/3`, como as escritas: `Warm.build/2` abre a
+  # própria transação (`with_clinic`) e é leitura, não escrita — mas embrulhá-la na transação de
+  # leitura do plano teria o mesmo efeito que embrulhar as escritas, e o motivo está em
+  # `Api.Tenancy`.
+  defp warm(pkg, tipo, starts, tz, clinic_id) do
+    datas = Enum.map(starts, &LocalTime.to_local_date(&1, tz))
+
+    Api.Scheduling.Warm.build(clinic_id,
+      profissionais: [pkg.schedule.professional_id],
+      de: Enum.min(datas, Date),
+      ate: Enum.max(datas, Date),
+      tipos: [tipo.id],
+      pacientes: [pkg.patient_id],
+      pacotes: %{pkg.id => pkg.patient_id}
+    )
   end
 
   # As presenças **ativas** carimbadas com este pacote → horários (ISO) já materializados. Ignora

@@ -679,3 +679,241 @@ sessão, e não no formulário.
 | 3.3 (M10) | feito e **desarmado** — mecanismo pronto, sem número e sem cron |
 | 3.4 (M6) | feito — três séries; o desenho segue como estava, por decisão |
 | 3.5 (A4) | feito — `[D-14]` pago; `[D-13]` segue aberto (não é código) |
+
+### 4.5 Onda 4 — 2026-08-03
+
+A onda do "quando doer". O critério muda a natureza do trabalho: nas ondas 1–3 a pergunta era
+*como consertar*; aqui é **se já dói**. Três dos cinco itens terminaram como decisão registrada em
+vez de código — e nos três a decisão saiu de um número, não de uma opinião.
+
+#### Estado dos gates
+
+| Gate | Antes (fim da onda 3) | Depois |
+| --- | --- | --- |
+| `mix format --check-formatted` | ✅ | ✅ |
+| `mix compile --force --warnings-as-errors` | ✅ | ✅ |
+| `mix test` | 1896 · 0 falhas | ✅ **1939 · 0 falhas** |
+| `mix test --only rls` (como `cinetra_app`) | 0 falhas | ✅ 0 falhas |
+| `mix coveralls` (piso 80) | 89,7% | ✅ **90,2%** |
+| `npm run check` | 0 erros | ✅ 0 erros, 0 avisos |
+| `npm run coverage` | 2522 testes · 93,04% | ✅ **208 arquivos · 93,07%** |
+
+> **O `mix test` desta onda rodou sem `api/test/api/messaging/reminder_job_test.exs`.** Ele não é
+> desta onda: é trabalho em curso de outra frente (a de e-mail/opt-out), e hoje não compila —
+> chama `Api.Messaging.ReminderJob.passo_segundos/0`, e o módulo `Api.Messaging.ReminderJob` **não
+> existe** no repositório (foi removido em `d852f3b`). Fica registrado em vez de consertado: o
+> conserto é de quem está escrevendo aquela frente, e mexer nele daqui seria adivinhar a intenção.
+
+#### 4.1 — B4: o invariante da série era relido por sessão
+
+Vinha da onda 2, movida para cá com a justificativa "é ganho de constante". Era — e a constante é
+grande. Medido pelo `Api.QueryCounter.tally/1`, materializando uma série de 10 sessões:
+
+| tabela | antes | depois |
+| --- | --- | --- |
+| `appointment_types` | 41 | **2** |
+| `professionals` | 20 | **1** |
+| `patients` | 20 | **1** |
+| `clinics` | 12 | **3** |
+| `schedule_exceptions` | 21 | **3** |
+| `clinic_hours` / `professional_hours` | 10 / 10 | **1 / 1** |
+| (transação: `begin`/`set_config`/`commit`) | 286 | **62** |
+| **total da rodada** | **475** | **119** |
+
+`Api.Packages.Materializer` passou a montar o `Api.Scheduling.Warm` do lote — o mesmo que a massa
+(`Api.Packages.Bulk`) já usava — e a passá-lo por `Sessions.create_and_stamp/6`. Como a retomada
+(`resume_package/2`) reprojeta pelo mesmo job, ela veio junto de graça.
+
+Uma leitura sobrou por sessão e foi atrás: `ComputeEndsAt` relia `appointment_types` para o
+snapshot de duração, e era a **última** leitura do invariante fora do warm (41 → 2 é essa metade).
+Ela ganhou o mesmo `Warm.tipo/3` que `ReferencesActive` e `GroupCapacity` já consultavam, com o
+`:miss` caindo na leitura de sempre — e a nota de que estar no warm **é** existir nesta clínica,
+com tipo arquivado entrando de propósito: quem recusa arquivado é `ReferencesActive`, e filtrar
+aqui faria a criação morrer com a mensagem errada.
+
+**O teste não é um teto, é invariância em N.** Um teto é um número escolhido a dedo, que envelhece
+e se afrouxa sozinho no primeiro PR que esbarra nele. O teste materializa uma série de **4** e uma
+de **10** — em clínicas diferentes, porque o `ClinicTimezone` cacheia em `:persistent_term` e a
+segunda medição nasceria quente — e exige que as leituras do invariante sejam **iguais** nas duas.
+O que cresce legitimamente (as escritas) fica fora da lista, e um `assert` de `appointments == N` é
+o controle positivo: sem ele, um caminho que não materializasse nada passaria com zero em tudo.
+
+Vermelho provado mutando a regra (o warm forçado a `nil`):
+
+```
+clinics: 6 leituras numa série de 4 e 12 numa de 10 — está sendo relido por sessão.
+  4  → [{"appointment_types", 17}, ..., {"patients", 8}, {"professionals", 8}]
+  10 → [{"appointment_types", 41}, ..., {"patients", 20}, {"professionals", 20}]
+```
+
+#### 4.2 — B7: dois WebSockets por aba viram um
+
+O layout mantém `connectNotifications` de pé em **toda** tela; a agenda e a fila abrem a delas por
+cima. Cada uma construía o próprio `Socket`, então uma aba dessas telas carregava duas conexões
+para a mesma clínica e o mesmo usuário — dois processos no servidor, dois handshakes, e dois
+`onError` disparando dois `GET /api/realtime/token` em paralelo a cada reconexão. Multiplexar
+canais num socket é o que o protocolo do Phoenix faz; a duplicata era desenho por acidente.
+
+`adquirirSocket/2` guarda um socket por origem, com **contagem de referências** — e a contagem é o
+detalhe que carrega o peso. Um booleano faria sair da agenda derrubar o sino do layout, e o sintoma
+seria o badge parando de subir sem nada no console. O `soltar` também é idempotente: um `close()`
+chamado duas vezes (o `onDestroy` de um componente que já desligou à mão) levaria o contador a zero
+cedo demais e derrubaria o socket **de outro cliente**.
+
+Cinco testes novos; **quatro ficam vermelhos** com o compartilhamento mutado. O quinto ("depois que
+o último sai, o próximo abre um socket novo") continua verde, e é assim de propósito: ele não prova
+o compartilhamento, prova que ele não vai longe demais — reusar uma conexão já desconectada.
+
+O `config.token` de quem chega depois é **descartado**, e isso é decisão: os dois vêm do mesmo
+`/api/realtime/token`, e reescrever o valor a cada canal novo criaria uma corrida com a renovação
+em curso.
+
+#### 4.3 — M7: não migrado, e a armadilha ficou barulhenta
+
+O plano pedia as três juntas — limitadores para o Postgres e réplicas no compose. **Duas medições
+mudaram o desenho da resposta.**
+
+**Primeira: quanto custaria.** O limitador global roda em **toda** requisição. Medido no container,
+em lote dividido (hit a hit fica abaixo da resolução do `:timer.tc`, e "0 µs" seria artefato do
+instrumento):
+
+```
+ETS      (janela fixa, hoje, 20.000 hits)         0,31 µs
+Postgres (upsert atômico, unlogged, 2.000 hits)  938,2 µs   → 3.000×
+```
+
+Os 0,31 µs batem com os 0,39 µs que o doc 68 mediu — o instrumento está calibrado. Pôr ~1 ms e uma
+conexão do pool em cada requisição para corrigir um teto que **um nó só** não infringe é pagar
+adiantado por um problema que ninguém tem.
+
+**Segunda, e a que muda o item: o achado subestimava o estrago.** `DNS_CLUSTER_QUERY` é lida pelo
+`runtime.exs` e o `DNSCluster` está na árvore de supervisão, mas a variável **não é passada por
+nenhum compose**. Ou seja: o cluster BEAM está pronto e desligado. No dia em que alguém escrever
+`replicas: 2` no `compose.dokploy.yml`, quatro coisas quebram ao mesmo tempo — e o rate limit, o
+único que o plano nomeou, é a **menos** grave:
+
+1. **o tempo real morre para metade dos usuários** — `Phoenix.PubSub` sobe com o adaptador PG2,
+   cujo alcance é `Node.list()`. Um agendamento criado no nó A nunca chega ao assinante do canal no
+   nó B. Sem erro, sem log, sem métrica: a agenda apenas para de se atualizar sozinha;
+2. **a presença (F5) mente** — viaja pelo mesmo PubSub;
+3. **o cache de fuso não invalida** — `ClinicTimezone` é `:persistent_term` (por-nó) e conta com o
+   PubSub para avisar os vizinhos;
+4. **os limites de taxa dobram** — Hammer/ETS na API, e um `Map` de processo no `/api/client-error`.
+
+**Os três primeiros falham calados**, e o primeiro é a funcionalidade mais cara do sistema.
+
+**Decisão: não migrar, e tornar a armadilha impossível de pisar sem ver.**
+`Api.DeployHorizontalidadeTest` lê o `compose.dokploy.yml` e falha se um serviço declarar réplica —
+com a lista acima na mensagem, para que quem esbarrar saiba o que mais tem de mudar. É o mesmo
+espírito da guarda de boot CSP↔runtime que derruba o container (§1.1): converter "funciona até o
+dia em que não funciona" em falha na hora.
+
+Provado que morde, inserindo `deploy: replicas: 2` no serviço `api`: **duas falhas**, uma por
+consequência. O recorte do compose por serviço saiu de `Api.DeployEnvTest` para
+`Api.ComposeDeProducao` no mesmo movimento — havia um segundo cliente, e duas cópias de um leitor
+de YAML deixam de significar a mesma coisa (a lição do `Api.QueryCounter`).
+
+Um teste que só verifica uma implicação vazia (`se réplica > 1, então…`) reportaria verde para
+sempre se o arquivo mudasse de forma. Por isso ele tem também a asserção de **forma**: os três
+serviços têm de continuar recortáveis, com corpo.
+
+#### 4.4 — D-6, D-7, D-8: um estava bloqueado por medição, e a medição achou um bug em produção
+
+| # | Resultado |
+| --- | --- |
+| **D-8** — rate limit na emissão de URL assinada | **não feito, gatilho não disparou.** O débito diz que o gatilho é **o ator mudar**; o ator do presign continua sendo funcionário identificado (owner·admin·recepção) e o teto do estrago segue sendo a cota de 100 anexos, não a velocidade. Conferido de passagem que as rotas públicas novas de paciente (`/api/reply/:token`, `/api/opt-out/:token`) já entram por `:rate_limited_global` |
+| **D-6** — antivírus | **não feito, e não é código.** Segue sendo um serviço a mais para hospedar e manter (~1 GB de base de assinaturas, atualização diária, monitoramento). A decisão de 2026-07-27 foi tomada com o custo na mesa e nada mudou desde então |
+| **D-7** — a URL de upload continua válida depois do `confirm` | **medido; o bloqueio caiu e outro apareceu** — ver abaixo |
+
+**D-7: o que a medição respondeu.** O débito estava parado numa pergunta — "não foi verificado que
+o R2 suporta [`If-None-Match: *`]" — e a pergunta agora tem resposta, contra o bucket real:
+
+| # | o que | resultado |
+| --- | --- | --- |
+| 1 | `PUT` com `If-None-Match: *` numa chave **nova** | 200 |
+| 2 | `PUT` com `If-None-Match: *` na chave **existente** | **412** ← é o critério do débito |
+| 3 | `PUT` **sem** a pré-condição na chave existente | 200 (o furo de hoje) |
+| 4 | header mandado mas **não** assinado | 412 (o R2 aplica mesmo sem assinatura) |
+| 5 | URL assinada **com** o header, header **omitido** | **403 `SignatureDoesNotMatch`** |
+
+O caso 5 é o que decide se o conserto é conserto. O caso 4 mostrou que o R2 honra a pré-condição
+mesmo fora da assinatura — o que levanta a pergunta óbvia: e se o atacante simplesmente **omitir** o
+header? Se aquilo desse 200, assinar não fecharia nada, porque quem tem a URL escolheria se a regra
+vale. Dá 403: com o header dentro de `X-Amz-SignedHeaders`, tirá-lo invalida a assinatura. **A
+pré-condição é obrigatória, e o conserto fecha o D-7 de verdade.**
+
+**E a implementação continua bloqueada — por CORS, não por código.** O `PUT` sai da máquina do
+usuário, então um header novo passa a exigir preflight. Medido por `OPTIONS` no bucket:
+
+```
+origin https://cinetra.com.br   [content-type]                  → 204  allow-headers=content-type
+origin https://cinetra.com.br   [content-type, if-none-match]    → 403
+```
+
+Subir o código hoje **quebraria o upload de anexo em produção** — e a suíte ficaria verde, porque
+ela roda contra `Api.Storage.StorageMemory` e nunca vê o preflight. A ordem obrigatória é: primeiro
+acrescentar `if-none-match` ao `AllowedHeaders` do bucket no painel da Cloudflare, depois a linha de
+código (que é uma: o header entra no `headers:` de `R2.presign_put/4`, e o componente já repassa
+tudo que vem de lá ao `XMLHttpRequest`).
+
+> **A sonda de CORS achou um bug que está no ar agora.** A política do bucket lista **só**
+> `https://cinetra.com.br`. O preflight de `https://hml.cinetra.com.br` responde **403** — ou seja,
+> **o upload de anexo está quebrado em homologação**, hoje, independentemente do D-7. É achado de
+> operação (o conserto é a origem entrar na política do bucket), e está aqui porque o único jeito
+> de descobrir era perguntar ao bucket: nada no repositório sabe qual é a política dele.
+
+#### 4.5 — A1: o exercício de bus factor, feito de verdade
+
+O plano é explícito sobre a mitigação: *"não é mais documentação — já há 100 docs. É alguém executar
+uma tarefa não-trivial guiado **só** pelos docs e registrar onde travou."* Esta onda foi essa
+execução, e travou em três lugares. Os três são medidos e reprodutíveis:
+
+1. **O comando de teste do `CLAUDE.md` não funciona como está escrito.** A seção "Comandos" manda
+   rodar `mix test` no container. O container do `api` sobe com `MIX_ENV=dev`, então `mix test`
+   levanta a aplicação em dev e morre em `:eaddrinuse` — o servidor de métricas do PromEx já está
+   com a porta 4021, e em `test` ele é desligado. **O erro não menciona nem teste nem ambiente**, o
+   que o torna caro: foi o primeiro obstáculo da onda. Corrigido: o `CLAUDE.md` agora manda
+   `-e MIX_ENV=test`, e diz o porquê;
+2. **O mapa do repositório aponta para o lugar errado.** "`deploy/` — … `compose.dokploy.yml` é
+   prod/HML" — mas os composes ficam na **raiz**. Procurei em `deploy/` porque o mapa mandou, e
+   `ls` não achou. Corrigido, com os quatro composes nomeados;
+3. **O mapa nomeia um módulo que não existe.** A linha de `messaging/` lista `reminder_job` como o
+   destino de "lembrete", e `Api.Messaging.ReminderJob` foi removido em `d852f3b`.
+   `.claude/rules/migrations.md` §3 também o cita, como exemplo de vizinho que "já tem `rescue`".
+   **Não corrigi**, e isso é decisão: há uma frente em curso com um teste novo para exatamente esse
+   módulo, então o mapa pode estar prestes a voltar a ser verdade. Corrigi-lo agora seria adivinhar.
+
+> A conclusão não é "os docs são ruins" — 2.778 links relativos e três defeitos é uma taxa baixa.
+> É que **os três defeitos estão nos documentos vivos** (o `CLAUDE.md` e as `rules`), que são
+> justamente os que um segundo leitor consulta primeiro e nos quais ele não tem como desconfiar.
+> Um doc de auditoria de julho que cita um módulo removido em agosto está certo: ele descreve o que
+> era. O mapa que diz "vá direto" só tem valor se o destino existir.
+
+**Também considerei um teste que verificasse todos os links dos docs, e decidi não fazer.** Medido
+antes de decidir: 93 dos 2.778 links relativos não resolvem, e a esmagadora maioria é ou markdown
+malformado (`(app)` nos caminhos do SvelteKit quebra o parser de link) ou referência a arquivo que
+existia quando o doc foi escrito. Mais decisivo: **nenhum dos três defeitos acima seria pego por
+ele** — os dois primeiros estão em prosa e em bloco de código, não em link. Um gate que custa
+manutenção e não pega nenhum dos defeitos conhecidos não é um gate, é cerimônia.
+
+#### O que NÃO entrou
+
+* **D-7, a linha de código** — bloqueada no CORS do bucket, que é operação. O que faltava
+  (verificar o R2) está feito e registrado acima;
+* **`hml.cinetra.com.br` na política do bucket** — operação, e é bug em produção hoje;
+* **`[D-16]` `CLIENT_IP_HEADER=CF-Connecting-IP`** — segue pendente desde a onda 1, e continua sendo
+  variável de ambiente no painel do Dokploy;
+* **A migração dos limitadores e as réplicas (M7)** — por decisão medida, com o teste que impede a
+  meia migração.
+
+#### Placar da onda 4
+
+| Item | Resultado |
+| --- | --- |
+| 4.1 (B4) | feito — 475 → 119 queries numa série de 10; teste de invariância em N |
+| 4.2 (B7) | feito — um socket por aba, contagem de referências, 4 de 5 testes provados vermelhos |
+| 4.3 (M7) | **não feito, medido** — 0,31 µs → 938 µs por requisição; e o achado subestimava: sem cluster, réplica mata o tempo real. Armadilha virou teste |
+| 4.4 (D-7) | **desbloqueado, não implementado** — R2 responde 412 e a assinatura segura; falta CORS do bucket |
+| 4.4 (D-7, achado extra) | **bug em produção**: upload de anexo quebrado em HML por CORS |
+| 4.4 (D-6, D-8) | **não feitos** — D-6 é custo de hospedagem, D-8 tem gatilho que não disparou |
+| 4.5 (A1) | feito — três defeitos medidos nos docs vivos, dois corrigidos, um registrado |

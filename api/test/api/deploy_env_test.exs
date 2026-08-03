@@ -39,11 +39,10 @@ defmodule Api.DeployEnvTest do
 
   use ExUnit.Case, async: true
 
-  # O compose mora fora de `api/`, e a suíte roda a partir de `api/`. Dois lugares, duas formas de
-  # alcançá-lo: no CI o checkout inteiro está ao lado (`../`); no container de dev, onde só `api/`
-  # é montado em `/app`, o `docker-compose.yml` monta a raiz do repositório em `/repo` só-leitura.
-  # Sem o segundo caminho o teste pularia justamente onde se desenvolve.
-  @compose ["../compose.dokploy.yml", "/repo/compose.dokploy.yml"]
+  # O recorte do compose por serviço mora em `Api.ComposeDeProducao`: nasceu aqui e ganhou um
+  # segundo cliente (`Api.DeployHorizontalidadeTest`), que o teria copiado.
+  alias Api.ComposeDeProducao, as: Compose
+
   @runtime "config/runtime.exs"
 
   @familias ~w(RESEND_ MAIL_ ZERNIO_ WHATSAPP_)
@@ -53,7 +52,7 @@ defmodule Api.DeployEnvTest do
   @fonte_do_ip "CLIENT_IP_HEADER"
 
   test "o serviço `api` do compose de produção recebe toda env de comunicação do runtime.exs" do
-    servico = servico(File.read!(caminho_do_compose()), "api")
+    servico = Compose.servico(Compose.ler(), "api")
 
     for env <- envs_de_comunicacao() do
       assert Enum.any?(servico, &Regex.match?(~r/^\s+#{Regex.escape(env)}:/, &1)),
@@ -83,58 +82,15 @@ defmodule Api.DeployEnvTest do
   # A terceira asserção fecha o laço pelo outro lado: passar a env no compose não faz nada se o
   # `runtime.exs` não a ler — e essa metade da ligação é invisível em qualquer inspeção do compose.
   test "o header de IP do cliente sai da MESMA variável nos dois serviços — e o runtime.exs a lê" do
-    compose = File.read!(caminho_do_compose())
+    compose = Compose.ler()
 
     assert "TRUSTED_CLIENT_IP_HEADER" in envs_lidas_pelo_runtime(),
            "o compose passaria a env para um runtime.exs que não a lê — ligação pela metade"
 
-    assert valor_de(servico(compose, "api"), "TRUSTED_CLIENT_IP_HEADER") =~ @fonte_do_ip
-    assert valor_de(servico(compose, "web"), "ADDRESS_HEADER") =~ @fonte_do_ip
-  end
+    assert Compose.valor_de(Compose.servico(compose, "api"), "TRUSTED_CLIENT_IP_HEADER") =~
+             @fonte_do_ip
 
-  # O lado direito de `NOME: <valor>` dentro de um serviço.
-  defp valor_de(linhas, chave) do
-    linhas
-    |> Enum.find(&Regex.match?(~r/^\s+#{Regex.escape(chave)}:/, &1))
-    |> case do
-      nil -> flunk("`#{chave}` não aparece no serviço")
-      linha -> linha |> String.split(":", parts: 2) |> List.last()
-    end
-  end
-
-  # As linhas de um serviço, do cabeçalho dele até o próximo serviço no mesmo recuo.
-  #
-  # A asserção precisa ser sobre uma **chave YAML dentro deste serviço**, não sobre o texto do
-  # arquivo. Medido: com `assert compose =~ env` bastava o nome aparecer em qualquer lugar, e o
-  # compose CITA as duas envs nos comentários que explicam por que elas são obrigatórias — então
-  # apagar as linhas de `environment:` (exatamente a regressão que este teste existe para pegar)
-  # deixava o teste VERDE. Um comentário nunca casa `^\s+NOME:`, e o recorte por serviço impede
-  # que a env passar a viver no `web` conte como se estivesse aqui.
-  defp servico(compose, nome) do
-    linhas = String.split(compose, "\n")
-
-    inicio =
-      Enum.find_index(linhas, &(&1 == "  #{nome}:")) ||
-        flunk("o serviço `#{nome}` não foi encontrado em compose.dokploy.yml")
-
-    bloco =
-      linhas
-      |> Enum.drop(inicio + 1)
-      |> Enum.take_while(&(not Regex.match?(~r/^  \S/, &1)))
-
-    # Guarda contra o recorte virar vacuidade do mesmo jeito que a asserção antiga: um bloco vazio
-    # (o formato do compose mudou) faria todo `Enum.any?` acima falhar por acidente, ou passar por
-    # acidente se a asserção um dia inverter.
-    assert length(bloco) > 10, "o recorte do serviço `#{nome}` devolveu #{length(bloco)} linhas"
-
-    bloco
-  end
-
-  # Falha em vez de pular quando o compose não é alcançável: um teste de configuração que some
-  # sozinho no ambiente errado é pior do que não existir — ele reporta verde sem ter olhado nada.
-  defp caminho_do_compose do
-    Enum.find(@compose, &File.exists?/1) ||
-      flunk("compose.dokploy.yml não encontrado em nenhum de: #{Enum.join(@compose, ", ")}")
+    assert Compose.valor_de(Compose.servico(compose, "web"), "ADDRESS_HEADER") =~ @fonte_do_ip
   end
 
   # Todo `System.get_env("X")` do runtime.exs.

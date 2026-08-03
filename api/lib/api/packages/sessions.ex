@@ -48,8 +48,9 @@ defmodule Api.Packages.Sessions do
   seguradas, que seria zero → nenhuma sessão volta). Então materializa **e segura**, que é o estado
   em que a pausa as teria deixado.
   """
-  @spec create_and_stamp(map(), map(), DateTime.t(), binary(), boolean()) :: {:ok, struct()}
-  def create_and_stamp(pkg, tipo, %DateTime{} = starts_at, clinic_id, forcar) do
+  @spec create_and_stamp(map(), map(), DateTime.t(), binary(), boolean(), map() | nil) ::
+          {:ok, struct()}
+  def create_and_stamp(pkg, tipo, %DateTime{} = starts_at, clinic_id, forcar, warm \\ nil) do
     attrs = %{
       starts_at: starts_at,
       professional_id: pkg.schedule.professional_id,
@@ -59,12 +60,16 @@ defmodule Api.Packages.Sessions do
       encaixe: forcar
     }
 
-    with {:ok, appt} <-
-           Api.Scheduling.schedule_appointment(attrs,
-             tenant: clinic_id,
-             authorize?: false,
-             context: %{bulk_pacote: true}
-           ) do
+    # `warm` é o invariante do lote já lido — viaja no CONTEXTO da ação e é consumido pelas
+    # validações e por `CheckAvailability`. `nil` (uma sessão avulsa) é no-op: `Warm.opts/2`
+    # devolve as opções intactas e tudo relê como sempre releu. Ver `Api.Scheduling.Warm`.
+    opts =
+      Api.Scheduling.Warm.opts(
+        [tenant: clinic_id, authorize?: false, context: %{bulk_pacote: true}],
+        warm
+      )
+
+    with {:ok, appt} <- Api.Scheduling.schedule_appointment(attrs, opts) do
       if pkg.status == :pausado, do: segura(appt, pkg, clinic_id)
       {:ok, appt}
     end
