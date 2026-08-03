@@ -70,5 +70,38 @@ defmodule Api.Housekeeping.PodaTest do
 
       assert total >= 6
     end
+
+    # Achado M8 (doc 101): era um `Enum.reduce` cru, então um erro numa clínica derrubava a rodada
+    # inteira — a poda das OUTRAS nem chegava a rodar. Como os jobs de poda têm `max_attempts`, a
+    # rodada retentava, mas retentava inteira: uma falha de dado persistente numa clínica travava a
+    # poda de todas indefinidamente, sem sintoma além de tabela crescendo.
+    #
+    # Os dois vizinhos já isolavam por unidade (`prune_attachments.ex:114`, `reminder_job.ex:71`);
+    # o que faltava era o mesmo isolamento aqui.
+    test "uma clínica que estoura não leva as outras junto" do
+      clinica()
+      clinica()
+      clinica()
+
+      # a primeira chamada estoura; as demais somam 3 cada
+      contador = :counters.new(1, [])
+
+      total =
+        Poda.por_clinica(fn _clinic_id ->
+          :counters.add(contador, 1, 1)
+
+          if :counters.get(contador, 1) == 1 do
+            raise "clínica com dado ruim"
+          else
+            3
+          end
+        end)
+
+      assert :counters.get(contador, 1) >= 3,
+             "a rodada parou na primeira clínica: `fun` foi chamada só " <>
+               "#{:counters.get(contador, 1)}×"
+
+      assert total >= 6, "as clínicas seguintes não foram podadas (total: #{total})"
+    end
   end
 end

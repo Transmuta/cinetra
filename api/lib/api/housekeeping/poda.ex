@@ -43,6 +43,7 @@ defmodule Api.Housekeeping.Poda do
   """
 
   require Ash.Query
+  require Logger
 
   # Teto por lote. Repetimos até a tabela não devolver mais nada.
   #
@@ -60,10 +61,26 @@ defmodule Api.Housekeeping.Poda do
   não detalhe — `fun` é responsável por pôr a GUC de tenant em toda operação que fizer, e o jeito
   suportado de fazer isso é justamente chamar `em_lote/4`. Sem GUC, sob `cinetra_app`, o `DELETE`
   apaga zero linha **em silêncio**.
+
+  **Uma clínica que estoura não derruba as outras** (doc 101, M8). Era um `Enum.reduce` cru: um
+  erro em qualquer clínica — o `{:ok, n} =` de `em_lote/4` incluído — matava a rodada inteira, e as
+  seguintes nem chegavam a ser varridas. Como os jobs de poda têm `max_attempts`, isso não perdia
+  trabalho de vez; ele retentava **inteiro**, então uma falha de dado persistente numa única
+  clínica travava a poda de todas indefinidamente, sem sintoma além de tabela crescendo. É o mesmo
+  isolamento por unidade que `Api.Housekeeping.PruneAttachments` e `Api.Messaging.ReminderJob` já
+  faziam.
   """
   @spec por_clinica((String.t() -> non_neg_integer())) :: non_neg_integer()
   def por_clinica(fun) when is_function(fun, 1) do
-    Enum.reduce(clinicas(), 0, fn clinic_id, total -> total + fun.(clinic_id) end)
+    Enum.reduce(clinicas(), 0, fn clinic_id, total -> total + podar(fun, clinic_id) end)
+  end
+
+  defp podar(fun, clinic_id) do
+    fun.(clinic_id)
+  rescue
+    erro ->
+      Logger.warning("poda: falhou na clínica #{clinic_id} (#{Exception.message(erro)})")
+      0
   end
 
   @doc """
