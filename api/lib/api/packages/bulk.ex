@@ -270,20 +270,15 @@ defmodule Api.Packages.Bulk do
          :ok <- pacote_existe(scope, package_id) do
       %{today: today, timezone: tz} = Scheduling.clinic_now(scope)
 
-      by_appointment =
-        scope
-        |> attendances(package_id)
-        |> Enum.filter(&Attendance.viva?/1)
-        |> Map.new(&{&1.appointment_id, &1})
+      # A resolução dos pares é do `Api.Packages.Targets` — o mesmo ponto único que o ciclo de
+      # vida usa (doc 101, B5). Aqui sobra só o predicado desta operação e o escopo pedido.
+      pares =
+        Api.Packages.Targets.pares(scope, package_id, fn {appt, _att} ->
+          futura_nao_resolvida?(appt, today, tz)
+        end)
 
-      sessoes =
-        scope.clinic_id
-        |> Scheduling.list_sessions_including_held(Map.keys(by_appointment), load: [:attendances])
-        |> Enum.filter(&futura_nao_resolvida?(&1, today, tz))
-        |> Enum.sort_by(& &1.starts_at, DateTime)
-
-      with {:ok, escolhidas} <- apply_escopo(sessoes, escopo, get(params, :appointment_id)) do
-        {:ok, Enum.map(escolhidas, &{&1, Map.fetch!(by_appointment, &1.id)}), tz}
+      with {:ok, escolhidos} <- apply_escopo(pares, escopo, get(params, :appointment_id)) do
+        {:ok, escolhidos, tz}
       end
     end
   end
@@ -306,26 +301,28 @@ defmodule Api.Packages.Bulk do
 
   defp uuid?(value), do: Api.Params.uuid?(value)
 
-  defp attendances(scope, package_id),
-    do: Scheduling.list_package_attendances(scope, package_id)
-
   defp futura_nao_resolvida?(appt, today, tz) do
     appt.status in @vivas and
       not Date.before?(LocalTime.to_local_date(appt.starts_at, tz), today)
   end
 
-  defp apply_escopo(sessoes, :todas, _ref), do: {:ok, sessoes}
+  # Opera sobre os **pares** `{appointment, attendance}` que o `Targets` devolve (já ordenados por
+  # `starts_at`, do que o `:a_partir_desta` depende).
+  defp apply_escopo(pares, :todas, _ref), do: {:ok, pares}
 
-  defp apply_escopo(sessoes, escopo, ref_id) do
-    case Enum.find(sessoes, &(&1.id == ref_id)) do
+  defp apply_escopo(pares, escopo, ref_id) do
+    case Enum.find(pares, fn {appt, _att} -> appt.id == ref_id end) do
       nil ->
         {:error, :not_found}
 
-      ref when escopo == :esta ->
-        {:ok, [ref]}
+      par when escopo == :esta ->
+        {:ok, [par]}
 
-      ref ->
-        {:ok, Enum.filter(sessoes, &(DateTime.compare(&1.starts_at, ref.starts_at) != :lt))}
+      {ref, _att} ->
+        {:ok,
+         Enum.filter(pares, fn {appt, _att} ->
+           DateTime.compare(appt.starts_at, ref.starts_at) != :lt
+         end)}
     end
   end
 

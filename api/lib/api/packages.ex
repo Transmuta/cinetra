@@ -226,17 +226,9 @@ defmodule Api.Packages do
   # `resume_package` estourar com "transição indisponível a partir de cancelado" — 500 no botão
   # Retomar que a ficha oferece (bate-volta da Onda 3).
   defp held_targets(scope, package_id) do
-    por_bloco =
-      list_attendances_for_package(scope, package_id)
-      |> Enum.filter(&Api.Scheduling.Attendance.viva?/1)
-      |> Map.new(&{&1.appointment_id, &1})
-
-    Api.Scheduling.list_sessions_including_held(scope.clinic_id, Map.keys(por_bloco),
-      load: [:attendances]
-    )
-    |> Enum.reject(&(&1.status == :cancelado))
-    |> Enum.map(&{&1, Map.fetch!(por_bloco, &1.id)})
-    |> Enum.filter(fn {appt, att} -> appt.pkg_hold or att.pkg_hold end)
+    Api.Packages.Targets.pares(scope, package_id, fn {appt, att} ->
+      appt.status != :cancelado and (appt.pkg_hold or att.pkg_hold)
+    end)
   end
 
   # Roda `fun` sobre cada sessão futura não-resolvida do pacote e vira o status do pacote, **tudo
@@ -309,23 +301,11 @@ defmodule Api.Packages do
   defp future_sessions(scope, package_id, statuses) do
     %{today: today, timezone: tz} = Api.Scheduling.clinic_now(scope)
 
-    por_bloco =
-      list_attendances_for_package(scope, package_id)
-      |> Enum.filter(&Api.Scheduling.Attendance.viva?/1)
-      |> Map.new(&{&1.appointment_id, &1})
-
-    Api.Scheduling.list_sessions_including_held(scope.clinic_id, Map.keys(por_bloco),
-      load: [:attendances]
-    )
-    |> Enum.filter(fn appt ->
+    Api.Packages.Targets.pares(scope, package_id, fn {appt, _att} ->
       appt.status in statuses and
         not Date.before?(Api.Scheduling.LocalTime.to_local_date(appt.starts_at, tz), today)
     end)
-    |> Enum.map(&{&1, Map.fetch!(por_bloco, &1.id)})
   end
-
-  defp list_attendances_for_package(scope, package_id),
-    do: Api.Scheduling.list_package_attendances(scope, package_id, load: [:appointment])
 
   @doc """
   **Arquiva** o pacote: marca `:concluido` e o tira da vista da ficha (o histórico da seção).
