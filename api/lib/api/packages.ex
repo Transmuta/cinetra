@@ -168,12 +168,17 @@ defmodule Api.Packages do
     clinic_id = scope.clinic_id
     %{today: today} = Api.Scheduling.clinic_now(scope)
 
-    result =
-      in_clinic(scope, fn ->
-        Api.Repo.transaction(fn ->
-          pkg = get_package!(package_id, scope: scope)
-          held = held_targets(scope, package_id)
+    transacao_com_notificacoes(scope, fn ->
+      pkg = get_package!(package_id, scope: scope)
+      held = held_targets(scope, package_id)
 
+      # **A transição vem primeiro**, pela mesma razão de `lifecycle/5` (doc 101 §4.1): desde que
+      # `:profissional` saiu do ciclo de vida, `mark_package_active` pode recusar, e com o
+      # `{:ok, _, _} =` que havia aqui a recusa virava `MatchError` — 500 no botão Retomar. Esta é
+      # a única das quatro transições que não passa por `lifecycle/5`, e foi por isso que ela
+      # escapou da primeira leva.
+      case mark_package_active(pkg, scope: scope, return_notifications?: true) do
+        {:ok, ativo, mark_notes} ->
           # Cancelar pela MESMA decisão por-presença da massa: numa turma compartilhada, a sessão
           # que volta para a fila de reprojeção é a **dele** — o colega fica. Antes daqui a
           # retomada cancelava o bloco, o que arrastaria a turma junto (a irmã do achado de
@@ -186,21 +191,12 @@ defmodule Api.Packages do
 
           enqueue_reproject(pkg, clinic_id, today, length(held))
 
-          {:ok, ativo, mark_notes} =
-            mark_package_active(pkg, scope: scope, return_notifications?: true)
+          {ativo, mark_notes ++ cancel_notes}
 
-          {ativo, cancel_notes ++ mark_notes}
-        end)
-      end)
-
-    case result do
-      {:ok, {pkg, notifications}} ->
-        Ash.Notifier.notify(notifications)
-        {:ok, pkg}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
+        {:error, erro} ->
+          {:error, erro}
+      end
+    end)
   end
 
   defp enqueue_reproject(_pkg, _clinic_id, _today, 0), do: :ok
@@ -236,50 +232,61 @@ defmodule Api.Packages do
   # notificações das escritas são coletadas e emitidas **fora** da transação: o Ash não as despacha
   # de dentro de uma transação que ele não abriu (senão avisa "missed notifications").
   defp lifecycle(scope, package_id, statuses, mark, fun) do
-    result =
-      in_clinic(scope, fn ->
-        Api.Repo.transaction(fn ->
-          # **A transição vem primeiro**, e a ordem é a que deixa a recusa sair como valor. Desde
-          # que o papel `:profissional` saiu do ciclo de vida (doc 101 §4.1), `apply_mark/3` pode
-          # devolver `%Ash.Error.Forbidden{}` — e com o `{:ok, _, _} =` que havia aqui isso virava
-          # `MatchError`, ou seja, 500 no botão em vez do 403 que o caso é.
-          #
-          # Sair pelo `Api.Repo.rollback/1` não serve: esta transação é **aninhada** na que
-          # `in_clinic/2` abre, e no Ecto a de dentro não abre savepoint — o rollback derruba a de
-          # fora e o motivo chega como `{:error, :rollback}`, perdendo qual foi. É a mesma nota que
-          # `archive_package/2` carrega (ver `notificar/1`), e é por isso que a saída aqui é um
-          # valor de retorno, não um rollback.
-          #
-          # Marcar antes de mexer nas sessões é seguro: é tudo uma transação só, nenhum dos dois
-          # `fun` (segurar/cancelar sessão) lê o status do pacote, e as notificações são coletadas
-          # e emitidas depois do commit.
-          case apply_mark(get_package!(package_id, scope: scope), mark, scope) do
-            {:ok, pkg, pkg_notes} ->
-              notes =
-                scope
-                |> future_sessions(package_id, statuses)
-                |> Enum.flat_map(fun)
+    transacao_com_notificacoes(scope, fn ->
+      # **A transição vem primeiro**, e a ordem é a que deixa a recusa sair como valor. Desde
+      # que o papel `:profissional` saiu do ciclo de vida (doc 101 §4.1), `apply_mark/3` pode
+      # devolver `%Ash.Error.Forbidden{}` — e com o `{:ok, _, _} =` que havia aqui isso virava
+      # `MatchError`, ou seja, 500 no botão em vez do 403 que o caso é.
+      #
+      # Sair pelo `Api.Repo.rollback/1` não serve: esta transação é **aninhada** na que
+      # `in_clinic/2` abre, e no Ecto a de dentro não abre savepoint — o rollback derruba a de
+      # fora e o motivo chega como `{:error, :rollback}`, perdendo qual foi. É a mesma nota que
+      # `archive_package/2` carrega (ver `notificar/1`), e é por isso que a saída aqui é um
+      # valor de retorno, não um rollback.
+      #
+      # Marcar antes de mexer nas sessões é seguro: é tudo uma transação só, nenhum dos dois
+      # `fun` (segurar/cancelar sessão) lê o status do pacote, e as notificações são coletadas
+      # e emitidas depois do commit.
+      case apply_mark(get_package!(package_id, scope: scope), mark, scope) do
+        {:ok, pkg, pkg_notes} ->
+          notes =
+            scope
+            |> future_sessions(package_id, statuses)
+            |> Enum.flat_map(fun)
 
-              {pkg, pkg_notes ++ notes}
+          {pkg, pkg_notes ++ notes}
 
-            {:error, erro} ->
-              {:error, erro}
-          end
-        end)
-      end)
+        {:error, erro} ->
+          {:error, erro}
+      end
+    end)
+  end
 
-    case result do
-      # A recusa da policy: nada foi escrito, porque ela é conferida antes das sessões.
-      {:ok, {:error, erro}} ->
-        {:error, erro}
-
-      {:ok, {pkg, notifications}} ->
-        Ash.Notifier.notify(notifications)
-        {:ok, pkg}
-
-      {:error, reason} ->
-        {:error, reason}
+  # `in_clinic` + transação + as notificações emitidas **fora** dela — o molde que `lifecycle/5` e
+  # `resume_package/2` repetiam inteiro (doc 101, B6).
+  #
+  # `fun` devolve `{registro, notificações}` no caminho feliz, ou `{:error, motivo}` para recusar
+  # **sem escrever**. A recusa é um valor de retorno e não um `Api.Repo.rollback/1`: esta transação
+  # é aninhada na que o `in_clinic/2` abre, e no Ecto a de dentro não abre savepoint — o rollback
+  # derrubaria a de fora e o motivo chegaria como `{:error, :rollback}`, perdendo qual foi. Por
+  # isso `Api.Repo.transaction` devolve `{:ok, {:error, motivo}}` e é esse o primeiro caso abaixo.
+  #
+  # O Ash não despacha notificação de dentro de uma transação que ele não abriu (avisa "missed
+  # notifications"), então elas são coletadas por `return_notifications?: true` e emitidas aqui,
+  # depois do commit.
+  defp transacao_com_notificacoes(scope, fun) when is_function(fun, 0) do
+    scope
+    |> in_clinic(fn -> Api.Repo.transaction(fun) end)
+    |> case do
+      {:ok, {:error, motivo}} -> {:error, motivo}
+      {:ok, {registro, notificacoes}} -> notificar_e_devolver(registro, notificacoes)
+      {:error, motivo} -> {:error, motivo}
     end
+  end
+
+  defp notificar_e_devolver(registro, notificacoes) do
+    Ash.Notifier.notify(notificacoes)
+    {:ok, registro}
   end
 
   defp apply_mark(pkg, :mark_paused, scope),

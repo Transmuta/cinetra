@@ -522,6 +522,20 @@ defmodule Api.Packages.LifecycleTest do
                "#{inspect(cruas)}"
     end
 
+    # Faltou na primeira leva (doc 101 §4.1): `resume_package/2` também casava
+    # `{:ok, _, _} = mark_package_active(...)`, então a recusa da policy virava `MatchError` — 500
+    # no botão Retomar em vez do 403 que o caso é. É o mesmo defeito que `lifecycle/5` e
+    # `archive_package/2` já tinham, na única das quatro transições que não passa por eles.
+    test "retomar recusa — e recusa como erro, não como 500", %{
+      ctx: ctx,
+      pkg: pkg,
+      prof_scope: scope
+    } do
+      {:ok, _} = Packages.pause_package(scope_before(ctx), pkg.id)
+
+      assert {:error, %Ash.Error.Forbidden{}} = Packages.resume_package(scope, pkg.id)
+    end
+
     test "arquivar recusa", %{ctx: ctx, prof_scope: scope} do
       # um pacote SEM sessão materializada, para que a recusa seja a da policy e não a de
       # `:sessoes_futuras` — que chega antes e esconderia o que este teste quer provar. Grade na
