@@ -332,3 +332,77 @@ confiança. Sem ele, afrouxar essa metade passaria em silêncio, e o efeito seri
 > commit entrou com ele), ou manda consertar produção que não está quebrada (foi o que quase
 > aconteceu aqui). O `user_info` do teste tem de ser o que o Google manda, não o mínimo que a ação
 > aceita.
+
+### 4.3 Onda 2 — 2026-08-03
+
+#### 2.1 — B5, as três cópias viram uma
+
+`Api.Packages.Targets.pares/3` passa a ser o ponto único de "quais sessões deste pacote".
+`future_sessions/3`, `held_targets/2` e `Bulk.targets/3` só declaram o predicado. **−48/+25 linhas.**
+
+Duas notas que valem além do refactor:
+
+* **A ordem importava e não estava garantida.** A massa ordenava por `starts_at` (o escopo
+  `:a_partir_desta` depende disso); o ciclo de vida não. Agora os dois ordenam — de graça, já que a
+  lista está na memória — e a ordem das escritas deixa de depender do que o Postgres devolveu.
+* **Só deu para fazer depois do A3.** Enquanto as duas leituras tinham regimes de autorização
+  diferentes, juntá-las teria escondido o bug em vez de corrigi-lo. Ordem, aqui, era requisito.
+
+#### 2.2 — A5, o contrato que o `docs/04 §10` pediu
+
+`contratos/regras-espelhadas.json`, na **raiz** (não é de nenhum dos dois lados), com **49 casos**
+em cinco regras: CPF, CNPJ, telefone canônico, forma mínima do e-mail e períodos do dia. Lido por
+`api/test/api/paridade_espelhada_test.exs` e `web/src/lib/paridade-espelhada.test.ts`.
+
+O container do `web` ganhou o `./:/repo:ro` que o `api` já tinha. Os dois testes procuram em `../`
+e em `/repo/` e **falham** se não acharem, e os dois têm um teste da *forma* do arquivo — seção
+renomeada ou esvaziada passaria a exercitar zero casos e reportaria verde.
+
+**Provado que morde**, mutando cada lado (a regra do projeto: mute a regra e confira o vermelho):
+
+| Mutação | Resultado |
+| --- | --- |
+| TS: remover a guarda de dígitos repetidos do `isValidCpf` | 2 falhas (`111.111.111-11`, `000.000.000-00`) |
+| Elixir: remover o `starts_with?("55")` do `normalizar(:whatsapp, _)` | 1 falha (`119876543210` → `+119876543210`) |
+
+O caso mais valioso do contrato é o do estrangeiro: `+1 415 555 0000` → `+5514155550000`, nos dois
+lados. É **errado como número** e **certo como paridade** — o servidor não tem guarda de estrangeiro
+nesse caminho, e um cliente que tivesse recusaria o que o banco aceita. Sem o contrato, "consertar"
+o lado TS parece melhoria e é regressão.
+
+#### 2.3 — M5: dois terços do achado não sobreviveram à verificação
+
+O achado dizia três coisas. **Uma é verdade, duas não são.**
+
+| Alegação | Veredito |
+| --- | --- |
+| `Fanout.notify/6` faz 1 `create_notification` + 1 broadcast por destinatário | ✅ verdade — é o laço, visível no código |
+| "uma transação própria por participante" no `Dispatch` | ❌ **falso.** `disparar/3` já roda dentro do `Api.Repo.with_clinic` de `avisar/2`, e o `in_clinic/2` de dentro do `Dispatch` é transação **aninhada**: no Ecto ela não abre savepoint, junta-se à de fora. Não são N transações |
+| N+1 em `ja_confirmada?/1`, com `Ash.exists?` por participante | ❌ **falso.** A função **não existe** no repositório (`rg ja_confirmada` → nada; `rg 'Ash.exists?' api/lib/api/messaging/` → nada) |
+
+Com isso, a estimativa que justificava a mudança ("~32 idas ao banco numa turma de 8") não se
+sustenta. Sobra a primeira alegação — e ela é sobre um N pequeno: os destinatários são a equipe
+operacional da clínica (`owner`·`admin`·`recepcao`), tipicamente 2 a 6 pessoas, num caminho
+pós-commit.
+
+**Decisão: não trocar por `Ash.bulk_create`.** O `notify/6` de hoje tem `rescue` por destinatário
+(um registro ruim não derruba os outros) e um `Feed.broadcast_new` por notificação, que é o que faz
+o sino subir. Trocar isso por um `bulk_create` custa a isolação de erro e a granularidade do
+broadcast para poupar meia dúzia de INSERTs — troca ruim, e a medida que a justificaria era de um
+achado que não se confirmou.
+
+**Fica registrado como não-feito, com o porquê**, e não como pendência: refazer a análise daqui a
+seis meses e reencontrar "fan-out é O(n)" sem esta nota faria alguém pagar o custo.
+
+> O que este item ensina sobre o método: **achado de análise estática é hipótese até ser medido.**
+> Três dos achados desta rodada caíram na verificação — o M2 (leitura fora da GUC, que tinha
+> `in_clinic`), o 1.10 (que parecia bug de produção e era fábrica de teste) e dois terços do M5. A
+> análise continua valendo pelo que ela **aponta**; o que ela afirma precisa passar pelo `psql`,
+> pelo `QueryCounter` ou pelo `git checkout`.
+
+#### O que falta da onda 2
+
+* **2.4** — as ADRs que faltam (controllers nomeados vs. AshJsonApi, deploy em Dokploy), remover
+  `/api/json/*` do router, atualizar `docs/04` (namespace `Movimento.*` e Fly.io).
+* **2.5** — as limpezas: `count` agregado no `GroupCapacity`, `Warm` na materialização e no ciclo
+  de vida, o molde `in_clinic → transaction → notify` repetido 4×, o `SlotFinder` O(dias²).
