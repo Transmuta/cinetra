@@ -1,0 +1,135 @@
+{
+  "_como_regerar": "mix test test/api_web/contrato_bff_test.exs",
+  "_gerado_por": "api/test/api_web/contrato_bff_test.exs — não editar à mão",
+  "_se_o_git_diff_sujar": "a serialização da API mudou. Confira se o BFF e a tela acompanham antes de commitar.",
+  "amostras": {
+    "lista_do_paciente": {
+      "consumido_por": "web/src/lib/server/packages.ts — fetchPatientPackages",
+      "corpo": {
+        "packages": [
+          {
+            "acabando": false,
+            "appointment_type_id": "00000000-0000-4000-8000-000000000001",
+            "cor": "#0FB5A6",
+            "data_inicio": "2026-01-05",
+            "falta_punitiva": true,
+            "grade": {
+              "dows": [
+                1,
+                3
+              ],
+              "horarios": {
+                "1": "10:00",
+                "3": "10:00"
+              },
+              "professional_id": "00000000-0000-4000-8000-000000000002"
+            },
+            "id": "00000000-0000-4000-8000-000000000003",
+            "nome": "Pilates 4 sessões",
+            "restantes": 4,
+            "sessoes": [
+              {
+                "appointment_id": "00000000-0000-4000-8000-000000000004",
+                "attendance_id": "00000000-0000-4000-8000-000000000005",
+                "estado": "proxima",
+                "starts_at": "2026-01-05T13:00:00Z"
+              },
+              {
+                "appointment_id": "00000000-0000-4000-8000-000000000006",
+                "attendance_id": "00000000-0000-4000-8000-000000000007",
+                "estado": "agendada",
+                "starts_at": "2026-01-07T13:00:00Z"
+              },
+              {
+                "appointment_id": "00000000-0000-4000-8000-000000000008",
+                "attendance_id": "00000000-0000-4000-8000-000000000009",
+                "estado": "agendada",
+                "starts_at": "2026-01-12T13:00:00Z"
+              },
+              {
+                "appointment_id": "00000000-0000-4000-8000-000000000010",
+                "attendance_id": "00000000-0000-4000-8000-000000000011",
+                "estado": "agendada",
+                "starts_at": "2026-01-14T13:00:00Z"
+              }
+            ],
+            "status": "ativo",
+            "total": 4,
+            "usadas": 0
+          }
+        ]
+      },
+      "rota": "GET /api/patients/:patient_id/packages"
+    },
+    "previa": {
+      "consumido_por": "web/src/lib/server/packages.ts — previewSeries",
+      "corpo": {
+        "bloqueios": 0,
+        "ocorrencias": [
+          {
+            "bloqueia": false,
+            "data": "2026-01-05",
+            "feriado": false,
+            "hhmm": "14:00",
+            "issue": "ok"
+          },
+          {
+            "bloqueia": false,
+            "data": "2026-01-07",
+            "feriado": false,
+            "hhmm": "14:00",
+            "issue": "ok"
+          },
+          {
+            "bloqueia": false,
+            "data": "2026-01-12",
+            "feriado": false,
+            "hhmm": "14:00",
+            "issue": "ok"
+          },
+          {
+            "bloqueia": false,
+            "data": "2026-01-14",
+            "feriado": false,
+            "hhmm": "14:00",
+            "issue": "ok"
+          }
+        ],
+        "pode_salvar": true
+      },
+      "rota": "POST /api/packages/preview"
+    },
+    "trilha": {
+      "consumido_por": "web/src/lib/server/packages.ts — fetchPackageSessions",
+      "corpo": {
+        "sessions": [
+          {
+            "appointment_id": "00000000-0000-4000-8000-000000000004",
+            "attendance_id": "00000000-0000-4000-8000-000000000005",
+            "estado": "proxima",
+            "starts_at": "2026-01-05T13:00:00Z"
+          },
+          {
+            "appointment_id": "00000000-0000-4000-8000-000000000006",
+            "attendance_id": "00000000-0000-4000-8000-000000000007",
+            "estado": "agendada",
+            "starts_at": "2026-01-07T13:00:00Z"
+          },
+          {
+            "appointment_id": "00000000-0000-4000-8000-000000000008",
+            "attendance_id": "00000000-0000-4000-8000-000000000009",
+            "estado": "agendada",
+            "starts_at": "2026-01-12T13:00:00Z"
+          },
+          {
+            "appointment_id": "00000000-0000-4000-8000-000000000010",
+            "attendance_id": "00000000-0000-4000-8000-000000000011",
+            "estado": "agendada",
+            "starts_at": "2026-01-14T13:00:00Z"
+          }
+        ]
+      },
+      "rota": "GET /api/packages/:id/sessions"
+    }
+  }
+}

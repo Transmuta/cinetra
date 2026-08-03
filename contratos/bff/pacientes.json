@@ -1,0 +1,151 @@
+{
+  "_como_regerar": "mix test test/api_web/contrato_bff_test.exs",
+  "_gerado_por": "api/test/api_web/contrato_bff_test.exs — não editar à mão",
+  "_se_o_git_diff_sujar": "a serialização da API mudou. Confira se o BFF e a tela acompanham antes de commitar.",
+  "amostras": {
+    "ficha": {
+      "consumido_por": "web/src/lib/server/patients.ts — fetchPatient",
+      "corpo": {
+        "patient": {
+          "atend_tipo": "particular",
+          "ativo": true,
+          "bairro": null,
+          "carteirinha": null,
+          "cep": null,
+          "cidade": null,
+          "como_conheceu": null,
+          "complemento": null,
+          "comunicacao": true,
+          "convenio": null,
+          "convenio_validade": null,
+          "cor_indice": 1,
+          "cpf": "11144477735",
+          "crm": null,
+          "email": "maria@example.com",
+          "emergencia_nome": null,
+          "emergencia_parentesco": null,
+          "emergencia_tel": null,
+          "empresa": null,
+          "endereco": null,
+          "estado_civil": null,
+          "faltas": 0,
+          "genero": null,
+          "id": "00000000-0000-4000-8000-000000000001",
+          "lgpd": false,
+          "medico": null,
+          "nascimento": null,
+          "nome": "Maria Souza",
+          "nome_social": null,
+          "numero": null,
+          "prefs": [],
+          "profissao": null,
+          "responsavel": null,
+          "rg": null,
+          "tags": [],
+          "tel": "+5511987650002",
+          "uf": null
+        }
+      },
+      "rota": "GET /api/patients/:id"
+    },
+    "historico": {
+      "consumido_por": "web/src/lib/server/patients.ts — fetchPatientHistory",
+      "corpo": {
+        "more": false,
+        "sessions": [
+          {
+            "appointment_id": "00000000-0000-4000-8000-000000000002",
+            "appointment_status": "concluido",
+            "cor": "#0FB5A6",
+            "ends_at": "2025-12-08T12:50:00Z",
+            "falta_justificada": false,
+            "id": "00000000-0000-4000-8000-000000000003",
+            "obs": null,
+            "package_id": null,
+            "profissional": "Dra. Ana Ribeiro",
+            "starts_at": "2025-12-08T12:00:00Z",
+            "status": "concluida",
+            "tipo": "Pilates Solo"
+          }
+        ],
+        "upcoming": [
+          {
+            "appointment_id": "00000000-0000-4000-8000-000000000004",
+            "appointment_status": "agendado",
+            "cor": "#0FB5A6",
+            "ends_at": "2026-01-06T14:50:00Z",
+            "falta_justificada": false,
+            "id": "00000000-0000-4000-8000-000000000005",
+            "obs": null,
+            "package_id": null,
+            "profissional": "Dra. Ana Ribeiro",
+            "starts_at": "2026-01-06T14:00:00Z",
+            "status": "prevista",
+            "tipo": "Pilates Solo"
+          }
+        ],
+        "upcoming_more": false
+      },
+      "rota": "GET /api/patients/:id/history?limit=&offset="
+    },
+    "lista": {
+      "consumido_por": "web/src/lib/server/patients.ts — fetchPatients",
+      "corpo": {
+        "counts": {
+          "ativos": 1,
+          "inativos": 0,
+          "resp": 0,
+          "todos": 1
+        },
+        "page": {
+          "limit": 50,
+          "more": false,
+          "offset": 0,
+          "total": 1
+        },
+        "patients": [
+          {
+            "atend_tipo": "particular",
+            "ativo": true,
+            "bairro": null,
+            "carteirinha": null,
+            "cep": null,
+            "cidade": null,
+            "como_conheceu": null,
+            "complemento": null,
+            "comunicacao": true,
+            "convenio": null,
+            "convenio_validade": null,
+            "cor_indice": 1,
+            "cpf": "11144477735",
+            "crm": null,
+            "email": "maria@example.com",
+            "emergencia_nome": null,
+            "emergencia_parentesco": null,
+            "emergencia_tel": null,
+            "empresa": null,
+            "endereco": null,
+            "estado_civil": null,
+            "faltas": null,
+            "genero": null,
+            "id": "00000000-0000-4000-8000-000000000001",
+            "lgpd": false,
+            "medico": null,
+            "nascimento": null,
+            "nome": "Maria Souza",
+            "nome_social": null,
+            "numero": null,
+            "prefs": [],
+            "profissao": null,
+            "responsavel": null,
+            "rg": null,
+            "tags": [],
+            "tel": "+5511987650002",
+            "uf": null
+          }
+        ]
+      },
+      "rota": "GET /api/patients?q=&filter=&limit=&offset="
+    }
+  }
+}

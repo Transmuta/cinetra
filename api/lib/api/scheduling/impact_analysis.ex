@@ -112,6 +112,51 @@ defmodule Api.Scheduling.ImpactAnalysis do
     is_map(attrs) and data_de(attrs) != :invalido and tipo(attrs) != :invalido
   end
 
+  @doc """
+  O que a mudança **pode** alcançar, como recorte de leitura: `%{date: …, professional_id: …}`.
+
+  Existe porque `afetado_por?/2` (logo abaixo) descarta em Elixir o que a leitura já poderia não
+  ter trazido do banco. Uma folga de um profissional num dia afeta, no máximo, os blocos **daquele
+  profissional naquele dia** — e a leitura carregava a agenda futura inteira da clínica para então
+  jogar 99,9% fora. Medido em 10.000 blocos futuros: **372 ms**, dos quais 266 ms só de montar as
+  structs que seriam descartadas (doc 101, M1).
+
+  Mora aqui, e não em quem lê, **de propósito**: o recorte e o `afetado_por?/2` são a mesma regra
+  vista de dois lados, e é exatamente o par que não pode divergir. Se um dia o filtro em Elixir
+  passar a alcançar outra coisa, esta função precisa mudar junto — no mesmo arquivo, ao lado, onde
+  quem edita uma vê a outra. Foi o argumento do B6 na onda 2: duplicação não é só custo de
+  manutenção, é lugar onde um conserto não chega.
+
+  `nil` em qualquer chave significa **não sei recortar por esta dimensão** — quem lê deve trazer
+  tudo. É o caso de `:clinic_hours`, que alcança um conjunto de dias-da-semana espalhado pelo
+  futuro inteiro: recortá-lo exigiria converter fuso dentro do SQL, e um índice de expressão que
+  o AshPostgres não usaria (a lição do doc 35).
+  """
+  @spec recorte(change()) :: %{date: Date.t() | nil, professional_id: String.t() | nil}
+  def recorte(change)
+
+  def recorte({:clinic_exception, attrs}), do: %{date: data_valida(attrs), professional_id: nil}
+
+  def recorte({:professional_exception, professional_id, attrs}),
+    do: %{date: data_valida(attrs), professional_id: id_valido(professional_id)}
+
+  def recorte({:professional_hours, professional_id, _days}),
+    do: %{date: nil, professional_id: id_valido(professional_id)}
+
+  def recorte(_change), do: %{date: nil, professional_id: nil}
+
+  defp data_valida(attrs) when is_map(attrs) do
+    case data_de(attrs) do
+      %Date{} = date -> date
+      _ -> nil
+    end
+  end
+
+  defp data_valida(_attrs), do: nil
+
+  defp id_valido(id) when is_binary(id), do: id
+  defp id_valido(_id), do: nil
+
   # Recorte barato ANTES de simular: uma mudança de terça-feira não tem como afetar uma quinta, e
   # uma exceção do dia 24 não afeta o dia 25. Sem isto, a simulação rodaria para todo agendamento
   # futuro da clínica — o que é correto e desperdício.
@@ -131,6 +176,23 @@ defmodule Api.Scheduling.ImpactAnalysis do
   defp afetado_por?(appt, {:professional_exception, professional_id, attrs}),
     do: appt.professional_id == professional_id and appt.date == data_de(attrs)
 
+  # `day_periods/3` roda **duas vezes por agendamento afetado** (o antes e o depois), e o par
+  # depende só de `{professional_id, date}` — o mesmo dia do mesmo profissional é recalculado uma
+  # vez por bloco. O doc 101 (M1) apontou isso, e a memoização por par foi **construída, medida e
+  # descartada**:
+  #
+  #     pior caso (semana da clínica, 10.000 blocos futuros, 1.400 afetados,
+  #     2.800 chamadas de `day_periods` caindo para 280 — 10× menos)
+  #       sem memo : mediana 230,9 ms
+  #       com memo : mediana 230,3 ms
+  #
+  # Ou seja: dentro do ruído. E há razão estrutural para isso, que vale mais que o número —
+  # **afetados ≤ carregados**, e carregar uma linha (montar a struct do Ash) custa ordens de
+  # grandeza mais que simular um dia. A simulação não tem como dominar; quem domina é a leitura,
+  # e é lá que o conserto do M1 foi feito (`Api.Scheduling.agendamentos_futuros/4`).
+  #
+  # Fica registrado como não-feito, com o porquê: reencontrar "roda duas vezes" daqui a seis meses
+  # sem esta nota faria alguém pagar a complexidade de novo pelo mesmo nada.
   defp conflito(appt, sources_por_prof, change, timezone) do
     case Map.fetch(sources_por_prof, appt.professional_id) do
       # Profissional fora do mapa (arquivado, apagado): sem fontes não há veredito, e inventar um

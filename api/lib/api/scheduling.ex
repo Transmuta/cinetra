@@ -1039,7 +1039,7 @@ defmodule Api.Scheduling do
     in_clinic(scope, fn ->
       opts = [tenant: scope.clinic_id, authorize?: false]
 
-      case agendamentos_futuros(scope, opts, tz) do
+      case agendamentos_futuros(scope, opts, tz, change) do
         [] ->
           %{conflicts: [], total: 0}
 
@@ -1069,12 +1069,20 @@ defmodule Api.Scheduling do
   # A agenda futura, **sem sidecar**: só o que o motor precisa para decidir (data e horário
   # locais, profissional). O `stream?` tira o teto da leitura — é ele que permite o `total` ser
   # o número real, e não "500 ou mais". A ordem é a da tela (data, horário).
-  defp agendamentos_futuros(scope, opts, tz) do
+  #
+  # O recorte da mudança entra **no SQL** (doc 101, M1). Ele já existia em Elixir
+  # (`ImpactAnalysis.afetado_por?/2`), mas depois da leitura: uma folga de um profissional num dia
+  # carregava a agenda futura inteira da clínica para descartar quase tudo. Medido em 10.000
+  # blocos futuros, dentro da transação que escreve o expediente: **372 ms**, 40 idas ao banco,
+  # das quais 266 ms eram só montar structs para jogar fora. Quem declara o recorte é o próprio
+  # motor (`ImpactAnalysis.recorte/1`), para as duas metades da mesma regra não divergirem.
+  defp agendamentos_futuros(scope, opts, tz, change) do
     query =
       Api.Scheduling.Appointment
       |> Ash.Query.filter(
         starts_at >= ^scope.now and status in ^Api.Scheduling.AppointmentStatus.abertos()
       )
+      |> recortar(Api.Scheduling.ImpactAnalysis.recorte(change), tz)
       |> Ash.Query.select([:id, :starts_at, :ends_at, :professional_id])
       |> Ash.Query.sort(starts_at: :asc, id: :asc)
 
@@ -1082,6 +1090,30 @@ defmodule Api.Scheduling do
     |> Kernel.++(opts)
     |> find_appointments!()
     |> Enum.map(&local_shape(&1, tz))
+  end
+
+  # `nil` numa dimensão = o motor não sabe recortar por ela; traz tudo. Recortar a mais aqui
+  # esconderia conflito real, que é o modo de falha caro deste gate.
+  defp recortar(query, %{date: date, professional_id: professional_id}, tz) do
+    query
+    |> recortar_profissional(professional_id)
+    |> recortar_dia(date, tz)
+  end
+
+  defp recortar_profissional(query, nil), do: query
+
+  defp recortar_profissional(query, professional_id),
+    do: Ash.Query.filter(query, professional_id == ^professional_id)
+
+  defp recortar_dia(query, nil, _tz), do: query
+
+  # A janela é a do DIA LOCAL, pelo mesmo `LocalTime.window!/3` que a leitura da agenda usa — e
+  # é exatamente equivalente ao `appt.date == data` do motor, porque os dois olham o dia local do
+  # `starts_at`. Um bloco das 23h não pertence ao dia seguinte em nenhum dos dois.
+  defp recortar_dia(query, %Date{} = date, tz) do
+    {inicio, fim} = Api.Scheduling.LocalTime.window!(date, date, tz)
+
+    Ash.Query.filter(query, starts_at >= ^inicio and starts_at < ^fim)
   end
 
   # A forma que o motor puro consome: data e minutos LOCAIS, porque expediente é sempre local.

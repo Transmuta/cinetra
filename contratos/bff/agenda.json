@@ -1,0 +1,168 @@
+{
+  "_como_regerar": "mix test test/api_web/contrato_bff_test.exs",
+  "_gerado_por": "api/test/api_web/contrato_bff_test.exs — não editar à mão",
+  "_se_o_git_diff_sujar": "a serialização da API mudou. Confira se o BFF e a tela acompanham antes de commitar.",
+  "amostras": {
+    "bloco": {
+      "consumido_por": "web/src/lib/server/appointments.ts — fetchAppointment",
+      "corpo": {
+        "appointment": {
+          "appointment_type_id": "00000000-0000-4000-8000-000000000001",
+          "cancel_reason": null,
+          "created_by_id": "00000000-0000-4000-8000-000000000002",
+          "dias_na_fila": null,
+          "encaixe": false,
+          "ends_at": "2026-01-05T13:50:00Z",
+          "id": "00000000-0000-4000-8000-000000000003",
+          "obs": null,
+          "participants": [
+            {
+              "falta_justificada": false,
+              "motivo": null,
+              "package": null,
+              "package_id": null,
+              "patient_id": "00000000-0000-4000-8000-000000000004",
+              "resposta": null,
+              "status": "prevista"
+            }
+          ],
+          "patient_ids": [
+            "00000000-0000-4000-8000-000000000004"
+          ],
+          "professional_id": "00000000-0000-4000-8000-000000000005",
+          "reschedule_reason": null,
+          "starts_at": "2026-01-05T13:00:00Z",
+          "status": "agendado",
+          "veio_da_fila": false,
+          "version": 1
+        },
+        "patients": [
+          {
+            "ativo": true,
+            "faltas": 0,
+            "id": "00000000-0000-4000-8000-000000000004",
+            "nome": "Maria Souza",
+            "tel": "+5511987650002"
+          }
+        ],
+        "timezone": "America/Sao_Paulo"
+      },
+      "rota": "GET /api/appointments/:id"
+    },
+    "janela": {
+      "consumido_por": "web/src/lib/server/appointments.ts — fetchAgenda",
+      "corpo": {
+        "agora": "2026-01-01T12:00:00.000000Z",
+        "appointment_types": [
+          {
+            "capacidade": null,
+            "cor": "#0072B2",
+            "duracao_minutos": 50,
+            "grupo": false,
+            "icon": "ClipboardList",
+            "id": "00000000-0000-4000-8000-000000000006",
+            "nome": "Avaliação"
+          },
+          {
+            "capacidade": null,
+            "cor": "#0FB5A6",
+            "duracao_minutos": 50,
+            "grupo": false,
+            "icon": "Activity",
+            "id": "00000000-0000-4000-8000-000000000007",
+            "nome": "Sessão"
+          },
+          {
+            "capacidade": null,
+            "cor": "#009E73",
+            "duracao_minutos": 50,
+            "grupo": false,
+            "icon": "StretchHorizontal",
+            "id": "00000000-0000-4000-8000-000000000008",
+            "nome": "RPG"
+          },
+          {
+            "capacidade": 4,
+            "cor": "#CC79A7",
+            "duracao_minutos": 50,
+            "grupo": true,
+            "icon": "Users",
+            "id": "00000000-0000-4000-8000-000000000009",
+            "nome": "Pilates"
+          },
+          {
+            "capacidade": null,
+            "cor": "#7A52CC",
+            "duracao_minutos": 30,
+            "grupo": false,
+            "icon": "RefreshCw",
+            "id": "00000000-0000-4000-8000-000000000010",
+            "nome": "Reavaliação"
+          },
+          {
+            "capacidade": null,
+            "cor": "#0FB5A6",
+            "duracao_minutos": 50,
+            "grupo": false,
+            "icon": "Activity",
+            "id": "00000000-0000-4000-8000-000000000001",
+            "nome": "Pilates Solo"
+          }
+        ],
+        "appointments": [
+          {
+            "appointment_type_id": "00000000-0000-4000-8000-000000000001",
+            "cancel_reason": null,
+            "created_by_id": "00000000-0000-4000-8000-000000000002",
+            "dias_na_fila": null,
+            "encaixe": false,
+            "ends_at": "2026-01-05T13:50:00Z",
+            "id": "00000000-0000-4000-8000-000000000003",
+            "obs": null,
+            "participants": [
+              {
+                "falta_justificada": false,
+                "motivo": null,
+                "package": null,
+                "package_id": null,
+                "patient_id": "00000000-0000-4000-8000-000000000004",
+                "resposta": null,
+                "status": "prevista"
+              }
+            ],
+            "patient_ids": [
+              "00000000-0000-4000-8000-000000000004"
+            ],
+            "professional_id": "00000000-0000-4000-8000-000000000005",
+            "reschedule_reason": null,
+            "starts_at": "2026-01-05T13:00:00Z",
+            "status": "agendado",
+            "veio_da_fila": false,
+            "version": 1
+          }
+        ],
+        "patients": [
+          {
+            "ativo": true,
+            "faltas": 0,
+            "id": "00000000-0000-4000-8000-000000000004",
+            "nome": "Maria Souza",
+            "tel": "+5511987650002"
+          }
+        ],
+        "professionals": [
+          {
+            "cor_indice": 1,
+            "crefito": null,
+            "id": "00000000-0000-4000-8000-000000000005",
+            "nome": "Dra. Ana Ribeiro",
+            "nome_exibicao": null,
+            "segue_horario_clinica": true
+          }
+        ],
+        "timezone": "America/Sao_Paulo"
+      },
+      "rota": "GET /api/appointments?from=&to=&professional_id="
+    }
+  }
+}

@@ -304,6 +304,71 @@ defmodule ApiWeb.AuthControllerTest do
     end
   end
 
+  # `[D-14]` / doc 101 A4 — o aceite dos documentos legais deixa de ser presumido.
+  describe "POST /api/auth/terms-acceptance" do
+    test "sem sessão: 401", %{conn: conn} do
+      conn = post(conn, ~p"/api/auth/terms-acceptance", %{versao: "1.0"})
+      assert json_response(conn, 401) == %{"error" => "unauthenticated"}
+    end
+
+    test "autenticado: 204 e o carimbo fica no usuário", %{conn: conn} do
+      user = create_user()
+
+      conn = conn |> authed(user) |> post(~p"/api/auth/terms-acceptance", %{versao: "1.0"})
+      assert response(conn, 204)
+
+      assert %{termos_versao: "1.0", termos_aceitos_em: %DateTime{}} =
+               Accounts.get_user!(user.id, authorize?: false)
+    end
+
+    # A pergunta que o D-14 quer responder é "quando esta pessoa passou pela versão 1.0?". Se o
+    # carimbo fosse reescrito a cada login, a resposta viraria "quando entrou pela última vez" —
+    # outro dado, e que não prova nada.
+    test "reaceitar a MESMA versão não reescreve a data do primeiro aceite", %{conn: conn} do
+      user = create_user()
+
+      conn |> authed(user) |> post(~p"/api/auth/terms-acceptance", %{versao: "1.0"})
+      primeiro = Accounts.get_user!(user.id, authorize?: false).termos_aceitos_em
+
+      # O carimbo tem precisão de segundo; sem a espera, "não mudou" passaria por empate.
+      Process.sleep(1_100)
+      build_conn() |> authed(user) |> post(~p"/api/auth/terms-acceptance", %{versao: "1.0"})
+
+      assert Accounts.get_user!(user.id, authorize?: false).termos_aceitos_em == primeiro
+    end
+
+    test "versão NOVA carimba de novo — é assim que se sabe a quem reavisar", %{conn: conn} do
+      user = create_user()
+
+      conn |> authed(user) |> post(~p"/api/auth/terms-acceptance", %{versao: "1.0"})
+      primeiro = Accounts.get_user!(user.id, authorize?: false).termos_aceitos_em
+
+      Process.sleep(1_100)
+      build_conn() |> authed(user) |> post(~p"/api/auth/terms-acceptance", %{versao: "2.0"})
+
+      depois = Accounts.get_user!(user.id, authorize?: false)
+      assert depois.termos_versao == "2.0"
+      assert DateTime.compare(depois.termos_aceitos_em, primeiro) == :gt
+    end
+
+    test "sem versão no corpo: 422 — aceite sem versão não registra nada útil", %{conn: conn} do
+      user = create_user()
+
+      conn = conn |> authed(user) |> post(~p"/api/auth/terms-acceptance", %{})
+      assert json_response(conn, 422)["error"] == "invalid"
+    end
+
+    # Registrar aceite em nome de terceiro é forjar prova. A fronteira sempre usa o usuário da
+    # sessão, mas a policy é quem garante que uma chamada interna futura não fure isso.
+    test "a policy recusa carimbar o aceite de outra pessoa" do
+      dono = create_user()
+      outro = create_user()
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Accounts.accept_terms(outro, "1.0", %{}, actor: dono)
+    end
+  end
+
   describe "PATCH /api/auth/me (Meu perfil)" do
     test "sem sessão: 401 unauthenticated", %{conn: conn} do
       conn = patch(conn, ~p"/api/auth/me", %{nome: "Novo Nome"})

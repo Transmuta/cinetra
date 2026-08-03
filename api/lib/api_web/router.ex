@@ -87,6 +87,10 @@ defmodule ApiWeb.Router do
     # Tela "Meu perfil" (identidade global, sem tenant): editar o próprio nome e sair de todos
     # os dispositivos. `PATCH /auth/me` espelha o `GET /auth/me`; o alvo é sempre o próprio ator.
     patch "/auth/me", AuthController, :update_profile
+    # O aceite dos documentos legais (`[D-14]`), carimbado pelo BFF logo depois do login — nos
+    # dois caminhos, porque os dois passam por lá. A versão viaja no corpo: quem exibiu o texto
+    # é quem sabe qual era.
+    post "/auth/terms-acceptance", AuthController, :terms_acceptance
     delete "/auth/sign-out", AuthController, :sign_out
     post "/auth/sign-out-everywhere", AuthController, :sign_out_everywhere
 

@@ -459,3 +459,223 @@ Gates ao fim da onda: `mix test` **1862 · 0 falhas** · `--only rls` 0 falhas �
 > Isso não desqualifica a análise — ela apontou o A3, o M3, o M8, o M9 e o A5, que eram reais e
 > caros. Diz que **a taxa de falso-positivo de uma leitura estática do repositório é alta o
 > bastante para que "medir antes de consertar" seja regra, não zelo.**
+
+### 4.4 Onda 3 — 2026-08-03
+
+A onda do "que degrada sozinho". Duas decisões de produto foram tomadas **antes** de a execução
+começar, e as duas mudaram o desenho do que entrou:
+
+* **3.3 (M10)** — o mecanismo de poda entra pronto e **desarmado**, sem número e sem cron, até o
+  jurídico decidir a régua. É o que o `[D-11]` já vinha dizendo desde 2026-07-28;
+* **3.5 (A4)** — o aceite fica em **campos no `User`** (`termos_aceitos_em`/`termos_versao`), como
+  o `[D-14]` desenhou, e não na tabela `acceptances` que o plano previa.
+
+#### Estado dos gates
+
+| Gate | Antes (fim da onda 2) | Depois |
+| --- | --- | --- |
+| `mix format --check-formatted` | ✅ | ✅ |
+| `mix compile --force --warnings-as-errors` | ✅ | ✅ |
+| `mix test` | 1862 · 0 falhas | ✅ **1896 · 0 falhas** |
+| `mix test --only rls` (como `cinetra_app`) | 0 falhas | ✅ 0 falhas (ver a nota) |
+| `mix coveralls` (piso 80) | 90,0% | ✅ **89,7%** |
+| `npm run check` | 0 erros | ✅ 0 erros, 0 avisos |
+| `npm run coverage` | 2497 testes · 93,04% | ✅ **207 arquivos · 2522 testes · 93,04%** |
+| contrato BFF↔API depois de `mix test` (gate novo) | — | ✅ fixture idêntica byte a byte entre rodadas |
+
+> **Uma falha isolada no gate `:rls`, não reproduzida.** A primeira execução do `--only rls` desta
+> onda acusou 1 falha; as **oito** seguintes vieram verdes, e o rastro da primeira não foi
+> capturado. Fica registrado em vez de omitido: não sei o que falhou. Se reaparecer, o primeiro
+> lugar a olhar é resíduo de estado entre execuções — o gate roda a suíte inteira com filtro, e o
+> sandbox é a única coisa entre um teste e o outro.
+
+#### 3.1 — A2: o contrato BFF↔API deixa de ser mantido a olho
+
+`api/test/api_web/contrato_bff_test.exs` monta um mundo pequeno e completo, **atravessa o roteador
+de verdade** e grava em `contratos/bff/*.json` o corpo que a API respondeu. São **11 amostras** nos
+cinco recursos quentes: agenda (janela, bloco), pacientes (lista, ficha, histórico), pacotes (lista,
+trilha, prévia), notificações (caixa, badge) e fila (lista). Os cinco `.test.ts` do BFF passaram a
+ler essas fixtures no lugar do JSON que inventavam, e cada um ganhou um `describe("contrato com a
+API")` que **declara os campos que aquele lado lê**.
+
+A metade difícil não foi gerar — foi **determinismo byte a byte**, porque o gate é um `git diff`. Um
+único valor volátil deixaria o arquivo sujo em toda rodada e o sinal viraria ruído em uma semana.
+`Api.ContratoBff` normaliza três coisas:
+
+| o que | vira | por quê |
+| --- | --- | --- |
+| uuid | `00000000-…-000N`, por ordem de aparição | o mesmo id em duas amostras recebe o mesmo número, então `patient_ids` continua apontando para o paciente do sidecar |
+| carimbo a menos de 5 min da geração (`agora`, `inserted_at`) | instante fixo | é a hora em que a suíte rodou, não o contrato |
+| datas do mundo montado | deslocadas para a **semana-âncora** | o mundo nasce em `âncora + 7k` semanas — sempre no futuro, sempre a mesma segunda-feira. Sem isso, ou a fixture muda de dia todo dia, ou apodrece numa data que vira passado |
+
+**Provado determinístico**, e por comparação de bytes, não por "o git não reclamou": a fixture da
+primeira rodada foi guardada e conferida contra a que a **suíte inteira** gravou quase quatro horas
+depois — `diff -r` sem diferença. Vale a distinção, porque `git status` com arquivo ainda
+não-rastreado diria "limpo" mesmo se o conteúdo tivesse mudado.
+
+**Provado que morde**, pela regra do projeto (mute a regra e confira o vermelho): renomeei `usadas`
+para `usadas_agora` em `ApiWeb.PackagesJSON`, regerei a fixture e rodei o BFF:
+
+```
+Error: pacotes/lista_do_paciente → packages[0]: a API não manda mais `usadas`.
+Presentes: acabando, appointment_type_id, cor, data_inicio, falta_punitiva, grade, id, nome,
+restantes, sessoes, status, total, usadas_agora.
+```
+
+Vale reparar em **qual** teste ficou vermelho: 1 dos 27 do arquivo. Os outros 26 continuaram verdes
+porque comparam a fixture consigo mesma — o que confirma que a asserção de campos é a peça que
+carrega o peso, e que trocar o mock pela fixture, sozinho, não teria pegado nada.
+
+O gate do CI é um passo novo no job `api`, depois do `mix coveralls`: `git add --intent-to-add` (um
+recurso novo chega como arquivo não-rastreado, e `git diff` sozinho é cego para esses) seguido de
+`git diff --exit-code -- contratos/`.
+
+Duas notas de escopo:
+
+* **`GET /api/waitlist/slots` ficou de fora, e é decisão.** O `SlotFinder` varre a partir de
+  **agora**: as datas que ele devolve mudam com o dia em que a suíte roda, e a fixture ficaria suja
+  todo dia. Aquele `.test.ts` segue com corpo escrito à mão, e a nota está no próprio arquivo;
+* o `docker-compose.yml` ganhou `./contratos:/contratos` **gravável** no serviço `api` — o
+  `/repo:ro` continua como estava. O caminho é o mesmo nos dois ambientes: a suíte roda com cwd
+  `/app`, e `/app/../contratos` é o ponto de montagem em dev e o checkout ao lado no CI.
+
+#### 3.2 — M1: medido primeiro, e o conserto não foi o que o plano dizia
+
+**A medição, pelo caminho da aplicação.** Clínica de volume com **10.000 blocos futuros** e 4
+profissionais; `future_conflicts/2` chamado pelo código de produção, 5 repetições, mediana:
+
+| mudança | antes | depois |
+| --- | --- | --- |
+| `clinic_hours` (semana inteira) | 268,0 ms | **230,3 ms** |
+| `professional_hours` (1 profissional) | 264,5 ms | **50,5 ms** |
+| `clinic_exception` (1 dia) | 274,7 ms | **6,7 ms** |
+| `professional_exception` (1 dia) | 235,1 ms | **6,7 ms** |
+
+E o perfil de para onde ia o tempo, no caso mais recortável (folga de um profissional num dia, que
+afeta 6 blocos):
+
+```
+future_conflicts inteiro : 372,0 ms
+soma do tempo em SQL     : 106,0 ms  (40 consultas a appointments)
+resto (BEAM)             : 266,0 ms
+```
+
+As 40 consultas são o `stream?` paginando de 250 em 250. Os 266 ms são **montar structs do Ash que
+o filtro seguinte descartava**. E o `EXPLAIN (ANALYZE, BUFFERS)` — feito sobre a string que o Ash
+emitiu, capturada do telemetry do repo, nunca sobre SQL digitado à mão (lição do doc 35) — mostrou
+`Index Scan using appointments_clinic_id_starts_at_index`, 0,2 ms por página. **O plano da consulta
+estava certo; errado era o volume pedido.**
+
+**O conserto.** `ImpactAnalysis.recorte/1` passa a declarar o que a mudança pode alcançar
+(`%{date:, professional_id:}`) e `Api.Scheduling.agendamentos_futuros/4` transforma isso em filtro
+SQL. O recorte mora no motor puro, ao lado do `afetado_por?/2`, de propósito: são a mesma regra
+vista de dois lados, e é o par que não pode divergir — recortar a mais na leitura **esconde
+conflito real**, que é o modo de falha caro deste gate. A `clinic_hours` continua lendo tudo, e o
+teste diz isso em voz alta: recortá-la exigiria converter fuso dentro do SQL.
+
+**O que eu NÃO fiz, e por quê.** O plano dizia "tirar a análise de dentro da transação de escrita".
+Não tirei. A análise roda ali **de propósito**: é o recheck do A3/D12, e entre analisar e gravar
+cabe um agendamento novo — o mesmo motivo pelo qual `CheckAvailability` confere o expediente dentro
+da ação de agendar. Tirá-la de lá troca 260 ms de transação por uma corrida que o desenho fechou de
+propósito. Com a medição na mão, o problema era o **tamanho da leitura**, não o lugar dela; e
+depois do recorte os dois caminhos que a recepção mais usa (feriado e folga) custam 7 ms dentro da
+transação. Se um dia a `clinic_hours` incomodar, o caminho é reduzir o que ela lê, não afrouxar o
+gate.
+
+**A segunda metade do M1 caiu na medição.** "O `ImpactAnalysis.conflicts/4` roda `day_periods/3`
+duas vezes por agendamento afetado" é verdade. A memoização por `{profissional, dia}` foi
+**construída, medida e descartada**: no pior caso (semana da clínica, 1.400 afetados, 2.800 chamadas
+caindo para 280 — 10× menos), a mediana foi de **230,9 ms para 230,3 ms**. Dentro do ruído, e há
+razão estrutural para isso: **afetados ≤ carregados**, e carregar uma linha custa ordens de grandeza
+mais que simular um dia — a simulação não tem como dominar. Fica registrado no código, com o
+número, para ninguém pagar a complexidade de novo pelo mesmo nada.
+
+#### 3.3 — M10: dois relógios sobre a mesma linha, e o cron fica desligado
+
+`Api.Housekeeping.PruneMessages` separa os dois papéis que a linha de `messages` acumula:
+
+* **a prova de que a clínica avisou** (`kind`, `canal`, `status`, `provider_message_id`, carimbos) —
+  foi por ela que o recurso dispensou o `AshPaperTrail`: o registro **é** o histórico;
+* **o dado pessoal do titular** (`vars` com o nome do paciente, `destino` com o telefone/e-mail
+  congelado) — dado parado, que ninguém lê depois do envio.
+
+A janela curta **anonimiza** (`UPDATE`, a linha fica e continua provando o que aconteceu); a longa
+**apaga**. `Api.Housekeeping.Poda` ganhou `atualizar_em_lote/5`, o irmão do `em_lote/4` — mesma
+disciplina de GUC por lote, porque um `UPDATE` sem GUC toca zero linha em silêncio.
+
+**O número não está no código, e isso é o desenho.** Sem as duas chaves em config o job registra um
+aviso e devolve zero, sem tocar em nada — e ele **não está no crontab**. Um default embutido faria
+o oposto do que o `[D-11]` decidiu: no dia em que alguém escrevesse a linha do cron, a régua de
+ninguém entraria em produção calada. Meia política (uma chave só, ou PII com janela maior que a da
+linha) também é recusada.
+
+**RLS provada por `psql`, sob o role restrito** — é caminho de escrita novo, e o gate `:rls` não
+alcança isso (`.claude/rules/migrations.md` §3):
+
+```
+cinetra_app, SEM a GUC : UPDATE 0
+cinetra_app, COM a GUC : UPDATE 23
+postgres (controle)    : 23 linhas na clínica
+```
+
+#### 3.4 — M6: instrumentado, não mexido
+
+O plano dizia "não mexer ainda: instrumentar releituras por evento e decidir pela métrica". Foi o
+que aconteceu, e a razão de não mexer ficou mais clara ao escrever: a releitura por assinante é o
+que faz o recorte A7 valer no WebSocket **com uma autoridade só** (`OwnAgendaOnly`). Trocá-la por
+uma leitura compartilhada exige reimplementar o recorte no canal — a segunda cópia de uma regra de
+vazamento. Isso só se paga com número na mão.
+
+Três séries, no plugin `Api.PromEx.Agenda`:
+
+```
+cinetra_agenda_broadcasts_total                         # quantas publicações
+cinetra_agenda_channel_entregas_total{modo,releitura}   # quantos canais trataram
+cinetra_agenda_channel_releitura_duration_milliseconds  # quanto custou cada releitura
+```
+
+São **duas** contagens porque a razão entre elas é a resposta: `entregas / broadcasts` = assinantes
+por tópico. Com um contador só não dá para distinguir "muita gente na tela" de "muita escrita na
+agenda" — dois problemas com remédios opostos. O rótulo `releitura` separa quem paga banco (modo
+`block`) de quem só empurra sinal (`signal` e `appointment_excluded`), e sem ele o único número que
+interessa viria inflado.
+
+#### 3.5 — A4: o aceite deixa de ser presumido
+
+`users.termos_aceitos_em` e `users.termos_versao`, carimbados pelo **BFF** logo depois da sessão
+assinada, nos dois callbacks de login (`/auth/callback` e `/auth/user/google/callback`), via
+`POST /api/auth/terms-acceptance`. Três decisões que valem além do item:
+
+* **a versão vem do BFF.** O texto legal mora em `web/src/lib/legal.ts`; uma constante espelhada do
+  lado Elixir seria o quinto par do A5 — e o que apodreceria em silêncio seria justamente o registro
+  legal, com o banco guardando aceite de uma versão que ninguém leu;
+* **idempotente por versão.** Reaceitar a mesma versão não reescreve a data do primeiro aceite;
+  versão nova carimba de novo. Sem isso, `termos_aceitos_em` viraria "último login" — outro dado, e
+  que não prova nada;
+* **nunca derruba o login.** Falha ao registrar é registro faltando, que o próximo login corrige.
+  Trocar isso por uma pessoa sem acesso seria péssimo negócio.
+
+O caminho do Google é justamente o que uma caixa de seleção no `/criar-conta` **não** alcançaria (o
+botão é um `<a>` de navegação completa, doc 76 §1) — e é a razão de o carimbo morar depois da
+sessão, e não no formulário.
+
+#### O que NÃO entrou
+
+* **A revisão jurídica dos documentos legais (`[D-13]`)** — é calendário de terceiro, não código, e
+  segue sendo o maior lead time do repositório. O mecanismo de aceite já grava; o que ele grava
+  ainda aponta para um texto com `[RAZÃO SOCIAL]`, `[CNPJ]` e `[COMARCA/UF]` em aberto. **Registrar
+  aceite da versão 1.0 só tem valor quando a 1.0 for o texto definitivo** — disparar a revisão é a
+  próxima ação, e ela é humana.
+* **O número da retenção de `messages`** — por decisão registrada acima, o job entra desarmado.
+
+#### Placar da onda 3
+
+| Item | Resultado |
+| --- | --- |
+| 3.1 (A2) | feito — 11 amostras, 5 `.test.ts` religados, gate no CI, mordida provada |
+| 3.2 (M1) | feito — recorte no SQL: 372 → 7 ms nos caminhos recortáveis |
+| 3.2 (memo do `day_periods`) | **não feito** — construído, medido (231 → 230 ms) e descartado |
+| 3.2 (tirar da transação) | **não feito, de propósito** — reabriria a corrida do A3/D12 |
+| 3.3 (M10) | feito e **desarmado** — mecanismo pronto, sem número e sem cron |
+| 3.4 (M6) | feito — três séries; o desenho segue como estava, por decisão |
+| 3.5 (A4) | feito — `[D-14]` pago; `[D-13]` segue aberto (não é código) |

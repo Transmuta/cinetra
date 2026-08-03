@@ -123,8 +123,20 @@ defmodule Api.Scheduling.AgendaNotifier do
   defp local_date_from(starts_at, tz),
     do: LocalTime.to_local_date(starts_at, tz)
 
-  defp broadcast(topic, payload),
-    do: Phoenix.PubSub.broadcast(Api.PubSub, topic, {:agenda_event, payload})
+  @doc """
+  O evento de telemetria do broadcast — o **denominador** da amplificação do canal (doc 101, M6).
+
+  Uma escrita de agenda vira N releituras do bloco, uma por assinante do tópico. Contar só as
+  releituras diz que houve trabalho; não diz se ele foi N=2 (irrelevante) ou N=40 (a releitura por
+  assinante vira problema). O que responde isso é a razão entre este contador e o de entregas do
+  `ApiWeb.AgendaChannel`, e é por isso que os dois existem em par.
+  """
+  def evento_broadcast, do: [:api, :agenda, :broadcast]
+
+  defp broadcast(topic, payload) do
+    :telemetry.execute(evento_broadcast(), %{count: 1}, %{})
+    Phoenix.PubSub.broadcast(Api.PubSub, topic, {:agenda_event, payload})
+  end
 
   # Os nomes são os do contrato 09 §7.2 — o cliente casa por eles.
   defp event_name(:schedule), do: "appointment_scheduled"

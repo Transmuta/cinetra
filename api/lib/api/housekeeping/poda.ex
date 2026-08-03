@@ -153,6 +153,53 @@ defmodule Api.Housekeeping.Poda do
     n
   end
 
+  @doc """
+  O irmão de `em_lote/4` que **atualiza** em vez de apagar, e devolve quantas linhas tocou.
+
+  Existe para a poda que **anonimiza sem apagar** (`Api.Housekeeping.PruneMessages`): há tabela
+  cuja linha é a prova de que algo aconteceu — apagá-la é perder a prova — mas cujas colunas
+  carregam dado pessoal que não precisa sobreviver junto. São dois relógios sobre a mesma linha,
+  e o mais curto é um `UPDATE`.
+
+  `atribuicoes` é o `SET` (literal do módulo chamador, como `tabela` — ver o moduledoc);
+  `condicao` é o `WHERE`, e ela **precisa excluir o que já foi anonimizado**, senão o laço reescreve
+  as mesmas linhas para sempre e nunca desce abaixo do teto do lote.
+  """
+  @spec atualizar_em_lote(String.t(), String.t(), String.t(), [term()], String.t()) ::
+          non_neg_integer()
+  def atualizar_em_lote(tabela, atribuicoes, condicao, params, clinic_id) do
+    laco_update(tabela, atribuicoes, condicao, params, clinic_id, 0)
+  end
+
+  defp laco_update(tabela, atribuicoes, condicao, params, clinic_id, total) do
+    {:ok, n} =
+      Api.Repo.with_clinic(clinic_id, fn ->
+        atualizar_lote(tabela, atribuicoes, condicao, params)
+      end)
+
+    if n < lote(),
+      do: total + n,
+      else: laco_update(tabela, atribuicoes, condicao, params, clinic_id, total + n)
+  end
+
+  defp atualizar_lote(tabela, atribuicoes, condicao, params) do
+    {:ok, %{num_rows: n}} =
+      Api.Repo.query(
+        """
+        UPDATE #{tabela}
+        SET #{atribuicoes}
+        WHERE ctid IN (
+          SELECT ctid FROM #{tabela}
+          WHERE #{condicao}
+          LIMIT #{lote()}
+        )
+        """,
+        params
+      )
+
+    n
+  end
+
   defp lote, do: Application.get_env(:api, __MODULE__, [])[:lote] || @lote_padrao
 
   @doc """
@@ -163,14 +210,20 @@ defmodule Api.Housekeeping.Poda do
   """
   @spec corte(map(), String.t(), keyword()) :: NaiveDateTime.t()
   def corte(args, chave, opts) do
-    dias =
-      case Map.get(args, chave) do
-        n when is_integer(n) and n >= 0 -> n
-        _ -> configurado(opts)
-      end
-
-    NaiveDateTime.utc_now() |> NaiveDateTime.add(-dias * 24 * 3600, :second)
+    case Map.get(args, chave) do
+      n when is_integer(n) and n >= 0 -> corte_em_dias(n)
+      _ -> corte_em_dias(configurado(opts))
+    end
   end
+
+  @doc """
+  O instante de `dias` atrás. Existe separado de `corte/3` para quem já resolveu o número por
+  conta própria — é o caso de `Api.Housekeeping.PruneMessages`, que tem **duas** janelas na mesma
+  rodada e valida a coerência entre elas antes de podar.
+  """
+  @spec corte_em_dias(non_neg_integer()) :: NaiveDateTime.t()
+  def corte_em_dias(dias) when is_integer(dias) and dias >= 0,
+    do: NaiveDateTime.add(NaiveDateTime.utc_now(), -dias * 24 * 3600, :second)
 
   defp configurado(opts) do
     modulo = Keyword.fetch!(opts, :modulo)

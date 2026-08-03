@@ -108,6 +108,15 @@ services:
       # desenvolve. É um DIRETÓRIO de propósito: bind mount de arquivo único no WSL congela um
       # snapshot, e o teste passaria a ler uma versão velha do compose sem avisar.
       - ./:/repo:ro
+      # `contratos/` de novo, agora **gravável** — é o único lugar do repositório fora de `api/`
+      # em que a suíte escreve, e ele é deliberado: `ApiWeb.ContratoBffTest` grava em
+      # `contratos/bff/` o corpo que a API de verdade responde, e os `.test.ts` do BFF leem de lá
+      # em vez de inventar o JSON no próprio teste (doc 101, A2).
+      #
+      # O caminho é `/contratos` e não `/repo/contratos` por um motivo prático: a suíte roda com
+      # cwd `/app`, e `/app/../contratos` é este ponto de montagem — o **mesmo** `../contratos`
+      # que o CI enxerga com o checkout inteiro ao lado. Um caminho só nos dois ambientes.
+      - ./contratos:/contratos
     stdin_open: true
     tty: true
 

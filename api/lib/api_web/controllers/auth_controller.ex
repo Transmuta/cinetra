@@ -163,6 +163,34 @@ defmodule ApiWeb.AuthController do
     end
   end
 
+  # POST /api/auth/terms-acceptance {versao} — registra o aceite dos documentos legais (`[D-14]`).
+  #
+  # Quem chama é o **BFF**, logo depois de assinar a sessão, nos dois caminhos de login. E a
+  # versão vem dele, não daqui, de propósito: o texto legal mora em `web/src/lib/legal.ts`, e uma
+  # constante espelhada nesta ponta apodreceria em silêncio no dia em que o texto mudasse — o
+  # banco passaria a registrar aceite de uma versão que ninguém leu. É o A5 aplicado ao registro
+  # que menos pode estar errado.
+  #
+  # Idempotente por versão (ver `Api.Accounts.User.Changes.StampTermsAcceptance`): rodar a cada
+  # login não reescreve a data do primeiro aceite.
+  def terms_acceptance(conn, params) do
+    versao = params["versao"]
+
+    case {conn.assigns[:scope], versao} do
+      {%Scope{user: user}, v} when is_binary(v) and v != "" ->
+        case Accounts.accept_terms(user, v, %{}, actor: user) do
+          {:ok, _updated} -> send_resp(conn, :no_content, "")
+          {:error, error} -> error_response(conn, error)
+        end
+
+      {%Scope{}, _} ->
+        invalid(conn, "versao é obrigatória")
+
+      _ ->
+        unauthorized(conn)
+    end
+  end
+
   # POST /api/auth/sign-out-everywhere — revoga TODOS os tokens do usuário (add-on
   # log_out_everywhere), encerrando a sessão em todos os dispositivos, INCLUSIVE este. Como o
   # sign-out comum, derruba os WebSockets vivos e limpa a sessão local (o cookie já não vale,

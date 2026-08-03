@@ -86,6 +86,35 @@ defmodule Api.PromExTest do
       assert metricas() =~ "api_prom_ex_ecto_repo_init_pool_size"
     end
 
+    # M6 (doc 101). Os eventos são emitidos direto, e não por uma escrita de agenda inteira: o que
+    # esta asserção protege é a **fiação** — o plugin estar em `plugins/0` e os nomes de evento
+    # baterem. Que os eventos saiam nos lugares certos é do
+    # `ApiWeb.AgendaChannelMetricasTest`, que dirige o canal de verdade.
+    #
+    # Sem isto, esquecer `Api.PromEx.Agenda` na lista de plugins deixaria a série reta em zero — e
+    # uma linha reta lê-se como "não há amplificação", que é a conclusão oposta à verdade.
+    test "a amplificação do tempo real da agenda vira família de métrica" do
+      :telemetry.execute(Api.Scheduling.AgendaNotifier.evento_broadcast(), %{count: 1}, %{})
+
+      :telemetry.execute(ApiWeb.AgendaChannel.evento_entrega(), %{count: 1}, %{
+        modo: "block",
+        releitura: "true"
+      })
+
+      :telemetry.execute(ApiWeb.AgendaChannel.evento_releitura(), %{duration: 1_000_000}, %{
+        achou: "true"
+      })
+
+      texto = metricas()
+
+      assert texto =~ "cinetra_agenda_broadcasts_total"
+      assert texto =~ "cinetra_agenda_channel_entregas_total"
+      assert texto =~ "cinetra_agenda_channel_releitura_duration_milliseconds"
+
+      # É o par de rótulos que separa quem paga banco de quem só empurra sinal.
+      assert texto =~ ~s(releitura="true")
+    end
+
     test "a BEAM é amostrada — memória e contagem de processos" do
       texto = metricas()
 

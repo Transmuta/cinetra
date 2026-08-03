@@ -67,6 +67,30 @@ jobs:
       - name: Testes + gate de cobertura
         run: mix coveralls
 
+      # ---------------------------------------------------------------------
+      # Contrato BFF↔API (doc 101, A2). `ApiWeb.ContratoBffTest` REGRAVA
+      # `contratos/bff/*.json` com o corpo que a API de verdade respondeu, e os
+      # `.test.ts` do BFF leem esses arquivos no lugar de mocks escritos à mão.
+      #
+      # Logo: se a serialização mudou, o passo acima acabou de sujar o working
+      # tree, e este passo reprova. Mesmo mecanismo do `--check-formatted`: o
+      # artefato é gerado, e a checagem é que ninguém o mudou sem olhar.
+      #
+      # `add --intent-to-add` antes do diff porque um recurso NOVO chega como
+      # arquivo não-rastreado, e `git diff` sozinho é cego para esses.
+      # `working-directory` é `api`, daí o `../` — a fixture não pertence a
+      # nenhum dos dois lados da fronteira.
+      # ---------------------------------------------------------------------
+      - name: Contrato BFF↔API — a fixture não pode ter mudado sozinha
+        run: |
+          git -C .. add --intent-to-add contratos/
+          if ! git -C .. diff --exit-code -- contratos/; then
+            echo "::error::A serialização da API mudou e as fixtures de contrato acompanharam."
+            echo "Rode 'mix test test/api_web/contrato_bff_test.exs', confira o diff acima e"
+            echo "acerte o BFF e a tela ANTES de commitar a fixture nova."
+            exit 1
+          fi
+
   # ---------------------------------------------------------------------------
   # O job `api` acima conecta como `postgres`, que é SUPERUSER e portanto
   # **bypassa RLS**. Consequência: uma leitura por-tenant que esqueça o

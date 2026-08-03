@@ -78,6 +78,24 @@ defmodule Api.Accounts.User do
       accept [:nome]
     end
 
+    @doc """
+    Registra que esta pessoa passou pelos documentos legais **naquela versão** (`[D-14]`).
+
+    Idempotente por versão: reaceitar a mesma versão **não** reescreve o instante da primeira —
+    "quando aceitou a 1.0" é a pergunta, e sobrescrevê-la a cada login trocaria a resposta por
+    "quando entrou pela última vez", que é outro dado e não serve de prova de nada. Versão nova
+    carimba de novo, e é assim que se descobre quem ainda não viu o texto novo.
+    """
+    update :accept_terms do
+      description "Carimba o aceite dos Termos/Privacidade na versão informada."
+
+      accept []
+      argument :versao, :string, allow_nil?: false, constraints: [max_length: 20]
+      require_atomic? false
+
+      change Api.Accounts.User.Changes.StampTermsAcceptance
+    end
+
     read :get_by_subject do
       description "Get a user by the subject claim in a JWT"
       argument :subject, :string, allow_nil?: false
@@ -201,6 +219,13 @@ defmodule Api.Accounts.User do
       authorize_if expr(id == ^actor(:id))
     end
 
+    # O aceite é sobre a própria conta e mais ninguém — mesmo filtro do perfil. Registrar aceite
+    # em nome de terceiro é forjar prova, e é por isso que esta linha existe mesmo sendo a
+    # fronteira de autenticação (que já tem o usuário da sessão em mãos) a única a chamar.
+    policy action(:accept_terms) do
+      authorize_if expr(id == ^actor(:id))
+    end
+
     # "Sair de todos os dispositivos": revoga todos os tokens do usuário. Ação genérica, então
     # a checagem é sobre o argumento `:user` do input (ver ActorIsTargetUser), não um filtro.
     policy action(:log_out_everywhere) do
@@ -261,6 +286,20 @@ defmodule Api.Accounts.User do
     # `Api.Accounts.User.Changes.SyncGoogleAvatar`. Sem ela, uma conta cuja foto foi recusada
     # tentaria de novo a cada login — e a pessoa loga todo dia.
     attribute :avatar_origem, :string, public?: false
+
+    # O aceite dos Termos e da Política de Privacidade (`[D-14]`, doc 101 A4).
+    #
+    # Antes disto o aceite era **presumido**: `/criar-conta` traz a nota "ao criar sua conta você
+    # concorda com…", e nada era gravado. Em disputa, dava para mostrar que o texto estava na tela
+    # naquela versão do código — não que *aquela pessoa* passou por ele em *determinada data*.
+    #
+    # `public? false` porque não é campo de formulário: quem os escreve é `:accept_terms`, com a
+    # versão vinda de quem **exibiu** o texto (o BFF, de `web/src/lib/legal.ts`). A API não guarda
+    # uma cópia do número da versão de propósito — seria o quinto espelho do A5, e o que
+    # apodreceria em silêncio seria justamente o registro legal.
+    attribute :termos_aceitos_em, :utc_datetime, public?: false
+
+    attribute :termos_versao, :string, public?: false, constraints: [max_length: 20]
 
     timestamps()
   end

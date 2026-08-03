@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { contrato, exigirCampos, primeiro } from '$lib/testing/contrato';
+import type { Patient, PatientsData } from '$lib/patients';
+import type { HistorySession } from './patients';
 
 const apiFetch = vi.fn();
 vi.mock('./api', () => ({ apiFetch: (...args: unknown[]) => apiFetch(...args) }));
@@ -23,6 +26,16 @@ function json(body: unknown, status = 200): Response {
 const event = {} as never;
 beforeEach(() => apiFetch.mockReset());
 
+// Os corpos vêm de `contratos/bff/pacientes.json`, gravado pela API de verdade (doc 101, A2).
+const lista = contrato<PatientsData>('pacientes', 'lista');
+const ficha = contrato<{ patient: Patient }>('pacientes', 'ficha');
+const historico = contrato<{
+	sessions: HistorySession[];
+	more: boolean;
+	upcoming: HistorySession[];
+	upcoming_more: boolean;
+}>('pacientes', 'historico');
+
 describe('patientsQuery', () => {
 	it('sem parâmetros → string vazia', () => {
 		expect(patientsQuery()).toBe('');
@@ -39,10 +52,10 @@ describe('patientsQuery', () => {
 
 describe('fetchPatients', () => {
 	it('200 → data', async () => {
-		apiFetch.mockResolvedValueOnce(json({ patients: [{ id: 'pac1' }] }));
+		apiFetch.mockResolvedValueOnce(json(lista));
 		const r = await fetchPatients(event);
 		expect(r.status).toBe(200);
-		expect(r.data?.patients).toHaveLength(1);
+		expect(r.data?.patients).toHaveLength(lista.patients.length);
 	});
 
 	it('repassa o recorte na query string', async () => {
@@ -67,8 +80,8 @@ describe('fetchPatients', () => {
 
 describe('fetchPatient', () => {
 	it('200 → patient', async () => {
-		apiFetch.mockResolvedValueOnce(json({ patient: { id: 'pac1', nome: 'Mari' } }));
-		expect((await fetchPatient(event, 'pac1')).patient?.nome).toBe('Mari');
+		apiFetch.mockResolvedValueOnce(json(ficha));
+		expect((await fetchPatient(event, 'pac1')).patient?.nome).toBe(ficha.patient.nome);
 	});
 	it('404 → null', async () => {
 		apiFetch.mockResolvedValueOnce(new Response('', { status: 404 }));
@@ -157,13 +170,11 @@ describe('runPatientSave', () => {
 // no histórico degrada para lista vazia, não para erro de página.
 describe('fetchPatientHistory', () => {
 	it('200 → sessões e o aviso de corte', async () => {
-		apiFetch.mockResolvedValueOnce(
-			json({ sessions: [{ id: 'att1', status: 'faltou' }], more: true })
-		);
+		apiFetch.mockResolvedValueOnce(json({ ...historico, more: true }));
 
 		const r = await fetchPatientHistory(event, 'pac1');
 
-		expect(r.sessions).toHaveLength(1);
+		expect(r.sessions).toEqual(historico.sessions);
 		expect(r.more).toBe(true);
 		expect(apiFetch.mock.calls[0][1]).toBe('/api/patients/pac1/history');
 	});
@@ -218,5 +229,97 @@ describe('fetchPatientHistory', () => {
 		apiFetch.mockResolvedValueOnce(json({ sessions: [], more: false }));
 		await fetchPatientHistory(event, '../../admin');
 		expect(apiFetch.mock.calls[0][1]).toBe('/api/patients/..%2F..%2Fadmin/history');
+	});
+});
+
+// O contrato com a API (doc 101, A2). A ficha é a tela com mais campos do sistema — 40 deles,
+// mantidos à mão dos dois lados. É onde uma renomeação some mais fácil.
+describe('contrato com a API', () => {
+	it('a ficha traz todos os campos que o formulário edita', () => {
+		exigirCampos(
+			ficha.patient,
+			[
+				'id',
+				'nome',
+				'nome_social',
+				'cpf',
+				'rg',
+				'genero',
+				'estado_civil',
+				'nascimento',
+				'responsavel',
+				'tel',
+				'email',
+				'cep',
+				'endereco',
+				'numero',
+				'complemento',
+				'bairro',
+				'cidade',
+				'uf',
+				'emergencia_nome',
+				'emergencia_parentesco',
+				'emergencia_tel',
+				'profissao',
+				'empresa',
+				'atend_tipo',
+				'convenio',
+				'carteirinha',
+				'convenio_validade',
+				'medico',
+				'crm',
+				'como_conheceu',
+				'prefs',
+				'tags',
+				'lgpd',
+				'comunicacao',
+				'cor_indice',
+				'ativo'
+			],
+			'pacientes/ficha → patient'
+		);
+	});
+
+	// `faltas` é o stat do cabeçalho, e é pedido **só** na ficha: na lista ele viria `null`.
+	it('a ficha traz `faltas`, e a lista não precisa dele', () => {
+		expect(Object.keys(ficha.patient)).toContain('faltas');
+	});
+
+	it('a lista traz a página e as contagens da sidebar', () => {
+		exigirCampos(lista, ['patients', 'page', 'counts'], 'pacientes/lista');
+		exigirCampos(lista.page, ['limit', 'offset', 'total'], 'pacientes/lista → page');
+		exigirCampos(
+			primeiro(lista.patients, 'pacientes/lista → patients'),
+			['id', 'nome', 'tel', 'ativo', 'tags'],
+			'pacientes/lista → patients[0]'
+		);
+	});
+
+	// Duas listas na mesma resposta desde o doc 56: o que já aconteceu e o que ainda vai.
+	it('o histórico traz as duas listas e os dois avisos de corte', () => {
+		exigirCampos(
+			historico,
+			['sessions', 'more', 'upcoming', 'upcoming_more'],
+			'pacientes/historico'
+		);
+
+		exigirCampos(
+			primeiro(historico.sessions, 'pacientes/historico → sessions'),
+			[
+				'id',
+				'status',
+				'falta_justificada',
+				'package_id',
+				'appointment_id',
+				'starts_at',
+				'ends_at',
+				'appointment_status',
+				'obs',
+				'tipo',
+				'cor',
+				'profissional'
+			],
+			'pacientes/historico → sessions[0]'
+		);
 	});
 });

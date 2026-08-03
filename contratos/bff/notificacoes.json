@@ -1,0 +1,49 @@
+{
+  "_como_regerar": "mix test test/api_web/contrato_bff_test.exs",
+  "_gerado_por": "api/test/api_web/contrato_bff_test.exs — não editar à mão",
+  "_se_o_git_diff_sujar": "a serialização da API mudou. Confira se o BFF e a tela acompanham antes de commitar.",
+  "amostras": {
+    "badge": {
+      "consumido_por": "web/src/lib/server/notifications.ts — fetchUnreadCount",
+      "corpo": {
+        "unread": 2
+      },
+      "rota": "GET /api/notifications/unread-count"
+    },
+    "caixa": {
+      "consumido_por": "web/src/lib/server/notifications.ts — fetchNotifications",
+      "corpo": {
+        "notifications": [
+          {
+            "body": "Dra. Ana Ribeiro entrou como profissional",
+            "data": {},
+            "id": "00000000-0000-4000-8000-000000000001",
+            "inserted_at": "2026-01-01T12:00:00.000000Z",
+            "kind": "member_joined",
+            "read": false,
+            "title": "Novo membro na clínica"
+          },
+          {
+            "body": "Maria Souza — segunda, 10:00",
+            "data": {
+              "day": "2026-01-05"
+            },
+            "id": "00000000-0000-4000-8000-000000000002",
+            "inserted_at": "2026-01-01T12:00:00.000000Z",
+            "kind": "appointment_scheduled",
+            "read": false,
+            "title": "Novo agendamento"
+          }
+        ],
+        "page": {
+          "limit": 50,
+          "more": false,
+          "offset": 0,
+          "total": null
+        },
+        "unread": 2
+      },
+      "rota": "GET /api/notifications?unread=&limit=&offset="
+    }
+  }
+}

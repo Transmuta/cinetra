@@ -1,0 +1,74 @@
+{
+  "_como_regerar": "mix test test/api_web/contrato_bff_test.exs",
+  "_gerado_por": "api/test/api_web/contrato_bff_test.exs — não editar à mão",
+  "_se_o_git_diff_sujar": "a serialização da API mudou. Confira se o BFF e a tela acompanham antes de commitar.",
+  "amostras": {
+    "lista": {
+      "consumido_por": "web/src/lib/server/waitlist.ts — fetchWaitlist",
+      "corpo": {
+        "counts": {
+          "alta": 0,
+          "baixa": 0,
+          "normal": 0,
+          "todas": 1,
+          "urgente": 1
+        },
+        "page": {
+          "limit": 50,
+          "more": false,
+          "offset": 0,
+          "total": 1
+        },
+        "professionals": [
+          {
+            "cor_indice": 1,
+            "crefito": null,
+            "id": "00000000-0000-4000-8000-000000000001",
+            "nome": "Dra. Ana Ribeiro",
+            "nome_exibicao": null,
+            "segue_horario_clinica": true
+          }
+        ],
+        "today": "2026-01-01",
+        "waitlist": [
+          {
+            "dias_na_fila": 0,
+            "id": "00000000-0000-4000-8000-000000000002",
+            "inserted_at": "2026-01-01T12:00:00.000000Z",
+            "janela": "manha",
+            "obs": "Prefere início da semana",
+            "patient": {
+              "ativo": true,
+              "faltas": 0,
+              "id": "00000000-0000-4000-8000-000000000003",
+              "nome": "Maria Souza",
+              "tel": "+5511987650002"
+            },
+            "prio": "urgente",
+            "professional_ids": [
+              "00000000-0000-4000-8000-000000000001"
+            ],
+            "rules": [
+              {
+                "data": null,
+                "dows": [
+                  1,
+                  3
+                ],
+                "id": "00000000-0000-4000-8000-000000000004",
+                "periodos": [
+                  [
+                    "08:00",
+                    "12:00"
+                  ]
+                ],
+                "tipo": "semana"
+              }
+            ]
+          }
+        ]
+      },
+      "rota": "GET /api/waitlist?limit=&offset=&prio="
+    }
+  }
+}

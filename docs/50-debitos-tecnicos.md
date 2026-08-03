@@ -255,6 +255,17 @@ preview). O HML já mitiga o grosso do risco; o preview entra por cima depois, s
 
 ## D-11 · Retenção de dado: quatro relógios diferentes, e um sem relógio nenhum
 
+> **O mecanismo existe desde 2026-08-03 (onda 3 do [doc 101](101-plano-de-acao-analise-arquitetural.md),
+> item 3.3) — e está DESARMADO de propósito.** `Api.Housekeeping.PruneMessages` separa os dois
+> papéis da linha: a janela curta **anonimiza** (`vars` e `destino` saem, a prova de que se avisou
+> fica) e a longa **apaga**. Sem as duas chaves em config ele registra um aviso e devolve zero, e
+> **não está no crontab**.
+>
+> Isso não paga o débito: o que falta continua sendo o **número**, e ele continua sendo pergunta
+> jurídica. O que mudou é que a decisão agora custa duas linhas de config e uma de cron, em vez de
+> uma fatia de trabalho — e que a régua de ninguém não pode entrar em produção por descuido, porque
+> não existe default embutido.
+
 **O que é.** Não há política de retenção única. Cada tabela que cresce sozinha ganhou o seu número
 no momento em que foi construída, e a comunicação com o paciente ([`52`](52-comunicacao-com-o-paciente.md))
 nasceu **sem número nenhum**:
@@ -349,7 +360,27 @@ existir; até lá, é candidata a sair.
 
 ---
 
-## D-14 · O aceite dos documentos não fica registrado em lugar nenhum
+## D-14 · O aceite dos documentos não fica registrado em lugar nenhum — **PAGO em 2026-08-03**
+
+> **Fechado na onda 3 do [doc 101](101-plano-de-acao-analise-arquitetural.md) (item 3.5).**
+> `users.termos_aceitos_em` e `users.termos_versao` existem, e o BFF os carimba **depois da sessão
+> assinada** nos dois callbacks de login (`/auth/callback` e `/auth/user/google/callback`), via
+> `POST /api/auth/terms-acceptance`.
+>
+> Três decisões que valem além do item:
+>
+> * **a versão vem do BFF, não de uma constante do Elixir.** O texto legal mora em
+>   `web/src/lib/legal.ts`; uma cópia do número do outro lado seria o quinto par do A5, e o que
+>   apodreceria em silêncio seria justamente o registro legal — o banco passaria a guardar aceite
+>   de uma versão que ninguém leu;
+> * **idempotente por versão.** Reaceitar a mesma versão não reescreve a data do primeiro aceite;
+>   versão nova carimba de novo. Sem isso, `termos_aceitos_em` viraria "último login";
+> * **não derruba o login.** Falha ao registrar é registro faltando, que o próximo login corrige —
+>   nunca uma pessoa sem acesso.
+>
+> **O que segue aberto é o D-13**: registrar aceite da versão `1.0` só tem valor quando o texto
+> `1.0` for o definitivo, revisado por advogado e com a identificação do controlador preenchida.
+> O mecanismo está pronto e já grava; o que ele grava ainda aponta para um texto com placeholder.
 
 **O que é.** No `/criar-conta`, o aceite dos Termos e da Política é uma **nota** ("ao criar sua
 conta … você concorda com …"), não uma caixa de seleção, e **nada é gravado**: nem data, nem versão

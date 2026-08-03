@@ -20,6 +20,9 @@ defmodule Api.Accounts do
       define :sign_in_with_magic_link, action: :sign_in_with_magic_link, args: [:token]
       # Tela "Meu perfil": editar o próprio nome e sair de todos os dispositivos.
       define :update_profile, action: :update_profile
+      # O aceite dos documentos legais (`[D-14]`), carimbado pela fronteira de autenticação
+      # logo depois do login — nos DOIS caminhos, porque os dois passam pelo BFF.
+      define :accept_terms, action: :accept_terms, args: [:versao]
       define :log_out_everywhere, action: :log_out_everywhere, args: [:user]
       # Só o `Api.Accounts.AvatarSyncJob` chama (com `authorize?: false`): grava a chave da foto
       # já guardada no bucket. Não há caminho de request para cá.
