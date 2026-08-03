@@ -532,7 +532,7 @@ defmodule Api.Scheduling do
   defp read_patient_sessions(scope, patient_id, recorte, limit, offset) do
     {corte, ordem} = recorte(recorte, scope.now)
 
-    attendances =
+    lidas =
       list_attendances!(
         scope: scope,
         query: [
@@ -544,11 +544,21 @@ defmodule Api.Scheduling do
         ],
         load: [appointment: [:appointment_type, :professional]]
       )
-      # Sessão segurada (`pkg_hold`) volta com `.appointment` nulo (RN-05) e não é sessão do
-      # paciente para efeito de ficha.
-      |> Enum.reject(&is_nil(&1.appointment))
 
-    {Enum.take(attendances, limit), length(attendances) > limit}
+    # Sessão segurada (`pkg_hold`) volta com `.appointment` nulo (RN-05) e não é sessão do
+    # paciente para efeito de ficha.
+    visiveis = Enum.reject(lidas, &is_nil(&1.appointment))
+
+    # **`more?` sai da lista CRUA, não da filtrada** (doc 101, M3). O `+1` é uma pergunta ao banco
+    # — "existe uma linha além das que você pediu?" — e só a resposta do banco pode respondê-la.
+    # Contando depois do `reject`, uma única segurada entre as `limit + 1` derrubava o `more?` para
+    # `false` com mais linhas esperando, e o "ver histórico completo" parava de paginar. Medido:
+    # paciente com 8 futuras, 2 seguradas → 4 na tela e o cartão dizendo que acabou.
+    #
+    # O preço é uma página curta (menos de `limit` itens com o `more?` ligado), e é o preço certo:
+    # a alternativa seria repetir o predicado do `HideHeld` no filtro SQL, criando uma segunda
+    # fonte da mesma regra — que é a origem da família de bugs das seguradas.
+    {Enum.take(visiveis, limit), length(lidas) > limit}
   end
 
   # A sessão que já começou é passado, mesmo que a presença ainda esteja `:prevista` — quem marca
@@ -1146,13 +1156,42 @@ defmodule Api.Scheduling do
   end
 
   @doc """
-  As presenças de um pacote **incluindo as seguradas** (`pkg_hold` da presença, doc 43 §5c).
+  As presenças de um pacote **incluindo as seguradas** (`pkg_hold` da presença, doc 43 §5c), para as
+  **operações do pacote** — sem o recorte A7.
 
   Ponto único: a massa (`Api.Packages.Bulk`) e o ciclo de vida (`Api.Packages`) liam isto cada um
   por si, e a partir do momento em que a presença pode estar segurada as duas cópias teriam de
   abrir a mesma porta — a que a preparation `HideHeldAttendances` fecha para todo mundo. Uma
   esquecer é o pacote se esconder de si mesmo, que é exatamente o bug das órfãs (bate-volta
   2026-07-24) numa roupa nova.
+
+  ## Por que `authorize?: false`, como as irmãs `list_held_sessions/2` e `list_sessions_including_held/3`
+
+  Esta leitura resolve **o conjunto de sessões de um pacote**, não "o que este ator enxerga da
+  agenda". Ela lia com `scope:` — `authorize?` ligado — e a preparation `OwnAgendaOnly` recortava
+  as presenças pela coluna do ator. Como `future_sessions/3` e `held_targets/2` derivam os blocos a
+  partir das presenças (`Map.keys(por_bloco)`), o conjunto inteiro herdava o recorte.
+
+  Medido (doc 101, A3), com um pacote cujas sessões estão em colunas de dois profissionais e um
+  ator `:profissional` vinculado a uma delas:
+
+    * `cancel_package/2` marcava o pacote `:cancelado` e cancelava **4 de 5** sessões — a da coluna
+      do colega ficava `:agendado`, viva, apontando para um pacote morto;
+    * `archive_package/2` via `futuras == []` e **arquivava** um pacote com sessão viva na agenda —
+      exatamente o estado que a recusa `:sessoes_futuras` existe para impedir.
+
+  Não é vazamento (o recorte fecha, não abre): é corrupção silenciosa de estado. Quem autoriza a
+  operação é a policy de `Package`, que é por **papel** e não recorta coluna nenhuma; o conjunto de
+  sessões é consequência do pacote, não do clique.
+
+  ## A trilha da ficha também lê por aqui
+
+  O cartão do pacote desenha as bolinhas com esta mesma leitura, e portanto **sem** o recorte —
+  decisão de 2026-08-03 (doc 101 §4.1). O contador `usadas` ao lado é um agregado do `Package`, e
+  agregado não roda preparation: ele sempre contou o pacote inteiro. Com a trilha recortada, um
+  pacote espalhado por duas colunas desenhava quatro bolinhas ao lado de um contador que dizia
+  cinco — o cartão discordando de si mesmo, que é exatamente o defeito que o filtro de canceladas
+  de `Api.Packages.list_sessions/2` já existia para evitar.
   """
   def list_package_attendances(%Api.Scope{} = scope, package_id, opts \\ []) do
     query =
@@ -1161,7 +1200,10 @@ defmodule Api.Scheduling do
       |> Ash.Query.filter(package_id == ^package_id)
 
     in_clinic(scope, fn ->
-      list_attendances!([scope: scope, query: query] ++ Keyword.take(opts, [:load]))
+      list_attendances!(
+        [query: query, tenant: scope.clinic_id, authorize?: false] ++
+          Keyword.take(opts, [:load])
+      )
     end)
   end
 

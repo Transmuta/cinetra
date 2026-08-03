@@ -247,20 +247,40 @@ defmodule Api.Packages do
     result =
       in_clinic(scope, fn ->
         Api.Repo.transaction(fn ->
-          notes =
-            scope
-            |> future_sessions(package_id, statuses)
-            |> Enum.flat_map(fun)
+          # **A transição vem primeiro**, e a ordem é a que deixa a recusa sair como valor. Desde
+          # que o papel `:profissional` saiu do ciclo de vida (doc 101 §4.1), `apply_mark/3` pode
+          # devolver `%Ash.Error.Forbidden{}` — e com o `{:ok, _, _} =` que havia aqui isso virava
+          # `MatchError`, ou seja, 500 no botão em vez do 403 que o caso é.
+          #
+          # Sair pelo `Api.Repo.rollback/1` não serve: esta transação é **aninhada** na que
+          # `in_clinic/2` abre, e no Ecto a de dentro não abre savepoint — o rollback derruba a de
+          # fora e o motivo chega como `{:error, :rollback}`, perdendo qual foi. É a mesma nota que
+          # `archive_package/2` carrega (ver `notificar/1`), e é por isso que a saída aqui é um
+          # valor de retorno, não um rollback.
+          #
+          # Marcar antes de mexer nas sessões é seguro: é tudo uma transação só, nenhum dos dois
+          # `fun` (segurar/cancelar sessão) lê o status do pacote, e as notificações são coletadas
+          # e emitidas depois do commit.
+          case apply_mark(get_package!(package_id, scope: scope), mark, scope) do
+            {:ok, pkg, pkg_notes} ->
+              notes =
+                scope
+                |> future_sessions(package_id, statuses)
+                |> Enum.flat_map(fun)
 
-          {:ok, pkg, pkg_notes} =
-            get_package!(package_id, scope: scope)
-            |> apply_mark(mark, scope)
+              {pkg, pkg_notes ++ notes}
 
-          {pkg, notes ++ pkg_notes}
+            {:error, erro} ->
+              {:error, erro}
+          end
         end)
       end)
 
     case result do
+      # A recusa da policy: nada foi escrito, porque ela é conferida antes das sessões.
+      {:ok, {:error, erro}} ->
+        {:error, erro}
+
       {:ok, {pkg, notifications}} ->
         Ash.Notifier.notify(notifications)
         {:ok, pkg}
@@ -350,10 +370,14 @@ defmodule Api.Packages do
           Api.Repo.rollback(:sessoes_futuras)
 
         true ->
-          {:ok, concluido, notes} =
-            mark_package_completed(pkg, scope: scope, return_notifications?: true)
-
-          {concluido, notes}
+          # `case` e não `{:ok, _, _} =`: desde que `:profissional` saiu do ciclo de vida (doc 101
+          # §4.1) esta ação pode recusar, e o match cru virava `MatchError` — 500 no lugar do 403.
+          # Aqui o `rollback` **funciona** (diferente de `lifecycle/5`), porque quem abriu a
+          # transação foi o `with_clinic/2` cru logo acima, sem `in_clinic/2` por fora.
+          case mark_package_completed(pkg, scope: scope, return_notifications?: true) do
+            {:ok, concluido, notes} -> {concluido, notes}
+            {:error, erro} -> Api.Repo.rollback(erro)
+          end
       end
     end)
     |> notificar()
@@ -691,6 +715,10 @@ defmodule Api.Packages do
   # Aceita o **pacote já lido**, além do id (doc 96, P-8). Quem chama pela fronteira acabou de
   # resolvê-lo para decidir o 404 (`fetch_patient_package/3`), e reler aqui era a mesma linha do
   # banco duas vezes por request. Os testes e o resto do domínio seguem passando o id.
+  # A leitura é a **sem recorte A7** (doc 101 §4.1): a trilha é do pacote, e o contador `usadas` ao
+  # lado dela é um agregado que sempre contou o pacote inteiro. Recortada, ela desenhava quatro
+  # bolinhas ao lado de um contador dizendo cinco — o mesmo defeito que o filtro de canceladas
+  # abaixo existe para evitar.
   def list_sessions(%Api.Scope{} = scope, %Api.Packages.Package{} = pkg) do
     scope
     |> Api.Scheduling.list_package_attendances(pkg.id)
