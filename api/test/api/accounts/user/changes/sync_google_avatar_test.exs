@@ -29,10 +29,16 @@ defmodule Api.Accounts.User.Changes.SyncGoogleAvatarTest do
     |> Ash.create!()
   end
 
+  # `email_verified` é o que o Google de fato manda no userinfo, e é o que o AshAuthentication
+  # exige para ligar um login novo a uma conta local que já existe com aquele e-mail
+  # (`UserResolver.email_trusted?/2`). Sem ele no payload, a fábrica não representava o Google —
+  # representava um provedor que não afirma posse do e-mail, e o teste da "conta antiga" era
+  # vermelho por isso (doc 101, item 1.10).
   defp user_info(extra \\ %{}) do
     Map.merge(
       %{
         "email" => "google-#{System.unique_integer([:positive])}@example.com",
+        "email_verified" => true,
         "name" => "Ana Souza",
         "sub" => "sub-#{System.unique_integer([:positive])}",
         "iss" => "https://accounts.google.com"
@@ -119,6 +125,25 @@ defmodule Api.Accounts.User.Changes.SyncGoogleAvatarTest do
     logar_com_google(user_info(%{"email" => email, "picture" => @foto}))
 
     assert_enqueued(worker: AvatarSyncJob, args: %{"user_id" => user.id, "url" => @foto})
+  end
+
+  # A OUTRA metade da mesma regra, e a que não pode afrouxar junto: ligar um login do Google a uma
+  # conta local que já existe só é seguro porque o provedor **afirma** a posse do e-mail. Sem essa
+  # afirmação, aceitar o upsert seria takeover de conta — qualquer um que criasse uma identidade
+  # OAuth com o e-mail alheio entraria na conta dele.
+  #
+  # `on_untrusted_email_match` é `:reject` (o default), então o caminho certo aqui é a recusa. Este
+  # teste existe para que ligar `trust_email_verified?` não seja lido como "confia no e-mail": é
+  # "confia na AFIRMAÇÃO de que o e-mail foi verificado", e sem afirmação não há confiança.
+  test "conta antiga + e-mail NÃO verificado: recusa, não faz upsert" do
+    email = "magic-#{System.unique_integer([:positive])}@example.com"
+    Accounts.register_user!("Ana Souza", email, authorize?: false)
+
+    assert_raise Ash.Error.Forbidden, fn ->
+      logar_com_google(user_info(%{"email" => email, "email_verified" => false}))
+    end
+
+    refute_enqueued(worker: AvatarSyncJob)
   end
 
   test "a foto já baixada sobrevive ao próximo login (não está no upsert_fields)" do

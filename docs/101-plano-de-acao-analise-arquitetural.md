@@ -292,10 +292,43 @@ coluna dele — a regra vale para os dois casos de propósito, senão o furo do 
 do "mas este é só meu". O `+1`/`−1` (`set_total`), criar a série e ajustar a grade **continuam** com
 ele. Vale conferir na tela se algum botão do cartão precisa sumir para esse papel.
 
-### 4.2 Item novo para a onda 1
+### 4.2 Item 1.10 — o `develop` vermelho (fechado no mesmo dia)
 
-**1.10 — `develop` está vermelho.** `SyncGoogleAvatarTest`, "conta antiga que entra com Google pela
-primeira vez: busca", falha com `Ash.Error.Forbidden` (`Authentication failed`) em
-`Api.Accounts.User.register_with_google`. Anterior a esta onda, do doc 100. Não foi investigada
-aqui para não misturar com o A3 — mas é a próxima coisa a olhar, porque enquanto ela existir o gate
-`api` do CI reprova qualquer PR.
+**O sintoma.** `SyncGoogleAvatarTest`, "conta antiga que entra com Google pela primeira vez: busca",
+falhava com `Ash.Error.Forbidden` (`Authentication failed`) em `register_with_google`. Anterior a
+esta onda; veio com o doc 100.
+
+**A datação importa.** `git checkout 5bb8b73` (o commit que introduziu o teste) e a suíte do arquivo:
+`8 tests, 1 failure`. **O teste nasceu vermelho** — não foi regressão de dependência nem de código
+posterior. Entrou assim e ficou.
+
+**O diagnóstico, e a hipótese que caiu no meio.** A rejeição vem de
+`AshAuthentication.Strategy.OAuth2.UserResolver`, com a mensagem *"Email could not be verified and
+an account with this email already exists"*. Ela exige duas coisas (`email_trusted?/2`): a
+estratégia com `trust_email_verified?` ligado **e** o payload trazendo `email_verified`.
+
+A primeira leitura foi que faltava a flag na estratégia — `trust_email_verified?` tem default
+`false` no `oauth2.ex:259`, e o bloco `google do … end` do projeto não a liga. Isso teria sido um
+bug de produção: conta criada por magic link nunca mais entraria pelo Google.
+
+**Estava errado.** O preset do Google já a liga: `strategies/google/dsl.ex:46`,
+`Custom.set_defaults(trust_email_verified?: true)`. O código de produção sempre esteve certo, e
+condiz com a ADR-015 ("upsert por e-mail").
+
+**O que era, então.** A fábrica `user_info/1` do teste não mandava `email_verified` — ou seja,
+modelava um provedor que **não afirma** posse do e-mail, que é justamente o caso que o
+AshAuthentication recusa de propósito. A fábrica ganhou `"email_verified" => true`, que é o que o
+Google de fato manda.
+
+**E ganhou um teste que faltava.** O caminho de recusa não tinha nenhum: "conta antiga + e-mail NÃO
+verificado: recusa, não faz upsert". Ele existe para que a flag não seja lida como "confia no
+e-mail" — é "confia na **afirmação** de que o e-mail foi verificado", e sem afirmação não há
+confiança. Sem ele, afrouxar essa metade passaria em silêncio, e o efeito seria takeover de conta.
+
+**Depois:** `mix test` → **1855 testes, 0 falhas**. O `develop` está verde.
+
+> Lição para o método, e vale além deste caso: **fábrica de teste que não representa o produtor real
+> do dado produz vermelho falso** — e vermelho falso é caro de duas formas. Ou some no ruído (o
+> commit entrou com ele), ou manda consertar produção que não está quebrada (foi o que quase
+> aconteceu aqui). O `user_info` do teste tem de ser o que o Google manda, não o mínimo que a ação
+> aceita.
