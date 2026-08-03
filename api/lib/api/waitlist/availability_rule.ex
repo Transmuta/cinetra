@@ -86,6 +86,23 @@ defmodule Api.Waitlist.AvailabilityRule do
     end
   end
 
+  changes do
+    # A trilha (doc 63) — e ela precisa morar **aqui**, não no `WaitlistEntry` (doc 101, M9).
+    #
+    # O pai já tem o `Capture` dele, mas o diff de um recurso Ash é sobre **atributos**: escrita
+    # que chega por `manage_relationship` não aparece nele. Medido: trocar a disponibilidade de um
+    # item da fila ("segundas 09–11" virando "sextas 13–18") gravava no `waitlist_entry` uma linha
+    # de `update` com `diff: []` e mais nada. A mudança que de fato importa para quem audita a fila
+    # — quando o paciente disse que pode vir — não deixava rastro.
+    #
+    # `on: [:create, :update, :destroy]` porque `type: :direct_control` faz as três: a edição
+    # substitui o conjunto, então uma regra trocada são um destroy e um create, e é justamente esse
+    # par que conta a história.
+    change {Api.Audit.Capture,
+            resource: :availability_rule, meta: [:waitlist_entry_id, :tipo, :dows, :data]},
+           on: [:create, :update, :destroy]
+  end
+
   validations do
     validate {Api.Waitlist.AvailabilityRule.Validations.RuleShape, []}, on: [:create, :update]
   end

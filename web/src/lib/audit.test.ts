@@ -57,6 +57,7 @@ describe('cobertura dos grupos de registro', () => {
 		'schedule_exception',
 		'package',
 		'waitlist_entry',
+		'availability_rule',
 		'attachment',
 		'seguranca'
 	];
@@ -102,6 +103,9 @@ const ACOES_DO_BACKEND: ReadonlyArray<readonly [AuditResource, string]> = (
 			['create', 'mark_paused', 'mark_active', 'mark_cancelled', 'mark_completed', 'set_total']
 		],
 		['waitlist_entry', ['enqueue', 'update', 'dequeue']],
+		// A regra de disponibilidade entra por `manage_relationship(type: :direct_control)`, então
+		// o Capture dela grava os três nomes crus do Ash (doc 101, M9).
+		['availability_rule', ['create', 'update', 'destroy']],
 		['attachment', ['enviou', 'visualizou', 'renomeou', 'removeu']],
 		['seguranca', ['acesso_negado']]
 	] as ReadonlyArray<readonly [AuditResource, string[]]>

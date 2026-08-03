@@ -218,6 +218,39 @@ defmodule Api.Waitlist.WaitlistEntryTest do
       assert [%{dows: [5]}] = updated.rules
     end
 
+    # Achado M9 (doc 101): o `WaitlistEntry` tem `Api.Audit.Capture`, mas as regras entram por
+    # `manage_relationship` e o diff do pai **ignora relacionamento**. Trocar a disponibilidade de
+    # um item da fila — "posso às segundas 09–11" virando "só sextas 13–18" — não deixava rastro
+    # nenhum: a trilha registrava a edição do item com o mesmo `prio` de antes e mais nada.
+    #
+    # Trilha com buraco é pior que trilha ausente, porque cria confiança injustificada em quem a lê.
+    test "mudar as regras de disponibilidade deixa rastro na trilha" do
+      {owner, clinic} = owner_and_clinic()
+      scope = scope_for(owner, clinic)
+      p = patient(clinic, owner)
+
+      {:ok, entry} =
+        Waitlist.enqueue_entry(scope, %{
+          patient_id: p.id,
+          prio: :normal,
+          rules: [semana([1], [["09:00", "11:00"]])]
+        })
+
+      # só as REGRAS mudam — a prioridade fica igual, para que o rastro não possa vir do pai
+      {:ok, _} =
+        Waitlist.update_entry(scope, entry.id, %{
+          prio: :normal,
+          rules: [semana([5], [["13:00", "18:00"]])]
+        })
+
+      %{entries: eventos} = Api.Audit.list_events(scope, limit: 50)
+
+      assert Enum.any?(eventos, &(&1.resource == :availability_rule)),
+             "nenhum evento de `availability_rule` na trilha — a disponibilidade da fila mudou " <>
+               "sem rastro. Recursos vistos: " <>
+               inspect(eventos |> Enum.map(& &1.resource) |> Enum.uniq())
+    end
+
     test "dequeue remove o item" do
       {owner, clinic} = owner_and_clinic()
       scope = scope_for(owner, clinic)

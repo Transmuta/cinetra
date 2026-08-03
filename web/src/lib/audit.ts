@@ -13,7 +13,7 @@ import { parsePage, type PageInfo } from './pagination';
 // testes da Auditoria verdes. Duas implementações que ninguém sabia estarem desligadas.
 export { parsePage };
 
-// Os treze tipos de registro que a trilha cobre (doc 63, D-Aud3). Espelha
+// Os catorze tipos de registro que a trilha cobre (doc 63, D-Aud3). Espelha
 // `Api.Audit.ResourceKind` — a autoridade é o enum do servidor, que devolve **422** para valor
 // fora da lista; aqui é UX (rótulo, ícone, agrupamento).
 export type AuditResource =
@@ -29,6 +29,7 @@ export type AuditResource =
 	| 'schedule_exception'
 	| 'package'
 	| 'waitlist_entry'
+	| 'availability_rule'
 	| 'attachment'
 	| 'seguranca';
 
@@ -130,7 +131,11 @@ export const RESOURCE_GROUPS: ReadonlyArray<{
 			'schedule_exception'
 		]
 	},
-	{ key: 'pacotes', label: 'Pacotes e fila', resources: ['package', 'waitlist_entry'] },
+	{
+		key: 'pacotes',
+		label: 'Pacotes e fila',
+		resources: ['package', 'waitlist_entry', 'availability_rule']
+	},
 	{ key: 'anexos', label: 'Anexos', resources: ['attachment'] },
 	{ key: 'seguranca', label: 'Acesso negado', resources: ['seguranca'] }
 ];
@@ -303,6 +308,14 @@ const ACTION_LABELS: Record<string, Record<string, string>> = {
 		update: 'Editou a fila',
 		dequeue: 'Tirou da fila'
 	},
+	// A regra entra por `manage_relationship(type: :direct_control)`, então editar a
+	// disponibilidade é um destroy + um create — nunca um update. As três estão aqui porque o
+	// `on:` do Capture cobre as três (doc 101, M9).
+	availability_rule: {
+		create: 'Abriu um horário na fila',
+		update: 'Mudou um horário da fila',
+		destroy: 'Fechou um horário na fila'
+	},
 	attachment: {
 		enviou: 'Enviou o anexo',
 		visualizou: 'Baixou o anexo',
@@ -394,6 +407,13 @@ const HEADLINES: Record<string, Record<string, string>> = {
 		update: 'Editou a espera de {p}',
 		dequeue: 'Tirou {p} da fila'
 	},
+	// Sem `{p}`: a regra não tem paciente próprio — ela pende do item da fila, e é o evento
+	// vizinho (`waitlist_entry`) que nomeia de quem é a espera.
+	availability_rule: {
+		create: 'Abriu um horário na fila',
+		update: 'Mudou um horário da fila',
+		destroy: 'Fechou um horário na fila'
+	},
 	attachment: {
 		enviou: 'Enviou o anexo {n}',
 		visualizou: 'Baixou o anexo {n}',
@@ -434,6 +454,7 @@ const RESOURCE_LABELS: Record<AuditResource, string> = {
 	schedule_exception: 'Exceção de agenda',
 	package: 'Pacote',
 	waitlist_entry: 'Fila de espera',
+	availability_rule: 'Disponibilidade na fila',
 	attachment: 'Anexo',
 	seguranca: 'Segurança'
 };
