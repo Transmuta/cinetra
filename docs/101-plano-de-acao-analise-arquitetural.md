@@ -400,9 +400,62 @@ seis meses e reencontrar "fan-out é O(n)" sem esta nota faria alguém pagar o c
 > análise continua valendo pelo que ela **aponta**; o que ela afirma precisa passar pelo `psql`,
 > pelo `QueryCounter` ou pelo `git checkout`.
 
-#### O que falta da onda 2
+#### 2.4 — B1 e B2: as duas eram lacunas de **registro**, não de código
 
-* **2.4** — as ADRs que faltam (controllers nomeados vs. AshJsonApi, deploy em Dokploy), remover
-  `/api/json/*` do router, atualizar `docs/04` (namespace `Movimento.*` e Fly.io).
-* **2.5** — as limpezas: `count` agregado no `GroupCapacity`, `Warm` na materialização e no ciclo
-  de vida, o molde `in_clinic → transaction → notify` repetido 4×, o `SlotFinder` O(dias²).
+Nos dois casos o código já estava certo; velha estava a documentação que alguém novo lê primeiro.
+
+* **B1** — a remoção do AshJsonApi **já tinha sido feita** pelo doc 96 (M-2, 2026-08-01): saíram
+  as rotas `/api/json/*`, `Api.Meta`, `ApiWeb.AshJsonApiRouter`, as deps `ash_json_api` e
+  `open_api_spex`, o parser do endpoint e o plug `RequireScope`. O que faltava era a **ADR** — a
+  ADR-002 seguia anunciando "expondo AshJsonApi". Registrada como **ADR-027**, com a consequência
+  a vigiar escrita nela: sem esquema gerado, o contrato BFF↔API é mantido à mão (o A2).
+* **B2** — a metade sobre deploy **já tinha ADR**: a ADR-023 (2026-07-31) substituiu a ADR-008.
+  O que estava velho era o `docs/04 §12`, que ainda desenhava Fly.io `gru` nos três ambientes. A
+  tabela nova traz o real e diz em voz alta o que a antiga escondia: **instância única** dos três
+  serviços, sem réplica, e por quê. Os nomes de módulo `Movimento.*` viraram `Api.*`; os links
+  para `interface/Movimento.dc.html` ficam, porque o protótipo ainda se chama assim.
+
+#### 2.5 — dos quatro, um estava feito, um revelou bug e dois não valem
+
+| # | Veredito |
+| --- | --- |
+| **B9** — `SlotFinder` O(dias²) | ✅ **já estava feito.** O doc 96 (P-1) trocou o `acc ++ day_slots` + `length(acc)` por acumulador invertido com a contagem ao lado. Achado obsoleto |
+| **B6** — o molde `in_clinic → transaction → notify` | ✅ feito — e **revelou um bug meu**, ver abaixo |
+| **B3** — `count` agregado no `GroupCapacity` | ❌ **não feito, de propósito.** As linhas contadas são as presenças de **um** bloco, limitadas pela capacidade da turma (tipicamente ≤ 10): materializar dez linhas para contá-las não é problema. E há risco real: o `count_participants/2` de hoje passa pela **read action**, então as preparations rodam — `HideHeldAttendances` tira as seguradas da conta. Um `Ash.count!` sobre query crua não as rodaria, e presença segurada por pacote pausado passaria a ocupar vaga. Ganho nulo, risco de mudança de comportamento |
+| **B4** — `Warm` na materialização e no ciclo de vida | ⏭️ **movido para a onda 4.** É ganho de constante, e o próprio plano já o tinha posto lá (S18: "vale quando pacotes de 100+ sessões forem comuns"). Estava na onda 2 por erro meu de escopo |
+
+**O bug que o B6 revelou.** O conserto do A3 (§4.1) tratou `lifecycle/5` e `archive_package/2` e
+**deixou `resume_package/2` de fora** — ele é a única das quatro transições que não passa pelo
+`lifecycle/5`, e casava `{:ok, _, _} = mark_package_active(...)` do mesmo jeito. Com
+`:profissional` fora do ciclo de vida, o botão **Retomar** respondia **500** em vez de 403.
+Vermelho provado (`MatchError` sobre `%Ash.Error.Forbidden{}` de `Package.mark_active`), teste
+novo, e o conserto é a própria extração: `transacao_com_notificacoes/2` é o molde único, e a
+transição passou a vir primeiro também no `resume_package/2`.
+
+> Vale anotar por que ele escapou: os quatro testes da §4.1 cobriram pausar, cancelar e arquivar —
+> as três que passam por `lifecycle/5`. **A quarta transição tinha caminho próprio, e o teste foi
+> escrito olhando o conserto, não a lista de transições.** A extração do B6 é o que tornou a
+> assimetria visível, o que é um argumento a favor de fazer o DRY: duplicação não é só custo de
+> manutenção, é lugar onde um conserto não chega.
+
+#### Placar da onda 2
+
+| Item | Resultado |
+| --- | --- |
+| 2.1 (B5) | feito — `Api.Packages.Targets`, −48/+25 |
+| 2.2 (A5) | feito — 49 casos, mordida provada nos dois lados |
+| 2.3 (M5) | **não feito** — 2 de 3 alegações falsas; decisão registrada |
+| 2.4 (B1, B2) | feito — ADR-027 + `docs/04`; o código já estava certo |
+| 2.5 (B6) | feito — e achou o `resume_package` |
+| 2.5 (B9) | já estava feito (doc 96) |
+| 2.5 (B3) | **não feito** — ganho nulo, risco real |
+| 2.5 (B4) | movido para a onda 4 |
+
+Gates ao fim da onda: `mix test` **1862 · 0 falhas** · `--only rls` 0 falhas · `coveralls` **90,0%**
+· `npm run check` 0 erros · `npm run coverage` **2497 testes · 93,04%**.
+
+> **Dos 26 achados da análise, 6 não sobreviveram à verificação** (M2, B1, B9, dois terços do M5,
+> e o diagnóstico inicial do 1.10) e 2 foram recusados com justificativa (B3 e a parte viva do M5).
+> Isso não desqualifica a análise — ela apontou o A3, o M3, o M8, o M9 e o A5, que eram reais e
+> caros. Diz que **a taxa de falso-positivo de uma leitura estática do repositório é alta o
+> bastante para que "medir antes de consertar" seja regra, não zelo.**
