@@ -5,10 +5,14 @@ vi.mock('$lib/server/packages', () => pkg);
 
 import { POST } from './+server';
 
-function ev(id: string, body: unknown) {
+// `tipo` é o `content-type` do request — ver a nota gêmea no teste do `index`. Default JSON.
+function ev(id: string, body: unknown, tipo: string | null = 'application/json') {
 	return {
 		params: { id },
-		request: { json: async () => body }
+		request: {
+			headers: { get: (k: string) => (k.toLowerCase() === 'content-type' ? tipo : null) },
+			json: async () => body
+		}
 	} as never;
 }
 
@@ -38,6 +42,7 @@ describe('POST /pacientes/[id]/pacotes/preview', () => {
 		const res = await POST({
 			params: { id: 'pac1' },
 			request: {
+				headers: { get: () => 'application/json' },
 				json: async () => {
 					throw new SyntaxError('não é JSON');
 				}
@@ -45,5 +50,16 @@ describe('POST /pacientes/[id]/pacotes/preview', () => {
 		} as never);
 		expect(pkg.previewSeries.mock.calls[0][1].patient_id).toBe('pac1');
 		expect(res.status).toBe(200);
+	});
+});
+
+// A mesma guarda do `index` (doc 101, M11). A prévia não escreve, mas lê a agenda de um paciente
+// pelo path — e a regra do projeto é uma só para todo `+server.ts` que aceita `POST`.
+describe('a guarda cross-site', () => {
+	it('415 sem content-type, e a prévia NÃO é lida', async () => {
+		const res = await POST(ev('pac1', { total: 4 }, null));
+
+		expect(res.status).toBe(415);
+		expect(pkg.previewSeries).not.toHaveBeenCalled();
 	});
 });

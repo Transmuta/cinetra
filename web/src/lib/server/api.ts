@@ -46,12 +46,29 @@ export function headersDeContexto(event: RequestEvent, init: HeadersInit = {}): 
 	return headers;
 }
 
+// Teto de espera de TODA chamada do BFF à API (doc 101, M4).
+//
+// Antes não havia nenhum: só o readiness (`/ready`) passava `AbortSignal`, e as demais ficavam nos
+// defaults do undici. O modo de falha que isso deixa aberto não é a API **caída** — essa o
+// `try/catch` do `mutate` já converte em erro de tela. É a API **lenta**: o worker do SSR fica
+// pendurado, e como o health check do Traefik aponta para `/api/ready` da API (não do BFF), o BFF
+// continua recebendo tráfego enquanto trava. A diferença é entre degradar e cair.
+//
+// Dez segundos porque o caminho mais lento do produto é a criação de série (uma escrita + o job) e
+// ele responde em menos de um; o número existe para pegar o pendurado, não para apertar o lento.
+// Quem precisar de outro passa `signal` no `init` — a linha abaixo só preenche a ausência.
+const API_TIMEOUT_MS = 10_000;
+
 // Fetch para a API repassando o cookie de sessão do request atual (BFF).
 export function apiFetch(event: RequestEvent, path: string, init: RequestInit = {}): Promise<Response> {
 	const headers = headersDeContexto(event, init.headers);
 	const session = event.cookies.get(SESSION_COOKIE);
 	if (session) headers.set('cookie', `${SESSION_COOKIE}=${session}`);
-	return event.fetch(`${apiBase()}${path}`, { ...init, headers });
+	return event.fetch(`${apiBase()}${path}`, {
+		...init,
+		headers,
+		signal: init.signal ?? AbortSignal.timeout(API_TIMEOUT_MS)
+	});
 }
 
 // Re-emite o cookie de sessão da API (`_api_key`) no domínio do WEB, a partir do Set-Cookie

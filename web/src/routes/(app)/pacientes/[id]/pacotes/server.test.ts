@@ -5,10 +5,15 @@ vi.mock('$lib/server/packages', () => pkg);
 
 import { POST } from './+server';
 
-function ev(id: string, body: unknown) {
+// `tipo` é o `content-type` do request — o que decide se um site de terceiro precisa de preflight,
+// e portanto se ele consegue disparar a chamada. Default JSON: é o que o modal manda.
+function ev(id: string, body: unknown, tipo: string | null = 'application/json') {
 	return {
 		params: { id },
-		request: { json: async () => body }
+		request: {
+			headers: { get: (k: string) => (k.toLowerCase() === 'content-type' ? tipo : null) },
+			json: async () => body
+		}
 	} as never;
 }
 
@@ -51,5 +56,23 @@ describe('POST /pacientes/[id]/pacotes', () => {
 		const res = await POST(ev('pac1', {}));
 		expect(res.status).toBe(500);
 		expect(await res.json()).toEqual({ ok: false, error: 'Deu ruim.' });
+	});
+});
+
+// A guarda cross-site (doc 101, M11). `request.json()` ignora o content-type, então sem esta
+// checagem um `POST` **sem** content-type nenhum — simple request, sem preflight — criava a série.
+describe('a guarda cross-site', () => {
+	it('415 sem content-type, e a série NÃO é criada', async () => {
+		const res = await POST(ev('pac1', { total: 4 }, null));
+
+		expect(res.status).toBe(415);
+		expect(pkg.createSeries).not.toHaveBeenCalled();
+	});
+
+	it('415 com content-type de formulário — o que o browser deixa sair cross-site', async () => {
+		const res = await POST(ev('pac1', { total: 4 }, 'application/x-www-form-urlencoded'));
+
+		expect(res.status).toBe(415);
+		expect(pkg.createSeries).not.toHaveBeenCalled();
 	});
 });
