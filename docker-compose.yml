@@ -151,6 +151,11 @@ services:
     volumes:
       - ./web:/app
       - web_node_modules:/app/node_modules
+      # Raiz do repositório, SÓ LEITURA — pelo mesmo motivo do serviço `api` acima, e agora
+      # também para `contratos/`: os casos das regras que existem nos dois lados (CPF, CNPJ,
+      # telefone, e-mail, períodos) moram na raiz porque não são de nenhum dos dois, e os dois
+      # testes de paridade os leem de lá. No CI o checkout inteiro está em `../`.
+      - ./:/repo:ro
     stdin_open: true
     tty: true
 
