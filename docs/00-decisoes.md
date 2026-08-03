@@ -21,7 +21,7 @@ Status possíveis: `Aceita` · `Proposta` · `Substituída por ADR-nn`
 
 ## ADR-002 — Backend em Elixir + Ash, exposto como API REST
 
-**Status:** Aceita
+**Status:** Aceita · **Parcialmente substituída pela [ADR-027](#adr-027--a-api-rest-é-de-controllers-phoenix-nomeados-o-ashjsonapi-fica-fora)** (2026-08-03), quanto ao **como** expor: o AshJsonApi saiu, e a API são controllers Phoenix com ações nomeadas. O resto — Elixir, Ash 3.x, AshPostgres, Phoenix servindo também os Channels — continua valendo.
 
 **Contexto.** O produto é um sistema de gestão de clínica com dado de saúde (LGPD Art. 11), papéis de acesso, agenda colaborativa e agregados pesados (ocupação, faturamento, sessões consumidas). O frontend será SvelteKit, então o backend precisa ser um serviço separado com contrato explícito.
 
@@ -624,6 +624,49 @@ derivar de `R2_ACCOUNT_ID`, sem variável nova. O `PUT` real no bucket **não é
 (nenhuma operação HTTP do R2 é); foi medido à mão contra o bucket de dev — put/head/GET assinado/
 delete, com a saída no doc 100 §4 —, e o que segue sem prova é o encadeamento pelo job com uma
 foto vinda do Google.
+
+---
+
+## ADR-027 — A API REST é de controllers Phoenix nomeados; o AshJsonApi fica fora
+
+**Status:** Aceita · **Data:** 2026-08-03 · **Substitui a parte "expondo AshJsonApi" da [ADR-002](#adr-002--backend-em-elixir--ash-exposto-como-api-rest)**
+
+**Contexto.** A ADR-002 decidiu expor o backend como **AshJsonApi** (JSON:API sobre REST). Não foi
+o que aconteceu. A API real são **23 controllers Phoenix escritos à mão**, com ações nomeadas
+(`POST /api/packages/:id/cancel`, não `PATCH /api/packages/:id` com um `status` no corpo), e o
+AshJsonApi ficou montado sobre um domínio **vazio** — `Api.Meta`, com `routes do end` e
+`resources do end`, desde que a auditoria do doc 13 removeu o recurso de scaffold `Ping`.
+
+O doc 96 (M-2, 2026-08-01) **executou** a remoção: saíram as rotas `/api/json/*`, os módulos
+`Api.Meta` e `ApiWeb.AshJsonApiRouter`, as dependências `ash_json_api` e `open_api_spex`, o
+`AshJsonApi.Plug.Parser` do endpoint e o plug `ApiWeb.Plugs.RequireScope` — que existia só para
+guardar aquele escopo. **Não houve ADR**, e a ADR-002 seguiu anunciando o contrário. Foi o achado
+B1 do [doc 101](101-plano-de-acao-analise-arquitetural.md); esta ADR fecha a lacuna de registro.
+
+**Decisão.** A superfície HTTP do Cinetra são controllers Phoenix com **ações nomeadas por
+operação de negócio**, e não CRUD genérico sobre recursos. Não há JSON:API, não há OpenAPI gerado,
+não há Swagger UI.
+
+**Justificativa.** O que decidiu foi o formato das operações, não a tecnologia. O domínio tem
+ações que **não são CRUD**: cancelar um pacote não é "atualizar `status`" — é uma transação que
+mexe em N sessões da agenda, respeita RN-25 e emite notificação. Expor isso como `PATCH` sobre um
+recurso obrigaria a inventar convenções para cada verbo, que é exatamente o que a ação nomeada já
+resolve. É o mesmo princípio do [`docs/04 §4`](04-arquitetura.md), e o mesmo que faz as code
+interfaces do Ash serem nomeadas em vez de `update/2`.
+
+Somam-se dois efeitos práticos: cada controller tem a própria guarda de escopo (`ApiWeb.TenantScope`)
+— o escopo do AshJsonApi era o **único** sem uma, e precisava de um plug só dele para tapar —, e
+duas rotas públicas, duas dependências e um plug a menos para manter.
+
+**O que se abre mão.** Documentação de API gerada (Swagger) e `include` de relacionamento do
+JSON:API. Nenhuma das duas é sentida: o único cliente é o BFF, que é nosso e mora no mesmo
+repositório, e o que ele precisa carregar cada endpoint já resolve.
+
+**Consequência a vigiar.** Sem esquema gerado, o contrato BFF↔API é mantido à mão dos dois lados —
+o achado **A2** do doc 101. A mitigação é o mesmo caminho da ADR de paridade das regras
+espelhadas: fixtures geradas pelo servidor e consumidas pelos testes do BFF. **Se um dia houver
+JSON:API, ele volta com recurso de verdade, policy e guarda** — que é o que a lição do doc 13
+pedia e uma superfície montada sobre domínio vazio não tinha como cumprir.
 
 ---
 
