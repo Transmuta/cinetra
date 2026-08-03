@@ -15,11 +15,17 @@ defmodule Api.Messaging.PatientEmails do
   default aponta para o mesmo placeholder de dev do resto do projeto — e-mail sai na caixa
   `/dev/mailbox` e ninguém tenta entregar de verdade.
 
-  ## `Reply-To` aponta para a clínica, quando ela tem e-mail
+  ## Não há `Reply-To`: a resposta do paciente cai no `nao-responda@`
 
-  O paciente **vai** responder o e-mail, mesmo com o link de confirmação ali (§5). Sem
-  `Reply-To`, essa resposta cai num endereço que ninguém lê. Com ele, cai na clínica — que é para
-  onde a pessoa acha que está escrevendo.
+  Decisão de 2026-08-03 (doc 101, M12). Havia um `maybe_reply_to/2` que lia
+  `message.vars["clinica_email"]` — chave que `Api.Messaging.Dispatch.vars/3` **nunca** preencheu,
+  em nenhum caminho. `grep` no repositório inteiro devolvia uma ocorrência: a própria linha que a
+  lia. Ou seja, o comportamento anunciado aqui nunca aconteceu uma vez sequer, e o parágrafo que
+  descrevia esta seção descrevia código morto.
+
+  Mantido o padrão: o canal de volta do paciente é o **link** de confirmação (§5) e a resposta de
+  WhatsApp, que têm rastro na timeline e opt-out. E-mail respondido para a caixa da clínica não
+  teria nenhum dos dois — chegaria fora do sistema, sem trilha e sem quem o tratasse.
   """
   import Swoosh.Email
 
@@ -33,11 +39,10 @@ defmodule Api.Messaging.PatientEmails do
   id (o `Local` do dev, o `Test` da suíte) rendem `nil`, e a mensagem simplesmente não recebe
   eventos de entrega. É o comportamento certo: em dev não há webhook.
   """
-  def entregar(%{destino: destino} = message, %{assunto: assunto, texto: texto}) do
+  def entregar(%{destino: destino}, %{assunto: assunto, texto: texto}) do
     new()
     |> to(destino)
     |> from(remetente())
-    |> maybe_reply_to(message)
     |> subject(assunto)
     |> text_body(texto)
     |> Api.Mailer.deliver()
@@ -62,12 +67,6 @@ defmodule Api.Messaging.PatientEmails do
   defp id_do_provider(%{id: id}) when is_binary(id), do: id
   defp id_do_provider(%{"id" => id}) when is_binary(id), do: id
   defp id_do_provider(_resposta), do: nil
-
-  defp maybe_reply_to(email, %{vars: %{"clinica_email" => endereco}})
-       when is_binary(endereco) and endereco != "",
-       do: reply_to(email, endereco)
-
-  defp maybe_reply_to(email, _message), do: email
 
   defp remetente, do: Application.get_env(:api, __MODULE__, [])[:remetente] || @default_remetente
 end

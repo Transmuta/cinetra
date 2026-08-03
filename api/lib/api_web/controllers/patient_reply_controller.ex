@@ -87,10 +87,16 @@ defmodule ApiWeb.PatientReplyController do
   # Avisa a recepção **na transição**, não em toda chamada — e essa distinção é de segurança,
   # não de bom gosto.
   #
-  # Esta rota é **pública, sem sessão e sem rate limit**, e a resposta em si sempre foi idempotente
-  # (o instante da primeira é preservado). O fan-out entrou por cima dela sem essa propriedade, e o
-  # bate-volta mediu o efeito: 5 POSTs do mesmo token → **10 notificações** (2 destinatários × 5).
-  # Quem tem o link — que se encaminha — enchia a caixa da clínica à vontade.
+  # Esta rota é **pública e sem sessão**, e a resposta em si sempre foi idempotente (o instante da
+  # primeira é preservado). O fan-out entrou por cima dela sem essa propriedade, e o bate-volta
+  # mediu o efeito: 5 POSTs do mesmo token → **10 notificações** (2 destinatários × 5). Quem tem o
+  # link — que se encaminha — enchia a caixa da clínica à vontade.
+  #
+  # (O texto dizia "e sem rate limit" — desatualizado desde que a rota entrou sob
+  # `:rate_limited_edge` e `:rate_limited_global` no `router.ex`. Corrigido no doc 101, B8:
+  # comentário que mente sobre uma defesa em vigor é pior que comentário nenhum, porque quem lê
+  # decide com base nele. O rate limit **não** substitui a idempotência abaixo: ele limita a
+  # cadência de quem tem o link, não o número de notificações por resposta.)
   #
   # Comparar o antes com o depois é o que devolve a idempotência ao conjunto. Não é "avisar uma vez
   # só": quem confirmou e depois pediu remarcação **mudou de ideia**, e essa transição avisa de
