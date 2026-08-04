@@ -115,6 +115,38 @@ tem opinião própria — ele confia que a escrita passou pelo Ash.*
 > com uma diferença: o SQL do tripwire é **derivado do Ash**, não digitado. Um teste que escrevesse
 > o predicado com o cast à mão ficaria verde para sempre — inclusive no dia em que o AshPostgres
 > parasse de emiti-lo, que é o dia que o teste existe para pegar.
+>
+> ---
+>
+> ### Onda 3 — 2026-08-04: quatro dos cinco `CHECK`, e o quinto contradizia o desenho
+>
+> **P2-7 — entraram quatro.** `package_schedules_dows_range`, `clinic_hours_dow_range`,
+> `professional_hours_dow_range` e `availability_rules_forma`. Provados por `INSERT` cru em
+> [`test/api/invariantes_no_banco_test.exs`](../api/test/api/invariantes_no_banco_test.exs), cada
+> um com o par positivo junto — sem a segunda metade, uma constraint estrita demais passaria
+> despercebida.
+>
+> O de `package_schedules` era o mais gritante e valeu por si só: **o comentário do atributo `dows`
+> afirmava, desde sempre, que "a constraint fecha o range"** — e ela não existia. Documentação que
+> contradiz o banco é pior que a ausência das duas, porque quem lê o código conclui que está
+> coberto e não olha de novo. O comentário foi corrigido e agora registra o próprio erro.
+>
+> **O quinto foi recusado, e a recusa é o achado.** `appointment_types` — "capacidade sse grupo" —
+> derrubou `Api.Scheduling.AppointmentTest` assim que aplicado. O teste que caiu explica: o sistema
+> mantém um fallback **defensivo** (`Clinic.cap_turma_padrao`) para turma sem teto, escrito
+> exatamente para a linha vinda de fora das ações. Está no moduledoc de
+> `Api.Scheduling.Appointment.Validations.GroupCapacity`, com essas palavras: *"o fallback é
+> defensivo — vale para linha escrita fora dessas ações."*
+>
+> Ou seja: `capacidade sse grupo` é regra **da ação**, não invariante **do dado**. O `CHECK` não
+> teria protegido nada — teria proibido o único estado para o qual o fallback existe. É a mesma
+> falha de método das ondas anteriores, num terceiro disfarce: **ler a `validate` e concluir a
+> invariante, sem perguntar se alguém depende do caso frouxo.**
+>
+> **P2-8 — entrou.** `messages_provider_id_index` promovido a `UNIQUE` parcial em `IS NOT NULL`.
+> A leitura `:by_provider_id` é `get? true`, e sob índice não-único uma duplicata — um *retry* do
+> provedor, que é o caso normal de acontecer — derrubava o webhook com erro obscuro em vez de casar
+> a linha.
 
 ---
 
@@ -1174,7 +1206,7 @@ Revisada pela errata do topo (2026-08-03): P1-5 não existe, e o que era P2-13 v
 | --- | --- | --- |
 | **P0** | **0** | — |
 | **P1** | 4 — P1-1 poda de notificações · P1-2 unicidade da grade · P1-3 `professional_id` sem FK/validação · P1-4 índices de `tokens` | **todos endereçados** — P1-2/P1-3(a) na Onda 1, P1-1/P1-4 na Onda 2 |
-| **P2** | 9 — P2-6 a P2-14 | P2-10 e P2-13 na Onda 1; P2-6 e P2-11 na Onda 2 |
+| **P2** | 9 — P2-6 a P2-14 | P2-10 e P2-13 na Onda 1; P2-6 e P2-11 na Onda 2; P2-7 e P2-8 na Onda 3. Restam P2-9, P2-12 e P2-14, todos no [D-25](50-debitos-tecnicos.md) |
 | ~~P1-5~~ | retirado — as 17 policies já usam `NULLIF` (medido) | — |
 
 **O que a Onda 1 entregou**, cada item com o teste que foi visto vermelho antes do conserto:
@@ -1195,9 +1227,31 @@ Revisada pela errata do topo (2026-08-03): P1-5 não existe, e o que era P2-13 v
 | P2-6 | tripwire do índice parcial, com o SQL derivado do Ash | idem |
 | P2-11 | **nada** — medido e recusado, com o número registrado | — |
 
-Suíte após as duas ondas: **1966 testes, 0 falhas** (três execuções consecutivas), cobertura 90,3%
-(gate passou); `mix test --only rls` verde; `mix format --check-formatted` e
-`mix compile --warnings-as-errors` limpos.
+**O que a Onda 3 entregou:**
+
+| Item | Mudança | Teste |
+| --- | --- | --- |
+| P2-7 | 4 `CHECK` (migration `20260804134112`); o de `appointment_types` **recusado** com evidência | [`invariantes_no_banco_test.exs`](../api/test/api/invariantes_no_banco_test.exs) |
+| P2-8 | `messages_provider_id_index` promovido a `UNIQUE` parcial | idem |
+
+Suíte após as três ondas: **1978 testes, 0 falhas**, cobertura 90,3% (gate passou);
+`mix test --only rls` verde; `mix format --check-formatted` e `mix compile --warnings-as-errors`
+limpos.
+
+> Um dos testes novos nasceu **flaky** e o conserto é dele, não do código: a asserção casava
+> `Index Scan using tokens_subject_index`, e `tokens` é tabela global — conforme o que os testes de
+> auth deixam nela, o mesmo índice aparece como `Bitmap Index Scan on …`. Passou a assertir o
+> **nome** do índice, não a forma do nó.
+
+### O placar do método, nas três ondas
+
+De **14 itens**, 1 não existia (P1-5) e **4 mudaram ou caíram na medição** — P1-1 (o índice era
+dispensável), P1-4 (metade não funcionaria), P2-11 (a premissa era falsa) e P2-7 parcial (o quinto
+`CHECK` contradizia um fallback deliberado). Todos pela mesma causa: **conclusão tirada da leitura
+do schema, sem reproduzir o SQL que o Ash emite nem checar quem depende do caso frouxo.**
+
+Não invalida a auditoria — ela apontou os lugares certos, e 8 itens entraram. Mas fixa a regra
+para a próxima: *o achado é a hipótese; a medição pelo caminho da aplicação é o achado.*
 
 > Um dos testes novos nasceu **flaky** e o conserto é dele, não do código: a asserção casava
 > `Index Scan using tokens_subject_index`, e `tokens` é tabela global — conforme o que os testes de
