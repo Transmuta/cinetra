@@ -112,13 +112,13 @@ defmodule Api.EmailLayout do
     <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
     <html xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office" lang="pt-BR">
     <head>
-    <meta charset="utf-8">
-    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <meta name="x-apple-disable-message-reformatting">
-    <meta name="format-detection" content="telephone=no,date=no,address=no,email=no">
-    <meta name="color-scheme" content="light">
-    <meta name="supported-color-schemes" content="light">
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="x-apple-disable-message-reformatting" />
+    <meta name="format-detection" content="telephone=no,date=no,address=no,email=no" />
+    <meta name="color-scheme" content="light" />
+    <meta name="supported-color-schemes" content="light" />
     <title>#{escapar(opts[:titulo])}</title>
     <!--[if mso]>
     <xml><o:OfficeDocumentSettings><o:AllowPNG/><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml>
@@ -163,7 +163,7 @@ defmodule Api.EmailLayout do
     """
         <tr>
           <td class="cn-pad" bgcolor="#{@escuro}" style="background-color:#{@escuro};padding:22px 40px;" align="center">
-            <img src="#{logo_url()}" alt="Cinetra" width="150" height="44" style="display:block;border:0;outline:none;text-decoration:none;-ms-interpolation-mode:bicubic;font-family:#{@fonte};font-size:22px;line-height:44px;mso-line-height-rule:exactly;letter-spacing:5px;font-weight:bold;color:#FFFFFF;">
+            <img src="#{logo_url()}" alt="Cinetra" width="150" height="44" style="display:block;border:0;outline:none;text-decoration:none;-ms-interpolation-mode:bicubic;font-family:#{@fonte};font-size:22px;line-height:44px;mso-line-height-rule:exactly;letter-spacing:5px;font-weight:bold;color:#FFFFFF;" />
           </td>
         </tr>
     """
@@ -298,7 +298,7 @@ defmodule Api.EmailLayout do
             <table #{@tabela} width="100%" bgcolor="#{@caixa_fundo}" style="#{@reset_tabela}table-layout:fixed;background-color:#{@caixa_fundo};border:1px solid #{@caixa_borda};border-radius:10px;">
               <tr>
                 <td style="padding:16px 18px;font-family:#{@fonte};font-size:13px;line-height:21px;mso-line-height-rule:exactly;color:#{@caixa_texto};word-break:break-all;word-wrap:break-word;">
-                  O botão não funcionou? Copie e cole este endereço no navegador:<br>
+                  O botão não funcionou? Copie e cole este endereço no navegador:<br />
                   <a href="#{escapar(url)}" style="color:#{@caixa_link};text-decoration:underline;word-break:break-all;word-wrap:break-word;">#{escapar(url)}</a>
                 </td>
               </tr>
@@ -398,7 +398,7 @@ defmodule Api.EmailLayout do
             <table #{@tabela} width="100%" style="#{@reset_tabela}border-top:1px solid #{@linha};">
               <tr>
                 <td style="padding-top:24px;font-family:#{@fonte};font-size:15px;line-height:24px;mso-line-height-rule:exactly;color:#{@texto};">
-                  Até breve,<br>
+                  Até breve,<br />
                   <strong style="color:#{@escuro};">Equipe #{escapar(clinica)}</strong>#{telefone_da_assinatura(telefone)}
                 </td>
               </tr>
@@ -410,7 +410,7 @@ defmodule Api.EmailLayout do
 
   defp telefone_da_assinatura(telefone) do
     if telefone_visivel?(telefone) do
-      ~s(<br><a href="tel:#{escapar(so_digitos(telefone))}" style="color:#{@sage_escuro};text-decoration:none;">#{escapar(telefone)}</a>)
+      ~s(<br /><a href="tel:#{escapar(so_digitos(telefone))}" style="color:#{@sage_escuro};text-decoration:none;">#{escapar(telefone)}</a>)
     else
       ""
     end
@@ -471,7 +471,7 @@ defmodule Api.EmailLayout do
   defp linha_descadastro(nil), do: ""
 
   defp linha_descadastro(url) do
-    ~s(<br><a href="#{escapar(url)}" style="color:#{@texto};text-decoration:underline;">Não quero mais receber estes avisos</a>)
+    ~s(<br /><a href="#{escapar(url)}" style="color:#{@texto};text-decoration:underline;">Não quero mais receber estes avisos</a>)
   end
 
   @doc "A URL do logo. Servida pelo próprio app (ver o moduledoc), não por CDN de terceiro."

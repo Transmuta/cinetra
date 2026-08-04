@@ -156,7 +156,7 @@ defmodule Api.Messaging.TemplatesTest do
       for template <- Templates.conhecidos() do
         {:ok, %{html: html}} = Templates.render_email(template, @vars)
 
-        assert html =~ "<!DOCTYPE html>", "#{template}: HTML sem documento"
+        assert html =~ "<!DOCTYPE html", "#{template}: HTML sem documento"
         # O §9.1.4 no canal que tem cabeçalho: quem fala com o paciente é a clínica.
         assert html =~ "Clínica Cinetra", "#{template}: HTML sem o nome da clínica"
         assert html =~ "Sua clínica", "#{template}: HTML sem o cabeçalho da clínica"

@@ -170,7 +170,14 @@ defmodule Api.EmailLayoutTest do
   describe "o cabeçalho do documento" do
     test "declara charset, viewport e o esquema de cor" do
       for {nome, html} <- documentos() do
-        assert html =~ ~s(<meta charset="utf-8">), "#{nome}: sem charset"
+        # XHTML 1.0 Transitional, e não HTML5: é o doctype que Outlook.com e os clientes antigos
+        # tratam melhor, e o que os frameworks de e-mail (MJML e companhia) emitem. Os elementos
+        # vazios saem auto-fechados para bater com o que ele declara.
+        assert html =~ ~s(<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"),
+               "#{nome}: doctype fora do padrão de e-mail"
+
+        refute html =~ ~r/<(meta|img|br)[^>]*[^\/]>/, "#{nome}: elemento vazio sem auto-fechar"
+        assert html =~ ~s(<meta charset="utf-8" />), "#{nome}: sem charset"
         assert html =~ "name=\"viewport\"", "#{nome}: sem viewport"
         # Sem isto o iOS transforma data, hora e telefone em link azul sublinhado.
         assert html =~ "name=\"format-detection\"", "#{nome}: sem format-detection"
