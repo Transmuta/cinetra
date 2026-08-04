@@ -75,6 +75,11 @@ defmodule Api.Accounts.Membership do
       argument :clinic_id, :uuid, allow_nil?: false
       change manage_relationship(:user_id, :user, type: :append)
       change manage_relationship(:clinic_id, :clinic, type: :append)
+      # D: professional_id (UUID mole) precisa ser da clínica do convite. Estava só em
+      # `:invite_by_email` e no `:update` — as três portas escrevem o mesmo vínculo, e o
+      # `Scope.professional_id` propaga a referência cross-tenant a partir de qualquer uma
+      # delas (doc 92, P1-3).
+      validate {Api.Accounts.Membership.Validations.ProfessionalInClinic, []}
       # Só owner convida como owner (barra cunhagem de owner par por admin).
       validate {Api.Accounts.Membership.Validations.RestrictOwnerInvite, []}
     end

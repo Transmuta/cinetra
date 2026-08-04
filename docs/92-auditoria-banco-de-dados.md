@@ -13,6 +13,109 @@ débito ([D-2](50-debitos-tecnicos.md)) com a justificativa medida. O que esta a
 são **14 itens**, 5 importantes e 9 de melhoria, quase todos na mesma família: *o banco quase não
 tem opinião própria — ele confia que a escrita passou pelo Ash.*
 
+> ## Errata e estado de execução — 2026-08-03
+>
+> A **Onda 1** foi aplicada (P1-2, P1-3(a), P2-10 e uma versão revista do P2-13), e a execução
+> derrubou dois achados deste documento. Ficam registrados aqui, e não corrigidos no corpo do
+> texto, para que o erro e o método que o pegou continuem legíveis.
+>
+> **P1-5 é falso — as 17 policies já são uniformes.** O §7 afirma que 15 policies comparam a GUC
+> direto e 2 passam por `NULLIF`, e mostra um `ERROR: invalid input syntax for type uuid: ""` em
+> `professionals`. O catálogo diz o contrário:
+>
+> ```
+> select case when qual like '%NULLIF%' then 'NULLIF' else 'direto' end, count(*) …
+>  NULLIF | 17
+> ```
+>
+> E o comportamento vivo, sob `cinetra_app`, com a GUC em string vazia: **0 linhas, sem exceção**.
+> A uniformização já tinha sido feita pela migration `20260731120000_rls_fail_closed_uniforme`
+> (doc 96, T-0) — que o próprio `CLAUDE.md` documenta. O item **não existe**; nada a decidir.
+> Com isso o placar real vira **4 P1**, não 5.
+>
+> **P2-13 estava reenquadrado errado, e subdimensionado nos dois sentidos.** O item propunha
+> uniformizar `SetTenantGuc` para `on: [:create, :update, :destroy]` em 4 recursos "para remover
+> uma armadilha". Duas coisas:
+>
+> * a armadilha **já tem rede** — [`test/api/tenant_guc_test.exs`](../api/test/api/tenant_guc_test.exs)
+>   é um contrato estrutural que exige a GUC em todo `destroy` por-tenant e falha no dia em que
+>   qualquer um desses 4 ganhar um `destroy`. Aplicar o `on:` preventivamente não fecha buraco
+>   nenhum: só antecipa a satisfação do contrato e tira o momento de pensar;
+> * o item **não citou** `Api.Scheduling.Attendance`, que tem `destroy :remove` e usa a forma
+>   curta — o único caso onde a coisa é real hoje. Ele funciona por herança da GUC da transação do
+>   bloco, e isso está declarado, com o motivo escrito, na lista `@sem_guc_por_desenho` do mesmo
+>   teste. Ou seja: também já decidido.
+>
+> O que sobrou de real foi outra coisa, e foi essa que se aplicou: a lista `@dominios` daquele
+> teste era **escrita à mão** e não incluía `Api.Messaging` nem `Api.Audit` — exatamente a doença
+> que [`test/api/on_delete_test.exs`](../api/test/api/on_delete_test.exs) documenta ter contraído
+> antes. Passou a derivar de `Application.compile_env!(:api, :ash_domains)`.
+>
+> Lição para a próxima auditoria: **este repositório já responde a boa parte das perguntas de
+> invariante em `test/`**, e ler o schema sem ler os contratos estruturais produz item que parece
+> achado e é decisão registrada.
+>
+> ---
+>
+> ### Onda 2 — 2026-08-03: três dos quatro itens mudaram na medição
+>
+> A Onda 2 (P1-1, P1-4, P2-11, P2-6) foi aplicada. **Nenhum dos três índices que ela propunha
+> entrou como estava.** O padrão é único e vale mais que os itens: a auditoria mediu planos sem
+> reproduzir o SQL que o Ash de fato emite, e sobre carga sintética cuja distribuição não foi
+> declarada. Todas as medições abaixo estão em transação com `ROLLBACK`, com `SAVEPOINT` por caso
+> — porque `EXPLAIN ANALYZE` de um `DELETE` **executa** o `DELETE`, e sem isso o segundo caso já
+> mede um estado que o primeiro alterou (erro que cometi na primeira passada).
+>
+> **P1-1 — o índice não era necessário; a reescrita sozinha resolve.** O item afirma que
+> acrescentar `(clinic_id, inserted_at)` "não muda o plano". Falso: o planejador quebra o `OR` num
+> `BitmapOr` de duas varreduras sobre o mesmo índice, cada uma com `inserted_at` no `Index Cond`.
+> Mas o achado que importa é outro — **o corte frouxo sozinho, sem índice novo nenhum**, já é
+> servido pelo `notifications_inbox_index` que já existe. Medido em 40.001 linhas (38.000 recentes
+> + cauda de 2.000 velhas; alvo de 1.466):
+>
+> | | plano | buffers | tempo |
+> | --- | --- | --- | --- |
+> | hoje | `Seq Scan` | 618 | 11,55 ms |
+> | só o índice novo | `BitmapOr` | 39 | 2,68 ms |
+> | reescrita **+** índice novo | `Bitmap` | 37 | 2,26 ms |
+> | **só a reescrita** (aplicado) | `Bitmap` | 73 | 2,88 ms |
+>
+> O índice dedicado compra 73→37 buffers em troca de peso de escrita permanente na tabela de
+> **fan-out** do projeto (uma linha por destinatário, a cada evento), para acelerar um job que roda
+> uma vez por dia. Recusado, com o número na mão.
+>
+> *(Detalhe de correção que o item não previa: o corte frouxo é `max(corte_lidas, corte_geral)` e
+> não `corte_lidas`. Com a config invertida — reter lida por mais tempo que não-lida, hoje legal —
+> fixá-lo em `corte_lidas` faria a poda deixar de apagar não-lidas da faixa entre os dois cortes,
+> em silêncio. Há teste.)*
+>
+> **P1-4 — metade entrou, metade não funcionaria.** Medido em 200.000 tokens de 5.000 usuários:
+>
+> | caminho | sem índice | com índice |
+> | --- | --- | --- |
+> | `subject` (revogar sessão) | `Seq Scan` 2.131 buffers, 13,116 ms | `Bitmap Index` 42 buffers, **0,118 ms** |
+> | `expires_at` (expurgo) | `Seq Scan` 255 buffers, 2,619 ms | `Seq Scan` 255 buffers, 2,293 ms — **intocado** |
+>
+> O de `subject` entrou (`concurrently`, tabela que recebe INSERT em todo login). O de `expires_at`
+> **não funciona**: o Ash emite `expires_at::timestamp < $1` e a coluna é `timestamp(0)`, então o
+> btree comum fica no catálogo sem nunca ser escolhido — é o §4.1 deste mesmo documento cobrado
+> contra a proposta do §8.2. Serviria um índice de expressão; não foi criado, e o teste negativo
+> registra a decisão.
+>
+> **P2-11 — recusado; a premissa estava errada.** O item diz que em `attachments` "o `patient_id`
+> no meio bloqueia o uso das colunas seguintes". Não bloqueia: num *bitmap index scan* o
+> `inserted_at` entra no `Index Cond` mesmo sem ser prefixo. Medido em 30.000 anexos com o SQL
+> exato que o Ash emite — 46 buffers / 0,238 ms pelo índice que já existe, contra 20 / 0,17 ms com
+> o parcial proposto. Numa tabela com **0 linhas** e estado transitório de 24 h, isso é otimização
+> especulativa. *(Subproduto útil: o cast **não** é obstáculo aqui — `status::varchar = 'x'::varchar`
+> anexa a um parcial escrito sem cast, porque text e varchar são binário-coercíveis. O §4.1 vale
+> para conversão real de tipo, como `timestamp(0)`→`timestamp`, não para qualquer cast.)*
+>
+> **P2-6 — entrou como desenhado**, em [`test/api/planos_de_query_test.exs`](../api/test/api/planos_de_query_test.exs),
+> com uma diferença: o SQL do tripwire é **derivado do Ash**, não digitado. Um teste que escrevesse
+> o predicado com o cast à mão ficaria verde para sempre — inclusive no dia em que o AshPostgres
+> parasse de emiti-lo, que é o dia que o teste existe para pegar.
+
 ---
 
 ## 1. Como foi medido, e o que não deu para medir
@@ -1065,11 +1168,41 @@ fora de `America/Sao_Paulo` **e** cálculo de horário local no SQL, isto volta 
 
 ### Contagem
 
-| | Itens |
-| --- | --- |
-| **P0** | **0** |
-| **P1** | 5 — P1-1 poda de notificações · P1-2 unicidade da grade · P1-3 `professional_id` sem FK/validação · P1-4 índices de `tokens` · P1-5 semântica da GUC vazia |
-| **P2** | 9 — P2-6 a P2-14 |
+Revisada pela errata do topo (2026-08-03): P1-5 não existe, e o que era P2-13 virou outro trabalho.
+
+| | Itens | Estado |
+| --- | --- | --- |
+| **P0** | **0** | — |
+| **P1** | 4 — P1-1 poda de notificações · P1-2 unicidade da grade · P1-3 `professional_id` sem FK/validação · P1-4 índices de `tokens` | **todos endereçados** — P1-2/P1-3(a) na Onda 1, P1-1/P1-4 na Onda 2 |
+| **P2** | 9 — P2-6 a P2-14 | P2-10 e P2-13 na Onda 1; P2-6 e P2-11 na Onda 2 |
+| ~~P1-5~~ | retirado — as 17 policies já usam `NULLIF` (medido) | — |
+
+**O que a Onda 1 entregou**, cada item com o teste que foi visto vermelho antes do conserto:
+
+| Item | Mudança | Teste |
+| --- | --- | --- |
+| P1-2 | `identity :one_schedule_per_package` + `UNIQUE INDEX` (migration `20260804013509`) | [`package_schedule_test.exs`](../api/test/api/packages/package_schedule_test.exs) — `INSERT` cru barrado pelo banco, e 422 com a mensagem da identity pelo Ash |
+| P1-3(a) | `ProfessionalInClinic` na ação `create :invite` | [`membership_test.exs`](../api/test/api/accounts/membership_test.exs) — "pela porta `:invite` também" |
+| P2-10 | `max_length` 120/500 em `title`/`body` | [`notification_test.exs`](../api/test/api/notifications/notification_test.exs) — com o controle positivo do corpo mais longo que o `Fanout` monta |
+| P2-13 revisto | `@dominios` do contrato da GUC derivado da config | [`tenant_guc_test.exs`](../api/test/api/tenant_guc_test.exs) |
+
+**O que a Onda 2 entregou:**
+
+| Item | Mudança | Teste |
+| --- | --- | --- |
+| P1-1 | `AND inserted_at < $4` na condição da poda; **sem índice novo** ([`prune_notifications.ex`](../api/lib/api/housekeeping/prune_notifications.ex)) | [`prune_notifications_test.exs`](../api/test/api/housekeeping/prune_notifications_test.exs) — tripwire de `Index Cond` + guarda da config invertida |
+| P1-4 | `index [:subject], concurrently: true` em `Api.Accounts.Token` (migration `20260804044007`) | [`planos_de_query_test.exs`](../api/test/api/planos_de_query_test.exs) |
+| P2-6 | tripwire do índice parcial, com o SQL derivado do Ash | idem |
+| P2-11 | **nada** — medido e recusado, com o número registrado | — |
+
+Suíte após as duas ondas: **1966 testes, 0 falhas** (três execuções consecutivas), cobertura 90,3%
+(gate passou); `mix test --only rls` verde; `mix format --check-formatted` e
+`mix compile --warnings-as-errors` limpos.
+
+> Um dos testes novos nasceu **flaky** e o conserto é dele, não do código: a asserção casava
+> `Index Scan using tokens_subject_index`, e `tokens` é tabela global — conforme o que os testes de
+> auth deixam nela, o mesmo índice aparece como `Bitmap Index Scan on …`. Passou a assertir o
+> **nome** do índice, não a forma do nó.
 
 ---
 

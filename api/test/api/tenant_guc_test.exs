@@ -26,15 +26,15 @@ defmodule Api.TenantGucTest do
   """
   use Api.DataCase, async: true
 
-  @dominios [
-    Api.Accounts,
-    Api.Scheduling,
-    Api.Directory,
-    Api.Records,
-    Api.Packages,
-    Api.Waitlist,
-    Api.Notifications
-  ]
+  # Os domínios vêm da **config**, não de uma lista à mão — pelo mesmo motivo que `Api.OnDeleteTest`
+  # já documenta (doc 92, P2-13): a lista à mão de lá envelheceu em silêncio quando `Api.Messaging`
+  # entrou no projeto, e as FKs dele ficaram fora do contrato sem ninguém notar.
+  #
+  # Aqui a lista tinha a mesma falha em pé: `Api.Messaging` e `Api.Audit` estavam de fora. Hoje
+  # nenhum dos dois expõe `destroy`, então não havia buraco — a lista era uma armadilha esperando
+  # o primeiro `destroy` de mensagem ou de trilha, que entraria sem GUC e sem alarme. Derivar da
+  # config faz domínio novo entrar sozinho, no mesmo commit que o cria.
+  @dominios Application.compile_env!(:api, :ash_domains)
 
   # Os `destroy` que rodam SEM GUC própria **de propósito**, e por quê. Entrar aqui é decisão
   # consciente: significa que a segurança do DELETE depende de quem chama, e que quebrar essa

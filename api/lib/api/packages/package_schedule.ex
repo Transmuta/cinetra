@@ -33,7 +33,9 @@ defmodule Api.Packages.PackageSchedule do
     end
 
     custom_indexes do
-      index [:clinic_id, :package_id]
+      # `[:clinic_id, :package_id]` saiu daqui: virou o índice ÚNICO da identity
+      # `:one_schedule_per_package` (mesmas colunas, mesma ordem), e manter os dois seria
+      # redundância pura — peso de escrita sem leitura nova.
       index [:professional_id], all_tenants?: true
     end
   end
@@ -92,5 +94,20 @@ defmodule Api.Packages.PackageSchedule do
     belongs_to :clinic, Api.Accounts.Clinic, allow_nil?: false
     belongs_to :package, Api.Packages.Package, allow_nil?: false
     belongs_to :professional, Api.Directory.Professional, allow_nil?: false
+  end
+
+  identities do
+    # `has_one :schedule` é uma promessa que só o banco pode cumprir. O índice que existia era
+    # `CREATE INDEX` comum — ele acelerava a leitura e aceitava a duplicata; com duas grades,
+    # `has_one` devolve uma arbitrária e a série é reprojetada pela linha errada, sem erro no
+    # caminho (doc 92, P1-2).
+    #
+    # `pre_check?` pela mesma razão das irmãs (`WaitlistEntry`, `AppointmentType`): sob RLS o
+    # Postgres omite o DETAIL do unique_violation, e sem ele o Ash levanta `KeyError` → 500 em
+    # vez de 422.
+    identity :one_schedule_per_package, [:package_id] do
+      pre_check? true
+      message "este pacote já tem uma grade"
+    end
   end
 end

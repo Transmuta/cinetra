@@ -170,8 +170,17 @@ defmodule Api.Notifications.Notification do
     uuid_v7_primary_key :id
 
     attribute :kind, Api.Notifications.NotificationKind, allow_nil?: false, public?: true
-    attribute :title, :string, allow_nil?: false, public?: true
-    attribute :body, :string, allow_nil?: false, public?: true
+
+    # Os tetos são folga sobre o que o `Fanout` sabe montar, não estética (doc 92, P2-10): os
+    # títulos são literais curtos ("Membro removido da equipe") e o corpo mais longo é nome de
+    # paciente (120) + nome de pacote (120) + texto fixo — perto de 300.
+    #
+    # Existem porque esta é a tabela de FAN-OUT: uma linha por destinatário, então um texto sem
+    # teto não custa uma linha grande, custa uma por membro da clínica — na tabela que o sino lê
+    # a cada abertura. É teto de atributo e não `CHECK`: quem escreve aqui é sempre o `Fanout`
+    # (não há policy de create — a UI nunca grava), então a fronteira do Ash é a porta real.
+    attribute :title, :string, allow_nil?: false, public?: true, constraints: [max_length: 120]
+    attribute :body, :string, allow_nil?: false, public?: true, constraints: [max_length: 500]
 
     # Carga para a UI navegar (appointment_id, date, actor). Sem lógica de domínio — só payload.
     attribute :data, :map, allow_nil?: false, default: %{}, public?: true

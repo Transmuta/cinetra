@@ -806,3 +806,44 @@ envolver a consulta em `Api.Repo.with_clinic/2` quando `clinic_id` não é nulo,
 sem tenant para o webhook. Depois disso, o controller volta a passar `clinic_id` (o
 `Api.Messaging.opt_out/4` já repassa o `tenant:` correspondente, justamente para esse dia). **A
 prova não é `mix test`** — é o `psql` sob `cinetra_app`, com o controle positivo junto, como acima.
+
+---
+
+## D-25 · Os quatro itens da auditoria de banco que ficaram como decisão, não como tarefa
+
+**O que é.** A [auditoria do banco](92-auditoria-banco-de-dados.md) (doc 92) devolveu 13 itens
+reais. A Onda 1 aplicou quatro; as ondas 2 e 3 são trabalho normal de fila. Este débito registra os
+**quatro que não devem virar tarefa até alguém decidir**, para que "não fizemos" não seja lido como
+"não vimos".
+
+**Por que virou débito, item a item.**
+
+* **P1-3(b) — FK em `memberships.professional_id`.** A validação já entrou (P1-3(a), Onda 1); a FK
+  não. Ela é **global**, então mataria o órfão e **não** a metade que importa — profissional da
+  clínica errada —, que continua sendo trabalho de validação. E exige `professional_id` virar
+  `belongs_to`, mudando como o Ash trata o campo: não é o one-liner que parece. Medido hoje: 0
+  órfãos, 0 cross-tenant.
+* **P2-9 — `UNIQUE` no opt-out vigente.** É o item onde a constraint pode causar **mais dano do que
+  previne**: a normalização de `destino` (caixa, E.164) mora no `Dispatch`, não no banco. Se ela
+  deixar passar duas formas do mesmo número, o `UNIQUE` passa a rejeitar escrita que hoje funciona.
+  Depende de fechar a normalização primeiro — e conversa com o [D-24](#d-24).
+* **P2-12 — ordenação da fila por expressão.** Não há proposta de índice, e de propósito: sem
+  capturar o SQL real que o Ash emite e medir `idx_scan` antes/depois **pelo caminho da aplicação**,
+  qualquer índice é chute. É a lição D-A do [doc 35](35-plano-execucao-backlog.md).
+* **P2-14 — `timestamptz`.** 43 colunas `timestamp` (µs) e 15 `timestamp(0)` (s); **nenhuma**
+  `timestamptz` no schema. A convenção UTC é sustentada pelos defaults `(now() AT TIME ZONE 'utc')`
+  e por todo mundo lembrar dela. Migrar 58 colunas é caro, arriscado e não resolve problema vivo.
+
+**O que custa hoje.** Nada operacional nos quatro — foi por isso que ficaram de fora. O custo é de
+memória: são exatamente os itens que uma próxima auditoria vai reencontrar e reapresentar como
+achado novo, gastando a rodada de novo, se não estiverem escritos aqui.
+
+**O que os paga.** P1-3(b) e P2-9, uma decisão de desenho cada (a segunda depois da normalização).
+P2-12, uma medição em produção — a mesma consulta de `idx_scan` que a §10 do doc 92 deixou pronta e
+que o restart do container impediu de rodar. P2-14 só volta à mesa se houver clínica fora de
+`America/Sao_Paulo` **e** cálculo de horário local no SQL.
+
+> Nota de método, do mesmo ciclo: a auditoria também produziu **um item falso** (P1-5, "duas
+> semânticas para a GUC vazia") e **um mal enquadrado** (P2-13), os dois por ler o schema sem ler
+> os contratos estruturais que já vivem em `test/` — `tenant_guc_test.exs` e `on_delete_test.exs`.
+> A errata está no topo do doc 92.
