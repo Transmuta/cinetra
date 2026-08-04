@@ -27,6 +27,19 @@ defmodule Api.Accounts.Membership do
     references do
       reference :user, on_delete: :delete
       reference :clinic, on_delete: :delete
+
+      # `nilify` e não `delete` (doc 92, P1-3(b)): o vínculo sobrevive ao profissional. Se um dia
+      # a eliminação da LGPD (D-1) apagar um `Professional` de fato, a pessoa continua na equipe
+      # — só deixa de ter coluna na agenda. Perder o membership junto seria apagar acesso por um
+      # motivo que não é sobre acesso.
+      #
+      # **O que esta FK não faz:** ela é *global* — garante que o profissional **existe**, não que
+      # é **desta clínica**. A metade que importa (cross-tenant) continua sendo trabalho da
+      # `Validations.ProfessionalInClinic`, presente nas três portas de escrita desde a Onda 1.
+      # Fechá-la no banco exigiria `UNIQUE (id, clinic_id)` em `professionals` e FK composta;
+      # ficou de fora porque a validação já cobre todos os caminhos vivos, e o custo é um índice
+      # a mais numa tabela que já tem o seu.
+      reference :professional, on_delete: :nilify
     end
   end
 
@@ -199,16 +212,23 @@ defmodule Api.Accounts.Membership do
       default: :pendente,
       public?: true
 
-    # Opcional e único por clínica: aponta um membro :profissional ao seu Professional
-    # no schema do tenant. UUID mole (sem FK entre schemas).
-    attribute :professional_id, :uuid, allow_nil?: true, public?: true
-
     timestamps()
   end
 
   relationships do
     belongs_to :user, Api.Accounts.User, allow_nil?: false
     belongs_to :clinic, Api.Accounts.Clinic, allow_nil?: false
+
+    # Opcional e único por clínica: aponta um membro `:profissional` ao seu `Professional`.
+    #
+    # Era `attribute :professional_id, :uuid` — o "UUID mole" — e virou `belongs_to` na Onda 4
+    # para ganhar a FK (ver a nota no `references` acima). `attribute_writable?` porque as ações
+    # aceitam o id direto (`accept [:papel, :professional_id]`), que é como as três portas de
+    # convite/edição sempre escreveram.
+    belongs_to :professional, Api.Directory.Professional,
+      allow_nil?: true,
+      attribute_writable?: true,
+      public?: true
   end
 
   identities do

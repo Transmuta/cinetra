@@ -818,11 +818,12 @@ reais. A Onda 1 aplicou quatro; as ondas 2 e 3 são trabalho normal de fila. Est
 
 **Por que virou débito, item a item.**
 
-* **P1-3(b) — FK em `memberships.professional_id`.** A validação já entrou (P1-3(a), Onda 1); a FK
-  não. Ela é **global**, então mataria o órfão e **não** a metade que importa — profissional da
-  clínica errada —, que continua sendo trabalho de validação. E exige `professional_id` virar
-  `belongs_to`, mudando como o Ash trata o campo: não é o one-liner que parece. Medido hoje: 0
-  órfãos, 0 cross-tenant.
+* ~~**P1-3(b) — FK em `memberships.professional_id`.**~~ **Feita em 2026-08-04**, por decisão
+  explícita e contra a recomendação original — que era não fazer, porque a FK é global e fecha só
+  metade do problema. A decisão foi de que meia rede vale mais que nenhuma: órfão passa a ser
+  impossível por qualquer caminho, inclusive `psql`. A outra metade (profissional da clínica
+  errada) segue sendo trabalho da `Validations.ProfessionalInClinic`, e isso está escrito no
+  `references` do recurso para que ninguém leia a FK como garantia que ela não dá.
 * ~~**P2-9 — `UNIQUE` no opt-out vigente.**~~ **Resolvido em 2026-08-04: não era débito.** O índice
   único parcial já existia (`message_opt_outs_vigente_por_destino_index`, com `NULLS NOT DISTINCT`
   para cobrir o opt-out global), as três portas de escrita passam por `Dispatch.normalizar/2`, e há
@@ -842,10 +843,13 @@ reais. A Onda 1 aplicou quatro; as ondas 2 e 3 são trabalho normal de fila. Est
 memória: são exatamente os itens que uma próxima auditoria vai reencontrar e reapresentar como
 achado novo, gastando a rodada de novo, se não estiverem escritos aqui.
 
-**O que os paga.** Depois da Onda 4 sobraram **dois**: P1-3(b) é uma decisão de desenho, e P2-14 só
-volta à mesa se houver clínica fora de `America/Sao_Paulo` **e** cálculo de horário local no SQL.
-Os outros dois se resolveram medindo — e o padrão de como eles "eram" débito e não eram está no
-placar de método do doc 92.
+**O que os paga.** Depois da Onda 4 sobrou **um**: P2-14, e ele só volta à mesa se houver clínica
+fora de `America/Sao_Paulo` **e** cálculo de horário local no SQL. Dos outros três, um foi feito
+(P1-3(b)) e dois se resolveram medindo — o padrão de como eles "eram" débito e não eram está no
+placar de método do [doc 92](92-auditoria-banco-de-dados.md).
+
+**Este débito está, na prática, quitado**, e fica como registro do ciclo: quatro itens que pareciam
+tarefa, e dos quais só um era.
 
 > Nota de método, do mesmo ciclo: a auditoria também produziu **um item falso** (P1-5, "duas
 > semânticas para a GUC vazia") e **um mal enquadrado** (P2-13), os dois por ler o schema sem ler

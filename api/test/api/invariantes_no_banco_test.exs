@@ -192,6 +192,62 @@ defmodule Api.InvariantesNoBancoTest do
     end
   end
 
+  # `memberships.professional_id` — o "UUID mole" que apontava para lugar nenhum (doc 92, P1-3).
+  #
+  # A metade da aplicação entrou na Onda 1: as três portas de convite/edição agora recusam
+  # profissional de outra clínica (`Validations.ProfessionalInClinic`). Esta é a metade do banco,
+  # e ela fecha um caso que validação nenhuma alcança — a escrita que não passa pelo Ash.
+  #
+  # **O que esta FK NÃO faz**, e é decisão consciente: ela é *global*, então garante que o
+  # profissional **existe**, não que ele é **desta clínica**. Fechar a segunda metade exigiria um
+  # `UNIQUE (id, clinic_id)` em `professionals` e uma FK composta; ficou de fora porque a
+  # validação já cobre todos os caminhos vivos. Ver a nota no `references` do recurso.
+  describe "memberships.professional_id aponta para profissional que existe" do
+    test "o banco recusa professional_id inexistente" do
+      ctx = clinica()
+      outro = Api.Generators.usuario!("Convidado")
+
+      assert_raise Postgrex.Error, ~r/memberships_professional_id_fkey/, fn ->
+        Api.Repo.query!(
+          "INSERT INTO memberships (id, user_id, clinic_id, professional_id, papel, status, " <>
+            "inserted_at, updated_at) VALUES ($1, $2, $3, $4, 'profissional', 'ativo', " <>
+            "now(), now())",
+          [
+            uuid(Ash.UUID.generate()),
+            uuid(outro.id),
+            uuid(ctx.clinic.id),
+            uuid(Ash.UUID.generate())
+          ]
+        )
+      end
+    end
+
+    # `nilify`: o profissional pode ser apagado um dia (a LGPD do D-1); o vínculo sobrevive sem a
+    # coluna, que é a verdade — a pessoa continua na equipe, só não tem mais coluna na agenda.
+    test "apagar o profissional esvazia o vínculo em vez de derrubá-lo" do
+      ctx = clinica()
+      membro = Api.Generators.usuario!("Fisio")
+
+      {:ok, m} =
+        Api.Accounts.invite_member(
+          %{
+            papel: :profissional,
+            user_id: membro.id,
+            clinic_id: ctx.clinic.id,
+            professional_id: ctx.prof.id
+          },
+          authorize?: false
+        )
+
+      Api.Repo.query!("DELETE FROM professionals WHERE id = $1", [uuid(ctx.prof.id)])
+
+      assert %{rows: [[nil]]} =
+               Api.Repo.query!("SELECT professional_id FROM memberships WHERE id = $1", [
+                 uuid(m.id)
+               ])
+    end
+  end
+
   # `messages.provider_message_id` — a chave que o webhook usa para achar a mensagem. A leitura
   # `:by_provider_id` é `get? true`, e sob índice NÃO-único uma duplicata (um retry do provedor,
   # que é o caso normal de acontecer) derruba o webhook com erro obscuro em vez de casar a linha.

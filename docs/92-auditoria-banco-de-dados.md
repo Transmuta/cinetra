@@ -1293,8 +1293,31 @@ teto é a base de pacientes, e uma clínica de fisioterapia com 20 mil pessoas e
 tempo não existe. Em escala real (dezenas a centenas) o `Seq Scan` lê poucas páginas e o custo é
 ruído. **Não fazer**, com o número guardado para o dia em que alguma fila explodir.
 
-**P2-14 — segue sem proposta**, como o item já dizia. **P1-3(b)** é o único que continua sendo
-decisão de verdade, e está no [D-25](50-debitos-tecnicos.md).
+**P2-14 — segue sem proposta**, como o item já dizia.
+
+**P1-3(b) — decidido e feito.** Era o único que dependia de decisão humana, e ela foi *fazer a FK
+simples*. `memberships.professional_id` deixou de ser `attribute :uuid` e virou `belongs_to`, com
+`reference :professional, on_delete: :nilify`. Três coisas que a execução acrescentou ao item:
+
+* **A FK sozinha não bastava — faltava o índice.** `ON DELETE SET NULL` faz o `DELETE` do
+  profissional **escrever** em toda linha correspondente, e a checagem emite
+  `WHERE professional_id = $1`, sem `clinic_id`. O único índice com essa coluna era o da identity
+  `unique_professional_link`, `(clinic_id, professional_id)`, onde ela **não lidera**. O
+  `mix ash.codegen` gerou o índice de apoio junto — mesma lição da migration
+  `20260726210945_indice_fk_package_da_presenca`.
+* **O gerador produziu uma migration que não roda.** Ele emite
+  `alter table … modify(:professional_id, references(...))`, e o Postgres recusa com
+  `cannot alter type of a column used by a view or rule` — a view é `metrics_memberships`. O
+  `modify` do Ecto **redeclara o tipo** da coluna, e isso basta, mesmo o tipo sendo o mesmo
+  (`uuid` → `uuid`). Reescrito à mão como `ADD CONSTRAINT`, que não toca no tipo.
+* **O `on_delete_test.exs` fez o trabalho dele**: a FK nova quebrou o contrato *"FK nova exige
+  decisão explícita"* e obrigou a declarar a semântica com o motivo escrito. Era exatamente para
+  isso que ele existia.
+
+O que a FK **não** faz continua valendo, e está escrito no recurso: ela é global, garante
+**existência**, não **mesma clínica**. Fechar a segunda metade exigiria `UNIQUE (id, clinic_id)` em
+`professionals` e FK composta; ficou de fora porque a `ProfessionalInClinic` cobre todos os
+caminhos vivos desde a Onda 1.
 
 ### O placar do método, nas quatro ondas
 
@@ -1302,11 +1325,11 @@ De **14 itens**:
 
 | | |
 | --- | --- |
-| **8 entraram** | P1-1, P1-2, P1-3(a), P1-4, P2-6, P2-7 (4 de 5), P2-8, P2-10, P2-13 (reenquadrado) |
+| **9 entraram** | P1-1, P1-2, P1-3 (a **e** b), P1-4, P2-6, P2-7 (4 de 5), P2-8, P2-10, P2-13 (reenquadrado) |
 | **2 não existiam** | P1-5 (as policies já eram uniformes) · P2-9 (o índice único já estava lá, e testado) |
 | **4 mudaram na medição** | P1-1 (o índice era dispensável) · P1-4 (metade não funcionaria) · P2-11 (a premissa era falsa) · P2-7 parcial (o quinto `CHECK` contradizia um fallback deliberado) |
 | **2 fechados sem ação** | P2-12 (índice impossível, e irrelevante em escala real) · P2-14 (sem proposta) |
-| **1 em aberto** | P1-3(b) — decisão, no [D-25](50-debitos-tecnicos.md) |
+| **0 em aberto** | — |
 
 Os seis desvios têm **uma causa só**: conclusão tirada da leitura do schema, sem reproduzir o SQL
 que o Ash emite, sem conferir o catálogo e sem perguntar quem depende do caso frouxo. Duas vezes a
