@@ -1243,15 +1243,80 @@ limpos.
 > auth deixam nela, o mesmo índice aparece como `Bitmap Index Scan on …`. Passou a assertir o
 > **nome** do índice, não a forma do nó.
 
-### O placar do método, nas três ondas
+### Onda 4 — 2026-08-04: a onda de decisões, e ela quase não tinha decisões
 
-De **14 itens**, 1 não existia (P1-5) e **4 mudaram ou caíram na medição** — P1-1 (o índice era
-dispensável), P1-4 (metade não funcionaria), P2-11 (a premissa era falsa) e P2-7 parcial (o quinto
-`CHECK` contradizia um fallback deliberado). Todos pela mesma causa: **conclusão tirada da leitura
-do schema, sem reproduzir o SQL que o Ash emite nem checar quem depende do caso frouxo.**
+A Onda 4 reunia os itens que eu tinha marcado como *"não vire tarefa até alguém decidir"*. Medidos,
+**três dos quatro se resolveram sozinhos** e nenhuma linha de produção precisou mudar.
 
-Não invalida a auditoria — ela apontou os lugares certos, e 8 itens entraram. Mas fixa a regra
-para a próxima: *o achado é a hipótese; a medição pelo caminho da aplicação é o achado.*
+**P2-9 — não existe.** O item afirma que `message_opt_outs_vigentes_index` é não-único. Esse índice
+**não existe no catálogo**. O que existe é o da identity:
+
+```
+message_opt_outs_vigente_por_destino_index  UNIQUE, btree (canal, destino, clinic_id)
+   NULLS NOT DISTINCT  WHERE revogado_em::timestamp IS NULL
+```
+
+Único, parcial nos vigentes, e com `NULLS NOT DISTINCT` — que é o detalhe que faz o opt-out
+**global** (sem `clinic_id`) também ser deduplicado. E não é só o índice: as três portas de escrita
+passam por `Dispatch.normalizar/2` (o controller e o `complained` usam o `destino` congelado da
+mensagem; o "SAIR" do WhatsApp normaliza explicitamente, com o motivo escrito no comentário), e há
+teste de regressão dedicado — escrito para a corrida do doc 96 A-5, com a frase *"o que barra as
+duas é a mesma coisa — a unicidade no banco, que só o índice dá."*
+
+O receio registrado no item (*"se a normalização deixar passar duas formas do mesmo número, o
+`UNIQUE` passa a rejeitar escrita que hoje funciona"*) também estava invertido: duas formas
+diferentes produzem duas **strings** diferentes, que não colidem. Um `UNIQUE` só recusa o que já é
+idêntico — que é exatamente a duplicata.
+
+**P2-12 — fechado por medição, e a resposta é "impossível como está".** O SQL que o Ash emite para
+a fila é:
+
+```sql
+ORDER BY (CASE WHEN (prio::varchar = $1::varchar) THEN $2::bigint
+               WHEN (prio::varchar = $3::varchar) THEN $4::bigint
+               WHEN (prio::varchar = $5::varchar) THEN $6::bigint
+               ELSE $7::bigint END)::bigint, inserted_at
+```
+
+**Todos os literais são bind parameters.** Índice de expressão precisa ser imutável e não pode
+referenciar parâmetro — então não é que o índice seja *frágil* (o receio do item), é que ele é
+**impossível**. O que funcionaria é outro desenho: `prio_rank` como coluna real, indexada com
+`inserted_at`. Medido em 20.000 itens de fila:
+
+| | plano | buffers | tempo |
+| --- | --- | --- | --- |
+| hoje (expressão) | `Seq Scan` + top-N heapsort | 1.021 | 5,06 ms |
+| coluna + índice | `Index Scan` | 52 | 0,10 ms |
+
+50× mais rápido — **numa fila de 20.000**. Mas a fila é limitada por `one_entry_per_patient`: o
+teto é a base de pacientes, e uma clínica de fisioterapia com 20 mil pessoas esperando ao mesmo
+tempo não existe. Em escala real (dezenas a centenas) o `Seq Scan` lê poucas páginas e o custo é
+ruído. **Não fazer**, com o número guardado para o dia em que alguma fila explodir.
+
+**P2-14 — segue sem proposta**, como o item já dizia. **P1-3(b)** é o único que continua sendo
+decisão de verdade, e está no [D-25](50-debitos-tecnicos.md).
+
+### O placar do método, nas quatro ondas
+
+De **14 itens**:
+
+| | |
+| --- | --- |
+| **8 entraram** | P1-1, P1-2, P1-3(a), P1-4, P2-6, P2-7 (4 de 5), P2-8, P2-10, P2-13 (reenquadrado) |
+| **2 não existiam** | P1-5 (as policies já eram uniformes) · P2-9 (o índice único já estava lá, e testado) |
+| **4 mudaram na medição** | P1-1 (o índice era dispensável) · P1-4 (metade não funcionaria) · P2-11 (a premissa era falsa) · P2-7 parcial (o quinto `CHECK` contradizia um fallback deliberado) |
+| **2 fechados sem ação** | P2-12 (índice impossível, e irrelevante em escala real) · P2-14 (sem proposta) |
+| **1 em aberto** | P1-3(b) — decisão, no [D-25](50-debitos-tecnicos.md) |
+
+Os seis desvios têm **uma causa só**: conclusão tirada da leitura do schema, sem reproduzir o SQL
+que o Ash emite, sem conferir o catálogo e sem perguntar quem depende do caso frouxo. Duas vezes a
+auditoria descreveu como ausente algo que o repositório já tinha — uma vez no banco (P2-9), uma vez
+em `test/` (P2-13).
+
+Não invalida o trabalho: ela apontou os lugares certos, e 8 itens entraram, incluindo dois que
+valiam sozinhos (a grade sem unicidade e a poda que varria a caixa). Mas fixa a regra para a
+próxima: *o achado é a hipótese; a medição pelo caminho da aplicação é o achado.* E antes de
+escrever "não existe", **procure** — no `pg_indexes` e no `test/`.
 
 > Um dos testes novos nasceu **flaky** e o conserto é dele, não do código: a asserção casava
 > `Index Scan using tokens_subject_index`, e `tokens` é tabela global — conforme o que os testes de

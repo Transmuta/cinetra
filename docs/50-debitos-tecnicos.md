@@ -823,13 +823,17 @@ reais. A Onda 1 aplicou quatro; as ondas 2 e 3 são trabalho normal de fila. Est
   clínica errada —, que continua sendo trabalho de validação. E exige `professional_id` virar
   `belongs_to`, mudando como o Ash trata o campo: não é o one-liner que parece. Medido hoje: 0
   órfãos, 0 cross-tenant.
-* **P2-9 — `UNIQUE` no opt-out vigente.** É o item onde a constraint pode causar **mais dano do que
-  previne**: a normalização de `destino` (caixa, E.164) mora no `Dispatch`, não no banco. Se ela
-  deixar passar duas formas do mesmo número, o `UNIQUE` passa a rejeitar escrita que hoje funciona.
-  Depende de fechar a normalização primeiro — e conversa com o [D-24](#d-24).
-* **P2-12 — ordenação da fila por expressão.** Não há proposta de índice, e de propósito: sem
-  capturar o SQL real que o Ash emite e medir `idx_scan` antes/depois **pelo caminho da aplicação**,
-  qualquer índice é chute. É a lição D-A do [doc 35](35-plano-execucao-backlog.md).
+* ~~**P2-9 — `UNIQUE` no opt-out vigente.**~~ **Resolvido em 2026-08-04: não era débito.** O índice
+  único parcial já existia (`message_opt_outs_vigente_por_destino_index`, com `NULLS NOT DISTINCT`
+  para cobrir o opt-out global), as três portas de escrita passam por `Dispatch.normalizar/2`, e há
+  teste de regressão dedicado desde a corrida do doc 96 A-5. O item da auditoria citava um índice
+  (`message_opt_outs_vigentes_index`) que não existe no catálogo.
+* ~~**P2-12 — ordenação da fila por expressão.**~~ **Fechado em 2026-08-04: não fazer.** O `ORDER
+  BY` que o Ash emite tem **todos os literais como bind parameters**, e índice de expressão precisa
+  ser imutável — então ele não é frágil, é impossível. O desenho que funcionaria (`prio_rank` como
+  coluna real + índice) é 50× mais rápido **em 20.000 itens de fila**, volume que a identity
+  `one_entry_per_patient` torna irreal (o teto é a base de pacientes). Medição no
+  [doc 92](92-auditoria-banco-de-dados.md), Onda 4.
 * **P2-14 — `timestamptz`.** 43 colunas `timestamp` (µs) e 15 `timestamp(0)` (s); **nenhuma**
   `timestamptz` no schema. A convenção UTC é sustentada pelos defaults `(now() AT TIME ZONE 'utc')`
   e por todo mundo lembrar dela. Migrar 58 colunas é caro, arriscado e não resolve problema vivo.
@@ -838,10 +842,10 @@ reais. A Onda 1 aplicou quatro; as ondas 2 e 3 são trabalho normal de fila. Est
 memória: são exatamente os itens que uma próxima auditoria vai reencontrar e reapresentar como
 achado novo, gastando a rodada de novo, se não estiverem escritos aqui.
 
-**O que os paga.** P1-3(b) e P2-9, uma decisão de desenho cada (a segunda depois da normalização).
-P2-12, uma medição em produção — a mesma consulta de `idx_scan` que a §10 do doc 92 deixou pronta e
-que o restart do container impediu de rodar. P2-14 só volta à mesa se houver clínica fora de
-`America/Sao_Paulo` **e** cálculo de horário local no SQL.
+**O que os paga.** Depois da Onda 4 sobraram **dois**: P1-3(b) é uma decisão de desenho, e P2-14 só
+volta à mesa se houver clínica fora de `America/Sao_Paulo` **e** cálculo de horário local no SQL.
+Os outros dois se resolveram medindo — e o padrão de como eles "eram" débito e não eram está no
+placar de método do doc 92.
 
 > Nota de método, do mesmo ciclo: a auditoria também produziu **um item falso** (P1-5, "duas
 > semânticas para a GUC vazia") e **um mal enquadrado** (P2-13), os dois por ler o schema sem ler
