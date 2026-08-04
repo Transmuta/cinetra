@@ -768,3 +768,41 @@ no exato desenho que a poda foi consertada para não ter (**P-3**).
 é **decisão de produto**, não de implementador: muda o que o número na tela significa. Ou medir
 primeiro, com volume real, junto com o **P-9** e o trabalho de carga do
 [doc 98](98-teste-de-carga-em-producao.md).
+
+---
+
+## D-24 · O descadastro do e-mail grava **global**, porque a leitura que o barra é cega à clínica
+
+**O que é.** O link "Não quero mais receber estes avisos" do rodapé
+([`ApiWeb.PatientOptOutController`](../api/lib/api_web/controllers/patient_opt_out_controller.ex))
+registra o opt-out **sem `clinic_id`** — ou seja, global. O token resolve a mensagem e a mensagem
+tem a clínica, então o dado para gravá-lo por-clínica está na mão; o que falta é a outra ponta.
+
+**Por que não dá hoje, medido.** A policy de RLS de `message_opt_outs` é
+`clinic_id IS NULL OR clinic_id = <GUC>`. Quem lê o opt-out na hora de decidir o envio é
+[`Api.Messaging.opted_out?/3`](../api/lib/api/messaging.ex), chamada por `Dispatch` **fora** do
+`in_clinic` — de propósito e documentado lá, porque o outro chamador é o webhook, que não tem GUC
+nenhuma. Sob o role real (`cinetra_app`, 2026-08-03), a mesma linha por-clínica:
+
+```
+com a GUC : 1 linha
+sem a GUC : 0 linhas
+```
+
+Ou seja: gravada por-clínica, ela seria **invisível** para quem decide o envio. O paciente clicaria
+em "parar de receber", a tela diria "pronto", e a próxima mensagem sairia assim mesmo — o dano
+exato que o §10 do doc 52 existe para impedir. **A suíte não pega**: ela roda como `postgres`
+(BYPASSRLS), e todos os testes ficam verdes nos dois desenhos. É a cegueira descrita em
+[`.claude/rules/migrations.md`](../.claude/rules/migrations.md) §3.
+
+**O que custa hoje.** Um paciente atendido por duas clínicas da plataforma que peça para sair de
+uma para de receber das duas. É o mesmo comportamento que o "SAIR" do WhatsApp já tem (C10/C11, o
+número da v1 é único), e desfaz-se no balcão por
+`Api.Messaging.revoke_patient_opt_outs/2`, com nome e hora. O modo de falha do desenho oposto —
+continuar mandando para quem pediu para parar — não tem conserto no balcão.
+
+**O que o paga.** Fazer a leitura rodar com a GUC quando há clínica: `opted_out?/3` passando a
+envolver a consulta em `Api.Repo.with_clinic/2` quando `clinic_id` não é nulo, mantendo o caminho
+sem tenant para o webhook. Depois disso, o controller volta a passar `clinic_id` (o
+`Api.Messaging.opt_out/4` já repassa o `tenant:` correspondente, justamente para esse dia). **A
+prova não é `mix test`** — é o `psql` sob `cinetra_app`, com o controle positivo junto, como acima.

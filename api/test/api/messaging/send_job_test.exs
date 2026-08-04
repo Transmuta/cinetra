@@ -122,6 +122,40 @@ defmodule Api.Messaging.SendJobTest do
       assert %{status: :enviado, enviado_em: %DateTime{}} = recarregar_mensagem(ctx, message)
     end
 
+    test "sai nas duas partes, com o cabeçalho da clínica no HTML", %{ctx: ctx, message: message} do
+      assert :ok = perform_job(ctx, message)
+
+      assert_email_sent(fn email ->
+        # O e-mail ao paciente é o modelo "clínica" do `Api.EmailLayout`: quem assina é ela.
+        assert email.html_body =~ ctx.clinic.nome
+        assert email.html_body =~ "Confirmar ou remarcar"
+        assert email.html_body =~ "/confirmar/"
+      end)
+    end
+
+    test "o descadastro vai no corpo E no cabeçalho List-Unsubscribe", %{
+      ctx: ctx,
+      message: message
+    } do
+      # As duas portas de saída da lista, e as duas importam: o link do rodapé é o que a pessoa
+      # acha lendo, e o cabeçalho é o que faz o Gmail mostrar o botão nativo ao lado do remetente
+      # — o lugar onde ela procura antes de procurar o botão de spam.
+      assert :ok = perform_job(ctx, message)
+
+      url = Api.Messaging.OptOutToken.url(message.id)
+
+      assert_email_sent(fn email ->
+        assert email.text_body =~ "/descadastrar/"
+        assert email.html_body =~ "/descadastrar/"
+        assert email.html_body =~ "Não quero mais receber estes avisos"
+
+        # O token é assinado com o instante, então a URL do cabeçalho não é byte a byte igual à
+        # do corpo — o que tem de bater é o destino.
+        assert %{"List-Unsubscribe" => cabecalho} = email.headers
+        assert String.starts_with?(cabecalho, "<" <> String.slice(url, 0, 40))
+      end)
+    end
+
     test "não reenvia mensagem que já saiu", %{ctx: ctx, message: message} do
       assert :ok = perform_job(ctx, message)
       assert_email_sent()

@@ -14,13 +14,31 @@ defmodule Api.Accounts.AccessRevokedEmailTest do
   use Api.DataCase, async: false
   use Oban.Testing, repo: Api.Repo
 
-  import Swoosh.TestAssertions
-
   alias Api.Accounts
   alias Api.Accounts.AccessRevokedEmailJob
 
   defp args_do_job(membership),
     do: %{"user_id" => membership.user_id, "clinic_id" => membership.clinic_id}
+
+  # O e-mail deste teste, entre os que a drenagem entregou. O adapter `Swoosh.Adapters.Test`
+  # manda cada mensagem como `{:email, %Swoosh.Email{}}` para o processo do teste; aqui elas são
+  # esvaziadas da caixa e a certa é escolhida pelo assunto.
+  defp email_com_assunto(regex) do
+    emails =
+      Stream.repeatedly(fn ->
+        receive do
+          {:email, email} -> email
+        after
+          0 -> nil
+        end
+      end)
+      |> Enum.take_while(& &1)
+
+    Enum.find(emails, &(&1.subject =~ regex)) ||
+      flunk(
+        "nenhum e-mail com assunto #{inspect(regex)}; saíram: #{inspect(Enum.map(emails, & &1.subject))}"
+      )
+  end
 
   defp membro(clinic, papel \\ :recepcao) do
     user = Accounts.register_user!("Fulano", email_unico("revoke"), authorize?: false)
@@ -45,11 +63,15 @@ defmodule Api.Accounts.AccessRevokedEmailTest do
 
       Oban.drain_queue(queue: :notifications)
 
-      assert_email_sent(fn mail ->
-        assert {_, endereco} = hd(mail.to)
-        assert endereco == to_string(user.email)
-        assert mail.text_body =~ ctx.clinic.nome
-      end)
+      # **Dois** e-mails saíram nesta drenagem: as boas-vindas da clínica que o `clinica()` acabou
+      # de criar (`Api.Accounts.WelcomeEmailJob`) e o aviso deste teste. `assert_email_sent/1` com
+      # função olha o PRIMEIRO da caixa — o que fazia esta asserção falar do e-mail errado assim
+      # que o onboarding ganhou o dele. A busca por assunto tira a ordem da fila da equação.
+      mail = email_com_assunto(~r/^Seu acesso a .* foi removido$/)
+
+      assert {_, endereco} = hd(mail.to)
+      assert endereco == to_string(user.email)
+      assert mail.text_body =~ ctx.clinic.nome
     end
 
     test "o job não quebra se a conta sumiu antes de ele rodar" do

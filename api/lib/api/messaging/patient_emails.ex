@@ -26,8 +26,21 @@ defmodule Api.Messaging.PatientEmails do
   Mantido o padrão: o canal de volta do paciente é o **link** de confirmação (§5) e a resposta de
   WhatsApp, que têm rastro na timeline e opt-out. E-mail respondido para a caixa da clínica não
   teria nenhum dos dois — chegaria fora do sistema, sem trilha e sem quem o tratasse.
+
+  ## `List-Unsubscribe`, sem `One-Click`
+
+  O cabeçalho vai em toda mensagem: é ele que faz o Gmail e o Apple Mail mostrarem o botão nativo
+  de descadastro, ao lado do remetente — o lugar onde a pessoa procura antes de procurar o botão
+  de spam. Ele aponta para a mesma página do rodapé (`Api.Messaging.OptOutToken`).
+
+  **Sem `List-Unsubscribe-Post`** (o descadastro em um clique, executado pelo provedor). Ele é
+  exigência para remetente de marketing em volume, que não é o nosso caso, e o preço dele aqui
+  seria abrir uma rota de escrita que qualquer um pode chamar com um token encaminhado — sem a
+  página de confirmação que hoje separa "eu quis sair" de "um scanner abriu meu e-mail".
   """
   import Swoosh.Email
+
+  alias Api.Messaging.OptOutToken
 
   @default_remetente {"Cinetra", "nao-responda@cinetra.local"}
 
@@ -39,12 +52,14 @@ defmodule Api.Messaging.PatientEmails do
   id (o `Local` do dev, o `Test` da suíte) rendem `nil`, e a mensagem simplesmente não recebe
   eventos de entrega. É o comportamento certo: em dev não há webhook.
   """
-  def entregar(%{destino: destino}, %{assunto: assunto, texto: texto}) do
+  def entregar(%{id: id, destino: destino}, %{assunto: assunto, texto: texto, html: html}) do
     new()
     |> to(destino)
     |> from(remetente())
     |> subject(assunto)
     |> text_body(texto)
+    |> html_body(html)
+    |> header("List-Unsubscribe", "<#{OptOutToken.url(id)}>")
     |> Api.Mailer.deliver()
     |> traduzir()
   end

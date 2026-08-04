@@ -133,8 +133,8 @@ defmodule ApiWeb.MessagesController do
   end
 
   defp titulo(message) do
-    case Templates.render_email(message.template, message.vars) do
-      {:ok, %{assunto: assunto}} -> assunto
+    case Templates.assunto(message.template, message.vars) do
+      {:ok, assunto} -> assunto
       :error -> to_string(message.kind)
     end
   end

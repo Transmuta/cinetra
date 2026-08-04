@@ -109,14 +109,25 @@ defmodule Api.Messaging do
   janela. De quebra some uma leitura por mensagem no caminho do webhook.
   """
   def opt_out(canal, destino, origem, opts \\ []) when is_binary(destino) do
+    clinic_id = Keyword.get(opts, :clinic_id)
+
     register_opt_out!(
       %{
         canal: canal,
         destino: destino,
         origem: origem,
         motivo: Keyword.get(opts, :motivo),
-        clinic_id: Keyword.get(opts, :clinic_id)
+        clinic_id: clinic_id
       },
+      # **O tenant acompanha o `clinic_id`, e não é redundância.** A tabela tem RLS: uma linha que
+      # nasce com `clinic_id` preenchido precisa da GUC para passar no `WITH CHECK` da policy
+      # (`Api.Tenancy.SetTenantGuc` a injeta a partir daqui). Nulo continua valendo — opt-out
+      # global não tem tenant, que é o caso dos dois webhooks.
+      #
+      # Enquanto os únicos produtores gravavam global isto era latente; o link de descadastro do
+      # e-mail (`ApiWeb.PatientOptOutController`) é o primeiro a gravar por-clínica, e sem esta
+      # linha ele falharia **só no servidor real** — a suíte roda como `postgres`, que bypassa RLS.
+      tenant: clinic_id,
       authorize?: false
     )
 

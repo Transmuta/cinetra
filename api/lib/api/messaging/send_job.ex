@@ -50,6 +50,7 @@ defmodule Api.Messaging.SendJob do
   alias Api.Messaging
   alias Api.Messaging.Falhas
   alias Api.Messaging.Message
+  alias Api.Messaging.OptOutToken
   alias Api.Messaging.ReplyToken
   alias Api.Messaging.Templates
   alias Api.Messaging.Transport
@@ -140,8 +141,14 @@ defmodule Api.Messaging.SendJob do
     Templates.render_whatsapp(message.template, vars)
   end
 
+  # O descadastro entra aqui pelo mesmo motivo do link, e não em `Dispatch.vars/3`: depende do id
+  # da mensagem. Só o e-mail o recebe — no WhatsApp quem sai responde "SAIR", e um link a mais
+  # dentro de um template HSM seria outra posicional a aprovar na Meta.
   defp render(%Message{} = message) do
-    vars = Map.put(message.vars, "link", ReplyToken.url(message.id))
+    vars =
+      message.vars
+      |> Map.put("link", ReplyToken.url(message.id))
+      |> Map.put("descadastro", OptOutToken.url(message.id))
 
     Templates.render_email(message.template, vars)
   end

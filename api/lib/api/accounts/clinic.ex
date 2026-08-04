@@ -34,6 +34,8 @@ defmodule Api.Accounts.Clinic do
       change Api.Accounts.Clinic.Changes.SeedAppointmentTypes
       # Doc 22 §2: e o expediente semanal, sem o qual a agenda não sabe quando se atende.
       change Api.Accounts.Clinic.Changes.SeedClinicHours
+      # E as boas-vindas, FORA da transação — ver o change, o hook é `after_transaction`.
+      change Api.Accounts.Clinic.Changes.EnqueueWelcomeEmail
     end
 
     update :update_settings do

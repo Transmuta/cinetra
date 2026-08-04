@@ -304,6 +304,12 @@ defmodule ApiWeb.Router do
     # e por ser pública e sem sessão, é exatamente o tipo de rota que o limite global protege.
     get "/api/reply/:token", PatientReplyController, :show
     post "/api/reply/:token", PatientReplyController, :create
+
+    # O descadastro pelo rodapé do e-mail (§10). Mesmo desenho: token no lugar de sessão, e o
+    # efeito só no POST — o GET existe para a página perguntar antes, porque scanner de e-mail
+    # abre link sozinho.
+    get "/api/opt-out/:token", PatientOptOutController, :show
+    post "/api/opt-out/:token", PatientOptOutController, :create
   end
 
   # Máquina OAuth do AshAuthentication (Assent): request + callback do Google. Chama
