@@ -37,9 +37,36 @@ export function apiPublicOrigin(): string {
 // um `x-forwarded-for` com "undefined" viraria uma chave de rate limit compartilhada por todo
 // mundo, e um `x-request-id` fora da faixa 20..200 seria descartado pelo Plug — trocando ausência
 // (perceptível) por correlação errada (não perceptível).
+/**
+ * O IP do cliente, ou `undefined` — **sem nunca levantar** (R-M19, onda 5 do doc 102).
+ *
+ * `getClientAddress()` do adapter-node **lança** quando o header configurado em `ADDRESS_HEADER`
+ * não vem na requisição (`files/handler.js`), e isso vale para QUALQUER header configurado — não
+ * só para os "exóticos". O comentário do `compose.dokploy.yml` afirmava que o `x-forwarded-for` do
+ * default *"não tem esse risco"*; ele tem, e comentário que mente sobre segurança é pior que
+ * comentário ausente, porque alguém decide com base nele.
+ *
+ * Quem chega sem passar pelo Traefik: outro serviço na rede `app`, um `curl` de diagnóstico de
+ * dentro da `dokploy-network`, um probe futuro. Sem esta guarda, cada um deles virava **500 em toda
+ * página que fale com a API** — e o `?.` que existia protegia contra a função ser `undefined`, não
+ * contra ela levantar.
+ *
+ * String vazia vira `undefined` de propósito (R-B9): com o XFF presente e vazio, o adapter devolve
+ * `''`, e `''` como chave de rate limit joga **todo mundo no mesmo balde**. Ausência é um estado
+ * honesto; chave vazia compartilhada é um teto global disfarçado de por-IP.
+ */
+export function ipDoCliente(event: RequestEvent): string | undefined {
+	try {
+		const ip = event.getClientAddress?.();
+		return ip ? ip : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
 export function headersDeContexto(event: RequestEvent, init: HeadersInit = {}): Headers {
 	const headers = new Headers(init);
-	const clientIp = event.getClientAddress?.();
+	const clientIp = ipDoCliente(event);
 	if (clientIp) headers.set('x-forwarded-for', clientIp);
 	const requestId = event.locals?.requestId;
 	if (requestId) headers.set('x-request-id', requestId);

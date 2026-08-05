@@ -83,6 +83,39 @@ describe('apiFetch (BFF repassa o cookie de sessão)', () => {
 		expect((init.headers as Headers).has('x-forwarded-for')).toBe(false);
 	});
 
+	// R-M19 (onda 5 do doc 102). O `?.` que existia protegia contra a função ser **undefined** —
+	// não contra ela **levantar**. E o `getClientAddress()` do adapter-node levanta quando o header
+	// configurado em `ADDRESS_HEADER` não vem na requisição, o que vale para QUALQUER header, não
+	// só os exóticos: o comentário do `compose.dokploy.yml` afirmava que o `x-forwarded-for` do
+	// default "não tem esse risco", e tinha.
+	//
+	// Quem chega sem passar pelo Traefik: outro serviço na rede `app`, um `curl` de diagnóstico de
+	// dentro da `dokploy-network`, um probe futuro. Sem a guarda, cada um virava 500 em toda página
+	// que fale com a API.
+	it('getClientAddress que LEVANTA não derruba a chamada', async () => {
+		const event = fakeEvent('x') as unknown as Record<string, unknown>;
+		event.getClientAddress = () => {
+			throw new Error('Address header was not set');
+		};
+
+		await expect(apiFetch(event as never, '/api/health')).resolves.toBeDefined();
+
+		const [, init] = (event as unknown as { fetch: ReturnType<typeof vi.fn> }).fetch.mock.calls[0];
+		expect((init.headers as Headers).has('x-forwarded-for')).toBe(false);
+	});
+
+	// R-B9. Com o XFF presente e VAZIO o adapter devolve `''`, e `''` como valor de header é o
+	// mesmo estrago do "undefined": todo mundo na mesma chave de rate limit.
+	it('endereço vazio é tratado como ausente, não como chave', async () => {
+		const event = fakeEvent('x') as unknown as Record<string, unknown>;
+		event.getClientAddress = () => '';
+
+		await apiFetch(event as never, '/api/health');
+
+		const [, init] = (event as unknown as { fetch: ReturnType<typeof vi.fn> }).fetch.mock.calls[0];
+		expect((init.headers as Headers).has('x-forwarded-for')).toBe(false);
+	});
+
 	// Correlação BFF → API. Sem este header, cada navegação gera um `request_id` novo do lado
 	// Elixir e não há como ligar o erro que o BFF registrou à requisição que o causou na API.
 	it('repassa o request_id do BFF em x-request-id', async () => {

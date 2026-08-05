@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { log, sanitizarRota, sanitizarTexto, truncar, LIMITES } from '$lib/server/log';
+import { ipDoCliente } from '$lib/server/api';
 import { fingerprint } from '$lib/fingerprint';
 
 /**
@@ -49,6 +50,40 @@ function recusarGrande(bytes: number) {
 	return json({ ok: false }, { status: 413 });
 }
 
+/**
+ * O corpo é uma violação de CSP? Devolve o relatório, ou `null` se for um erro de browser comum.
+ *
+ * **Dois formatos**, porque a especificação virou no meio do caminho e os browsers estão nos dois:
+ *
+ *   * `report-uri` (o que funciona hoje em todo lugar): `{"csp-report": {...}}`, com as chaves em
+ *     `kebab-case`;
+ *   * `report-to` / Reporting API (o sucessor): um ARRAY de `{type, body}`, com `body` em
+ *     `camelCase` — daí o mapeamento das duas grafias abaixo.
+ *
+ * Detectar pelo CORPO e não pelo `?csp=1` é deliberado: a query é nossa e pode ser esquecida numa
+ * mudança de CSP, o formato do corpo vem do browser e não muda por descuido nosso.
+ */
+function extrairCspReport(corpo: unknown): Record<string, string | undefined> | null {
+	const relatorio = Array.isArray(corpo)
+		? (corpo.find((r) => r?.type === 'csp-violation')?.body ?? null)
+		: ((corpo as Record<string, unknown>)?.['csp-report'] ?? null);
+
+	if (!relatorio || typeof relatorio !== 'object') return null;
+
+	const r = relatorio as Record<string, unknown>;
+	const texto = (...chaves: string[]) => {
+		const achado = chaves.map((k) => r[k]).find((v) => typeof v === 'string');
+		return achado as string | undefined;
+	};
+
+	return {
+		'effective-directive': texto('effective-directive', 'effectiveDirective'),
+		'violated-directive': texto('violated-directive', 'violatedDirective'),
+		'blocked-uri': texto('blocked-uri', 'blockedURL', 'blockedURI'),
+		'document-uri': texto('document-uri', 'documentURL', 'documentURI')
+	};
+}
+
 function excedeu(chave: string, agora: number): boolean {
 	// Poda preguiçosa: sem isto o Map cresce com um IP novo a cada requisição — o vazamento de
 	// memória clássico de rate limiter caseiro.
@@ -72,7 +107,16 @@ export const POST: RequestHandler = async (event) => {
 	// Rate limit **primeiro**, antes de qualquer outra checagem: ele é a guarda que também
 	// protege as guardas. Sem esta ordem, quem manda payload grande em laço seria recusado com
 	// 413 mas geraria uma linha de log por tentativa — o limite tem de valer para o barulho todo.
-	if (excedeu(event.getClientAddress(), Date.now())) return json({ ok: false }, { status: 429 });
+	// R-M19 e R-B9 (onda 5). Era `event.getClientAddress()` cru, e ele tem dois problemas aqui:
+	// **levanta** quando o header configurado falta (virando 500 nesta rota pública), e devolve
+	// `''` quando o header vem presente e vazio — com `''` de chave, todo mundo cai no MESMO balde
+	// de 20/min, e o teto por-IP vira um teto global sem ninguém perceber.
+	//
+	// `ipDoCliente` resolve os dois. O balde `sem-ip` é deliberadamente separado e nomeado: quem
+	// chega sem IP identificável divide um teto entre si, e não com os usuários reais.
+	if (excedeu(ipDoCliente(event) ?? 'sem-ip', Date.now())) {
+		return json({ ok: false }, { status: 429 });
+	}
 
 	const declarado = Number(event.request.headers.get('content-length') ?? 0);
 	if (declarado > MAX_BYTES) return recusarGrande(declarado);
@@ -88,6 +132,30 @@ export const POST: RequestHandler = async (event) => {
 		// ninguém registrar.
 		log.warning('relato de erro do browser ilegível', { bytes: declarado });
 		return json({ ok: false }, { status: 400 });
+	}
+
+	// R-B6 (onda 5) — o browser também manda VIOLAÇÃO DE CSP para cá, e no formato dele, não no
+	// nosso. `report-uri` posta `{"csp-report": {...}}`; o `report-to` mais novo posta um array de
+	// relatórios. Sem esta normalização, o relatório entraria com todos os campos `undefined` e
+	// viraria uma linha de log inútil — pior que não ter relatório, porque parece que tem.
+	//
+	// O ganho concreto: hoje, se um build sair sem `R2_ACCOUNT_ID`, o bucket fica fora do
+	// `connect-src`, todo upload de anexo morre e o motivo existe SÓ no console do browser da
+	// recepcionista. Com isto, ele vira linha de log com `blocked-uri` e `violated-directive`.
+	const cspReport = extrairCspReport(corpo);
+	if (cspReport) {
+		log.warning('violação de CSP no browser', {
+			origem: 'csp',
+			// Os três campos que respondem "o que foi bloqueado e por qual regra". `blocked_uri`
+			// passa por `sanitizarTexto` como qualquer texto vindo de fora: uma violação em
+			// `connect-src` carrega a URL tentada, e ela pode ter id de paciente.
+			directive: truncar(cspReport['effective-directive'] ?? cspReport['violated-directive'], 60),
+			blocked_uri: sanitizarTexto(truncar(cspReport['blocked-uri'], LIMITES.route)),
+			route: sanitizarRota(truncar(cspReport['document-uri'], LIMITES.route)),
+			user_agent: truncar(event.request.headers.get('user-agent'), LIMITES.extra)
+		});
+
+		return new Response(null, { status: 204 });
 	}
 
 	const origem = truncar(corpo.origem, 20);

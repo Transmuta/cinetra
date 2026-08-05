@@ -41,6 +41,15 @@ export default defineConfig({
 		? {
 				command: `npm run build && npm run preview -- --port ${PORT}`,
 				port: PORT,
+				// A guarda de boot do R-A3 (`lib/server/boot.ts`) exige `ORIGIN` e `API_URL` quando
+				// `NODE_ENV=production` — e o `vite preview` roda em production. Passá-las aqui não é
+				// contornar a guarda: é fazer a e2e exercitar a MESMA configuração que produção usa,
+				// em vez de uma variante mais frouxa que esconderia justamente esta classe de erro.
+				env: {
+					ORIGIN: LOCAL,
+					API_URL: process.env.E2E_API_ORIGIN || 'http://localhost:4010',
+					API_PUBLIC_ORIGIN: process.env.E2E_API_ORIGIN || 'http://localhost:4010'
+				},
 				// **Nunca reusar** um preview que já esteja de pé (doc 88, A-14).
 				//
 				// Com `reuseExistingServer`, um `preview` esquecido de uma sessão anterior serve o
