@@ -54,9 +54,68 @@ stamp="$(date -u +%Y%m%dT%H%M%SZ)"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
+# ---- Preflight de espaço (R-M11, doc 95) ------------------------------------------------------
+# O `mktemp -d` agora cai no volume dedicado (`TMPDIR=/var/tmp/backup`, no compose), o que torna o
+# espaço do dump contável e limitável. Mas numa VPS de disco único esse volume continua no MESMO
+# dispositivo do `pgdata` — o "fora do disco do banco" que o achado pedia não existe aqui. Então
+# quem de fato protege é esta conferência, e ela só serve ANTES de começar: abortar no meio do
+# `pg_dump` já consumiu o espaço.
+#
+# Agravante que torna isto mais que higiene: o serviço `backup` roda ANTES do `migrate` e é
+# fail-closed. Disco cheio durante o dump vira **deploy travado** por cima de disco cheio — e o
+# deploy travado costuma ser justamente o hotfix do incidente.
+#
+# `pg_database_size` é um teto GENEROSO para o dump: inclui índices, que o `--format=custom` não
+# escreve, e o formato ainda comprime. Exigir espaço livre >= tamanho do banco é conservador de
+# propósito — o erro que se quer evitar é o otimista.
+banco=$(psql -tAc "select pg_database_size(current_database())" | tr -d '[:space:]')
+livre=$(( $(df -Pk "$tmp" | awk 'NR==2 {print $4}') * 1024 ))
+minimo=$(( banco * ${BACKUP_FOLGA_PCT:-100} / 100 ))
+
+echo "[backup] espaço: livre=$(( livre / 1048576 ))MiB · banco=$(( banco / 1048576 ))MiB · mínimo=$(( minimo / 1048576 ))MiB"
+
+if [ "$livre" -lt "$minimo" ]; then
+  echo "[backup] ABORTANDO: espaço livre insuficiente em $tmp" >&2
+  echo "[backup] o dump encheria o disco do pgdata — e o deploy trava fail-closed logo atrás" >&2
+  exit 1
+fi
+
 dump="$tmp/${STACK}-${stamp}.dump"
 echo "[backup] pg_dump ${PGDATABASE}@${PGHOST:-db} -> $(basename "$dump")"
 pg_dump --format=custom --file="$dump"   # host/user/senha/db via PG* do ambiente
+
+# ---- Verificação de integridade (R-M10, doc 95) ----------------------------------------------
+# Entre gerar e declarar sucesso não havia NENHUMA leitura do arquivo. Um dump truncado — disco
+# cheio no meio do `pg_dump`, que é o cenário do R-M11, onde este `mktemp` divide disco com o
+# `pgdata` — subia inteiro para o R2 e o heartbeat mandava "ok".
+#
+# Isso é pior que não monitorar: o sinal que existe para responder "o backup está vivo?" passa a
+# responder sim para um arquivo que não restaura, e a descoberta fica para o dia do incidente.
+# O `restore.sh` já dizia a frase certa ("backup não testado não é backup") e dependia de um
+# humano lembrar.
+#
+# ATENÇÃO ao editar esta linha: `pg_restore --list` NÃO serve, e era o que o doc 95 recomendava.
+# Ele lê só o TOC, que no formato custom fica no INÍCIO do arquivo — então ele sai 0 sobre um dump
+# em que todo o dado foi perdido. Medido contra o `db` em 2026-08-04, três arquivos:
+#
+#   dump              | pg_restore --list | pg_restore -f /dev/null
+#   íntegro           | 0 (571 entradas)  | 0
+#   cortado ao meio   | 0  <-- o buraco   | 1  "could not read from input file: end of file"
+#   512 bytes zerados | 0  <-- o buraco   | 1  "could not uncompress data: incorrect data check"
+#
+# `-f /dev/null` converte o arquivo inteiro em SQL e joga fora: obriga a LER e descomprimir cada
+# bloco de dado, que é o que detecta truncamento e corrupção. Não conecta em banco nenhum (sem
+# `-d`), então não toca a produção. Custo medido: 34 ms contra 27 ms do `--list`, ~17% do tempo do
+# próprio `pg_dump` — proporcional ao tamanho do dump, e barato o bastante para rodar de hora em
+# hora.
+#
+# O que ele NÃO prova: que as LINHAS certas estão lá. É integridade do arquivo, não completude do
+# dado — essa é o ensaio de restore (item 1.8 do doc 102), que nenhuma linha de script substitui.
+#
+# Sob o `set -e` do topo, a saída != 0 aborta o script; e como o `trap ... ERR` já está armado
+# acima, a falha vira `/fail` no monitor externo em vez de silêncio.
+echo "[backup] verificando integridade do dump"
+pg_restore -f /dev/null "$dump"
 
 upload="$dump"; ext="dump"
 if [ -n "${BACKUP_AGE_RECIPIENT:-}" ]; then

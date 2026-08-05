@@ -1,6 +1,6 @@
 # Imagem do backup: pg_dump/pg_restore (casados com o servidor 16) + rclone (R2) + age (cifra).
 # Base debian bookworm (postgres:16) tem arm64 e traz rclone/age no apt — roda no A1 ARM.
-FROM postgres:16
+FROM postgres:16@sha256:33f923b05f64ca54ac4401c01126a6b92afe839a0aa0a52bc5aeb5cc958e5f20
 
 # `curl` é do heartbeat (docs/62 §9) e NÃO vem na base — medido: `postgres:16` não tem curl nem
 # wget. Sem instalar, o `|| true` do `sinal()` engoliria o "command not found", o sinal nunca
