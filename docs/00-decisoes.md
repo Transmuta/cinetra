@@ -257,6 +257,23 @@ Dark mode continua por `data-theme` (`@custom-variant dark`), não por `class` n
 - **profissional:** só a **própria** agenda e seus pacientes (FilterCheck, [06 §6](06-seguranca-e-lgpd.md)).
 - **recepção:** opera a agenda de **todos**, sem configurações sensíveis.
 
+**Emenda de 2026-08-04 — o `profissional` só LÊ a agenda** ([doc 103](103-o-profissional-so-le-a-agenda.md)).
+A fronteira acima dizia "só a própria agenda" sem separar ver de alterar; ele agendava na própria
+coluna, e o A7 na escrita o mantinha fora da coluna do colega. Passou a **não escrever em coluna
+nenhuma**: não lança, não remarca, não cancela, não exclui e não marca presença. Caíram junto a
+fila de espera e a escrita de pacote — não por coerência de papel, mas porque o `Materializer`
+lança as sessões da série com `authorize?: false`, e fechar só a policy do `Appointment` deixaria
+quem não pode lançar um bloco criando uma série de doze. **A leitura da agenda não mudou:** própria
+agenda, próprias presenças, e a clínica inteira em fila, pacotes e ficha do paciente, como antes.
+
+No mesmo dia, a **tela de Profissionais** fechou junto: ele não vê o diretório nem a própria ficha
+(CPF, endereço, dados bancários) — antes via os dois, a listagem recortada a uma linha só. A guarda
+é da superfície HTTP (`ProfessionalsController`) e não da policy de leitura do recurso, porque
+`load_agenda/4` lê `Professional` por dentro para montar a coluna: fechar a policy derrubaria a
+agenda dele com **Forbidden**, desfazendo a decisão de cima. A segunda camada é a `field_policy` de
+`@ficha_contratual`, que devolve `%Ash.ForbiddenField{}` sem derrubar a leitura. Detalhe e medição
+no [doc 103 §7](103-o-profissional-so-le-a-agenda.md).
+
 **Consequências.**
 - O enum `Movimento.Accounts.Role` ([01 §3](01-dominio-ash.md)) passa a `[:owner, :admin, :profissional, :recepcao]`.
 - As policies ([01 §7](01-dominio-ash.md), [06 §6](06-seguranca-e-lgpd.md)) ganham `owner` (bypass acima de `admin`) e derivam o papel do **`Membership` do tenant ativo** ([ADR-014](#adr-014--identidade-global-multi-tenant-modelo-vercel)).
