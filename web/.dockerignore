@@ -1,4 +1,33 @@
+# O que NÃO vai no contexto de build. R-B2 (doc 95, onda 3 do doc 102): eram quatro linhas, e o
+# `Dockerfile.prod` faz `COPY . .` no estágio de build.
+#
+# **O que isto NÃO era:** vazamento para a imagem final. O estágio `app` copia só quatro caminhos
+# (`build/`, `node_modules/`, `package.json`, `otel.mjs`), e o contexto é `./web`, então a chave
+# `age` e o `.env` da raiz ficam de fora por construção. O que se paga hoje é contexto inflado
+# enviado ao daemon a cada build — e ele agora roda no CI, a cada PR.
+#
+# O que isto PREVINE: um `web/.env` futuro. `vite.config.ts` chama `loadEnv`, então um arquivo
+# desses seria lido no build e poderia acabar assado num artefato. A regra `.env*` existe para que
+# ninguém precise lembrar disso no dia em que criar o arquivo.
 node_modules/
 .svelte-kit/
 build/
 .git/
+
+# Segredo local. `!.env.example` para que um template continue versionável e visível.
+.env
+.env.*
+!.env.example
+
+# Artefatos de teste e de build que não têm o que fazer num contexto de imagem.
+e2e/
+playwright-report/
+test-results/
+sourcemaps/
+coverage/
+a11y-*.json
+
+# Ruído de editor/SO.
+.vscode/
+.idea/
+.DS_Store
