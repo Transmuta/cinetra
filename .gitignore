@@ -14,4 +14,17 @@
 
 # Cache do Vite/Vitest. Mesmo caso: `node_modules/` só é ignorado dentro de `web/`.
 /node_modules/
-cinetra-prod-age.key
+
+# Material de chave privada (R-C3, doc 95). Era `cinetra-prod-age.key` — o NOME EXATO de uma chave
+# —, e o buraco foi medido: `git check-ignore cinetra-hml-age.key` não casava. Uma regra por nome
+# cobre a chave que já existe e deixa passar a PRÓXIMA, que aparece justamente no dia em que
+# alguém faz a coisa certa e rotaciona.
+#
+# A chave PÚBLICA do age é a exceção e precisa ser versionada: é o `recipient` com que o
+# `backup.sh` cifra. Sem o `!*.pub`, o backup pararia de cifrar em silêncio.
+#
+# Isto impede a chave de ser COMMITADA. Não impede de estar aqui — para isso existe o
+# `Api.SegredoNoWorkingTreeTest`, que falha enquanto houver `.key`/`.pem` na raiz.
+*.key
+*.pem
+!*.pub
