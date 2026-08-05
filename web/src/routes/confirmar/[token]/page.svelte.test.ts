@@ -26,7 +26,9 @@ const quando = {
 
 const resumo = {
 	clinica: 'Clínica Moving',
-	clinica_telefone: '(61) 99946-6274',
+	// A clínica sem telefone existe (o campo é opcional até a D6 do doc 64), e é o caso em que a
+	// tela não pode oferecer um botão de contato — daí o tipo carregar o `null`.
+	clinica_telefone: '(61) 99946-6274' as string | null,
 	paciente: 'Ana',
 	data: '05/08/2026',
 	hora: '08:30',
@@ -84,15 +86,40 @@ describe('/confirmar — o depois da resposta', () => {
 		);
 	});
 
-	it('quer remarcar: tom de espera (não de sucesso) e o telefone na mão', () => {
+	it('quer remarcar: tom de espera (não de sucesso) e o WhatsApp na mão', () => {
 		// Verde aqui dizia "resolvido" para quem ainda não tem horário nenhum.
 		const { container, getByRole } = tela({ resposta: 'quer_remarcar' });
 
 		expect(container.querySelector('.cn-paciente-aviso-espera')).not.toBeNull();
 		expect(container.querySelector('.cn-paciente-aviso-sim')).toBeNull();
+		expect(getByRole('link', { name: /WhatsApp/ })).toHaveAttribute(
+			'href',
+			expect.stringContaining('https://wa.me/5561999466274')
+		);
+	});
+
+	it('a conversa já começa dizendo de qual sessão se trata', () => {
+		// Quem recebe é a recepção, com dezenas de conversas abertas: sem isto, a primeira resposta
+		// dela é sempre "quem é?".
+		const { getByRole } = tela({ resposta: 'quer_remarcar' });
+
+		const href = getByRole('link', { name: /WhatsApp/ }).getAttribute('href') ?? '';
+		const texto = decodeURIComponent(new URL(href).searchParams.get('text') ?? '');
+
+		expect(texto).toContain('Sou Ana');
+		expect(texto).toContain('quarta-feira, 5 de agosto, às 08:30');
+	});
+
+	it('número fixo cai no `tel:` — wa.me de quem não tem WhatsApp abre o app para dizer que não', () => {
+		const { getByRole, queryByRole } = tela({
+			resposta: 'quer_remarcar',
+			clinica_telefone: '(11) 3456-7890'
+		});
+
+		expect(queryByRole('link', { name: /WhatsApp/ })).toBeNull();
 		expect(getByRole('link', { name: /Ligar para a clínica/ })).toHaveAttribute(
 			'href',
-			'tel:+5561999466274'
+			'tel:+551134567890'
 		);
 	});
 
@@ -104,14 +131,31 @@ describe('/confirmar — o depois da resposta', () => {
 		expect(container.querySelector('[aria-live="polite"]')).not.toBeNull();
 	});
 
-	it('os botões somem depois de responder — e voltam quando se pede', async () => {
-		const { getByRole, queryByRole } = tela({ resposta: 'confirmou' });
+	it('respondeu, acabou: os botões somem e NÃO há como responder de novo pela tela', () => {
+		// Um "mudar minha resposta" convidaria ao segundo toque sem a pessoa saber se o primeiro
+		// valeu. Quem mudou de ideia fala com a clínica — que é quem mexe na agenda de qualquer jeito.
+		const { queryByRole } = tela({ resposta: 'confirmou' });
 
 		expect(queryByRole('button', { name: /Preciso remarcar/ })).toBeNull();
+		expect(queryByRole('button', { name: /Confirmar presença/ })).toBeNull();
+		expect(queryByRole('button', { name: /Mudar minha resposta/ })).toBeNull();
+	});
 
-		await getByRole('button', { name: /Mudar minha resposta/ }).click();
+	it('quem confirmou também tem o caminho de volta — mas sem falar em remarcar', () => {
+		const { getByRole } = tela({ resposta: 'confirmou' });
 
-		expect(getByRole('button', { name: /Preciso remarcar/ })).toBeInTheDocument();
+		const href = getByRole('link', { name: /WhatsApp/ }).getAttribute('href') ?? '';
+		const texto = decodeURIComponent(new URL(href).searchParams.get('text') ?? '');
+
+		expect(texto).toContain('preciso falar com vocês');
+		expect(texto).not.toContain('remarcar');
+	});
+
+	it('sem telefone da clínica, não sobra botão que não leva a lugar nenhum', () => {
+		const { queryByRole } = tela({ resposta: 'quer_remarcar', clinica_telefone: null });
+
+		expect(queryByRole('link', { name: /WhatsApp/ })).toBeNull();
+		expect(queryByRole('link', { name: /Ligar para a clínica/ })).toBeNull();
 	});
 });
 
@@ -123,7 +167,7 @@ describe('/confirmar — quando não há o que confirmar', () => {
 
 		expect(getByText('Esta sessão foi cancelada')).toBeInTheDocument();
 		expect(queryByRole('button', { name: /Confirmar presença/ })).toBeNull();
-		expect(getByRole('link', { name: /Ligar para a clínica/ })).toBeInTheDocument();
+		expect(getByRole('link', { name: /WhatsApp/ })).toBeInTheDocument();
 	});
 
 	it('sessão que já passou também não se confirma', () => {

@@ -31,8 +31,11 @@ export const GET: RequestHandler = async (event) => {
 		inicio: resumo.inicio,
 		fim: resumo.fim,
 		titulo: `Sessão na ${clinica}`,
+		// "Fale com a clínica", e não "ligue": o canal em que ela responde é o WhatsApp, e o evento
+		// de calendário não carrega link clicável em todo aplicativo — o número, sim, todo mundo
+		// sabe usar.
 		descricao: telefone
-			? `Sua sessão na ${clinica}. Precisa remarcar? Ligue para ${telefone}.`
+			? `Sua sessão na ${clinica}. Precisa remarcar? Fale com a clínica: ${telefone}.`
 			: `Sua sessão na ${clinica}.`,
 		agora: new Date().toISOString()
 	});

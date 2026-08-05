@@ -105,28 +105,43 @@ e é o preço de a leitura não mentir.
 | Estado | O que ela mostra |
 | --- | --- |
 | perguntando | clínica no topo (navy + régua + telefone discável), `10:00` em 34px, `segunda-feira, 10 de agosto`, selo `amanhã` quando cabe, dois botões a 14px de distância |
-| confirmou | caixa **verde** de desfecho + **adicionar à agenda** (`.ics`) + "mudar minha resposta" |
-| quer remarcar | caixa **azul** de espera (não é desfecho: depende de a clínica ligar) + **ligar para a clínica** + "mudar minha resposta" |
-| sessão cancelada | "Esta sessão foi cancelada", sem botão de confirmar, com o telefone |
+| confirmou | caixa **verde** de desfecho + **adicionar à agenda** (`.ics`) + **falar com a clínica no WhatsApp** |
+| quer remarcar | caixa **azul** de espera (não é desfecho: depende de a clínica responder) + **falar com a clínica no WhatsApp** |
+| sessão cancelada | "Esta sessão foi cancelada", sem botão de confirmar, com o WhatsApp |
 | sessão já passada | "Essa sessão já passou", idem |
 | link inválido/vencido | mesma moldura, assinada pela Cinetra (não há clínica a anunciar) |
 
-Quatro decisões dentro disso:
+Cinco decisões dentro disso:
 
 1. **O `.ics` é uma rota, não um `data:` nem um Blob.** O Chrome bloqueia navegação de topo para
    `data:` e o iOS não baixa Blob de forma confiável — as duas alternativas falham exatamente no
    aparelho em que esta tela mais é aberta. O `UID` é um **digest do token**, não o token: o arquivo
    acaba em calendário compartilhado com a família, e um `UID` estável ainda faz o app **atualizar**
    o evento quando a sessão for remarcada, em vez de criar um segundo.
-2. **"Mudar minha resposta" some por padrão e é preciso pedir.** Deixar os dois botões depois de
-   responder convida ao segundo toque sem saber se o primeiro valeu (é o motivo pelo qual eles
-   sumiam); não ter saída nenhuma faz quem tocou errado ligar para a clínica. O domínio já
-   suportava a troca — `confirmou → quer_remarcar` avisa a recepção de novo, e há teste para isso
-   desde o doc 65.
+2. **Respondeu, acabou: os botões somem e não voltam** (decisão de 2026-08-04, revendo um primeiro
+   desenho que oferecia "mudar minha resposta"). Qualquer afordância de responder de novo convida
+   ao segundo toque sem a pessoa saber se o primeiro valeu — que é o motivo de os botões sumirem em
+   primeiro lugar. Quem mudou de ideia tem um caminho melhor que um clique: **falar com a clínica**,
+   que é quem vai mexer na agenda de qualquer forma. O domínio continua aceitando a troca
+   (`confirmou → quer_remarcar` avisa a recepção de novo, com teste desde o doc 65) — o que saiu foi
+   a porta na tela, não a capacidade.
 3. **Dois tons, e a diferença não é decorativa.** Pintar "preciso remarcar" de verde dizia
    "resolvido" para quem ainda não tem horário nenhum.
 4. **14px entre os botões, não 8px.** São respostas opostas, num celular, muitas vezes em rede
    ruim — o toque que erra por um dedo mandava o contrário do que a pessoa quis.
+5. **O canal de volta é o WhatsApp, não a ligação** (pedido de 2026-08-04). É onde a clínica já
+   fala com o paciente, e é o único dos dois que aceita a pessoa escrever fora do horário da
+   recepção. Três detalhes que a decisão carrega:
+   - **`tel:` continua como reserva.** `wa.me` de um número que não tem WhatsApp abre o aplicativo
+     só para anunciar que aquele número não existe lá — e clínica com fixo existe. Quem decide é o
+     `recebeWhatsapp/1` que o projeto já tinha, agora dentro de `linkWhatsapp/2`;
+   - **a conversa já vai escrita**: *"Olá! Sou Ana e preciso remarcar minha sessão de quarta-feira,
+     5 de agosto, às 10:30."* Quem recebe é a recepção, com dezenas de conversas abertas — sem
+     isso, a primeira resposta dela é sempre "quem é?";
+   - **o número no cabeçalho continua `tel:`**. Ali o que está escrito é o número, e tocar num
+     número é ligar; o botão é que é o canal;
+   - **sem telefone na clínica, não sobra botão nenhum.** Um contato que não leva a lugar nenhum é
+     pior que a ausência dele — e clínica sem telefone cadastrado existe.
 
 ## 7. Arquivo a arquivo
 
@@ -145,14 +160,15 @@ Quatro decisões dentro disso:
 | [`cinetra/CartaoPaciente.svelte`](../web/src/lib/components/cinetra/CartaoPaciente.svelte) | a moldura: `.cn-root` claro, topo navy com a clínica, régua sálvia, telefone `tel:`, assinatura |
 | [`styles/cinetra.css`](../web/src/lib/styles/cinetra.css) | seção `.cn-paciente-*` — hex de marca em CSS, onde ganham media query e `:focus-visible` |
 | [`data-hora.ts`](../web/src/lib/data-hora.ts) | `quandoParaPaciente/3` — a quarta forma de dizer "quando", a única que não fala com a recepção |
+| [`telefone.ts`](../web/src/lib/telefone.ts) | `linkWhatsapp/2` — o `wa.me` com a mensagem já escrita, e `null` para quem não recebe WhatsApp |
 | [`server/ics.ts`](../web/src/lib/server/ics.ts) | `eventoIcs/1` e `uidDeSessao/1` (RFC 5545: CRLF, escape, dobra em 75 **octetos** sem partir multibyte) |
 | [`confirmar/[token]/resposta.ts`](../web/src/routes/confirmar/[token]/resposta.ts) | a chamada à API num lugar só — o `.ics` é o segundo consumidor, e o IP do paciente não pode divergir entre eles |
 | [`confirmar/[token]/sessao.ics/+server.ts`](../web/src/routes/confirmar/[token]/sessao.ics/+server.ts) | serve o evento; 404 sem instante ou com sessão cancelada |
 | [`confirmar/[token]/+page.svelte`](../web/src/routes/confirmar/[token]/+page.svelte) | a tela |
 | [`e2e/tema-auth-claro.spec.ts`](../web/e2e/tema-auth-claro.spec.ts) | `/confirmar/token-invalido` entra na varredura de tema |
 
-Testes novos: 6 no backend, 79 no web nos arquivos tocados (`ics`, `data-hora`, `resposta`,
-`sessao.ics`, `CartaoPaciente`, a página).
+Testes novos: 6 no backend, ~90 no web nos arquivos tocados (`ics`, `data-hora`, `telefone`,
+`resposta`, `sessao.ics`, `CartaoPaciente`, a página).
 
 ## 8. Gates
 
@@ -162,7 +178,7 @@ Testes novos: 6 no backend, 79 no web nos arquivos tocados (`ics`, `data-hora`, 
 | `mix test --only rls` (como `cinetra_app`) | 0 falhas |
 | `mix format --check-formatted` + `compile --warnings-as-errors` | limpo |
 | `npm run check` | 0 erros |
-| `npm run coverage` | 2612 testes, **93,1%** linhas / 79,7% branches (piso 80/75) |
+| `npm run coverage` | 2648 testes, **93,1%** linhas / 79,8% branches (piso 80/75) |
 | e2e | **não rodou aqui**: o container `web` não tem os browsers do Playwright instalados (`npx playwright install`). Os 4 cenários do arquivo falham por isso, inclusive os 2 que já existiam |
 
 O tema foi provado sem o e2e, por dois fatos medidos mais um invariante já guardado: com

@@ -375,8 +375,8 @@
 	color: #6b4e2e;
 }
 
-/* Ações secundárias: "adicionar à agenda", "ligar", "mudar minha resposta". Discretas de
-   propósito — a decisão principal já foi tomada acima. */
+/* Ações secundárias: "adicionar à agenda" e "falar com a clínica". Discretas de propósito — a
+   decisão principal já foi tomada acima, e o que sobra é o que fazer com ela. */
 .cn-paciente-secundarias {
 	display: flex;
 	flex-wrap: wrap;
@@ -405,38 +405,6 @@
 	background: #f2efe8;
 	border-color: #b9b3a4;
 }
-/* "Mudar minha resposta" é o mais discreto dos três: existe para quem tocou errado, e não para
-   convidar quem já respondeu a responder de novo. */
-.cn-paciente-desfazer {
-	border: 0;
-	padding: 10px 4px;
-	background: none;
-	font-size: 14px;
-	font-weight: 500;
-	color: #736e63;
-	text-decoration: underline;
-	text-underline-offset: 3px;
-	cursor: pointer;
-	font-family: inherit;
-	min-height: 44px;
-}
-.cn-paciente-desfazer:hover {
-	color: #212a37;
-}
-
-/* A legenda de "mudar minha resposta": lembra o que está gravado agora, para o segundo toque ser
-   uma troca consciente e não um tiro no escuro. */
-.cn-paciente-troca {
-	margin: 0 0 2px;
-	font-size: 14px;
-	line-height: 1.5;
-	color: #575249;
-	text-wrap: pretty;
-}
-.cn-paciente-troca strong {
-	color: #212a37;
-}
-
 /* A nota de rodapé (o que a tela NÃO faz) e a assinatura. Fora do cartão: são sobre a página,
    não sobre a sessão. */
 .cn-paciente-nota {

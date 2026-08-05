@@ -13,11 +13,12 @@
 	import CartaoPaciente from '$lib/components/cinetra/CartaoPaciente.svelte';
 	import SubmitButton from '$lib/components/SubmitButton.svelte';
 	import { envioPorItem } from '$lib/forms.svelte';
-	import { canonizarTelefone } from '$lib/telefone';
+	import { canonizarTelefone, linkWhatsapp } from '$lib/telefone';
 	import CalendarClock from '@lucide/svelte/icons/calendar-clock';
 	import CalendarPlus from '@lucide/svelte/icons/calendar-plus';
 	import Check from '@lucide/svelte/icons/check';
 	import Info from '@lucide/svelte/icons/info';
+	import MessageCircle from '@lucide/svelte/icons/message-circle';
 	import Phone from '@lucide/svelte/icons/phone';
 	import type { ActionData, PageData } from './$types';
 
@@ -32,27 +33,37 @@
 	// estas duas, a tela oferecia "confirmar presença" para algo que não existe mais.
 	const encerrada = $derived(!!resumo && (resumo.ativa === false || !!quando?.passou));
 
+	// O canal de volta. WhatsApp primeiro: é onde a clínica já fala com o paciente, e é o único
+	// dos dois que deixa a pessoa escrever fora do horário da recepção. O `tel:` fica como reserva
+	// para o número que NÃO recebe WhatsApp — `wa.me` de um fixo abre o app só para dizer que
+	// aquele número não existe lá (ver `linkWhatsapp`).
 	const tel = $derived(canonizarTelefone(resumo?.clinica_telefone));
 
-	// "Mudar minha resposta": some por padrão e é preciso pedir. Deixar os dois botões na tela
-	// depois de responder convidaria ao segundo toque sem saber se o primeiro valeu — mas não ter
-	// saída nenhuma faz quem tocou errado ligar para a clínica, que é o custo que esta tela existe
-	// para evitar.
-	let revendo = $state(false);
+	// A conversa já começa dizendo de qual sessão se trata. Quem recebe é a recepção, com dezenas
+	// de conversas abertas: sem isso, a primeira resposta dela é sempre "quem é?".
+	const quandoEmTexto = $derived(
+		quando ? `${quando.extenso}, às ${quando.hora}` : `${resumo?.data} às ${resumo?.hora}`
+	);
+	const euSou = $derived(resumo?.paciente ? `Sou ${resumo.paciente} e ` : '');
+	const assunto = $derived(
+		resumo?.ativa === false
+			? `minha sessão de ${quandoEmTexto} foi cancelada. Gostaria de marcar outro horário.`
+			: resumo?.resposta === 'quer_remarcar'
+				? `preciso remarcar minha sessão de ${quandoEmTexto}.`
+				: `tenho sessão em ${quandoEmTexto} e preciso falar com vocês.`
+	);
+	const zap = $derived(linkWhatsapp(resumo?.clinica_telefone, `Olá! ${euSou}${assunto}`));
 
 	// Dois botões, um form: a chave do "em voo" é o `value` do botão clicado. Quem responde por
 	// WhatsApp está no celular, muitas vezes em rede ruim — sem sinal nenhum o toque parece
 	// perdido e a pessoa toca no OUTRO botão, mandando a resposta contrária.
-	const resposta = envioPorItem<string>({
-		// Trocou a resposta? O formulário se fecha e a caixa nova aparece. **Só no sucesso**: se o
-		// POST falhou, fechar esconderia os botões e o erro junto, e a pessoa ficaria com a resposta
-		// antiga na tela sem saber que a troca não valeu.
-		aoResponder: (result) => {
-			if (result.type === 'success') revendo = false;
-		}
-	});
+	const resposta = envioPorItem<string>();
 
-	const perguntando = $derived(!!resumo && !encerrada && (!respondeu || revendo));
+	// Respondeu, acabou: os botões somem e não voltam. Deixá-los (ou oferecer um "mudar minha
+	// resposta") convidaria ao segundo toque sem a pessoa saber se o primeiro valeu — e quem
+	// realmente mudou de ideia tem um caminho melhor que um clique: falar com a clínica, que é
+	// quem vai mexer na agenda de qualquer forma.
+	const perguntando = $derived(!!resumo && !encerrada && !respondeu);
 </script>
 
 <svelte:head>
@@ -79,9 +90,9 @@
 				<!-- Deixa explícito que pedir remarcação não remarca nada sozinho (§5): sem isso,
 				     alguém fica esperando um horário novo que ninguém vai mandar automaticamente. -->
 				Pedir remarcação não escolhe um horário novo — a clínica entra em contato.
-			{:else if tel}
-				A recepção resolve pelo telefone: um horário novo depende da agenda, e nenhum clique
-				daqui de fora conhece as regras dela.
+			{:else if zap || tel}
+				A recepção resolve por lá: um horário novo depende da agenda, e nenhum clique daqui de
+				fora conhece as regras dela.
 			{/if}
 		{/snippet}
 
@@ -98,7 +109,13 @@
 				{resumo.ativa === false
 					? 'A clínica cancelou este horário depois que a mensagem foi enviada.'
 					: 'O horário abaixo já aconteceu.'}
-				{tel ? 'Para marcar um novo, é só ligar.' : 'Fale com a clínica para marcar um novo.'}
+				{#if zap}
+					Para marcar um novo, é só chamar no WhatsApp.
+				{:else if tel}
+					Para marcar um novo, é só ligar.
+				{:else}
+					Fale com a clínica para marcar um novo.
+				{/if}
 			</p>
 		{:else if !respondeu}
 			<!-- A instrução sai depois da resposta: mantida, ela continuaria pedindo o que a pessoa
@@ -120,7 +137,7 @@
 		<!-- O resultado é anunciado a leitor de tela: os botões somem no mesmo instante, e sem isto
 		     quem navega por teclado fica sem foco e sem notícia do que aconteceu. -->
 		<div aria-live="polite">
-			{#if respondeu && !revendo}
+			{#if respondeu}
 				{#if resumo.resposta === 'confirmou'}
 					<p class="cn-paciente-aviso cn-paciente-aviso-sim">
 						<Check size={18} />
@@ -128,8 +145,8 @@
 					</p>
 				{:else}
 					<!-- Azul, e não verde: pedir remarcação não é um desfecho — é um pedido em aberto
-					     que ainda depende de a clínica ligar. Verde aqui dizia "resolvido" para quem
-					     não tem horário nenhum. -->
+					     que ainda depende de a clínica responder. Verde aqui dizia "resolvido" para
+					     quem não tem horário nenhum. -->
 					<p class="cn-paciente-aviso cn-paciente-aviso-espera">
 						<CalendarClock size={18} />
 						<span>Avisamos a clínica que você precisa remarcar. Em breve entram em contato.</span>
@@ -140,17 +157,6 @@
 
 		{#if perguntando}
 			<form method="POST" use:enhance={resposta.submitPeloBotao} class="cn-paciente-acoes">
-				{#if revendo}
-					<p class="cn-paciente-troca">
-						Sua resposta agora é
-						<strong
-							>{resumo.resposta === 'confirmou'
-								? 'presença confirmada'
-								: 'preciso remarcar'}</strong
-						>. Toque na outra opção para trocar.
-					</p>
-				{/if}
-
 				<SubmitButton
 					emVoo={resposta.emVoo('confirmou')}
 					disabled={resposta.algumEmVoo}
@@ -186,7 +192,7 @@
 		     quem confirmou não tinha o que fazer, e quem pediu remarcação — que é justamente quem
 		     tem um problema — ficava sem nenhuma saída na mão. -->
 		<div class="cn-paciente-secundarias">
-			{#if respondeu && !revendo && resumo.resposta === 'confirmou' && !encerrada}
+			{#if respondeu && resumo.resposta === 'confirmou' && !encerrada}
 				<!-- Caminho absoluto: relativo a `/confirmar/<token>` (sem barra no fim), um
 				     `sessao.ics` solto resolveria para `/confirmar/sessao.ics`. E
 				     `data-sveltekit-reload` porque o destino é um arquivo, não uma rota do app. -->
@@ -195,16 +201,19 @@
 				</a>
 			{/if}
 
-			{#if tel && (encerrada || (respondeu && !revendo && resumo.resposta === 'quer_remarcar'))}
-				<a class="cn-paciente-link" href="tel:{tel}">
-					<Phone size={17} /> Ligar para a clínica
-				</a>
-			{/if}
-
-			{#if respondeu && !encerrada}
-				<button type="button" class="cn-paciente-desfazer" onclick={() => (revendo = !revendo)}>
-					{revendo ? 'Deixar como está' : 'Mudar minha resposta'}
-				</button>
+			<!-- A única saída depois da resposta, e a única na sessão encerrada: falar com quem vai
+			     mexer na agenda. Só aparece se houver número — botão que não leva a lugar nenhum é
+			     pior que a ausência dele. -->
+			{#if encerrada || respondeu}
+				{#if zap}
+					<a class="cn-paciente-link" href={zap} target="_blank" rel="noopener">
+						<MessageCircle size={17} /> Falar com a clínica no WhatsApp
+					</a>
+				{:else if tel}
+					<a class="cn-paciente-link" href="tel:{tel}">
+						<Phone size={17} /> Ligar para a clínica
+					</a>
+				{/if}
 			{/if}
 		</div>
 	</CartaoPaciente>
