@@ -121,6 +121,18 @@ services:
       DATABASE_METRICS_PASSWORD: ${DATABASE_METRICS_PASSWORD:-}
       SECRET_KEY_BASE: ${SECRET_KEY_BASE}
       TOKEN_SIGNING_SECRET: ${TOKEN_SIGNING_SECRET}
+      # `PHX_SERVER: "false"` não dispensa as envs de web, e supor o contrário derrubou o primeiro
+      # deploy real de HML (2026-08-06, `exit 1`). O `bin/api eval` carrega o `config/runtime.exs`
+      # EXATAMENTE como o `start` — o bloco `config_env() == :prod` levanta sem `PHX_HOST` e sem
+      # `WEB_APP_URL`, então o container morria antes de abrir conexão com o banco. O log não
+      # mencionava banco nem migration, o que mandava quem investigava para o lugar errado.
+      #
+      # Os valores não são usados aqui (não há endpoint escutando, não há redirect de login) — eles
+      # existem para o release conseguir BOOTAR. Preso por `Api.DeployEnvsTest`, que deriva a lista
+      # do próprio `runtime.exs`: um `|| raise` novo lá deixa o teste vermelho até este bloco
+      # acompanhar.
+      PHX_HOST: ${WEB_HOST}
+      WEB_APP_URL: "https://${WEB_HOST}"
       PHX_SERVER: "false"
 
   api:
