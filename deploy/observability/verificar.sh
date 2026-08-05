@@ -19,7 +19,18 @@ set -uo pipefail
 API="${API:-http://localhost:4010}"
 WEB="${WEB:-http://localhost:5173}"
 GRAFANA="${GRAFANA:-http://localhost:3300}"
-GRAFANA_AUTH="${GRAFANA_AUTH:-admin:cinetra-local}"
+# R-B4 (onda 5): era `admin:cinetra-local` como default, num arquivo RASTREADO. Não valia em
+# produção — o compose exige `GRAFANA_ADMIN_PASSWORD` com `:?` e prende o Grafana em 127.0.0.1 —,
+# mas publicava o padrão `admin:cinetra-<algo>` e convidava ao reuso. Agora o default é só o
+# usuário: sem senha, as chamadas ao Grafana falham com 401 e o script diz o que fazer, em vez de
+# tentar adivinhar.
+GRAFANA_AUTH="${GRAFANA_AUTH:-admin:${GRAFANA_ADMIN_PASSWORD:-}}"
+
+case "$GRAFANA_AUTH" in
+  *:) printf '\033[33m·\033[0m GRAFANA_AUTH sem senha. Exporte GRAFANA_ADMIN_PASSWORD ou\n'
+      printf '  GRAFANA_AUTH=usuario:senha — sem isso todo /api/* do Grafana volta 401 e as\n'
+      printf '  checagens reportam "ausente" para coisa que está lá.\n' ;;
+esac
 # Nome do serviço como o Alloy o rotula (nome do container).
 SVC_API="${SVC_API:-cinetra-api-1}"
 SVC_WEB="${SVC_WEB:-cinetra-web-1}"
@@ -478,7 +489,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------------------------
-titulo "13. Métricas: máquina, containers e BEAM (doc 74)"
+titulo "12. Métricas: máquina, containers e BEAM (doc 74)"
 
 # Log responde "o que a aplicação fez"; as views `metrics_*` respondem "em que estado o negócio
 # está". Esta terceira fonte responde "em que estado a MÁQUINA está" — e ela tem o mesmo modo de
@@ -559,7 +570,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------------------------
-titulo "12. Dashboards provisionados"
+titulo "13. Dashboards provisionados"
 
 # Painel montado na UI morre com o container, e a VM obs é descartável de propósito. O que
 # garante que ele volte é o arquivo — então o que se verifica é que o ARQUIVO virou dashboard.
@@ -573,7 +584,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------------------------
-titulo "13. Segurança do painel: o Grafana não publica em 0.0.0.0 (A2, doc 86 §3)"
+titulo "14. Segurança do painel: o Grafana não publica em 0.0.0.0 (A2, doc 86 §3)"
 
 # O Grafana é o único serviço do stack com `ports:`, e o compose o prende em 127.0.0.1 — em
 # produção o acesso vem pelo Traefik + Cloudflare Access. Publicá-lo em 0.0.0.0 exporia o login,
@@ -600,7 +611,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------------------------
-titulo "14. Traces: o terceiro sinal (doc 76)"
+titulo "15. Traces: o terceiro sinal (doc 76)"
 
 # O Tempo NÃO tem healthcheck no compose — a imagem é distroless e todo `test:` falha por falta de
 # `/bin/sh`, deixando o container eternamente `unhealthy` com o serviço perfeito. Quem verifica a
@@ -658,6 +669,200 @@ for porta in 4317 4318 3200; do
     *)    vermelho "porta $porta RESPONDE no host — ingestão de trace exposta, e ela não autentica" ;;
   esac
 done
+
+# ---------------------------------------------------------------------------------------------
+titulo "16. O log do Postgres não leva nome de paciente (R-A8, doc 95)"
+
+# A §5 acima prova a REDAÇÃO (CPF, e-mail, telefone) e o falso positivo dela. Esta seção prova a
+# CONTENÇÃO, que é outra coisa: contra nome próprio não existe regex, então o que protege é o log
+# do container `db` não chegar inteiro ao Loki.
+#
+# A allowlist de coleta é por PROJETO do compose, e o `db` está no projeto — o log dele entra como
+# o de qualquer outro serviço. O que o Postgres emite numa violação de unicidade (capturado do
+# container em 2026-08-04):
+#
+#   … [33091] ERROR:  duplicate key value violates unique constraint "patients_cpf_index"
+#   … [33091] DETAIL:  Key (cpf)=(11122233344) already exists.
+#   … [33091] STATEMENT:
+#   \tinsert into patients values ('Maria Aparecida da Silva', …);
+#
+# O `STATEMENT:` é MULTILINHA e a continuação não repete o rótulo — é ela que carrega o nome. Um
+# filtro só pelo rótulo pareceria funcionar e deixaria passar exatamente a linha que importa, que
+# é a armadilha já documentada no regex de telefone do `alloy.alloy`. Por isso a asserção aqui é
+# sobre a continuação, e não sobre o rótulo.
+SVC_DB="${SVC_DB:-cinetra-db-1}"
+
+# Guarda contra vacuidade, no espírito das §5 e §6: "0 linhas de DETAIL" é indistinguível de "0
+# linhas do db". Sem confirmar que HÁ log deste container, um Alloy parado daria o mesmo verde que
+# uma contenção funcionando — e o do Alloy parado é o perigoso.
+db_total=$(linhas "{service=\"$SVC_DB\"}")
+
+if [ "$db_total" -lt 1 ] 2>/dev/null; then
+  vermelho "pulado — nenhuma linha de $SVC_DB no Loki (container coletado? SVC_DB certo?)"
+else
+  verde "há log de $SVC_DB no Loki ($db_total linhas) — a asserção abaixo tem sobre o que falar"
+
+  # As três formas, medidas separadamente: o rótulo, a continuação indentada, e o valor literal.
+  for padrao in 'DETAIL:' 'STATEMENT:' 'CONTEXT:'; do
+    if [ "$(linhas "{service=\"$SVC_DB\"} |= \"$padrao\"")" -eq 0 ] 2>/dev/null; then
+      verde "nenhuma linha \`$padrao\` do Postgres chegou ao Loki"
+    else
+      vermelho "linha \`$padrao\` do Postgres ESTÁ no Loki — ela carrega os valores do INSERT"
+    fi
+  done
+
+  # A que mais importa: a continuação do STATEMENT. Um `insert into` vindo do container do banco
+  # só existe no log como corpo de statement — e é onde o nome do paciente estaria.
+  if [ "$(linhas "{service=\"$SVC_DB\"} |~ \"(?i)(insert into|update .* set)\"")" -eq 0 ] 2>/dev/null; then
+    verde "nenhum corpo de statement (insert/update) do Postgres no Loki"
+  else
+    vermelho "corpo de statement do Postgres no Loki — é a linha que leva NOME, e nome não tem regex"
+  fi
+
+  # O outro lado, no mesmo espírito do "número operacional preservado" da §5: a contenção não pode
+  # comer o diagnóstico. `ERROR:` diz QUE houve violação e em qual constraint, sem dizer de quem —
+  # e é o que se lê às 3h. Se ele também sumiu, o filtro está largo demais.
+  if [ "$(linhas "{service=\"$SVC_DB\"} |~ \"(ERROR|FATAL|LOG):\"")" -ge 1 ] 2>/dev/null; then
+    verde "linhas ERROR/FATAL/LOG do Postgres preservadas (contenção não comeu o diagnóstico)"
+  else
+    vermelho "nem ERROR/FATAL/LOG do Postgres sobrou — o filtro está largo demais"
+  fi
+fi
+
+# ---------------------------------------------------------------------------------------------
+titulo "17. O alerta tem para onde ir — e chega (R-C1, doc 95)"
+
+# A peça que o desenho inteiro declarava indispensável era a única sem gate: este script cobria 15
+# seções e nenhuma verificava ENTREGA de alerta. As 9 regras caíam na notification policy default
+# do Grafana, que aponta para o `grafana-default-email` — endereço placeholder, SMTP desligado.
+#
+# As três asserções abaixo são de configuração e rodam sempre. A quarta manda um e-mail DE VERDADE
+# e por isso é opt-in (`PROVAR_ALERTA=1`), no mesmo espírito do `PAUSAR_DB=1` da §8: prova que
+# custa alguma coisa não pode rodar a cada execução, senão o custo faz alguém parar de rodar o
+# script inteiro.
+
+cps=$(graf '/api/v1/provisioning/contact-points')
+
+if printf '%s' "$cps" | grep -q '"name":"cinetra-plantao"'; then
+  verde "contact point 'cinetra-plantao' provisionado"
+else
+  vermelho "contact point 'cinetra-plantao' AUSENTE — as regras caem no grafana-default-email (placeholder)"
+fi
+
+# O destinatário não pode ter ficado com o literal da env não resolvida nem com o placeholder do
+# template. Os dois sobem sem erro e produzem o mesmo silêncio.
+if printf '%s' "$cps" | grep -qE '\$\{GRAFANA_ALERTA_EMAIL\}|troque-me@exemplo\.com'; then
+  vermelho "o destinatário está sem resolver ou com o placeholder do .env.exemplo"
+else
+  verde "destinatário do alerta preenchido"
+fi
+
+# A raiz da árvore. Um bloco `policies` provisionado substitui a default inteira; se a raiz não for
+# o plantão, alerta novo que ninguém roteou volta a sumir no contato embutido.
+if graf '/api/v1/provisioning/policies' | grep -q '"receiver":"cinetra-plantao"'; then
+  verde "a raiz da notification policy aponta para 'cinetra-plantao'"
+else
+  vermelho "a raiz da policy NÃO é 'cinetra-plantao' — provisionamento não aplicou?"
+fi
+
+# SMTP desligado é o modo de falha mais barato de todos: o contato está certo, a policy está certa,
+# e nada sai. O Grafana registra a recusa no PRÓPRIO log, que é o lugar que ninguém olha quando o
+# alerta deixa de chegar. Lido do container, não do `.env`, porque o que vale é o que subiu.
+smtp=$($DOCKER compose --env-file "$ENVFILE" -f "$DIR/compose.obs.yml" exec -T grafana \
+        printenv GF_SMTP_ENABLED 2>/dev/null | tr -d '\r')
+case "${smtp:-}" in
+  true|True|TRUE) verde "GF_SMTP_ENABLED=true no container do Grafana" ;;
+  *) vermelho "GF_SMTP_ENABLED='${smtp:-<vazio>}' — o alerta dispara e o e-mail NÃO sai" ;;
+esac
+
+if [ "${PROVAR_ALERTA:-0}" = 1 ]; then
+  # O teste de verdade: manda pelo mesmo caminho que o alerta usaria. Só ele distingue "configurado"
+  # de "chega" — que são afirmações diferentes, e a confusão entre as duas É o R-C1.
+  #
+  # O payload é montado a partir do contact point que o Grafana REPORTA, e não digitado aqui: uma
+  # cópia digitada testaria uma configuração que talvez não seja a que está no ar.
+  payload=$(printf '%s' "$cps" | python3 -c 'import sys,json
+cps=[c for c in json.load(sys.stdin) if c.get("name")=="cinetra-plantao"]
+print(json.dumps({
+  "alert": {"annotations": {"summary": "teste de entrega do verificar.sh"}, "labels": {"severity": "critico"}},
+  "receivers": [{"name": "cinetra-plantao", "grafana_managed_receiver_configs": cps}]
+})) if cps else print("")' 2>/dev/null)
+
+  if [ -z "$payload" ]; then
+    vermelho "não consegui montar o teste — o contact point não voltou da API"
+  else
+    resp=$(curl -s -u "$GRAFANA_AUTH" -m 30 -w '\n%{http_code}' \
+            -H 'Content-Type: application/json' -d "$payload" \
+            "$GRAFANA/api/alertmanager/grafana/config/api/v1/receivers/test" 2>/dev/null)
+    codigo=$(printf '%s' "$resp" | tail -n1)
+
+    case "$codigo" in
+      200) verde "e-mail de teste ACEITO pelo Grafana — confira a caixa de entrada" ;;
+      404) vermelho "endpoint de teste não existe nesta versão do Grafana — prove pelo botão 'Test' na UI" ;;
+      *)   vermelho "envio de teste falhou (HTTP $codigo): $(printf '%s' "$resp" | head -c 200)" ;;
+    esac
+  fi
+else
+  printf '  \033[33m·\033[0m envio real não testado (rode com PROVAR_ALERTA=1 — manda e-mail de verdade)\n'
+fi
+
+# ---------------------------------------------------------------------------------------------
+titulo "18. Métrica citada em alerta RESPONDE no Prometheus (R-M14, doc 95)"
+
+# A outra metade do gate. `Api.AlertasMetricasTest` prova, em tempo de PR, que toda métrica citada
+# num alerta está numa lista de manter — ou seja, que alguém pensou nela. Ele **não** prova que ela
+# existe no alvo: um nome inventado, ou um que mudou de nome numa versão nova do exportador, passa
+# lá e falha aqui.
+#
+# É a diferença que custou o R-M14: o runbook do alerta "pipeline de log parado" mandava comparar
+# três contadores que nenhum job raspava. Quem os consultasse às 3h receberia "No data" e concluiria
+# que a coleta caiu.
+#
+# Consulta pelo PROXY do Grafana, e não direto no Prometheus, de propósito: prova a datasource
+# junto, como a `linhas()` faz para o Loki.
+metricas_de_alerta() {
+  grep -ohP '\b(node|container|loki|tempo|grafana_alerting|grafana_build|alloy|otelcol|api_prom_ex|prometheus)_[a-z0-9_]+\b' \
+    "$DIR/grafana-alertas.yml" | sort -u
+}
+
+serie_existe() {
+  curl -s -u "$GRAFANA_AUTH" -m 20 --get \
+    "$GRAFANA/api/datasources/proxy/uid/prometheus/api/v1/query" \
+    --data-urlencode "query=$1" 2>/dev/null |
+    python3 -c 'import sys,json
+try:
+    d=json.load(sys.stdin); print(len(d["data"]["result"]))
+except Exception: print(0)' 2>/dev/null || echo 0
+}
+
+total=$(metricas_de_alerta | wc -l)
+
+# Anti-vacuidade, no mesmo espírito das §5 e §6: zero métricas extraídas daria "tudo verde" sem
+# ter olhado nada — e a extração é regex sobre um arquivo que muda.
+if [ "$total" -lt 5 ]; then
+  vermelho "extraí só $total métricas de grafana-alertas.yml — a extração quebrou?"
+else
+  verde "$total métricas citadas em alertas, conferindo uma a uma"
+
+  faltando=""
+  for m in $(metricas_de_alerta); do
+    [ "$(serie_existe "$m")" -ge 1 ] 2>/dev/null || faltando="$faltando $m"
+  done
+
+  if [ -z "$faltando" ]; then
+    verde "todas respondem no Prometheus"
+  else
+    # Não é falha automática: métrica de registro PREGUIÇOSO só existe depois do primeiro uso —
+    # `loki_write_dropped_entries_total` só aparece quando uma linha é descartada, e ela nunca
+    # ter descartado nada é o estado DESEJADO. Por isso o aviso descreve as duas leituras em vez
+    # de escolher uma.
+    printf '  \033[33m·\033[0m sem série agora:%s\n' "$faltando"
+    printf '    Duas leituras possíveis, e só quem olha distingue:\n'
+    printf '    (a) o nome está errado, ou o job não raspa o alvo — o runbook aponta para o vazio;\n'
+    printf '    (b) a métrica é de registro preguiçoso e o evento nunca ocorreu (o caso bom).\n'
+    printf '    Confira em Explore: se o ALVO responde outras métricas, é (b).\n'
+  fi
+fi
 
 # ---------------------------------------------------------------------------------------------
 printf '\n\033[1m%d ok, %d falhou\033[0m\n' "$ok" "$falhou"

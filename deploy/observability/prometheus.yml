@@ -233,3 +233,73 @@ scrape_configs:
       - source_labels: [__name__]
         action: keep
         regex: prometheus_tsdb_head_series|prometheus_build_info
+
+  # ---- A PRÓPRIA OBSERVABILIDADE ---------------------------------------------------------------
+  # R-M14 (doc 95, onda 4 do doc 102). O buraco não era teórico: `grafana-alertas.yml` manda o
+  # operador, no meio do alerta "pipeline de log parado" às 3h, comparar TRÊS contadores —
+  # `loki_source_docker_target_entries_total`, `loki_write_dropped_entries_total` e
+  # `loki_distributor_lines_received_total`. **Nenhum job raspava nenhum deles.** O runbook
+  # apontava para "No data", e a conclusão natural de quem lê "No data" no meio de um incidente é
+  # que a coleta também caiu — o que manda a investigação para o lado errado.
+  #
+  # Os nomes abaixo foram VERIFICADOS subindo cada imagem e lendo `/metrics`, e não copiados de
+  # documentação. Duas coisas que só aparecem assim:
+  #
+  #   * as métricas de componente do Alloy são registradas com PREGUIÇA: com config vazia, ou com
+  #     um `loki.write` que nunca entregou nada, a família `loki_write_*` **não existe**. Ela só
+  #     aparece depois que a primeira linha flui. Foi preciso fazer log de verdade circular para
+  #     confirmar que `loki_write_dropped_entries_total` existe mesmo (e existe);
+  #   * `loki_distributor_lines_received_total` idem no Loki: só materializa após o primeiro push.
+  #
+  # **O que NÃO foi verificado ao vivo: o Tempo.** A imagem não subiu com config improvisada aqui,
+  # então os nomes dele vêm da convenção da família (`tempo_distributor_*`, `tempo_ingester_*`,
+  # `tempo_request_*`). Se algum estiver errado, o sintoma é painel/alerta vazio — e quem pega isso
+  # é a seção nova do `verificar.sh`, que confere se toda métrica citada num alerta RESPONDE.
+  - job_name: loki
+    static_configs:
+      - targets: ["loki:3100"]
+    # Recorte pela pergunta "o Loki está RECEBENDO e conseguindo guardar?". `lines_received` é a
+    # terceira ponta do runbook do pipeline: com o agente lendo e entregando, é ela que diz se o
+    # problema é do outro lado.
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        action: keep
+        regex: loki_distributor_lines_received_total|loki_distributor_bytes_received_total|loki_ingester_streams_created_total|loki_ingester_chunks_flushed_total|loki_ingester_chunk_age_seconds_sum|loki_ingester_chunk_age_seconds_count|loki_request_duration_seconds_count|loki_request_duration_seconds_sum|loki_panic_total|loki_build_info
+
+  - job_name: alloy
+    static_configs:
+      - targets: ["alloy:12345"]
+    # As duas primeiras famílias são o runbook do alerta `cinetra-pipeline-parado`; a terceira
+    # (`otelcol_*`) é o mesmo par de perguntas para o caminho de TRACE, que hoje não tem métrica
+    # nenhuma — o Alloy pode estar descartando span e nada avisa.
+    #
+    # `loki_write_dropped_entries_total` é a métrica mais importante deste arquivo inteiro: ela
+    # distingue "não há log" de "o log está sendo JOGADO FORA", e o alerta de pipeline parado só
+    # dispara quando o total zera 10 min depois. Descarte parcial era invisível.
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        action: keep
+        regex: loki_write_.*|loki_source_.*|alloy_build_info|alloy_component_controller_running_components|otelcol_receiver_accepted_spans_total|otelcol_receiver_refused_spans_total|otelcol_exporter_sent_spans_total|otelcol_exporter_send_failed_spans_total|otelcol_processor_dropped_spans_total
+
+  - job_name: tempo
+    static_configs:
+      - targets: ["tempo:3200"]
+    # Nomes NÃO verificados ao vivo — ver o aviso no topo deste bloco.
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        action: keep
+        regex: tempo_distributor_spans_received_total|tempo_distributor_bytes_received_total|tempo_ingester_traces_created_total|tempo_ingester_blocks_flushed_total|tempo_request_duration_seconds_count|tempo_build_info
+
+  - job_name: grafana
+    static_configs:
+      - targets: ["grafana:3000"]
+    # O motor de alerta vigiando a si mesmo — que é o que fecha o R-C1 no TEMPO, e não só no dia
+    # em que alguém rodou o `verificar.sh`. `notification_latency_seconds_count` sobe a cada
+    # notificação ENTREGUE: parado com alerta ativo significa que o contato voltou a não funcionar.
+    #
+    # `alerts_invalid_total` pega o outro modo de falha: regra provisionada que o Grafana recusou.
+    # Sem ela, uma regra com erro de sintaxe simplesmente não existe, e nada diz isso.
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        action: keep
+        regex: grafana_build_info|grafana_alerting_active_alerts|grafana_alerting_alerts|grafana_alerting_alerts_invalid_total|grafana_alerting_notification_latency_seconds_count|grafana_alerting_notification_latency_seconds_sum|grafana_alerting_nflog_query_errors_total|grafana_alerting_silences_query_errors_total

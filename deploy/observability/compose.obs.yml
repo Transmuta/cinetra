@@ -60,7 +60,105 @@
 # `OBS_PROJETOS` lista os projetos da APLICAÇÃO, nunca um curinga que engula este aqui.
 name: cinetra-obs
 
+# R-A6 (doc 95, onda 2 do doc 102) — rotação de log dos containers desta stack.
+#
+# A âncora já existia no `compose.dokploy.yml:32-42`, com a justificativa certa (*"o default do
+# Docker é `json-file` SEM LIMITE"*), e foi aplicada aos 6 serviços do produto. Aqui, nos 7, não
+# havia nenhuma — e é onde dói mais, por dois motivos:
+#
+#   1. Loki e Tempo estão em `log_level: warn`, mas Prometheus, Grafana, cAdvisor, node-exporter e
+#      Alloy logam em `info` sem teto, no MESMO disco do `pgdata`;
+#   2. `cinetra-obs` está deliberadamente fora da allowlist de coleta (decisão correta, para o
+#      Loki não coletar a si mesmo) — então esses arquivos não são embarcados nem consultáveis.
+#      Eles crescem **invisíveis**, e o primeiro sinal seria o disco cheio.
+#
+# É a ferramenta de disco cheio enchendo o disco: exatamente o risco #5 do doc 59 §10 que o
+# `x-logging` do outro arquivo existe para fechar.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "3"
+
 services:
+  # ---- O CADEADO DO SOCKET DO DOCKER (R-A9, onda 5 do doc 102) --------------------------------
+  #
+  # O que estava errado, e o comentário do próprio arquivo dizia o contrário: montar
+  # `/var/run/docker.sock` com `:ro` **não** reduz privilégio. O `:ro` é do *bind mount* — impede
+  # apagar ou substituir o arquivo — e não impede `connect()` seguido de
+  # `POST /containers/create`. Um container com o socket montado, `:ro` ou não, cria um container
+  # privilegiado com `/` do host dentro. Isso é **root na máquina**, com o `pgdata` de produção ao
+  # lado.
+  #
+  # E eram DOIS containers, não um: o cAdvisor montava `/var/run`, que **contém** o socket. Pelo
+  # mesmo motivo, o raciocínio que dispensava `privileged` nele ("privilegiado é estritamente pior
+  # que o socket que o alloy já monta — e aquele ao menos é `:ro`") não se sustentava: as duas
+  # pontas eram equivalentes.
+  #
+  # A mitigação real é esta: um proxy que só deixa passar o que cada cliente precisa. `POST=0` é a
+  # linha que importa — sem POST não há `create`, `start` nem `exec`, e o caminho de RCE→root
+  # fecha. O resto é `GET` de leitura.
+  #
+  # **Não verificado com o stack de pé** (o `cinetra-obs` não sobe na máquina de desenvolvimento).
+  # O risco concreto se algo estiver errado: o Alloy para de descobrir containers (o log some, e o
+  # dead man's switch acusa em 10 min) e o cAdvisor perde os rótulos de nome (os painéis de
+  # container esvaziam). Ambos são visíveis e reversíveis — o rollback é voltar o bind do socket.
+  docker-proxy:
+    image: tecnativa/docker-socket-proxy:0.3.0@sha256:9e4b9e7517a6b660f2cc903a19b257b1852d5b3344794e3ea334ff00ae677ac2
+    restart: unless-stopped
+    logging: *logging
+    mem_limit: ${DOCKER_PROXY_MEM_LIMIT:-64m}
+    cpus: ${DOCKER_PROXY_CPUS:-0.25}
+    environment:
+      # A allowlist. Tudo que não está aqui é 403 no proxy.
+      #
+      #   CONTAINERS — `/containers/json` (descobrir) e `/containers/*/logs` (ler). É o que o
+      #                `loki.source.docker` faz, e o que o cAdvisor precisa para rotular.
+      #   EVENTS     — o Alloy acompanha start/stop para não perder container novo.
+      #   INFO/VERSION — handshake do cliente Docker; sem eles o cAdvisor nem conecta.
+      CONTAINERS: 1
+      EVENTS: 1
+      INFO: 1
+      VERSION: 1
+      # **A linha que fecha o buraco.** Sem POST não existe `create`, `start`, `exec` nem `update`
+      # — que é exatamente o caminho de "RCE no agente vira root no host".
+      POST: 0
+      # Explícitos em 0 mesmo sendo o default: aqui o silêncio custa caro demais para depender do
+      # default de uma imagem de terceiro que pode mudar de versão.
+      EXEC: 0
+      IMAGES: 0
+      VOLUMES: 0
+      NETWORKS: 0
+      SECRETS: 0
+      CONFIGS: 0
+      SERVICES: 0
+      TASKS: 0
+      SWARM: 0
+      NODES: 0
+      PLUGINS: 0
+      SYSTEM: 0
+      AUTH: 0
+      BUILD: 0
+      COMMIT: 0
+      DISTRIBUTION: 0
+      SESSION: 0
+    volumes:
+      # O ÚNICO container que toca o socket. Ele é o perímetro; os outros falam TCP com ele.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    # `expose` e nunca `ports`: um proxy de socket publicado no host é o buraco original com uma
+    # porta a mais.
+    expose:
+      - "2375"
+    networks:
+      - obs
+    healthcheck:
+      # A imagem é haproxy sobre Alpine e tem `nc`. `/version` é o endpoint mais barato permitido.
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 2375"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
   loki:
     image: grafana/loki:3.5.7
     # `expand-env` é o que permite um único loki.yml servir dev (filesystem) e produção (R2).
@@ -68,7 +166,13 @@ services:
     restart: unless-stopped
     # O limite que substitui a segunda VM. Consulta longa sobre 30 dias é o que mais consome aqui;
     # sem teto ela competiria com o Postgres e com o build do release Elixir na mesma máquina.
+    logging: *logging
     mem_limit: ${LOKI_MEM_LIMIT:-1500m}
+    # O maior teto de CPU da stack, e é onde o R-M12 morde: uma consulta LogQL de 30 dias
+    # descomprime e varre chunks, e ela é aberta DURANTE um incidente — quando o produto mais
+    # precisa dos 2 vCPU. 1.0 deixa metade da máquina para o resto; sem teto, o diagnóstico vira
+    # a causa.
+    cpus: ${LOKI_CPUS:-1.0}
     environment:
       # DECIDIDO: `filesystem` (disco local). O dado mora no volume e morre com a máquina — o que
       # tem valor legal é a trilha de auditoria, que vive no BANCO e tem backup horário. Trocar
@@ -101,10 +205,32 @@ services:
   grafana:
     image: grafana/grafana:12.3.1
     restart: unless-stopped
+    logging: *logging
     mem_limit: ${GRAFANA_MEM_LIMIT:-512m}
+    cpus: ${GRAFANA_CPUS:-0.5}
+    # R-M16 (onda 2) — era `condition: service_healthy` no Loki, e isso invertia a ordem de quem
+    # socorre quem. O Grafana hospeda TODAS as 9 regras de alerta, inclusive as 4 que só leem o
+    # Prometheus. Num reboot com o volume do Loki cheio ou com permissão errada (o caso que
+    # `criar-volume-limitado.sh:52-55` descreve), o healthcheck do Loki nunca passava, o Grafana
+    # NUNCA SUBIA — e sumiam junto os alertas de disco e de memória, que são exatamente os que
+    # explicariam o que estava acontecendo. `restart: unless-stopped` não ajudava: o `depends_on`
+    # bloqueia a partida.
+    #
+    # `service_started` mantém a ordem de subida (o datasource do Loki acha o host de primeira) e
+    # custa nada quando o Loki está degradado: o painel de log dá erro VISÍVEL e todo o resto do
+    # Grafana funciona. O motor de alerta não pode depender de uma das fontes que ele vigia.
     depends_on:
       loki:
-        condition: service_healthy
+        condition: service_started
+    healthcheck:
+      # `database: ok` e não só HTTP 200: o Grafana responde no `/api/health` antes de conseguir
+      # abrir o próprio SQLite, e um painel que sobe sem banco é um painel sem dashboard nenhum.
+      # Verificado na imagem 12.3.1 — ela tem wget, curl, nc e bash.
+      test: ["CMD-SHELL", "wget -q -O- http://localhost:3000/api/health | grep -q '\"database\": \"ok\"'"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
     environment:
       # Senha obrigatória via env — sem default. Grafana com admin/admin exposto é como a maioria
       # dos vazamentos de observabilidade começa.
@@ -117,6 +243,40 @@ services:
       # não sobe. Gere com `openssl rand -hex 32`.
       GF_SECURITY_SECRET_KEY: ${GRAFANA_SECRET_KEY:?defina GRAFANA_SECRET_KEY - openssl rand -hex 32}
       GF_USERS_ALLOW_SIGN_UP: "false"
+      # ---- Identidade INDIVIDUAL pelo Cloudflare Access (R-M17, onda 5 do doc 102) -------------
+      #
+      # O que isto compra: hoje três pessoas dividem uma senha, e o datasource `cinetra_metrics`
+      # lê o agregado de TODAS as clínicas ignorando RLS por construção. Alguém consulta pelo
+      # Explore e o `audit_events` **não registra nada** — ele é trilha da aplicação, não do
+      # Grafana. Numa investigação de LGPD, "quem viu o quê" não tem resposta; e revogar acesso de
+      # uma pessoa vira troca coordenada de senha.
+      #
+      # O Access já está na frente do painel (doc 86 §4). O que faltava era o Grafana **acreditar**
+      # no e-mail que ele carimba, e passar a ter um usuário por pessoa.
+      #
+      # ## A armadilha, e ela ficou mais séria com a decisão do 5.2
+      #
+      # `auth.proxy` faz o Grafana confiar num HEADER. Sem allowlist de origem, qualquer um que
+      # alcance o Grafana pela rede pode mandar `Cf-Access-Authenticated-User-Email: quem-eu-quiser`
+      # e **entrar como essa pessoa**. E o 5.2 registrou, como decisão consciente, que o Grafana é
+      # alcançável na `dokploy-network`, que é compartilhada por todos os stacks da máquina.
+      #
+      # Ou seja: ligar isto sem a allowlist certa transforma "alcançável lateralmente" em "admin
+      # lateral". Por isso o default do `WHITELIST` é `127.0.0.1` — se alguém ligar o proxy sem
+      # configurar a origem, o Access deixa de ser aceito e todo mundo cai no formulário de login.
+      # **Falha para o lado chato, não para o lado aberto.**
+      GF_AUTH_PROXY_ENABLED: ${GRAFANA_AUTH_PROXY:-false}
+      GF_AUTH_PROXY_HEADER_NAME: Cf-Access-Authenticated-User-Email
+      GF_AUTH_PROXY_HEADER_PROPERTY: email
+      # Cria o usuário no primeiro acesso — quem o Access deixou passar já foi autorizado lá, e
+      # exigir cadastro manual aqui só produziria "não consigo entrar" no dia do incidente.
+      GF_AUTH_PROXY_AUTO_SIGN_UP: "true"
+      GF_AUTH_PROXY_WHITELIST: ${GRAFANA_AUTH_PROXY_WHITELIST:-127.0.0.1}
+      # O formulário de login continua LIGADO de propósito: é o break-glass. Se o Cloudflare Access
+      # cair, ninguém entra no painel — e o painel é justamente o que se abre quando algo caiu.
+      # O custo é a senha compartilhada continuar existindo; o que ela deixa de ser é o caminho
+      # NORMAL, e o log do Access passa a responder "quem consultou o quê" no dia a dia.
+      GF_AUTH_DISABLE_LOGIN_FORM: "false"
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
       GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://localhost:3000}
@@ -198,7 +358,9 @@ services:
     restart: unless-stopped
     # Série temporal é barata em disco e cara em memória: o Prometheus mantém os blocos das
     # últimas 2h em RAM. Com ~1.500 séries (medido, ver doc 74 §6) 512m sobra.
+    logging: *logging
     mem_limit: ${PROMETHEUS_MEM_LIMIT:-512m}
+    cpus: ${PROMETHEUS_CPUS:-0.5}
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
@@ -266,7 +428,19 @@ services:
   node-exporter:
     image: prom/node-exporter:v1.12.1
     restart: unless-stopped
+    logging: *logging
     mem_limit: ${NODE_EXPORTER_MEM_LIMIT:-128m}
+    cpus: ${NODE_EXPORTER_CPUS:-0.25}
+    healthcheck:
+      # O node-exporter não tem endpoint de saúde — `/` é uma landing page HTML que responde 200
+      # mesmo com o coletor quebrado. A asserção útil é sobre o próprio `/metrics`: se
+      # `node_exporter_build_info` está lá, o handler serviu de verdade. Verificado no container em
+      # execução: 3 linhas casam. A imagem tem `wget` (busybox).
+      test: ["CMD-SHELL", "wget -q -O- http://localhost:9100/metrics | grep -q node_exporter_build_info"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     pid: host
     command:
       - --path.procfs=/host/proc
@@ -338,7 +512,20 @@ services:
     #
     # Só aumentar o teto seria tratar o sintoma; as quatro opções abaixo cortam o consumo na
     # origem. O teto maior é a margem, não o remédio.
+    logging: *logging
     mem_limit: ${CADVISOR_MEM_LIMIT:-512m}
+    cpus: ${CADVISOR_CPUS:-0.5}
+    depends_on:
+      docker-proxy:
+        condition: service_healthy
+    healthcheck:
+      # `/healthz` devolve exatamente `ok` — verificado no container em execução. A imagem tem
+      # `wget` em `/usr/bin/wget`.
+      test: ["CMD-SHELL", "wget -q -O- http://localhost:8080/healthz | grep -q ok"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     command:
       # Só containers do Docker. Sem isto ele reporta TODO cgroup da máquina, incluindo os do
       # systemd — centenas de séries que ninguém vai olhar, num Prometheus que tem teto de disco.
@@ -373,10 +560,17 @@ services:
       # A troca: perde-se disco POR CONTAINER. A pergunta que importa — "o disco vai encher?" — é
       # respondida pelo `node_filesystem_*`, que mede a partição de verdade; e para saber de quem é
       # o volume, `docker system df -v` responde na hora, sem custar série temporal para sempre.
+      # R-A9 (onda 5). Sem isto o cAdvisor procura o socket em `/var/run/docker.sock` — que não
+      # está mais montado — e perde os RÓTULOS de nome de container: as métricas continuam vindo,
+      # com id de cgroup no lugar do nome, e todo painel por container esvazia sem dar erro.
+      - --docker=${DOCKER_HOST_OBS:-tcp://docker-proxy:2375}
       - --disable_metrics=advtcp,cpu_topology,cpuset,disk,diskIO,hugetlb,memory_numa,percpu,process,referenced_memory,resctrl,sched,tcp,udp
     volumes:
       - /:/rootfs:ro
-      - /var/run:/var/run:ro
+      # R-A9 (onda 5): `- /var/run:/var/run:ro` saiu daqui, e ele era a metade **não registrada** do
+      # achado — `/var/run` CONTÉM o `docker.sock`, então este container também era
+      # root-equivalente. O cAdvisor agora fala TCP com o `docker-proxy` (ver `--docker=` no
+      # `command`), que só permite GET de container.
       - /sys:/sys:ro
       - /var/lib/docker/:/var/lib/docker:ro
       - /dev/disk/:/dev/disk:ro
@@ -406,7 +600,9 @@ services:
     # Trace é rajada: o ingester segura os blocos abertos em memória até fechar (5 min, ver
     # tempo.yml). 512m cobre o volume do doc 62 §2 com folga larga; o que estoura primeiro num
     # laço de instrumentação é o teto de trace do `overrides`, não este.
+    logging: *logging
     mem_limit: ${TEMPO_MEM_LIMIT:-512m}
+    cpus: ${TEMPO_CPUS:-0.5}
     volumes:
       - ./tempo.yml:/etc/tempo/tempo.yml:ro
       # Mesmo padrão do Loki: volume nomeado por default, e um CAMINHO em `TEMPO_DATA` transforma
@@ -437,16 +633,44 @@ services:
   alloy:
     image: grafana/alloy:v1.12.1
     restart: unless-stopped
+    logging: *logging
     # Subiu de 256m junto com o receptor OTLP: o `otelcol.processor.batch` segura lotes de span em
     # memória antes de despachar, o que o caminho de log (que escreve direto) não fazia.
     mem_limit: ${ALLOY_MEM_LIMIT:-384m}
+    cpus: ${ALLOY_CPUS:-0.5}
+    healthcheck:
+      # A imagem do Alloy **não tem wget nem curl** — verificado: só `sh` e `bash`. Por isso o
+      # `CMD` com `bash` explícito (o `CMD-SHELL` usaria `/bin/sh`, que é dash e não tem
+      # `/dev/tcp`) e a requisição HTTP escrita à mão no socket.
+      #
+      # `/-/ready` responde `Alloy is ready.` — verificado subindo a imagem com config vazia. Vale
+      # mais que checar a porta: o agente aceita conexão antes de ter carregado o pipeline.
+      test:
+        - CMD
+        - bash
+        - -c
+        - "exec 3<>/dev/tcp/127.0.0.1/12345 && printf 'GET /-/ready HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q 'Alloy is ready' <&3"
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     depends_on:
-      loki:
+      docker-proxy:
+        # `service_healthy` aqui e não `service_started`: sem o proxy de pé o agente não descobre
+        # container nenhum, e o sintoma seria "log sumiu" — não "o proxy não subiu".
         condition: service_healthy
+      loki:
+        # **Extensão declarada do R-M16**, que o plano (doc 102, item 2.8) recortou só para o
+        # Grafana. Aqui era `service_healthy`, e o mecanismo é o mesmo: num reboot com o volume do
+        # Loki cheio, o agente nunca subia — e junto com o log parava a coleta de **trace**, que
+        # não tem nada a ver com o Loki. O custo de afrouxar é zero: o `loki.write` tem WAL e
+        # reenvia, então um Loki que demora a ficar são atrasa a entrega em vez de matar o agente.
+        # É o mesmo argumento que o bloco do `tempo` logo abaixo já fazia.
+        condition: service_started
       tempo:
-        # `service_started`, não `service_healthy` — ver o comentário no serviço acima. E a espera
-        # frouxa custa pouco: o exportador OTLP reconecta sozinho, então um Tempo que demora a
-        # aceitar conexão atrasa os primeiros spans em vez de derrubar o agente.
+        # `service_started`, não `service_healthy` — mesmo motivo do Loki acima. E a espera frouxa
+        # custa pouco: o exportador OTLP reconecta sozinho, então um Tempo que demora a aceitar
+        # conexão atrasa os primeiros spans em vez de derrubar o agente.
         condition: service_started
     command:
       - run
@@ -454,6 +678,11 @@ services:
       - --storage.path=/var/lib/alloy/data
       - /etc/alloy/config.alloy
     environment:
+      # R-A9 (onda 5). O agente deixou de falar com o socket e passou a falar TCP com o
+      # `docker-proxy`, que recusa POST. Variável em vez de literal para que o rollback seja uma
+      # linha no `.env.local` (`unix:///var/run/docker.sock`) mais o bind de volta — sem editar
+      # `alloy.alloy` no meio de um incidente.
+      DOCKER_HOST_OBS: ${DOCKER_HOST_OBS:-tcp://docker-proxy:2375}
       OBS_ENV: ${OBS_ENV:-dev}
       # Mesma rede do compose: o nome do serviço resolve direto. Foi ao separar os arquivos que
       # isto quebrou — cada stack criou sua rede, o agente parou de resolver `loki`, e nada avisou.
@@ -467,10 +696,11 @@ services:
       TEMPO_OTLP_ENDPOINT: ${TEMPO_OTLP_ENDPOINT:-tempo:4317}
     volumes:
       - ./alloy.alloy:/etc/alloy/config.alloy:ro
-      # Somente leitura no socket do Docker. O agente precisa LER os logs; não precisa criar, parar
-      # nem inspecionar segredo de container nenhum. Socket do Docker montado com escrita é
-      # equivalente a root na máquina.
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # R-A9 (onda 5): o bind do socket saiu daqui. Ele foi para o `docker-proxy`, que é agora o
+      # único container que o toca — e que só deixa passar GET de container e de evento.
+      #
+      # O comentário que estava nesta linha afirmava que o `:ro` reduzia privilégio. **Não
+      # reduzia**: `:ro` é do bind mount, não da API do Docker. Ver o bloco `docker-proxy`.
       - alloy_data:/var/lib/alloy/data
     # Porta OTLP para os APPS empurrarem span (doc 76). `expose`, nunca `ports`: quem manda trace
     # está na rede do Docker, e um receptor OTLP publicado na internet é ingestão anônima aberta —

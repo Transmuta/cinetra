@@ -17,7 +17,80 @@
 #
 # Configure o contato (`GF_SMTP_*` no compose, ou um webhook) e **prove que chega**. Alerta que
 # dispara e fica só na tela é painel, não alerta.
+#
+# **Feito em 2026-08-04** (R-C1, onda 1 do doc 102): o contato e a árvore de roteamento agora são
+# provisionados neste arquivo — ver o fim do bloco `contactPoints`/`policies` logo abaixo. O que
+# ainda depende de operação é o SMTP (`GRAFANA_SMTP_*` no `.env.local`) e a **prova de entrega**,
+# que é a §16 do `verificar.sh`.
 apiVersion: 1
+
+# ---- Para ONDE o alerta vai ------------------------------------------------------------------
+#
+# Isto existia como buraco, não como decisão: as 9 regras abaixo caíam na notification policy
+# default do Grafana, que aponta para o contact point embutido `grafana-default-email` — endereço
+# placeholder, e SMTP desligado por default no compose. O resultado era **detecção sem
+# notificação**: 12 dashboards, dead man's switch nos dois pipelines e poda de métrica medida, tudo
+# produzindo vermelho numa aba que ninguém tem aberta às 3h.
+#
+# Um controle de detecção que não notifica não é um controle parcial. Ele é zero, e pior que zero,
+# porque cria a sensação de estar coberto.
+#
+# ## Por que provisionado, e não montado na tela
+#
+# Mesma razão das regras e dos dashboards, e ela vale MAIS aqui: contato montado na UI vive no
+# volume `grafana_data` e some quando o container é recriado — numa máquina que o próprio doc 87
+# chama de descartável. Em arquivo, ele é revisável em PR e volta sozinho.
+#
+# **Efeito colateral a saber:** o que é provisionado fica READ-ONLY na interface. Trocar o
+# destinatário passa a ser editar `GRAFANA_ALERTA_EMAIL` no `.env.local` e redeployar o obs — não
+# há mais o caminho de "mudar rápido na tela", e isso é intencional.
+contactPoints:
+  - orgId: 1
+    name: cinetra-plantao
+    receivers:
+      - uid: cinetra-plantao-email
+        type: email
+        settings:
+          # Interpolação de env em arquivo provisionado — a mesma sintaxe já provada em produção
+          # pelo `grafana-datasources.yml` (`${METRICS_DB_PASSWORD}`).
+          #
+          # Aceita lista separada por `;`. Vale mais de um endereço: contato único é bus factor 1
+          # no exato momento em que ele importa.
+          addresses: ${GRAFANA_ALERTA_EMAIL}
+          # Um e-mail por GRUPO, não por instância. Com `false`, um alerta que dispara para 8
+          # clínicas manda 8 e-mails — e a caixa cheia treina o olho a arquivar sem ler, que é o
+          # mesmo fim do alarme que ninguém lê.
+          singleEmail: true
+
+# ---- Como o alerta é AGRUPADO e REPETIDO -----------------------------------------------------
+#
+# Um bloco `policies` provisionado SUBSTITUI a árvore default inteira. É o que se quer: enquanto a
+# default existir, um alerta novo que ninguém roteou cai no `grafana-default-email` e some. Aqui a
+# raiz é o plantão, então esquecer de rotear falha para o lado seguro.
+policies:
+  - orgId: 1
+    receiver: cinetra-plantao
+    # `alertname` + `grafana_folder` é o agrupamento default do Grafana e serve: o que se quer
+    # junto num e-mail são as instâncias do MESMO alerta.
+    group_by: ['grafana_folder', 'alertname']
+    # 30s de espera para juntar instâncias que chegam quase ao mesmo tempo — abaixo disso o
+    # agrupamento não agrupa nada.
+    group_wait: 30s
+    # 5 min até mandar de novo quando instâncias NOVAS entram num grupo já notificado.
+    group_interval: 5m
+    # 4h para repetir um alerta que continua disparando. É o teto do ruído para `aviso`.
+    repeat_interval: 4h
+    routes:
+      # `critico` repete de hora em hora. A diferença com o `aviso` não é de gravidade no texto —
+      # é de quantas vezes o sistema insiste antes de desistir de te acordar. Disco a 90% às 3h
+      # com repetição de 4h dá **uma** chance de ver antes do disco encher.
+      - receiver: cinetra-plantao
+        object_matchers:
+          - ['severity', '=', 'critico']
+        group_by: ['grafana_folder', 'alertname']
+        group_wait: 30s
+        group_interval: 5m
+        repeat_interval: 1h
 
 groups:
   - orgId: 1
@@ -231,12 +304,12 @@ groups:
         # dizer que o node-exporter morreu — e aí ninguém está mais olhando o disco.
         noDataState: Alerting
         annotations:
-          summary: "Disco em {{ humanizePercentage $values.consulta.Value }} na partição mais cheia"
+          summary: "Disco em {{ humanizePercentage $values.consulta.Value }} em {{ $labels.mountpoint }}"
           description: >
             É o risco que o doc 62 §3 nomeia como o real de pôr log e banco na mesma máquina.
             Disco cheio não degrada: para. O Postgres recusa escrita, o Loki para de ingerir e o
-            backup falha em silêncio. Ver "Cinetra · Servidor" → "Disco: uso por partição" para
-            saber QUAL partição, e "Maiores tabelas" (Infraestrutura) se for o volume do banco.
+            backup falha em silêncio. O `mountpoint` está no título — não é preciso adivinhar qual
+            partição. Ver "Maiores tabelas" (Infraestrutura) se for o volume do banco.
             Alívio rápido: `docker system prune` e a retenção do Loki (LOKI_DATA).
         labels:
           severity: critico
@@ -247,7 +320,25 @@ groups:
             model:
               refId: consulta
               instant: true
-              expr: max(1 - node_filesystem_avail_bytes{fstype=~"ext4|xfs"} / node_filesystem_size_bytes)
+              # R-M13 (onda 4). Duas correções numa linha, e as duas eram sérias.
+              #
+              # **`by (mountpoint)`.** Sem ele o `max()` colapsa todas as partições numa série sem
+              # rótulo: o alerta dizia "disco em 91%" e não dizia ONDE. Pior que inconveniente —
+              # com o volume limitado do Loki (12 G, que DEVE encher) ao lado da raiz, a partição
+              # pequena e cheia **mascarava** a raiz de verdade: o `max` já estava em 100% por
+              # causa do loop, e uma raiz subindo de 70% para 95% não mudava o número.
+              #
+              # **Excluir os volumes contidos.** `/var/lib/cinetra/loki` e `.../tempo` são loop
+              # devices ext4 com tamanho fixo (`criar-volume-limitado.sh`), e encher é o
+              # MECANISMO de contenção deles funcionando. Alertar CRÍTICO com o texto "o Postgres
+              # recusa escrita e o backup falha" quando o banco está intacto é o caminho mais
+              # rápido para a equipe aprender a ignorar o alerta que mais importa. Eles têm regra
+              # própria logo abaixo, com a severidade certa.
+              expr: >-
+                max by (mountpoint) (
+                  1 - node_filesystem_avail_bytes{fstype=~"ext4|xfs", mountpoint!~"/var/lib/cinetra/.*"}
+                      / node_filesystem_size_bytes{fstype=~"ext4|xfs", mountpoint!~"/var/lib/cinetra/.*"}
+                )
           - refId: alerta
             datasourceUid: __expr__
             model:
@@ -256,6 +347,45 @@ groups:
               expression: consulta
               conditions:
                 - evaluator: { type: gt, params: [0.85] }
+
+      # A contrapartida da exclusão acima (R-M13). O volume limitado encher é o mecanismo de
+      # contenção FUNCIONANDO — mas continuar cheio significa que a retenção não dá conta do
+      # volume de log, e aí o Loki começa a recusar ingestão. É `aviso`, não `critico`: nada do
+      # produto para, e a ação é ajustar retenção ou aumentar o volume, não correr.
+      - uid: cinetra-volume-contido-cheio
+        title: Volume limitado de observabilidade cheio
+        for: 30m
+        condition: alerta
+        noDataState: OK
+        annotations:
+          summary: "{{ $labels.mountpoint }} em {{ humanizePercentage $values.consulta.Value }}"
+          description: >
+            É o loop device do `criar-volume-limitado.sh`, e ele DEVE encher — é assim que o log
+            para de disputar disco com o banco. O que este alerta diz é que ele está cheio há meia
+            hora, ou seja: a retenção configurada não cabe no tamanho escolhido, e o Loki passa a
+            recusar ingestão. Ajuste a retenção (doc 62) ou aumente o volume. Nada do produto para.
+        labels:
+          severity: aviso
+        data:
+          - refId: consulta
+            relativeTimeRange: { from: 1800, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: consulta
+              instant: true
+              expr: >-
+                max by (mountpoint) (
+                  1 - node_filesystem_avail_bytes{mountpoint=~"/var/lib/cinetra/.*"}
+                      / node_filesystem_size_bytes{mountpoint=~"/var/lib/cinetra/.*"}
+                )
+          - refId: alerta
+            datasourceUid: __expr__
+            model:
+              refId: alerta
+              type: threshold
+              expression: consulta
+              conditions:
+                - evaluator: { type: gt, params: [0.95] }
 
       - uid: cinetra-memoria-maquina
         title: Memória da máquina no limite
@@ -359,3 +489,259 @@ groups:
               expression: consulta
               conditions:
                 - evaluator: { type: lt, params: [1] }
+
+  # ---- O QUE JÁ ERA COLETADO E NÃO TINHA QUEM LESSE (R-M15, onda 4) ---------------------------
+  #
+  # Cinco métricas estavam no `metric_relabel_configs` do `prometheus.yml` — pagas, guardadas, com
+  # série de 30 dias — e **nenhuma regra as consultava**. Coletar sem ler é o meio-termo mais caro:
+  # tem o custo da coleta e não tem o benefício da detecção.
+  #
+  # O caso que mais dói é o primeiro. `cinetra-job-falhando` conta linhas `job:exception`, e por
+  # isso só enxerga job que ESTOURA. Job que trava sem erro — worker sem slot, agendado que ninguém
+  # puxa, ou órfão em `executing` (R-A1) — não gera exceção nenhuma: a fila cresce em silêncio, os
+  # lembretes param de sair, e o primeiro sinal é o paciente faltar.
+  - orgId: 1
+    name: cinetra-silenciosos
+    folder: Cinetra
+    interval: 1m
+    rules:
+      - uid: cinetra-fila-do-oban-parada
+        title: Fila do Oban crescendo sem exceção
+        # 20 min porque a poda da madrugada legitimamente enfileira em rajada. O que interessa é
+        # fila que NÃO drena — não fila que teve pico.
+        for: 20m
+        condition: alerta
+        # `OK` e não `Alerting`: sem tráfego não há fila, e uma instalação parada não deve acender.
+        noDataState: OK
+        annotations:
+          summary: "{{ $labels.queue }}: {{ $values.consulta.Value }} jobs parados na fila"
+          description: >
+            Este é o buraco que o `cinetra-job-falhando` não cobre: ele conta `job:exception`, então
+            só vê job que ESTOURA. Job que trava sem erro — worker sem slot, agendado que ninguém
+            puxa, ou órfão em `executing` depois de um SIGKILL — não produz exceção alguma. A fila
+            cresce calada, o lembrete ao paciente não sai, e o primeiro sinal seria a falta.
+            Confira `oban_jobs` por `state` e o `Oban.Plugins.Lifeline` (api/config/config.exs).
+        labels:
+          severity: aviso
+        data:
+          - refId: consulta
+            relativeTimeRange: { from: 1200, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: consulta
+              instant: true
+              expr: max by (queue) (api_prom_ex_oban_queue_length_count)
+          - refId: alerta
+            datasourceUid: __expr__
+            model:
+              refId: alerta
+              type: threshold
+              expression: consulta
+              conditions:
+                - evaluator: { type: gt, params: [50] }
+
+      - uid: cinetra-container-morto-por-oom
+        title: Container morto por falta de memória
+        # Sem `for`: OOM kill é evento, não estado. Esperar persistência aqui seria esperar o
+        # container morrer DE NOVO.
+        for: 0m
+        condition: alerta
+        noDataState: OK
+        annotations:
+          summary: "OOM kill em {{ $labels.name }}"
+          description: >
+            O kernel matou um container por memória. Com os `mem_limit` da onda 2, isso passou a
+            significar "este serviço estourou o PRÓPRIO teto" — e não mais "a máquina acabou".
+            Se for o `db` ou o `api`, o teto está apertado demais ou há vazamento; se for o
+            cAdvisor, é a regressão do R-M18 (o `.env` rebaixando o teto medido).
+        labels:
+          severity: critico
+        data:
+          - refId: consulta
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: consulta
+              instant: true
+              expr: max by (name) (increase(container_oom_events_total[10m]))
+          - refId: alerta
+            datasourceUid: __expr__
+            model:
+              refId: alerta
+              type: threshold
+              expression: consulta
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+
+      - uid: cinetra-oom-na-maquina
+        title: OOM killer disparou na máquina
+        # O irmão do de cima, do lado do host: pega o processo que morreu FORA de container —
+        # inclusive o build do release, que mede ~90% de CPU e é o candidato natural (D-21).
+        for: 0m
+        condition: alerta
+        noDataState: OK
+        annotations:
+          summary: "O kernel matou algum processo por falta de memória"
+          description: >
+            Diferente do alerta por container: este pega o que morreu FORA de container — o build
+            do release é o candidato natural (D-21). Se disparar junto com o de container, a
+            máquina inteira está apertada e a soma dos tetos precisa ser revista.
+        labels:
+          severity: critico
+        data:
+          - refId: consulta
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: consulta
+              instant: true
+              expr: increase(node_vmstat_oom_kill[10m])
+          - refId: alerta
+            datasourceUid: __expr__
+            model:
+              refId: alerta
+              type: threshold
+              expression: consulta
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+
+      - uid: cinetra-container-unhealthy
+        title: Container reprovando no próprio healthcheck
+        # Só existe porque a onda 2 pôs healthcheck nos containers (R-A7). Antes desta onda o
+        # `container_health_state` era coletado e sempre vazio — não havia healthcheck para
+        # reportar estado. Coletar métrica de um mecanismo que não existe é a forma mais discreta
+        # de parecer coberto.
+        for: 5m
+        condition: alerta
+        noDataState: OK
+        annotations:
+          summary: "{{ $labels.name }} está unhealthy há 5 minutos"
+          description: >
+            O processo está vivo e reprovando no próprio teste — event loop bloqueado no Node,
+            pool esgotado no BEAM, banco fora do ar para o `db`. O Docker reinicia sozinho quando
+            o processo MORRE; unhealthy sustentado é o caso em que ele não morre e ninguém age.
+        labels:
+          severity: aviso
+        data:
+          - refId: consulta
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: consulta
+              instant: true
+              expr: max by (name) (container_health_state{name!=""} == 0)
+          - refId: alerta
+            datasourceUid: __expr__
+            model:
+              refId: alerta
+              type: threshold
+              expression: consulta
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+
+      - uid: cinetra-disco-somente-leitura
+        title: Sistema de arquivos remontado somente-leitura
+        for: 0m
+        condition: alerta
+        noDataState: OK
+        annotations:
+          summary: "{{ $labels.mountpoint }} está em somente-leitura"
+          description: >
+            O kernel remonta `ro` diante de erro de I/O — é o sintoma de disco com defeito, e o
+            `errors=remount-ro` é o default deste sistema de arquivos. O Postgres para de aceitar
+            escrita imediatamente, e o backup também. É o único alerta desta lista em que a ação
+            certa é restaurar noutra máquina, não consertar nesta.
+        labels:
+          severity: critico
+        data:
+          - refId: consulta
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: consulta
+              instant: true
+              expr: max by (mountpoint) (node_filesystem_readonly{fstype=~"ext4|xfs"})
+          - refId: alerta
+            datasourceUid: __expr__
+            model:
+              refId: alerta
+              type: threshold
+              expression: consulta
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+
+      # O motor de alerta vigiando a si mesmo (R-C1, fechando o laço da onda 1). Regra provisionada
+      # que o Grafana RECUSOU não existe — e nada diz isso. Um erro de sintaxe no
+      # `grafana-alertas.yml` produz exatamente o estado que este arquivo inteiro combate: a
+      # sensação de estar coberto, sem cobertura.
+      - uid: cinetra-alerta-invalido
+        title: Regra de alerta recusada pelo Grafana
+        for: 5m
+        condition: alerta
+        noDataState: OK
+        annotations:
+          summary: "{{ $values.consulta.Value }} regra(s) de alerta inválida(s)"
+          description: >
+            O Grafana rejeitou uma regra provisionada. Ela simplesmente NÃO EXISTE — não dispara,
+            não aparece como falha, e o painel de alertas fica com um item a menos que ninguém
+            conta. Ver o log do container do Grafana no momento do último deploy da observabilidade.
+        labels:
+          severity: aviso
+        data:
+          - refId: consulta
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: consulta
+              instant: true
+              expr: sum(grafana_alerting_alerts_invalid_total)
+          - refId: alerta
+            datasourceUid: __expr__
+            model:
+              refId: alerta
+              type: threshold
+              expression: consulta
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+
+      # A lacuna que o `cinetra-pipeline-parado` não cobre, e que só agora é observável (o job
+      # `alloy` do Prometheus nasceu nesta mesma onda).
+      #
+      # Aquele alerta dispara quando o total de linhas ZERA por 10 minutos. Descarte PARCIAL — o
+      # agente lendo, entregando 60% e jogando 40% fora por rejeição do Loki, limite de taxa ou
+      # lote malformado — não zera nada: o painel segue com log chegando, e a fração que sumiu é
+      # invisível. O que se perde primeiro, por construção, é a linha da rajada — que é justamente
+      # a do incidente.
+      - uid: cinetra-log-descartado
+        title: Log sendo descartado pelo agente
+        for: 10m
+        condition: alerta
+        # `OK`: sem descarte não há série (registro preguiçoso do Alloy — a família `loki_write_*`
+        # só existe depois que a primeira linha flui). "Sem dado" aqui é o estado BOM.
+        noDataState: OK
+        annotations:
+          summary: "{{ $values.consulta.Value }} linhas/s descartadas pelo Alloy"
+          description: >
+            O agente está LENDO e não conseguindo entregar. Diferente do "pipeline parado": ali o
+            total zera e o alerta acende; aqui o log continua chegando pela metade, e a metade que
+            some é a da rajada — a do incidente. Causas: Loki recusando por limite de taxa
+            (`ingestion_rate_mb` em loki.yml), lote grande demais, ou o Loki fora do ar com o WAL
+            do Alloy enchendo. Confira `loki_write_dropped_entries_total` por `reason`.
+        labels:
+          severity: critico
+        data:
+          - refId: consulta
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: consulta
+              instant: true
+              expr: sum(rate(loki_write_dropped_entries_total[10m]))
+          - refId: alerta
+            datasourceUid: __expr__
+            model:
+              refId: alerta
+              type: threshold
+              expression: consulta
+              conditions:
+                - evaluator: { type: gt, params: [0] }
