@@ -10,10 +10,26 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# R-A10 (doc 95, onda 3 do doc 102) — o teto do `GITHUB_TOKEN` para TODOS os jobs.
+#
+# Sem este bloco o token herda o default configurado no repositório, que em repositórios mais
+# antigos é **read/write em todos os escopos**. E este workflow executa código de terceiros com o
+# token no ambiente: `mix deps.get` e `npm ci` rodam scripts de instalação da árvore inteira de
+# dependências. Um pacote comprometido em qualquer ponto dela empurra commit, altera workflow ou
+# publica release — e o agravante daqui é que o job `deploy` guarda
+# `DOKPLOY_DEPLOY_WEBHOOK_PROD`, o gatilho de deploy de PRODUÇÃO.
+#
+# `contents: read` é o mínimo de que o `actions/checkout` precisa. Job que precisar de mais declara
+# o próprio bloco — que sobrescreve este, e aí a permissão extra fica visível na revisão em vez de
+# vir de graça.
+permissions:
+  contents: read
+
 jobs:
   api:
     name: API — testes + cobertura (mínimo 80%)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: api
@@ -37,16 +53,16 @@ jobs:
       DATABASE_USER: postgres
       DATABASE_PASSWORD: postgres
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Setup Elixir/OTP
-        uses: erlef/setup-beam@v1
+        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
         with:
           elixir-version: "1.18.4"
           otp-version: "27"
 
       - name: Cache deps e _build
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
             api/deps
@@ -59,6 +75,14 @@ jobs:
       # Espelha o alias `precommit`: formatação e zero-warnings barram o merge.
       - run: mix format --check-formatted
       - run: mix compile --warnings-as-errors
+
+      # R-M7 — CVE conhecida em dependência direta entrava e permanecia sem nenhum sinal.
+      # `deps.audit` cruza o `mix.lock` com os advisories do Hex; `hex.audit` acusa pacote
+      # RETIRADO, que é o aviso mais barato de todos e vinha sendo ignorado.
+      - name: Auditoria de dependências (Elixir)
+        run: |
+          mix deps.audit
+          mix hex.audit
 
       - name: Preparar banco (migrations Ash)
         run: mix ash.setup --quiet
@@ -108,6 +132,7 @@ jobs:
   api-rls:
     name: API — RLS (role restrito, NOBYPASSRLS)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: api
@@ -131,16 +156,16 @@ jobs:
       DATABASE_USER: postgres
       DATABASE_PASSWORD: postgres
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Setup Elixir/OTP
-        uses: erlef/setup-beam@v1
+        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
         with:
           elixir-version: "1.18.4"
           otp-version: "27"
 
       - name: Cache deps e _build
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
             api/deps
@@ -179,24 +204,82 @@ jobs:
   web:
     name: Web — svelte-check + unit/integração (Vitest)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: web
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
           cache: npm
           cache-dependency-path: web/package-lock.json
 
       - run: npm ci
+
+      # R-M7, o lado do BFF. `--audit-level=high` de propósito: com `low` a árvore do Vite/Svelte
+      # produz ruído constante em devDependency que não vai para a imagem, e um gate que grita
+      # sempre é um gate que alguém desliga.
+      - name: Auditoria de dependências (npm)
+        run: npm audit --audit-level=high
+
       - run: npm run check
       # test unit/integração + gate de cobertura (thresholds em vite.config.ts).
       - run: npm run coverage
       - run: npm run build
+
+  # ---------------------------------------------------------------------------
+  # R-M4 — o CI nunca construía a imagem de produção, e o Dokploy a builda NO SERVIDOR a cada
+  # webhook. Duas consequências, e a primeira é a que dói:
+  #
+  #   1. a guarda de sourcemap de `web/Dockerfile.prod` — a ÚLTIMA fronteira contra o código-fonte
+  #      ir para produção — nunca rodava antes do merge. Idem `npm prune --omit=dev`, o wiring dos
+  #      `ARG` e a própria sintaxe dos Dockerfiles. Erro ali só aparecia no painel do Dokploy
+  #      DEPOIS do merge em `main`, com o sintoma "o deploy não subiu" e sem log no GitHub;
+  #   2. o build consome ~90% dos 2 vCPU da máquina de PRODUÇÃO (D-21), competindo com o produto.
+  #
+  # Este job só CONSTRÓI — não publica. Publicar num registry e mandar o Dokploy consumir por
+  # digest é a outra metade do R-M4 e depende de credencial de registry e de reconfigurar o
+  # Dokploy; enquanto isso não for decidido, o build no servidor continua, e o que este job
+  # entrega é o **gate**: o Dockerfile quebrado reprova o PR.
+  # ---------------------------------------------------------------------------
+  imagem:
+    name: Imagens de produção — build (gate de Dockerfile)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      # `cache-from`/`cache-to` do tipo `gha` guardam as camadas no cache do próprio Actions —
+      # sem isso, cada PR recompila o release Elixir do zero.
+      - name: Setup Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: Build da imagem da API
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: ./api
+          file: ./api/Dockerfile.prod
+          push: false
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
+
+      # `R2_ACCOUNT_ID` vazio é estado VÁLIDO (o `Dockerfile.prod` diz isso por escrito) — o
+      # bucket simplesmente não entra no `connect-src` da CSP. O que este build prova é a guarda
+      # de sourcemap e o `npm prune`, não a configuração do ambiente.
+      - name: Build da imagem do BFF
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: ./web
+          file: ./web/Dockerfile.prod
+          push: false
+          build-args: |
+            API_PUBLIC_ORIGIN=https://ci.invalido
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web
 
   # ---------------------------------------------------------------------------
   # Deploy: dispara o webhook do Dokploy, que builda a imagem no A1 (ARM). Só em
@@ -206,10 +289,14 @@ jobs:
   # está ausente e o passo é PULADO sem falhar o CI. Ver docs/59 §2.
   # ---------------------------------------------------------------------------
   deploy:
-    name: Deploy — webhook do Dokploy
-    needs: [api, api-rls, web]
+    name: Deploy — webhook do Dokploy + verificação
+    needs: [api, api-rls, web, imagem]
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Este job não faz checkout e não lê o repositório: só dispara um webhook e bate numa URL. É
+    # também o único com acesso ao gatilho de deploy de PRODUÇÃO — então recebe token nenhum.
+    permissions: {}
     steps:
       - name: Disparar deploy no ambiente da branch
         env:
@@ -227,6 +314,50 @@ jobs:
           fi
           echo "Disparando deploy de $ALVO no Dokploy…"
           curl -fsS -X POST "$URL"
+          echo "ALVO=$ALVO" >> "$GITHUB_ENV"
+
+      # -----------------------------------------------------------------------
+      # R-M5 — o passo acima é fire-and-forget e sempre foi.
+      #
+      # `curl -fsS -X POST` retorna assim que o Dokploy ACEITA o webhook. O job ficava verde mesmo
+      # que o build no servidor falhasse, o `migrate` abortasse ou o container novo não passasse no
+      # healthcheck. O sinal de "deploy ok" que a equipe aprende a confiar media uma coisa só: que
+      # o HTTP POST chegou.
+      #
+      # Aqui o job só termina quando o ambiente RESPONDE. `/api/ready` e não `/health`: o readiness
+      # toca o banco, então ele é o único que distingue "o container subiu" de "o deploy
+      # funcionou" — inclusive pega migration que rodou pela metade.
+      #
+      # A espera é longa (5 min) porque o Dokploy builda a imagem NO SERVIDOR depois de aceitar o
+      # webhook — o relógio começa antes do build, não depois.
+      # -----------------------------------------------------------------------
+      - name: Esperar o ambiente responder /ready
+        env:
+          BASE_PROD: ${{ secrets.DEPLOY_URL_PROD }}
+          BASE_HML: ${{ secrets.DEPLOY_URL_HML }}
+        run: |
+          if [ "$ALVO" = "prod" ]; then BASE="$BASE_PROD"; else BASE="$BASE_HML"; fi
+
+          if [ -z "$BASE" ]; then
+            echo "::warning::DEPLOY_URL_${ALVO^^} não configurado — o deploy NÃO foi verificado."
+            echo "::warning::Sem ele este job continua provando apenas que o webhook foi aceito (R-M5)."
+            exit 0
+          fi
+
+          echo "Aguardando ${BASE}/api/ready responder 200 (até 5 min)…"
+          for i in $(seq 1 60); do
+            codigo=$(curl -s -o /dev/null -w '%{http_code}' -m 10 "${BASE}/api/ready" || echo 000)
+            if [ "$codigo" = "200" ]; then
+              echo "✓ ${ALVO} respondeu 200 em ~$((i * 5))s"
+              exit 0
+            fi
+            printf '  tentativa %s/60: HTTP %s\n' "$i" "$codigo"
+            sleep 5
+          done
+
+          echo "::error::${ALVO} não respondeu 200 em /api/ready após 5 min."
+          echo "O webhook foi aceito, mas o ambiente NÃO subiu — build, migrate ou healthcheck."
+          exit 1
 
   # O e2e **saiu do CI** (decisão de 2026-07-27). Ele precisa da stack inteira — API, banco e a
   # caixa de e-mail de dev, para consumir o magic link —, e este workflow sobe só o web. Um job
