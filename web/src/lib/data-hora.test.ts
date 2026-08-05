@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { DOW_LABELS, diaMes, diaSemana, quandoCurto, quandoComAno, quandoSemDia } from './data-hora';
+import {
+	DOW_LABELS,
+	diaMes,
+	diaSemana,
+	quandoCurto,
+	quandoComAno,
+	quandoParaPaciente,
+	quandoSemDia
+} from './data-hora';
 
 /**
  * Estas cinco funções nasceram como **cinco cópias em cinco componentes** (doc 93 §B-1): duas
@@ -64,5 +72,61 @@ describe('as três formas de dizer "quando"', () => {
 	it('converte para o fuso pedido antes de formatar', () => {
 		expect(quandoSemDia('2026-07-31T02:00:00.000000Z', SP)).toBe('30/07/2026 · 23:00');
 		expect(quandoCurto('2026-07-31T02:00:00.000000Z', SP)).toBe('Qui 30/07 · 23:00');
+	});
+});
+
+/**
+ * A quarta forma, e a única que não fala com a recepção: a tela que o **paciente** abre pelo link
+ * da mensagem (`/confirmar/[token]`).
+ *
+ * Lá "05/08/2026" é um número que a pessoa tem de decodificar no ônibus para decidir se sai de
+ * casa. O que ela procura é o dia da semana e, antes dele, "amanhã".
+ */
+describe('quandoParaPaciente', () => {
+	// Quarta, 05/08/2026, 11:30Z = 08:30 em São Paulo. `agora` é a terça de véspera, 15:00 local.
+	const SESSAO = '2026-08-05T11:30:00Z';
+	const VESPERA = '2026-08-04T18:00:00Z';
+
+	it('escreve o dia da semana e o mês por extenso, no fuso da clínica', () => {
+		const q = quandoParaPaciente(SESSAO, SP, VESPERA);
+
+		expect(q.extenso).toBe('quarta-feira, 5 de agosto');
+		expect(q.hora).toBe('08:30');
+	});
+
+	it('"amanhã" e "hoje" são calculados no calendário da clínica, não em horas corridas', () => {
+		// 17h30 de diferença, mas do outro lado da meia-noite local: é "amanhã", e não "hoje".
+		expect(quandoParaPaciente(SESSAO, SP, VESPERA).proximidade).toBe('amanhã');
+		// E 02:00Z ainda é a véspera em São Paulo (23:00) — continua "amanhã", embora falte pouco.
+		expect(quandoParaPaciente(SESSAO, SP, '2026-08-05T02:00:00Z').proximidade).toBe('amanhã');
+		// 10:00Z é 07:00 do próprio dia: aí, sim, "hoje".
+		expect(quandoParaPaciente(SESSAO, SP, '2026-08-05T10:00:00Z').proximidade).toBe('hoje');
+	});
+
+	it('além de amanhã, não há atalho — a data por extenso já responde', () => {
+		expect(quandoParaPaciente(SESSAO, SP, '2026-08-01T12:00:00Z').proximidade).toBeNull();
+	});
+
+	it('o ano entra só quando não é o ano corrente', () => {
+		// Dentro do mesmo ano ele é ruído; virando o ano, é a diferença entre "5 de janeiro" e
+		// "5 de janeiro do ano que vem" — e o link vale 30 dias, então a virada acontece.
+		expect(quandoParaPaciente('2027-01-05T11:30:00Z', SP, '2026-12-28T12:00:00Z').extenso).toBe(
+			'terça-feira, 5 de janeiro de 2027'
+		);
+	});
+
+	it('diz que já passou — o link vale 30 dias, a sessão não', () => {
+		expect(quandoParaPaciente(SESSAO, SP, VESPERA).passou).toBe(false);
+		expect(quandoParaPaciente(SESSAO, SP, '2026-08-05T13:00:00Z').passou).toBe(true);
+	});
+
+	it('a sessão da noite não vira o dia seguinte', () => {
+		// 02:00Z é 23:00 do dia anterior em São Paulo. Formatar pelo instante UTC — o erro que a
+		// `diaSemana` já documenta — poria a pessoa na clínica um dia depois.
+		const q = quandoParaPaciente('2026-08-05T02:00:00Z', SP, '2026-08-04T12:00:00Z');
+
+		expect(q.extenso).toBe('terça-feira, 4 de agosto');
+		expect(q.hora).toBe('23:00');
+		expect(q.proximidade).toBe('hoje');
 	});
 });

@@ -30,7 +30,9 @@ defmodule ApiWeb.PatientReplyControllerTest do
       assert body["paciente"] == "Ana"
       assert body["data"]
       assert body["hora"]
-      # Nada de ficha, telefone, e-mail ou outros participantes.
+      # Nada de ficha, telefone, e-mail ou outros participantes. `telefone` cru é o do PACIENTE e
+      # continua fora; o da clínica viaja sob `clinica_telefone`, que é outro dado — ver o
+      # describe abaixo.
       refute Map.has_key?(body, "email")
       refute Map.has_key?(body, "telefone")
       refute Map.has_key?(body, "participantes")
@@ -50,6 +52,130 @@ defmodule ApiWeb.PatientReplyControllerTest do
       conn = get(conn, ~p"/api/reply/#{velho}")
 
       assert json_response(conn, 410)["error"] == "link_expirado"
+    end
+  end
+
+  describe "GET /api/reply/:token — o que a tela precisa para falar com um paciente" do
+    # A régua desta seção, e ela é de exposição, não de gosto: **a página não conta nada que a
+    # mensagem já não tenha contado**. O link se encaminha, então o que ele revela tem de ser o
+    # mesmo que o e-mail/WhatsApp encaminhado revelaria — nem mais. O telefone da clínica está no
+    # corpo de todo template ("Ligue para {{5}}"); profissional e endereço não estão, e por isso
+    # continuam fora.
+    test "traz o telefone da clínica — a mesma linha que a mensagem já anunciou", %{conn: conn} do
+      ctx = clinica(whatsapp: true)
+      paciente = paciente_com(ctx, comunicacao: true, email: "bia@example.com", nome: "Bia Reis")
+      appt = agendamento!(ctx, paciente: paciente)
+      message = confirmacao!(ctx, appt, paciente)
+
+      body = conn |> get(~p"/api/reply/#{ReplyToken.sign(message.id)}") |> json_response(200)
+
+      assert body["clinica_telefone"] == "(11) 3456-7890"
+      # O do paciente continua fora: é dado da ficha, e o token não dá ficha.
+      refute Map.has_key?(body, "telefone")
+    end
+
+    test "traz o instante e o fuso da sessão, e não só a data já formatada", %{
+      conn: conn,
+      token: token,
+      ctx: ctx,
+      message: message
+    } do
+      # `data`/`hora` são strings congeladas no envio (histórico da timeline). Elas não dizem o dia
+      # da semana nem servem para montar um `.ics`, e a tela precisa dos dois.
+      body = conn |> get(~p"/api/reply/#{token}") |> json_response(200)
+
+      presenca = presenca_da(ctx, message)
+
+      assert {:ok, inicio, 0} = DateTime.from_iso8601(body["inicio"])
+      assert DateTime.compare(inicio, presenca.session_starts_at) == :eq
+      assert body["timezone"] == ctx.clinic.timezone
+    end
+
+    test "traz o fim da sessão — sem ele não há evento de agenda para adicionar", %{
+      conn: conn,
+      token: token,
+      ctx: ctx,
+      message: message
+    } do
+      # A duração é a do bloco (`ends_at - starts_at`), aplicada ao começo DESTA presença: numa
+      # série, cada sessão tem o seu `session_starts_at`, mas todas duram o que o bloco dura.
+      body = conn |> get(~p"/api/reply/#{token}") |> json_response(200)
+
+      appt =
+        Api.Tenancy.in_clinic(ctx.clinic.id, fn ->
+          Api.Scheduling.get_appointment!(message.appointment_id,
+            tenant: ctx.clinic.id,
+            authorize?: false
+          )
+        end)
+
+      minutos = DateTime.diff(appt.ends_at, appt.starts_at, :minute)
+      presenca = presenca_da(ctx, message)
+
+      assert {:ok, fim, 0} = DateTime.from_iso8601(body["fim"])
+      assert DateTime.diff(fim, presenca.session_starts_at, :minute) == minutos
+    end
+
+    test "sessão viva responde ativa: true", %{conn: conn, token: token} do
+      assert conn |> get(~p"/api/reply/#{token}") |> json_response(200) |> Map.fetch!("ativa")
+    end
+
+    test "sessão cancelada responde ativa: false — o link vale 30 dias, a sessão não", %{
+      conn: conn,
+      token: token,
+      ctx: ctx,
+      message: message
+    } do
+      # O buraco que isto fecha: o resumo saía do `vars` congelado, então uma sessão cancelada
+      # depois do envio continuava anunciada como "está marcada" — e a tela oferecia confirmar
+      # presença em algo que não existe mais.
+      appt =
+        Api.Tenancy.in_clinic(ctx.clinic.id, fn ->
+          Api.Scheduling.get_appointment!(message.appointment_id,
+            tenant: ctx.clinic.id,
+            authorize?: false
+          )
+        end)
+
+      {:ok, _} =
+        Api.Scheduling.transition_appointment(ctx.scope, appt.id, :cancel, %{}, appt.version)
+
+      body = conn |> get(~p"/api/reply/#{token}") |> json_response(200)
+
+      refute body["ativa"]
+    end
+
+    test "sessão remarcada responde o horário NOVO, não o congelado na mensagem", %{
+      conn: conn,
+      token: token,
+      ctx: ctx,
+      message: message
+    } do
+      appt =
+        Api.Tenancy.in_clinic(ctx.clinic.id, fn ->
+          Api.Scheduling.get_appointment!(message.appointment_id,
+            tenant: ctx.clinic.id,
+            authorize?: false
+          )
+        end)
+
+      novo = Api.Generators.proximo_dia_util_as(ctx, 16)
+
+      {:ok, _} =
+        Api.Scheduling.transition_appointment(
+          ctx.scope,
+          appt.id,
+          :reschedule,
+          %{starts_at: novo},
+          appt.version
+        )
+
+      body = conn |> get(~p"/api/reply/#{token}") |> json_response(200)
+
+      assert {:ok, inicio, 0} = DateTime.from_iso8601(body["inicio"])
+      assert DateTime.compare(inicio, novo) == :eq
+      # E o congelado continua congelado: ele é o histórico do que a mensagem disse.
+      assert body["hora"] == message.vars["hora"]
     end
   end
 
@@ -183,4 +309,15 @@ defmodule ApiWeb.PatientReplyControllerTest do
   # ---- helpers ----
 
   defp caixa(_ctx, scope), do: Api.Notifications.list_inbox(scope).results
+
+  # A presença a que a mensagem se refere, lida sob a GUC — `attendances` tem RLS por
+  # `cinetra.clinic_id`, e sem ela a leitura volta VAZIA em vez de levantar.
+  defp presenca_da(ctx, message) do
+    Api.Tenancy.in_clinic(ctx.clinic.id, fn ->
+      Api.Scheduling.get_attendance!(message.attendance_id,
+        tenant: ctx.clinic.id,
+        authorize?: false
+      )
+    end)
+  end
 end

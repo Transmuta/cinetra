@@ -49,6 +49,11 @@ defmodule Api.Scheduling do
     resource Api.Scheduling.Attendance do
       define :list_attendances, action: :read
 
+      # Uma presença pelo id. Quem pergunta de fora é a rota pública de resposta do paciente
+      # (`ApiWeb.PatientReplyController`), que precisa saber se a sessão **ainda existe** e quando
+      # ela é agora — o `vars` da mensagem é histórico congelado e não responde nenhuma das duas.
+      define :get_attendance, action: :read, get_by: [:id]
+
       # O recorte do lembrete por relógio (doc 96, A-4): estava escrito à mão dentro do
       # `Api.Messaging.ReminderJob`, com filtro solto sobre a query crua.
       define :list_attendances_na_janela, action: :na_janela, args: [:de, :ate]

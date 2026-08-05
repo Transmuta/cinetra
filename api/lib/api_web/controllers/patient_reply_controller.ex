@@ -9,12 +9,22 @@ defmodule ApiWeb.PatientReplyController do
   mais — paciente, sessão, clínica — é relido do banco a partir dela. Um token vazado permite
   responder por alguém: não ler ficha, não ver agenda, não entrar no sistema.
 
-  ## Por que devolve tão pouco
+  ## Por que devolve tão pouco, e qual é a régua
 
   O `show` responde só o suficiente para a página dizer de qual sessão se trata: clínica, data,
-  hora e primeiro nome. **Não** devolve a ficha, nem os outros participantes de uma turma, nem
-  telefone ou e-mail. Quem abre esta página é quem tem o link — e o link pode ter sido
+  hora, primeiro nome — e o **telefone da clínica**, que a página precisa para dar uma saída a
+  quem não pode vir. **Não** devolve a ficha, nem os outros participantes de uma turma, nem o
+  contato do paciente. Quem abre esta página é quem tem o link — e o link pode ter sido
   encaminhado.
+
+  A régua que decide o que entra: **a página não conta nada que a mensagem já não tenha contado**.
+  O telefone da clínica está no corpo de todo template ("Ligue para {{5}}"), então mostrá-lo não
+  amplia em nada o que um encaminhamento revela. Profissional, endereço e tipo de atendimento não
+  estão em template nenhum — e por isso ficam de fora enquanto não estiverem.
+
+  As exceções à régua são `inicio`, `fim`, `timezone` e `ativa`, e elas não contam um dado novo:
+  contam o **mesmo** dado atualizado (ver `contexto/1`). Sem elas a página só sabe repetir a string
+  que a mensagem congelou, que é o que a fazia anunciar sessão cancelada como marcada.
 
   ## `quer_remarcar` não remarca — mas **avisa**
 
@@ -145,15 +155,74 @@ defmodule ApiWeb.PatientReplyController do
   defp ler_resposta(_outra), do: {:error, :resposta_invalida}
 
   defp resumo(message) do
+    {presenca, bloco, clinic} = contexto(message)
+
     %{
       clinica: message.vars["clinica"],
+      # O telefone da CLÍNICA, e ele sai do `vars` — o mesmo número que a mensagem anunciou, e não
+      # o que a clínica tem hoje (§9.1.4: o histórico continua dizendo o que foi dito). O do
+      # paciente é outro dado e continua fora: este token não dá ficha.
+      clinica_telefone: message.vars["telefone"],
       paciente: primeiro_nome(message.vars["paciente"]),
       data: message.vars["data"],
       hora: message.vars["hora"],
+      inicio: inicio(presenca),
+      fim: fim(presenca, bloco),
+      timezone: clinic && clinic.timezone,
+      ativa: ativa?(presenca),
       resposta: message.resposta,
       respondido_em: message.respondido_em
     }
   end
+
+  # A sessão **como ela está agora**, ao lado do que a mensagem congelou.
+  #
+  # `data`/`hora` do `vars` são o histórico: eles têm de continuar dizendo o que o e-mail disse,
+  # porque é deles que a timeline da recepção é desenhada. Mas quem abre o link não está lendo
+  # histórico — está decidindo se sai de casa. Um link vale 30 dias, e nesse intervalo a sessão
+  # pode ter sido remarcada (aí o congelado mente sobre a hora) ou cancelada (aí a página oferecia
+  # "confirmar presença" para algo que não existe mais).
+  #
+  # **Duas leituras, e a segunda não podia morar na primeira**: `with_message/2` seta
+  # `cinetra.message_id`, que é a GUC que a policy de `messages` aceita — `attendances` tem RLS por
+  # `cinetra.clinic_id`. Carregar a presença de dentro daquele bloco não levantaria erro: voltaria
+  # **vazia**, calada, e a tela concluiria "sessão cancelada" para toda sessão viva do produto. O
+  # `clinic_id` só é conhecido depois de ler a mensagem, então é aqui que a segunda GUC entra.
+  #
+  # Best-effort: se esta leitura falhar, a página cai no comportamento de antes (mostra o
+  # congelado, oferece os botões) em vez de recusar a resposta de quem clicou.
+  defp contexto(%{clinic_id: clinic_id} = message) do
+    Api.Repo.with_clinic(clinic_id, fn ->
+      opts = [tenant: clinic_id, authorize?: false, not_found_error?: false]
+
+      {Api.Scheduling.get_attendance(message.attendance_id, opts),
+       Api.Scheduling.get_appointment(message.appointment_id, opts),
+       Api.Accounts.get_clinic(clinic_id, authorize?: false, not_found_error?: false)}
+    end)
+    |> Api.Repo.unwrap()
+    |> case do
+      {:ok, {{:ok, presenca}, {:ok, bloco}, {:ok, clinic}}} -> {presenca, bloco, clinic}
+      _ -> {nil, nil, nil}
+    end
+  end
+
+  defp inicio(%{session_starts_at: %DateTime{} = quando}), do: DateTime.to_iso8601(quando)
+  defp inicio(_presenca), do: nil
+
+  # O fim serve o "adicionar à agenda" da tela: evento de calendário sem fim é evento inventado
+  # pelo app do celular — uma hora, em geral —, e o paciente marcaria o dia errado.
+  #
+  # A duração é a do **bloco**, aplicada ao começo desta presença: numa série cada sessão tem o seu
+  # `session_starts_at`, e todas duram o que o bloco dura.
+  defp fim(%{session_starts_at: %DateTime{} = comeco}, %{starts_at: de, ends_at: ate}) do
+    comeco |> DateTime.add(DateTime.diff(ate, de, :second), :second) |> DateTime.to_iso8601()
+  end
+
+  defp fim(_presenca, _bloco), do: nil
+
+  # Sem presença lida, `true`: o desconhecido não pode virar "sua sessão foi cancelada".
+  defp ativa?(%{status: status}), do: Api.Scheduling.Attendance.viva?(status)
+  defp ativa?(_presenca), do: true
 
   defp primeiro_nome(nil), do: nil
   defp primeiro_nome(nome), do: nome |> String.split(" ", parts: 2) |> hd()
