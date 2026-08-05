@@ -1,5 +1,16 @@
 # 17 — Deploy no Fly.io
 
+> **⚠️ DOCUMENTO HISTÓRICO — a produção NÃO roda mais no Fly.io.**
+>
+> Substituído pela [ADR-023](00-decisoes.md): produção e homologação rodam num **Dokploy sobre VPS
+> Hostinger KVM 2**, com um único domínio e topologia BFF-only. O runbook em vigor é o
+> [doc 59](59-deploy-dokploy-oci.md); os riscos e cuidados da máquina atual estão no
+> [doc 87](87-servidor-hostinger-riscos-e-cuidados.md).
+>
+> Fica versionado porque descreve decisões que ainda ecoam no código — `force_ssl` fora do
+> `prod.exs`, a forma dos `Dockerfile.prod`, o `Api.Release`. **Não siga nenhum passo daqui.**
+> (R-B10, onda 5 do doc 102.)
+
 Produção do Movimento no [Fly.io](https://fly.io): **dois apps** (a API e o web BFF) + um
 Postgres. O TLS e o redirect http→https são da **edge do Fly** (`force_https` no `fly.toml`) —
 por isso o `force_ssl` foi tirado do `prod.exs` (a API também é chamada internamente por http).

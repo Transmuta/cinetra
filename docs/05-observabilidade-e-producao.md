@@ -317,6 +317,17 @@ deve receber tráfego.
 
 ## 5. Deploy no Fly.io
 
+### ⚠️ Esta seção é HISTÓRICA
+
+O deploy no Fly.io foi substituído pela [ADR-023](00-decisoes.md) — Dokploy sobre VPS Hostinger,
+domínio único, topologia BFF-only. Clustering por DNS interno (`.internal`), backup por snapshot do
+Fly e a divisão em dois apps **não descrevem mais nada em operação**.
+
+O que vale hoje: [doc 59](59-deploy-dokploy-oci.md) (runbook), [doc 87](87-servidor-hostinger-riscos-e-cuidados.md)
+(a máquina) e `compose.dokploy.yml` (a verdade executável). O restante desta seção fica como
+registro do raciocínio, não como instrução. (R-B10, onda 5 do doc 102.)
+
+
 ### 5.1 Dois apps, uma região
 
 Conforme ADR-008: dois apps Fly separados, ambos na região **`gru` (São Paulo)** —
