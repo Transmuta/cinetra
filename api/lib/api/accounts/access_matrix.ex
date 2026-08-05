@@ -24,6 +24,12 @@ defmodule Api.Accounts.AccessMatrix do
     * `:propria` — só o que é seu (a própria agenda, a própria caixa);
     * `:nao` — sem acesso.
 
+  `:propria` diz **qual recorte de linhas**, não se a pessoa altera — os dois eixos são
+  independentes, e quem os junta é o `obs` da linha. Hoje o mesmo `:propria` cobre a agenda do
+  profissional (só lê, e só a dele, desde 2026-08-04) e a caixa de notificações (lê e mexe, e só
+  a dela). Foi assim desde a primeira versão, em relatórios; a mudança da agenda só tornou o
+  caso visível.
+
   Owner e admin são equivalentes em TODAS as policies de hoje (nenhuma os distingue); a matriz
   os mantém como colunas separadas porque a pergunta da tela é "que papel eu dou a esta pessoa",
   e as opções do convite são quatro.
@@ -49,7 +55,8 @@ defmodule Api.Accounts.AccessMatrix do
         id: :agenda,
         label: "Agenda e presenças",
         acesso: %{owner: :total, admin: :total, profissional: :propria, recepcao: :total},
-        obs: "Profissional vê e altera só a própria agenda (A7/A8)."
+        obs:
+          "Profissional só VÊ, e só a própria agenda: não lança, não remarca, não cancela e não marca presença (A7/A8)."
       },
       %{
         id: :encaixe,
@@ -60,8 +67,9 @@ defmodule Api.Accounts.AccessMatrix do
       %{
         id: :fila,
         label: "Fila de espera",
-        acesso: %{owner: :total, admin: :total, profissional: :total, recepcao: :total},
-        obs: nil
+        acesso: %{owner: :total, admin: :total, profissional: :leitura, recepcao: :total},
+        obs:
+          "Profissional vê a fila inteira da clínica; quem põe, tira e oferece vaga é o balcão."
       },
       %{
         id: :pacientes,
@@ -79,8 +87,9 @@ defmodule Api.Accounts.AccessMatrix do
       %{
         id: :pacotes,
         label: "Pacotes",
-        acesso: %{owner: :total, admin: :total, profissional: :total, recepcao: :total},
-        obs: "Pacote não se apaga — cancela, e o histórico fica."
+        acesso: %{owner: :total, admin: :total, profissional: :leitura, recepcao: :total},
+        obs:
+          "Pacote não se apaga — cancela, e o histórico fica. Criar um pacote é agendar em série, então também é do balcão."
       },
       %{
         id: :comunicacao,
@@ -94,11 +103,22 @@ defmodule Api.Accounts.AccessMatrix do
         acesso: %{owner: :leitura, admin: :leitura, profissional: :propria, recepcao: :leitura},
         obs: "Profissional vê só os próprios números."
       },
+      # Esta linha era "Profissionais e tipos de atendimento", com `:leitura` para o
+      # profissional nas duas coisas. Em 2026-08-04 (doc 103) só a PRIMEIRA fechou para ele, e
+      # uma célula não expressa dois valores — daí a divisão. Os tipos ficam porque a agenda
+      # depende deles: sem o tipo não há cor, nome nem duração no bloco que ele lê.
       %{
         id: :profissionais,
-        label: "Profissionais e tipos de atendimento",
+        label: "Profissionais (o diretório)",
+        acesso: %{owner: :total, admin: :total, profissional: :nao, recepcao: :leitura},
+        obs:
+          "A tela não é do profissional: ele não vê o diretório nem a própria ficha (CPF, endereço, dados bancários). O nome dele na própria coluna da agenda continua aparecendo."
+      },
+      %{
+        id: :tipos,
+        label: "Tipos de atendimento",
         acesso: %{owner: :total, admin: :total, profissional: :leitura, recepcao: :leitura},
-        obs: nil
+        obs: "Todo papel lê — é o que dá cor, nome e duração ao bloco da agenda."
       },
       %{
         id: :horarios,

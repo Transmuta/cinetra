@@ -125,9 +125,14 @@ defmodule Api.Waitlist.WaitlistEntry do
       authorize_if {Api.Accounts.Checks.HasClinicRole, roles: :any, clinic_from: :tenant}
     end
 
+    # A fila é a antessala da agenda: a saída natural de um item é virar agendamento (o "oferecer
+    # vaga"). Desde 2026-08-04 (doc 103) o `profissional` não agenda, e administrar a fila que
+    # alimenta a agenda seria a mesma escrita por outro caminho. Ele continua **lendo** a fila
+    # inteira — inclusive as vagas nas colunas dos colegas, que é o que o motor de vagas precisa
+    # enxergar (regressão E-4, doc 96).
     policy action_type([:create, :update, :destroy]) do
       authorize_if {Api.Accounts.Checks.HasClinicRole,
-                    roles: [:owner, :admin, :recepcao, :profissional], clinic_from: :tenant}
+                    roles: [:owner, :admin, :recepcao], clinic_from: :tenant}
     end
   end
 

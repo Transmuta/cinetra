@@ -447,10 +447,10 @@ defmodule Api.Waitlist.WaitlistEntryTest do
   end
 
   describe "RBAC" do
-    test "todos os papéis que agendam administram a fila" do
+    test "os papéis que agendam administram a fila" do
       {owner, clinic} = owner_and_clinic()
 
-      for papel <- [:admin, :recepcao, :profissional] do
+      for papel <- [:admin, :recepcao] do
         scope = scope_for(member_with_role(clinic, papel), clinic)
         p = patient(clinic, owner, "P #{papel}")
 
@@ -458,6 +458,33 @@ defmodule Api.Waitlist.WaitlistEntryTest do
         assert %{entries: entries} = Waitlist.list_entries(scope)
         assert entry.id in Enum.map(entries, & &1.id)
       end
+    end
+
+    # A fila é a antessala da agenda — a saída natural de um item é virar agendamento. Desde a A8
+    # de 2026-08-04 (doc 103) o `profissional` não agenda, e administrar a fila seria a mesma
+    # escrita pela porta ao lado.
+    test "o profissional não põe ninguém na fila" do
+      {owner, clinic} = owner_and_clinic()
+      scope = scope_for(member_with_role(clinic, :profissional), clinic)
+      p = patient(clinic, owner, "P prof")
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Waitlist.enqueue_entry(scope, %{patient_id: p.id})
+    end
+
+    # E o controle positivo: ele continua LENDO a fila inteira da clínica. Não é detalhe — o
+    # motor de vagas depende de ele enxergar as colunas dos colegas (regressão E-4, doc 96), e
+    # uma fila vazia por engano é subnotificação silenciosa.
+    test "mas lê a fila inteira, inclusive o que o balcão enfileirou" do
+      {owner, clinic} = owner_and_clinic()
+      balcao = scope_for(member_with_role(clinic, :recepcao), clinic)
+      prof = scope_for(member_with_role(clinic, :profissional), clinic)
+
+      {:ok, entry} =
+        Waitlist.enqueue_entry(balcao, %{patient_id: patient(clinic, owner, "Quem espera").id})
+
+      assert %{entries: entries} = Waitlist.list_entries(prof)
+      assert entry.id in Enum.map(entries, & &1.id)
     end
   end
 

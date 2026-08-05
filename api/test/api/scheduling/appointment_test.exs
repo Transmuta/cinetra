@@ -232,7 +232,12 @@ defmodule Api.Scheduling.AppointmentTest do
     end
   end
 
-  describe "A8 — quem pode agendar" do
+  # A8 mudou em 2026-08-04 (doc 103): o papel `profissional` deixou de agendar. Antes ele
+  # agendava na PRÓPRIA coluna, e o A7-na-escrita (`OwnProfessionalColumn`) era o que o mantinha
+  # fora da coluna do colega; agora ele não escreve em coluna nenhuma, e o recorte que sobra é
+  # só de LEITURA. Os testes desta describe são o gate dessa decisão — se um deles voltar a
+  # ficar verde com `{:ok, _}`, a permissão voltou sem que ninguém decidisse.
+  describe "A8 — quem pode agendar (o profissional não)" do
     test "recepção agenda" do
       ctx = setup_clinic()
       scope = escopo_de_membro!(ctx, :recepcao)
@@ -240,23 +245,16 @@ defmodule Api.Scheduling.AppointmentTest do
       assert {:ok, _} = schedule(%{ctx | scope: scope}, %{})
     end
 
-    test "profissional agenda na PRÓPRIA coluna" do
+    test "profissional NÃO agenda — nem na PRÓPRIA coluna" do
       ctx = setup_clinic()
       scope = escopo_de_membro!(ctx, :profissional, ctx.prof.id)
 
-      assert {:ok, appt} = schedule(%{ctx | scope: scope}, %{})
-      assert appt.professional_id == ctx.prof.id
+      assert {:error, %Ash.Error.Forbidden{}} = schedule(%{ctx | scope: scope}, %{})
     end
 
-    test "profissional NÃO agenda na coluna de um colega (A7 na escrita)" do
+    test "profissional NÃO agenda na coluna de um colega" do
       ctx = setup_clinic()
-
-      colega =
-        Directory.create_professional!("Dr. Y", %{tel: Api.Generators.telefone_unico()},
-          tenant: ctx.clinic.id,
-          actor: ctx.owner
-        )
-
+      colega = profissional!(ctx, "Dr. Y")
       scope = escopo_de_membro!(ctx, :profissional, ctx.prof.id)
 
       assert {:error, %Ash.Error.Forbidden{}} =
@@ -269,6 +267,78 @@ defmodule Api.Scheduling.AppointmentTest do
 
       assert {:error, %Ash.Error.Forbidden{}} = schedule(%{ctx | scope: scope}, %{})
     end
+
+    # O CONTROLE POSITIVO da decisão. Sem ele, os quatro asserts acima passariam também se a
+    # agenda tivesse sumido para o papel — e "não vê nada" não é o que foi pedido.
+    test "e continua LENDO a própria agenda" do
+      ctx = setup_clinic()
+      {:ok, appt} = schedule(ctx, %{})
+      scope = escopo_de_membro!(ctx, :profissional, ctx.prof.id)
+
+      assert [lido] = Scheduling.list_appointments!(at("00:00"), at("23:00"), scope: scope)
+      assert lido.id == appt.id
+    end
+  end
+
+  # O resto do ciclo de vida (Entrega 4). "Não pode agendar" não seria nada se ele pudesse
+  # remarcar, cancelar, excluir ou fechar o desfecho do bloco que já está lá.
+  describe "ciclo de vida — o profissional também não altera o que já existe" do
+    setup do
+      ctx = setup_clinic()
+      {:ok, appt} = schedule(ctx, %{})
+
+      %{
+        ctx: ctx,
+        appt: appt,
+        prof: escopo_de_membro!(ctx, :profissional, ctx.prof.id)
+      }
+    end
+
+    test "não remarca", %{appt: appt, prof: scope} do
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Scheduling.reschedule_appointment_slot(appt, %{starts_at: at("09:00")},
+                 scope: scope
+               )
+    end
+
+    test "não cancela", %{appt: appt, prof: scope} do
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Scheduling.cancel_appointment_slot(appt, %{}, scope: scope)
+    end
+
+    test "não exclui", %{appt: appt, prof: scope} do
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Scheduling.exclude_appointment_slot(appt, %{}, scope: scope)
+    end
+
+    test "não tira participante", %{appt: appt, ctx: ctx, prof: scope} do
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Scheduling.remove_appointment_participants(
+                 appt,
+                 %{patient_ids: [ctx.paciente.id]},
+                 scope: scope
+               )
+    end
+
+    test "não marca presença", %{ctx: ctx, prof: scope} do
+      [presenca] = Scheduling.list_attendances!(scope: ctx.scope)
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Scheduling.mark_attendance_present(presenca, %{}, scope: scope)
+    end
+
+    test "não marca falta", %{ctx: ctx, prof: scope} do
+      [presenca] = Scheduling.list_attendances!(scope: ctx.scope)
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Scheduling.mark_attendance_absent(presenca, %{}, scope: scope)
+    end
+
+    # Controle positivo do bloco acima: a presença que ele não altera, ele enxerga.
+    test "mas lê as presenças da própria agenda", %{ctx: ctx, prof: scope} do
+      assert [_] = Scheduling.list_attendances!(scope: scope)
+      assert [_] = Scheduling.list_attendances!(scope: ctx.scope)
+    end
   end
 
   describe "A9 — só recepção para cima cria encaixe" do
@@ -277,16 +347,11 @@ defmodule Api.Scheduling.AppointmentTest do
       scope = escopo_de_membro!(ctx, :profissional, ctx.prof.id)
 
       # `encaixe = true` é o predicado que ISENTA a linha da exclusion constraint. O papel
-      # menos privilegiado não desliga a proteção contra dupla-marcação.
+      # menos privilegiado não desliga a proteção contra dupla-marcação. Desde a A8 de
+      # 2026-08-04 ele já não agenda nem sem encaixe — este teste continua porque a A9 é uma
+      # regra PRÓPRIA: se um dia o papel voltar a agendar, ela é o que segue barrando o encaixe.
       assert {:error, %Ash.Error.Forbidden{}} =
                schedule(%{ctx | scope: scope}, %{encaixe: true})
-    end
-
-    test "profissional continua agendando SEM encaixe" do
-      ctx = setup_clinic()
-      scope = escopo_de_membro!(ctx, :profissional, ctx.prof.id)
-
-      assert {:ok, %{encaixe: false}} = schedule(%{ctx | scope: scope}, %{encaixe: false})
     end
 
     test "recepção cria encaixe" do

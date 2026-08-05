@@ -221,9 +221,14 @@ defmodule Api.Scheduling.Attendance do
       authorize_if {Api.Accounts.Checks.HasClinicRole, roles: :any, clinic_from: :tenant}
     end
 
+    # A mesma lista da A8 do `Appointment`, e pelo mesmo motivo: a presença é o desfecho do
+    # bloco, não um registro à parte. Deixar o `profissional` marcando presença/falta enquanto
+    # ele não agenda seria dar-lhe a escrita que fecha a sessão (e debita pacote, e mexe no
+    # agregado `Patient.faltas`) depois de tirar a que a abre — ver o moduledoc de `Appointment`
+    # e a decisão de 2026-08-04 no doc 103.
     policy action_type([:create, :update, :destroy]) do
       authorize_if {Api.Accounts.Checks.HasClinicRole,
-                    roles: [:owner, :admin, :recepcao, :profissional], clinic_from: :tenant}
+                    roles: [:owner, :admin, :recepcao], clinic_from: :tenant}
     end
   end
 

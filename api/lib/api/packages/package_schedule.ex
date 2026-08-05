@@ -76,9 +76,11 @@ defmodule Api.Packages.PackageSchedule do
       authorize_if {Api.Accounts.Checks.HasClinicRole, roles: :any, clinic_from: :tenant}
     end
 
+    # A grade da série é o que decide onde as sessões caem na agenda — mesma lista do `Package`
+    # e do `Appointment` desde 2026-08-04 (doc 103).
     policy action_type([:create, :update]) do
       authorize_if {Api.Accounts.Checks.HasClinicRole,
-                    roles: [:owner, :admin, :recepcao, :profissional], clinic_from: :tenant}
+                    roles: [:owner, :admin, :recepcao], clinic_from: :tenant}
     end
   end
 

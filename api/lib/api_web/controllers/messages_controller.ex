@@ -15,9 +15,14 @@ defmodule ApiWeb.MessagesController do
 
   ## Quem pode disparar
 
-  Os mesmos papéis que agendam (`owner`·`admin`·`recepcao`·`profissional`). Não é a policy do
-  recurso porque a escrita de `Message` é de sistema — quem guarda é a fronteira, e o
-  `disparado_por_id` registra quem foi.
+  `owner`·`admin`·`recepcao`·`profissional`. Não é a policy do recurso porque a escrita de
+  `Message` é de sistema — quem guarda é a fronteira, e o `disparado_por_id` registra quem foi.
+
+  Esta lista **era** descrita como "os mesmos papéis que agendam", e deixou de ser em 2026-08-04
+  (doc 103): o `profissional` saiu do agendar e continua aqui, de propósito. A matriz de acesso
+  sempre tratou comunicação como célula própria (`:propria` — ele fala nos próprios atendimentos),
+  e a decisão daquele dia foi sobre a agenda. Se um dia a comunicação for reavaliada, é aqui e na
+  linha `comunicacao` de `Api.Accounts.AccessMatrix` que ela muda — não por arrasto.
   """
   use ApiWeb, :controller
 

@@ -452,8 +452,13 @@ defmodule Api.Packages.LifecycleTest do
       # as 4 da grade (seg/qua) terminam na quarta 22/07.
       _na_outra_coluna = sessao_em_outra_coluna(ctx, pkg)
 
-      # o `+1` continua sendo do profissional (a policy só tirou dele as TRANSIÇÕES)
-      assert {:ok, _} = Packages.add_session(scope_profissional(ctx, ctx.prof.id), pkg.id)
+      # O ator era o `:profissional` — era ele que reproduzia o A3, porque só o papel dele é
+      # recortado por `OwnAgendaOnly`. Desde a A8 de 2026-08-04 (doc 103) ele não escreve pacote
+      # nenhum, e essa ROTA para o bug fechou por construção: nenhum ator que alcança
+      # `add_session/2` tem leitura recortada. O que este teste ainda guarda é `proxima_ancora/2`
+      # em si — a âncora sai de `list_package_attendances/3` (o pacote inteiro, todas as colunas),
+      # e não das sessões da coluna da grade.
+      assert {:ok, _} = Packages.add_session(scope_before(ctx), pkg.id)
       Oban.drain_queue(queue: :housekeeping)
 
       # `sessoes/2` lê pelo escopo do owner (sem recorte) e vem ordenada por `starts_at`
@@ -492,12 +497,13 @@ defmodule Api.Packages.LifecycleTest do
     end
   end
 
-  describe "o ciclo de vida do pacote é de quem enxerga a clínica inteira (A3)" do
+  describe "o pacote é de quem enxerga a clínica inteira (A3 + A8)" do
     @describetag :a3
 
-    # `:profissional` fica de fora das quatro transições. As três saídas foram pesadas no doc 101
-    # §4.1: recortar as sessões É o bug; escrever a sessão como cascata interna reabriria a porta
-    # lateral que o bate-volta do `Bulk` fechou de propósito. Sobra tirar o papel da operação.
+    # `:profissional` ficou de fora das quatro transições no doc 101 §4.1 (as três saídas foram
+    # pesadas lá: recortar as sessões É o bug; escrever a sessão como cascata interna reabriria a
+    # porta lateral que o bate-volta do `Bulk` fechou de propósito). Em 2026-08-04 o resto da
+    # escrita do pacote foi junto — ver o teste do `+1`, no fim desta describe, para o porquê.
     setup do
       ctx = setup_clinic()
       pkg = criar_e_materializar(ctx)
@@ -551,8 +557,32 @@ defmodule Api.Packages.LifecycleTest do
       assert {:error, %Ash.Error.Forbidden{}} = Packages.archive_package(scope, vazio.id)
     end
 
-    test "o `+1` da ficha CONTINUA sendo do profissional", %{pkg: pkg, prof_scope: scope} do
-      assert {:ok, _} = Packages.add_session(scope, pkg.id)
+    # Era "o `+1` da ficha CONTINUA sendo do profissional" — a fronteira que o doc 101 traçou
+    # entre TRANSIÇÕES (fora do alcance dele) e o resto da escrita do pacote (dentro). A A8 de
+    # 2026-08-04 apagou essa fronteira: criar ou crescer uma série é agendar por atacado, e o
+    # `Materializer` lança as sessões com `authorize?: false` — deixar o `+1` de pé seria a porta
+    # lateral exata que fechar a policy do `Appointment` sozinha não fecha.
+    test "o `+1` da ficha também saiu do profissional", %{pkg: pkg, prof_scope: scope} do
+      assert {:error, %Ash.Error.Forbidden{}} = Packages.add_session(scope, pkg.id)
+    end
+
+    # Grade na sexta pelo mesmo motivo do "arquivar recusa" acima: com a grade do `setup`
+    # (segunda/quarta) a criação morreria no conflito da prévia, ANTES da policy — e o teste
+    # ficaria verde provando outra coisa.
+    test "criar a série também", %{ctx: ctx, prof_scope: scope} do
+      params =
+        params(ctx, %{
+          grade: %{dows: [5], horarios: %{"5" => "15:00"}, professional_id: ctx.prof.id}
+        })
+
+      assert {:error, %Ash.Error.Forbidden{}} = Packages.create_series(scope, params)
+    end
+
+    # Controle positivo das quatro recusas acima: ele não perdeu o pacote de vista, perdeu a
+    # caneta. Sem esta linha, "tudo dá Forbidden" seria indistinguível de "o pacote sumiu".
+    test "mas continua LENDO o pacote", %{pkg: pkg, prof_scope: scope} do
+      assert %{id: id} = Packages.get_package!(pkg.id, scope: scope)
+      assert id == pkg.id
     end
   end
 

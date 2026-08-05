@@ -168,12 +168,18 @@ defmodule Api.Packages.Package do
                     roles: [:owner, :admin, :recepcao], clinic_from: :tenant}
     end
 
-    # O resto da escrita (criar a série, `set_total` do `+1`/`−1`, a grade) segue com o
-    # `profissional`: são operações sobre a série dele, e cada escrita na agenda que elas disparam
-    # passa pela policy do `Appointment` — `OwnProfessionalColumn` inclusive.
+    # O resto da escrita (criar a série, `set_total` do `+1`/`−1`, a grade) perdeu o
+    # `profissional` em 2026-08-04 (doc 103), junto com a A8 do `Appointment` — e aqui a razão é
+    # mais forte do que "coerência de papel": **criar pacote é agendar por atacado**. O
+    # `Api.Packages.Materializer` lança as sessões da série com `authorize?: false` (ele
+    # materializa o que a série já decidiu, não reautoriza cada bloco), então fechar só a policy
+    # do `Appointment` deixaria a porta aberta pelo lado: o papel que não pode lançar UM bloco
+    # encheria a própria agenda criando uma série de doze. A lista acima ficou idêntica à do
+    # ciclo de vida; as duas policies continuam separadas porque as decisões são separadas — ver
+    # a nota gêmea na A9 de `Appointment`.
     policy action_type([:create, :update]) do
       authorize_if {Api.Accounts.Checks.HasClinicRole,
-                    roles: [:owner, :admin, :recepcao, :profissional], clinic_from: :tenant}
+                    roles: [:owner, :admin, :recepcao], clinic_from: :tenant}
     end
   end
 
