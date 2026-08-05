@@ -9,8 +9,9 @@ defmodule Api.Heartbeat do
   simplesmente parou de rodar — não há erro, não há linha, não há requisição. O sistema fica em
   silêncio, e silêncio é indistinguível de "está tudo bem".
 
-  O `docs/59 §13` já tinha nomeado o caso concreto e o deixado aberto: *"alerta se o `backup-cron`
-  parar — backup que morre em silêncio só aparece no dia do incidente"*.
+  O caso concreto aqui são os crons do Oban — lembrete que deixa de sair, poda que deixa de rodar,
+  digest que para. Job que morre em silêncio só aparece no dia em que alguém repara que a mensagem
+  não chegou, e aí já faz dias.
 
   ## Por que o monitor é de terceiro
 

@@ -431,7 +431,7 @@ Onde houver espelho, a função pura correspondente é validada por **contrato d
 |---|---|---|---|
 | API | `docker compose` (`mix phx.server`) | Dokploy (`compose.dokploy.yml`, branch `develop`) | Dokploy (branch `main`) |
 | Web | `docker compose` (`vite dev`) | Dokploy, mesmo compose | Dokploy, mesmo compose |
-| Postgres | container `db` | Postgres no mesmo host | Postgres no mesmo host, com backup (`deploy/backup/`) |
+| Postgres | container `db` | Postgres no mesmo host | Postgres no mesmo host; backup por snapshot de painel, fora do repo (doc 59 §13) |
 | Storage | `Api.Storage` em memória / R2 de dev | Cloudflare R2 | Cloudflare R2 |
 | Dados | seed derivado do protótipo | **anonimizado** | real |
 | Telemetria | console | Alloy → Loki/Tempo/Prometheus (`deploy/observability/`) | idem, self-hosted |

@@ -175,7 +175,7 @@ services:
     cpus: ${LOKI_CPUS:-1.0}
     environment:
       # DECIDIDO: `filesystem` (disco local). O dado mora no volume e morre com a máquina — o que
-      # tem valor legal é a trilha de auditoria, que vive no BANCO e tem backup horário. Trocar
+      # tem valor legal é a trilha de auditoria, que vive no BANCO e entra no snapshot. Trocar
       # para `s3` (R2) é possível, mas NÃO é retroativo: os chunks antigos ficam para trás.
       LOKI_OBJECT_STORE: ${LOKI_OBJECT_STORE:-filesystem}
       LOKI_S3_ENDPOINT: ${LOKI_S3_ENDPOINT:-}
@@ -245,14 +245,23 @@ services:
       GF_USERS_ALLOW_SIGN_UP: "false"
       # ---- Identidade INDIVIDUAL pelo Cloudflare Access (R-M17, onda 5 do doc 102) -------------
       #
-      # O que isto compra: hoje três pessoas dividem uma senha, e o datasource `cinetra_metrics`
-      # lê o agregado de TODAS as clínicas ignorando RLS por construção. Alguém consulta pelo
-      # Explore e o `audit_events` **não registra nada** — ele é trilha da aplicação, não do
-      # Grafana. Numa investigação de LGPD, "quem viu o quê" não tem resposta; e revogar acesso de
-      # uma pessoa vira troca coordenada de senha.
+      # **Desligado, e é preparação — não obra em vigor.** O R-M17 descreve "três pessoas dividem
+      # uma senha", e essa premissa NÃO vale nesta instalação: o Zero Trust libera o painel para um
+      # único e-mail. Com uma pessoa, a atribuição já é inequívoca e a revogação já é individual
+      # (tirar o e-mail da política do Access) — o mecanismo que o achado pedia existe, só não é o
+      # Grafana que o provê. Ver doc 102 §4.5.1.
       #
-      # O Access já está na frente do painel (doc 86 §4). O que faltava era o Grafana **acreditar**
-      # no e-mail que ele carimba, e passar a ter um usuário por pessoa.
+      # O que isto compraria no dia do gatilho — a SEGUNDA pessoa com acesso — é um usuário do
+      # Grafana por pessoa, no lugar de todos entrarem como `admin`. E vale saber o que **não**
+      # compraria: nem com `auth.proxy` o Grafana audita CONSULTA. Ele registra quem abriu a
+      # sessão, não qual query rodou no Explore; "quem viu o agregado de todas as clínicas"
+      # continua no nível de "quem entrou e quando", que o log do Access já dá.
+      #
+      # **No dia de ligar, considere `auth.jwt` no lugar disto.** A proteção do `auth.proxy` é
+      # POSICIONAL (a allowlist de IP abaixo, que ainda por cima é o IP do Traefik e muda a cada
+      # recreate); a do `auth.jwt` é CRIPTOGRÁFICA — valida o `Cf-Access-Jwt-Assertion` contra o
+      # JWKS do tenant e o `aud` do app, e a posição de rede deixa de importar. Numa rede
+      # compartilhada (ver R-M21, aceito), a segunda é estritamente melhor.
       #
       # ## A armadilha, e ela ficou mais séria com a decisão do 5.2
       #

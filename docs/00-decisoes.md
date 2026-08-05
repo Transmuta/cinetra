@@ -687,6 +687,117 @@ pedia e uma superfície montada sobre domínio vazio não tinha como cumprir.
 
 ---
 
+## ADR-028 — A imagem de produção nasce no CI, no GHCR, e é consumida por **tag móvel + pull sempre**
+
+**Status:** Aceita · **Data:** 2026-08-05 · Fecha o **R-M4** do [doc 95](95-analise-infraestrutura.md) e paga o [D-21](50-debitos-tecnicos.md)
+
+**Contexto.** O Dokploy construía a imagem **na própria VPS** a cada webhook: ~90% dos 2 vCPU da
+máquina que serve os pacientes, exatamente enquanto ela troca de container. E o artefato que os
+gates do CI aprovavam não era o que subia — o servidor construía outro, do mesmo Git mas com outro
+cache e outra rede. A onda 3 do [doc 102](102-plano-de-acao-infraestrutura.md) fez metade (o job
+que constrói como gate) e deixou a outra escrita como decisão pendente: *"publicar num registry
+precisa de credencial e de reconfigurar o Dokploy — decisão que não é minha"*.
+
+**Decisão.** O CI publica duas imagens no **GHCR** (`cinetra-api` e `cinetra-web`),
+`linux/amd64`, com duas tags cada: a **móvel** da branch (`main`/`develop`), que é a consumida, e a
+**imutável** `sha-<12>`, que é o caminho de rollback. O `compose.dokploy.yml` declara `image:` +
+**`pull_policy: always`**, e `IMAGE_TAG` é **obrigatória** no Environment de cada stack. O runbook
+e as pendências de operador estão no [doc 105](105-imagem-no-ci-e-webhook-atras-do-access.md).
+
+**Alternativas descartadas, com o motivo:**
+
+| Alternativa | Por que não |
+|---|---|
+| **Consumir por digest** (o que o item 16 do doc 95 pedia) | Exigiria o CI escrever o digest no Environment do stack pela **API do painel do Dokploy** — outra credencial, e de alcance muito maior que o webhook (o painel é root-equivalente na máquina, [doc 87 §3.1](87-servidor-hostinger-riscos-e-cuidados.md)). A janela que a tag móvel deixa aberta é estreita: o webhook dispara logo depois do push, e a tag `sha-…` fica publicada ao lado para auditoria e rollback |
+| **Docker Hub / registro próprio** | Credencial nova para guardar e rotacionar. O GHCR usa o `GITHUB_TOKEN` do próprio job, com `packages: write` declarado só nele |
+| **Continuar buildando no servidor** | É o D-21, e o custo aparece justamente no dia em que um deploy coincidir com a clínica trabalhando |
+
+**Consequências.**
+
+1. **A imagem do BFF é atada ao ambiente, e o dono das variáveis mudou.** A CSP é assada no build,
+   então `WEB_HOST` e `R2_ACCOUNT_ID` saíram do Environment do Dokploy e viraram configuração **do
+   repositório** (`WEB_HOST_PROD`, `WEB_HOST_HML`, `R2_ACCOUNT_ID`). O job aborta se faltarem —
+   porque o modo de falha delas é browser quebrado com healthcheck verde. *(Nasceram na aba
+   Variables; estão em **Secrets** desde 2026-08-05 — ver a emenda no fim desta ADR.)*
+2. **`pull_policy: always` é parte da decisão, não detalhe.** Com tag móvel, sem ela o servidor
+   reusa a imagem homônima do disco e o deploy fica verde sem ter implantado.
+3. **`IMAGE_TAG` sem default.** Um default faria HML servir a imagem de produção no dia em que
+   alguém esquecesse a variável.
+4. **Volta a ser sensível à arquitetura.** Publicamos só `linux/amd64`, o que casa com o
+   [ADR-023](#adr-023--produção-na-hostinger-kvm-2-o-a1-da-oracle-fica-adiado-não-descartado). Se
+   a máquina voltar a ser ARM, o sintoma é `exec format error` no servidor, e o job `imagem` é o
+   primeiro lugar a mudar.
+
+**Emenda de 2026-08-05 — duas correções no provisionamento.**
+
+- **As três da CSP moram em Secrets, não em Variables.** Tecnicamente elas *pertencem* a Variables:
+  os valores são públicos por construção — o domínio e o id da conta R2 vão na CSP que todo browser
+  recebe. Foram movidas por razão de **operação**: uma aba só para provisionar o repositório, em vez
+  de duas. O preço está pago de propósito e é real — o GitHub mascara secret em log, então a linha
+  de diagnóstico do job `imagem` imprime `host=***`. Se um dia for preciso ler o host, o caminho é
+  o `docker inspect` da imagem publicada. `Api.CiWorkflowTest` prende a escolha para que ninguém a
+  reverta achando que foi engano.
+- **A verificação pós-deploy batia num caminho inexistente.** O passo consultava
+  `${BASE}/api/ready`, e no desenho BFF-only ([doc 59 §3.1](59-deploy-dokploy-oci.md)) o Traefik só
+  encaminha `/socket` e `/webhooks` para a API — o resto do domínio vai para o BFF, que responde
+  **404** ali. O defeito era invisível porque `DEPLOY_URL_*` nunca foi configurado (o passo saía
+  pelo `::warning::`); configurá-lo teria reprovado deploys saudáveis. Corrigido para
+  `${BASE}/ready` — o readiness do BFF, que consulta o `/api/ready` da API pela rede interna e por
+  isso cobre o caminho inteiro numa URL só.
+
+---
+
+## ADR-029 — O backup sai do repositório: quem cobre o dado são os snapshots de painel
+
+**Status:** Aceita · **Data:** 2026-08-05 · **Reverte a §13 do [doc 59](59-deploy-dokploy-oci.md)** e
+esvazia os achados R-M10/R-M11 do [doc 95](95-analise-infraestrutura.md), pagos nas ondas 1 e 2 do
+[doc 102](102-plano-de-acao-infraestrutura.md)
+
+**Contexto.** O backup era código nosso: `deploy/backup/` com `backup.sh` (`pg_dump --format=custom`
+do owner, verificação por `pg_restore -f /dev/null`, preflight de disco, cifra `age` opcional,
+upload por `rclone` para um bucket R2 próprio, retenção 48 h/30 d) e `restore.sh`. Rodava em dois
+gatilhos — uma vez **antes do `migrate`**, fail-closed, e de hora em hora pelo `backup-cron` — com
+heartbeat externo para o cron que morre calado. Custava uma imagem no CI, dois serviços no compose,
+um volume, seis envs, uma entrada no Dependabot e dois arquivos de teste.
+
+Apareceu um caminho que **não passa pelo repositório**: o snapshot da VPS na Hostinger e o snapshot
+de projeto do próprio Dokploy, enviado para o R2. Os dois se configuram em painel, por quem opera a
+máquina, sem deploy e sem código.
+
+**Decisão.** Remover **tudo** que havia de backup e restore no repositório e passar a cobertura de
+dado para esses dois mecanismos. Saem: `deploy/backup/`, o step `Backup — build` do job `imagem`, a
+imagem `cinetra-backup`, os serviços `backup` e `backup-cron`, o volume `backup_tmp`, as âncoras
+`x-imagem-backup`/`x-backup-env`, as envs `BACKUP_*` e `HEARTBEAT_URL_BACKUP`, o diretório
+`/deploy/backup` do Dependabot, `Api.BackupIntegridadeTest` e `Api.SegredoNoWorkingTreeTest` (com a
+regra `*.key`/`*.pem` do `.gitignore`, que existia pela chave `age`).
+
+**Alternativas descartadas, com o motivo:**
+
+| Alternativa | Por que não |
+|---|---|
+| **Manter os dois** (script + painel) | Era o desenho anterior, e a duplicação tem custo real: dois lugares para conferir, duas retenções para casar e um gate que trava deploy quando o R2 pisca. Se o painel cobre, o script vira cerimônia |
+| **Manter só o gate pré-deploy** | O gate depende do script inteiro — é ele que produz o dump que o gate valida. Guardar só a metade que trava o deploy seria pagar todo o custo pela parte menos útil |
+| **Postgres gerenciado externo** | Resolveria melhor (backup e PITR do fornecedor, dado desacoplado da VM), e continua na mesa como evolução — mas é troca de arquitetura e de custo, não a mudança de hoje |
+
+**Consequências.** Três propriedades saíram junto, e nenhuma volta sozinha:
+
+1. **Não há mais gate fail-closed antes do `migrate`.** O `migrate` depende só do `db` saudável.
+   Migration destrutiva perdeu a rede automática; o que resta é o expand-contract do
+   [doc 59 §8](59-deploy-dokploy-oci.md) e disparar o snapshot **na mão** antes do deploy — passo
+   manual, com a taxa de esquecimento que passos manuais têm
+   ([doc 87 §4.4](87-servidor-hostinger-riscos-e-cuidados.md)).
+2. **O RPO deixou de ser verificável por leitura.** Era ≤ 1 h por construção, escrito no compose.
+   Agora é o que estiver agendado nos dois painéis — e enquanto ninguém abrir e anotar, é suposição.
+3. **A cifra `age` acabou.** O dump saía do servidor cifrado por uma chave cuja privada vivia
+   offline. O conteúdo não mudou (CPF, telefone, evolução clínica de todo paciente), então
+   **confirmar a cifra em repouso nos dois destinos é item de LGPD**, não de conveniência.
+
+Os três viraram pendência escrita em [doc 87 §4.5](87-servidor-hostinger-riscos-e-cuidados.md).
+Continua valendo, e agora sem script para ajudar: **backup não testado não é backup** — o ensaio de
+restore é 100% manual, por painel.
+
+---
+
 ## Decisões ainda em aberto
 
 Estas **não** estão travadas e precisam de resposta antes de fatias específicas. A lista completa e priorizada está em [02-regras-e-lacunas.md](02-regras-e-lacunas.md), Parte 4.

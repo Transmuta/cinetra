@@ -37,7 +37,7 @@ máquina e o **plano de gestão** dela.
 | **Disco** | boot volume 100–150 GB | 100 GB (KVM 2) · 200 GB (KVM 4) · 400 GB (KVM 8) | Disco era "o recurso escasso" no A1 e continua sendo o candidato nº 1 a derrubar tudo (§4.1). |
 | **Custo / ociosidade** | grátis, com **reclamação por ociosidade** e "out of host capacity" | pago | Dois riscos operacionais reais do A1 desaparecem: a Oracle recuperar a instância idle, e não conseguir criar a VM. |
 | **Firewall** | **duas** camadas (Security List da VCN + iptables da imagem Ubuntu) | firewall gerenciado no **hPanel**, que filtra **antes do tráfego chegar ao servidor**, + iptables dentro da VM | A armadilha muda de forma (§3.2). Ponto a favor: por filtrar antes da VM, ele **cobre porta publicada por container** — coisa que o UFW notoriamente não faz. Ponto contra: por default ele **dropa tudo**, e um grupo de regras vazio aplicado ao servidor **bloqueia todo o tráfego**. |
-| **Backup do provedor** | nenhum | semanal automático (diário opcional), até 4 retidos; **snapshot** manual, 1 por vez, expira em 1 dia | **Complementa, não substitui** o nosso backup (§4.5). São coisas diferentes: o do provedor recupera a **máquina**, o nosso recupera o **dado**. |
+| **Backup do provedor** | nenhum | semanal automático (diário opcional), até 4 retidos; **snapshot** manual, 1 por vez, expira em 1 dia | Desde 2026-08-05 ele **é** o backup, junto com o snapshot de projeto do Dokploy para o R2 — o nosso `pg_dump` horário foi removido (doc 59 §13). Ler §4.5 antes de tratar isto como equivalente: recuperar a **máquina** não é a mesma coisa que recuperar o **dado**. |
 | **DDoS de rede** | nada na frente | filtragem L3/L4 do provedor | Ganho real na camada 3/4. **A camada 7 continua sendo nossa** (§5.6). |
 | **Região** | Vinhedo (`sa-vinhedo-1`) | São Paulo | LGPD igual: dado de paciente permanece no Brasil. |
 | **Caminhos root-equivalentes** | **três** (SSH, painel Dokploy, console OCI) | **quatro** (SSH, painel Dokploy, **hPanel**, e o backup/snapshot restaurável a partir dele) | §3.1. O hPanel reinstala o SO, reseta a senha de root, abre terminal no browser e restaura backup — é root por outro caminho, e por isso **MFA na conta Hostinger deixa de ser higiene e passa a ser controle de segurança**. |
@@ -45,7 +45,7 @@ máquina e o **plano de gestão** dela.
 **O que não muda, e é a maior parte:** o [`compose.dokploy.yml`](../compose.dokploy.yml) serve
 igual, sem edição. Isolamento de rede (`data` só com db+migrate+api, o web fora dela), BFF-only
 (só `/socket` e `/webhooks` públicos na API), dois roles de RLS, HSTS saindo do BFF, CSP assada no
-build, backup pré-deploy fail-closed, rotação de log local. Só trocam `WEB_HOST`, o DNS e as envs
+build, rotação de log local. Só trocam `WEB_HOST`, o DNS e as envs
 por ambiente — exatamente como o doc 59 §7 já prevê.
 
 ---
@@ -60,7 +60,7 @@ Numa VPS paga essa folga é uma linha de fatura, então a conta precisa estar es
 | Consumidor | Contas | Memória |
 |---|---|---|
 | **Observabilidade** (7 containers, `mem_limit` **declarados**) | Loki 1500m + Grafana 512m + Prometheus 512m + Tempo 512m + cAdvisor 512m + Alloy 384m + node-exporter 128m | **≈ 4,0 GB** (teto, medido no arquivo) |
-| **Stack PROD** | Postgres + api (BEAM) + web (Node) + backup-cron | ≈ 1,5–2,5 GB (estimado, **sem teto declarado** — §8) |
+| **Stack PROD** | Postgres + api (BEAM) + web (Node) | ≈ 1,5–2,5 GB (estimado, **sem teto declarado** — §8) |
 | **Stack HML** | idem | ≈ 1,5–2,5 GB (idem) |
 | **Dokploy** | painel + Traefik + o Postgres e o Redis próprios dele | ≈ 0,5–1,0 GB |
 | **Pico de build** | o Dokploy builda **na própria máquina**: `mix release` (compilação Elixir) + `vite build` | **1–2 GB transitórios, e é o pico que mata** |
@@ -68,8 +68,8 @@ Numa VPS paga essa folga é uma linha de fatura, então a conta precisa estar es
 Somando: **8 GB não cabe** com prod + HML + observabilidade + build. **16 GB (KVM 4) é o piso**
 para o modelo do doc 59 inteiro; 32 GB (KVM 8) é o que dá folga para o build coincidir com um pico
 de uso. Se o orçamento apertar, a ordem de corte é: **(1)** tirar a observabilidade para outra
-máquina, **(2)** buildar fora da VM (registry externo), **(3)** desligar o HML — nunca reduzir o
-backup.
+máquina, **(2)** buildar fora da VM (registry externo), **(3)** desligar o HML — nunca reduzir a
+frequência de backup do painel.
 
 **Swap de 4 GB** em qualquer plano. Não é para rodar em swap — é para o pico de build não virar OOM
 kill do Postgres.
@@ -180,7 +180,7 @@ mesmo com o Alloy embarcando para o Loki); alerta **"Disco quase cheio"** no
 ### 4.2 OOM kill — e o app é invisível para o alerta que existe
 
 **Achado desta análise.** Os 7 containers da observabilidade têm `mem_limit`. Os do
-[`compose.dokploy.yml`](../compose.dokploy.yml) — `db`, `api`, `web`, `migrate`, `backup*` —
+[`compose.dokploy.yml`](../compose.dokploy.yml) — `db`, `api`, `web`, `migrate` —
 **não têm nenhum**, em nenhum dos dois stacks. Duas consequências:
 
 1. Nada limita o BEAM, o Node ou o Postgres. Num pico, quem o kernel mata é o maior processo —
@@ -199,37 +199,52 @@ não no compose.** Conserto e teste em §8.
 O único caso em que rollback de imagem não salva — schema é catraca de sentido único, e o que se
 perde é **dado**.
 
-**Coberto, e bem:** expand-contract escrito com a lista perigosa (doc 59 §8); `backup` **pré-deploy
-fail-closed** (roda antes do `migrate`; upload falha → deploy para); HML idêntico rodando a mesma
+**Coberto:** expand-contract escrito com a lista perigosa (doc 59 §8); HML idêntico rodando a mesma
 migration dias antes; regra do `CONCURRENTLY` em [`migrations.md`](../.claude/rules/migrations.md).
-**Falta:** nada estrutural. É disciplina no dia — o ritual do doc 59 §11.
+**Falta, e piorou em 2026-08-05:** o `backup` **pré-deploy fail-closed** — que rodava antes do
+`migrate` e travava o deploy se o upload falhasse — foi removido junto com o resto do backup
+(doc 59 §13). O que sobrava de disciplina no dia virou a **única** proteção; ver §4.4.
 
-### 4.4 O backup fail-closed barra o deploy
+### 4.4 Não há mais nada travando o deploy antes do `migrate`
 
-Contrapartida deliberada de 4.3: se o R2 estiver fora, **não dá deploy**. É a escolha certa (nunca
-alterar schema sem backup fresco), mas precisa ser sabida antes de acontecer às 19h de uma
-sexta — senão alguém "resolve" comentando o serviço no compose.
+Era o inverso disto: se o R2 estivesse fora, não dava deploy. O atrito era deliberado — nunca
+alterar schema sem backup fresco — e a preocupação escrita aqui era que alguém "resolvesse"
+comentando o serviço no compose às 19h de uma sexta.
+
+Em 2026-08-05 o serviço saiu por decisão explícita, não por atalho de sexta. O efeito prático é o
+mesmo, e por isso fica escrito: **o `migrate` hoje depende só do `db` saudável.** Migration da lista
+perigosa sem snapshot recente é perda de dado sem rede. O ritual do doc 59 §11 passou a mandar
+disparar o snapshot **na mão** antes desses deploys — e "na mão" é exatamente o tipo de passo que
+não acontece na pressa.
 
 ### 4.5 Banco em container, num volume, numa máquina
 
 O `pgdata` é um volume Docker na VPS. Não há réplica.
 
-**Coberto:** `pg_dump` do owner **1×/hora**, cifrado com `age` (chave pública no servidor; a privada
-fica offline), em bucket R2 **separado do de anexos** com credencial escopada; retenção escalonada
-(`hourly/` 48 h + `daily/` 30 d); heartbeat no healthchecks.io para o cron que morre em silêncio;
-[`restore.sh`](../deploy/backup/restore.sh) escrito. **Agora somam-se** os backups semanais e o
-snapshot do provedor — úteis para recuperar a **máquina**, não o dado: só 1 snapshot por vez, ele
-**expira em 1 dia**, é apagado se você reinstalar o SO, e restaurar **sobrescreve tudo**.
-**Falta:** **ensaiar o restore**. Backup não testado não é backup — e é a única linha desta seção
-que não se resolve escrevendo código.
+**Coberto (revisado em 2026-08-05):** backup semanal da máquina pela Hostinger (diário opcional,
+até 4 retidos) + snapshot manual, e o **snapshot de projeto do Dokploy enviado para o R2**. Os dois
+por painel; nenhum passa por este repositório.
+
+**O que se perdeu junto**, e é preciso dizer com todas as letras porque a linha acima soa
+equivalente e não é: saiu o `pg_dump` do owner 1×/hora, a cifra `age` com privada offline, o bucket
+R2 separado do de anexos com credencial escopada, a retenção escalonada 48 h/30 d, o heartbeat do
+cron e o `restore.sh`. Em números: o **RPO deixou de ser 1 h por construção** e passou a ser o que
+estiver agendado nos painéis; o snapshot manual do provedor é **1 por vez**, **expira em 1 dia**, é
+apagado se você reinstalar o SO, e restaurar **sobrescreve tudo**.
+
+**Falta:** (a) **conferir e anotar a periodicidade real** dos dois mecanismos — sem isso não há RPO,
+só suposição; (b) **confirmar a cifra em repouso** nos dois destinos, porque o conteúdo é CPF e
+evolução clínica; (c) **ensaiar o restore**, que continua sendo a linha que não se resolve
+escrevendo código — e agora nem se resolve lendo o repositório, porque o procedimento é de painel.
 
 ### 4.6 Uma máquina só é um ponto único de falha
 
 Reboot do provedor, manutenção, vizinho saturando o host. Não há HA, e isso é **decisão consciente
-de custo** — o que se compra em troca é RTO baixo: envs anotadas fora da VM + dump no R2 +
+de custo** — o que se compra em troca é RTO baixo: envs anotadas fora da VM + snapshot do painel +
 "máquina descartável" = recriar em ~30 min.
 
-**Falta:** declarar RTO/RPO por escrito (o RPO já é 1 h por construção) e o **monitor externo** que
+**Falta:** declarar RTO/RPO por escrito — e desde 2026-08-05 o RPO **não é mais dado de graça**
+(era 1 h por construção; ver §4.5) — e o **monitor externo** que
 bate em `/ready` — sem ele, "o site está fora" chega pela clínica ligando.
 
 ### 4.7 Deploy que sobe e não serve
@@ -374,9 +389,10 @@ socket + token de realtime no subprotocolo + releitura com escopo do assinante �
 ambiente, `X-Frame-Options`, `nosniff`, `Referrer-Policy`, `frame-ancestors: none` · assinatura de
 webhook fail-closed sobre o corpo cru.
 
-**Dado** — `pg_dump` 1×/h cifrado com `age`, bucket separado, credencial escopada, retenção
-escalonada 48 h/30 d · backup **pré-deploy fail-closed** · heartbeat do cron · script de restore
-escrito · banco sem porta publicada e inalcançável pelo web (isolamento de rede estrutural).
+**Dado** — banco sem porta publicada e inalcançável pelo web (isolamento de rede estrutural) ·
+backup por snapshot de painel (Hostinger + Dokploy→R2), com as ressalvas de §4.5. *(Até
+2026-08-05 havia `pg_dump` 1×/h cifrado com `age`, bucket separado, retenção escalonada, gate
+pré-deploy fail-closed e heartbeat do cron — tudo removido, doc 59 §13.)*
 
 **Deploy** — CI como portão (formatter, `--warnings-as-errors`, `coveralls` 80%, `api-rls`,
 `svelte-check`, coverage do web) · HML idêntico a prod na mesma máquina · expand-contract escrito
@@ -389,8 +405,9 @@ Traefik com liveness/readiness distintos · container antigo segue servindo se o
 dos 6 crons do Oban · role só-leitura para o Grafana ler as views `metrics_*`.
 
 **Novo, que passa a vir do provedor** — filtragem de DDoS L3/L4 · backup semanal da máquina +
-snapshot manual · firewall gerenciado que filtra antes da VM (cobre porta publicada por container) ·
-dado em São Paulo.
+snapshot manual, que desde 2026-08-05 é a cobertura de dado e não mais um complemento (§4.5) ·
+firewall gerenciado que filtra antes da VM (cobre porta publicada por container) · dado em São
+Paulo.
 
 ---
 
@@ -407,7 +424,8 @@ dado em São Paulo.
    `.env` do working tree (R2 e client secret do Google).
 6. Swap de 4 GB; `apt-mark hold` no Docker; `unattended-upgrades` só security; `prune` agendado.
 7. Criar os webhooks no Dokploy e colar as URLs nos secrets `DOKPLOY_DEPLOY_WEBHOOK_PROD`/`_HML`.
-8. **Ensaiar o restore** do dump num banco separado — antes de existir paciente real.
+8. **Ensaiar o restore** pelo painel, numa máquina/banco separado — antes de existir paciente real
+   (§4.5), anotando de quanto em quanto tempo o snapshot de fato roda.
 9. Provar o WS ao vivo em `wss://<WEB_HOST>/socket` (a pendência do doc 59 §14).
 
 **Primeira semana:** socket proxy na frente do Alloy (5.2) · contact point do alerta + monitor
@@ -438,8 +456,7 @@ o OOM kill deixa de ser hipótese — e quem o kernel escolhe é, com boa chance
 precedente é o [`verificar.sh`](../deploy/observability/verificar.sh), que já checa "porta não está
 publicada no host". Acrescentar ali:
 
-- todo serviço de longa duração do `compose.dokploy.yml` declara `mem_limit` (`db`, `api`, `web`,
-  `backup-cron`);
+- todo serviço de longa duração do `compose.dokploy.yml` declara `mem_limit` (`db`, `api`, `web`);
 - o Grafana não publica em `0.0.0.0`;
 - o `secret_key` do Grafana não é o default.
 

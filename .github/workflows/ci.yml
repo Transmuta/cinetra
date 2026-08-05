@@ -232,7 +232,7 @@ jobs:
       - run: npm run build
 
   # ---------------------------------------------------------------------------
-  # R-M4 — o CI nunca construía a imagem de produção, e o Dokploy a builda NO SERVIDOR a cada
+  # R-M4 — o CI nunca construía a imagem de produção, e o Dokploy a buildava NO SERVIDOR a cada
   # webhook. Duas consequências, e a primeira é a que dói:
   #
   #   1. a guarda de sourcemap de `web/Dockerfile.prod` — a ÚLTIMA fronteira contra o código-fonte
@@ -241,15 +241,28 @@ jobs:
   #      DEPOIS do merge em `main`, com o sintoma "o deploy não subiu" e sem log no GitHub;
   #   2. o build consome ~90% dos 2 vCPU da máquina de PRODUÇÃO (D-21), competindo com o produto.
   #
-  # Este job só CONSTRÓI — não publica. Publicar num registry e mandar o Dokploy consumir por
-  # digest é a outra metade do R-M4 e depende de credencial de registry e de reconfigurar o
-  # Dokploy; enquanto isso não for decidido, o build no servidor continua, e o que este job
-  # entrega é o **gate**: o Dockerfile quebrado reprova o PR.
+  # A onda 3 do doc 102 fechou só o (1): o job construía e jogava fora. Agora ele **publica**, e o
+  # `compose.dokploy.yml` consome por tag (`Api.DeployImagemTest`) — o que fecha o (2) e, mais
+  # importante, faz o artefato aprovado ser o artefato implantado.
+  #
+  # PR continua só construindo: publicar é o que acontece em push para `main`/`develop`, e o job
+  # `deploy` depende deste (`needs`), então a imagem existe antes do webhook.
+  #
+  # UMA ARQUITETURA SÓ (`linux/amd64`). O A1 ARM do doc 59 virou uma VPS x86_64 na Hostinger
+  # (doc 87 §1), então runner e servidor rodam a mesma coisa. Se a máquina voltar a ser ARM, isto
+  # aqui é o primeiro lugar a mudar — e o sintoma seria `exec format error` no servidor.
   # ---------------------------------------------------------------------------
   imagem:
-    name: Imagens de produção — build (gate de Dockerfile)
+    name: Imagens de produção — build (gate) + publicação no GHCR
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # O único job que publica, e por isso o único que sobe de `contents: read`. O bloco sobrescreve
+    # o do workflow (R-A10) DE PROPÓSITO: a permissão de escrita fica visível na revisão, em vez de
+    # valer também para os jobs que rodam `mix deps.get` e `npm ci` — que executam código de
+    # terceiros no runner.
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
@@ -258,26 +271,126 @@ jobs:
       - name: Setup Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
-      - name: Build da imagem da API
+      # ---------------------------------------------------------------------
+      # Um lugar só decide: publica? com que tag? e com que identidade de ambiente?
+      #
+      # A identidade importa porque a imagem do BFF é **atada ao ambiente**: a CSP é fixada no
+      # BUILD (`kit.csp`), então `API_PUBLIC_ORIGIN` e `R2_ACCOUNT_ID` entram por `ARG`. Enquanto o
+      # build acontecia no servidor, quem os fornecia era o Environment do stack no Dokploy;
+      # movendo o build para cá, a responsabilidade veio junto — e é por isso que a ausência delas
+      # ABORTA em vez de seguir com o default.
+      #
+      # O modo de falha que isso evita não é deploy vermelho: é `connect-src` errado, WebSocket
+      # bloqueado e upload de anexo recusado no console do browser, com todo healthcheck verde.
+      # (Existe uma segunda rede de proteção, `web/src/lib/server/boot.ts` + `csp.js`: o container
+      # se recusa a subir se a CSP assada divergir do `API_PUBLIC_ORIGIN` de runtime. Ela pega a
+      # imagem no ambiente ERRADO; não pega as duas erradas do mesmo jeito.)
+      #
+      # `${{ }}` nenhum dentro do `run:` — os valores do evento entram por `env:`, que não é
+      # interpolação no texto do script.
+      #
+      # POR QUE SECRETS, se os três valores são PÚBLICOS por construção (o domínio e o id da conta
+      # R2 vão na CSP que todo browser recebe). Decisão de 2026-08-05: tudo numa aba só, porque
+      # duas abas custam confusão toda vez que alguém provisiona o repositório. O preço, que é real
+      # e está pago de propósito: o GitHub MASCARA valor de secret em log, então a linha de
+      # diagnóstico no fim deste passo imprime `host=***` em vez do domínio. Se um dia for preciso
+      # ler o host no log — o caso é a imagem do BFF subir com a CSP do ambiente errado —, o jeito
+      # é conferir no `docker inspect` da imagem publicada, não aqui.
+      # ---------------------------------------------------------------------
+      - name: Alvo do build (publica? com que tag?)
+        id: alvo
+        env:
+          EVENTO: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          DONO: ${{ github.repository_owner }}
+          SHA: ${{ github.sha }}
+          WEB_HOST_PROD: ${{ secrets.WEB_HOST_PROD }}
+          WEB_HOST_HML: ${{ secrets.WEB_HOST_HML }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+
+          # A tag da imagem é o nome da BRANCH (é o que o compose consome); o ambiente é o que dá
+          # nome ao secret. Os dois andam juntos e não são a mesma coisa.
+          case "$EVENTO:$REF" in
+            push:refs/heads/main)    publicar=true;  tag=main;    amb=PROD; web_host="$WEB_HOST_PROD" ;;
+            push:refs/heads/develop) publicar=true;  tag=develop; amb=HML;  web_host="$WEB_HOST_HML" ;;
+            *)                       publicar=false; tag=pr;      amb=CI;   web_host="ci.invalido" ;;
+          esac
+
+          if [ "$publicar" = true ]; then
+            faltando=""
+            [ -n "$web_host" ] || faltando="$faltando WEB_HOST_$amb"
+            [ -n "$R2_ACCOUNT_ID" ] || faltando="$faltando R2_ACCOUNT_ID"
+
+            if [ -n "$faltando" ]; then
+              echo "::error::Secret de repositório ausente:$faltando"
+              echo "Elas são ASSADAS na imagem do BFF (CSP em tempo de build, web/Dockerfile.prod)."
+              echo "Publicar sem elas entrega uma imagem que passa em todo healthcheck e quebra o"
+              echo "WebSocket e o upload de anexo no browser. Crie em Settings → Secrets and"
+              echo "variables → Actions → Secrets (aba Secrets, junto com os webhooks: DECIDIDO em"
+              echo "2026-08-05 manter tudo num lugar só. Ver o comentário do passo sobre o custo)."
+              exit 1
+            fi
+          fi
+
+          # GHCR exige o namespace em minúsculas; o dono da org é `Transmuta`.
+          registro="ghcr.io/$(echo "$DONO" | tr '[:upper:]' '[:lower:]')"
+
+          {
+            echo "publicar=$publicar"
+            echo "tag=$tag"
+            echo "registro=$registro"
+            echo "web_host=$web_host"
+            echo "r2=$R2_ACCOUNT_ID"
+            echo "sha_curto=${SHA:0:12}"
+          } >> "$GITHUB_OUTPUT"
+
+          # `host=` sai MASCARADO (`***`): `web_host` vem de secret desde 2026-08-05. A linha fica
+          # porque `publicar`, `tag` e `registro` continuam legíveis e são o que se lê primeiro.
+          echo "publicar=$publicar · tag=$tag · registro=$registro · host=$web_host"
+
+      - name: Login no GHCR
+        if: steps.alvo.outputs.publicar == 'true'
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Duas tags por imagem, e as duas são necessárias:
+      #   - a MÓVEL (`main`/`develop`) é a que o `compose.dokploy.yml` consome no dia a dia;
+      #   - a IMUTÁVEL (`sha-…`) é o que torna rollback possível — `IMAGE_TAG=sha-…` no Environment
+      #     do stack e redeploy, sem depender de o Git ter voltado atrás.
+      - name: API — build (e publicação)
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: ./api
           file: ./api/Dockerfile.prod
-          push: false
+          platforms: linux/amd64
+          push: ${{ steps.alvo.outputs.publicar == 'true' }}
+          tags: |
+            ${{ steps.alvo.outputs.registro }}/cinetra-api:${{ steps.alvo.outputs.tag }}
+            ${{ steps.alvo.outputs.registro }}/cinetra-api:sha-${{ steps.alvo.outputs.sha_curto }}
           cache-from: type=gha,scope=api
           cache-to: type=gha,mode=max,scope=api
 
-      # `R2_ACCOUNT_ID` vazio é estado VÁLIDO (o `Dockerfile.prod` diz isso por escrito) — o
-      # bucket simplesmente não entra no `connect-src` da CSP. O que este build prova é a guarda
-      # de sourcemap e o `npm prune`, não a configuração do ambiente.
-      - name: Build da imagem do BFF
+      # Em PR o host é `ci.invalido` e o `R2_ACCOUNT_ID` é vazio — estado VÁLIDO (o
+      # `Dockerfile.prod` diz isso por escrito): o bucket só não entra no `connect-src`. O que o
+      # build de PR prova é a guarda de sourcemap e o `npm prune`, não a configuração do ambiente.
+      - name: BFF — build (e publicação)
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: ./web
           file: ./web/Dockerfile.prod
-          push: false
+          platforms: linux/amd64
+          push: ${{ steps.alvo.outputs.publicar == 'true' }}
           build-args: |
-            API_PUBLIC_ORIGIN=https://ci.invalido
+            API_PUBLIC_ORIGIN=https://${{ steps.alvo.outputs.web_host }}
+            R2_ACCOUNT_ID=${{ steps.alvo.outputs.r2 }}
+          tags: |
+            ${{ steps.alvo.outputs.registro }}/cinetra-web:${{ steps.alvo.outputs.tag }}
+            ${{ steps.alvo.outputs.registro }}/cinetra-web:sha-${{ steps.alvo.outputs.sha_curto }}
           cache-from: type=gha,scope=web
           cache-to: type=gha,mode=max,scope=web
 
@@ -298,23 +411,85 @@ jobs:
     # também o único com acesso ao gatilho de deploy de PRODUÇÃO — então recebe token nenhum.
     permissions: {}
     steps:
+      # -----------------------------------------------------------------------
+      # O painel do Dokploy fica atrás do **Cloudflare Access** (doc 59 §5.1), e o webhook mora no
+      # mesmo host. Isso muda duas coisas neste passo:
+      #
+      #   1. **as credenciais.** O Access aceita um par de headers no lugar de uma sessão de
+      #      navegador — é o **Service Token** (Zero Trust → Access → Service Auth). A política do
+      #      app que cobre o path do webhook precisa ser `Service Auth` com ESTE token. Ausentes os
+      #      secrets, o disparo vai sem eles: só funciona se a política daquele path for `Bypass`,
+      #      que é a alternativa mais simples e mais fraca (quem descobrir a URL dispara deploy).
+      #
+      #   2. **a checagem do resultado, que é o defeito que estava aqui.** `curl -fsS` falha em
+      #      status >= 400 — e o Access **não recusa** quem não tem credencial: ele REDIRECIONA
+      #      para a tela de login, com 302. O curl saía com 0, o job ficava verde, e o Dokploy
+      #      nunca tinha recebido nada. Por isso o status é lido e o 3xx é separado do resto: o
+      #      diagnóstico de "credencial" e o de "o servidor recusou" são opostos.
+      # -----------------------------------------------------------------------
       - name: Disparar deploy no ambiente da branch
         env:
+          REF: ${{ github.ref }}
           WEBHOOK_PROD: ${{ secrets.DOKPLOY_DEPLOY_WEBHOOK_PROD }}
           WEBHOOK_HML: ${{ secrets.DOKPLOY_DEPLOY_WEBHOOK_HML }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: |
-          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+          set -euo pipefail
+
+          if [ "$REF" = "refs/heads/main" ]; then
             URL="$WEBHOOK_PROD"; ALVO="prod"
           else
             URL="$WEBHOOK_HML"; ALVO="hml"
           fi
+          echo "ALVO=$ALVO" >> "$GITHUB_ENV"
+
           if [ -z "$URL" ]; then
             echo "Webhook de $ALVO ausente (Dokploy ainda não provisionado) — pulando deploy."
+            echo "DISPARADO=false" >> "$GITHUB_ENV"
             exit 0
           fi
+
+          cabecalhos=()
+          if [ -n "$CF_ACCESS_CLIENT_ID" ]; then
+            cabecalhos+=(-H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID")
+            cabecalhos+=(-H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET")
+          else
+            echo "::warning::Sem service token do Cloudflare Access — o disparo só passa se a"
+            echo "::warning::política do path do webhook for Bypass."
+          fi
+
           echo "Disparando deploy de $ALVO no Dokploy…"
-          curl -fsS -X POST "$URL"
-          echo "ALVO=$ALVO" >> "$GITHUB_ENV"
+          codigo=$(curl -sS -X POST -m 30 -o resposta.txt -D cabecalhos-da-resposta.txt \
+            -w '%{http_code}' "${cabecalhos[@]}" "$URL" || echo 000)
+
+          case "$codigo" in
+            2*)
+              echo "✓ o Dokploy aceitou o webhook (HTTP $codigo)"
+              echo "DISPARADO=true" >> "$GITHUB_ENV"
+              ;;
+            3*)
+              if grep -qi 'cloudflareaccess.com' cabecalhos-da-resposta.txt; then
+                echo "::error::O Cloudflare Access interceptou o disparo (HTTP $codigo → tela de login)."
+                echo "O POST NÃO chegou ao Dokploy. Causas, em ordem de probabilidade:"
+                echo "  1. CF_ACCESS_CLIENT_ID/CF_ACCESS_CLIENT_SECRET ausentes, trocados ou EXPIRADOS"
+                echo "     (service token do Access expira — o padrão é 1 ano);"
+                echo "  2. a política do app do Access que cobre o path do webhook não é Service Auth,"
+                echo "     ou não inclui este token;"
+                echo "  3. o app do Access mais específico não cobre o path do webhook, e quem responde"
+                echo "     é a política de humanos do painel inteiro."
+              else
+                echo "::error::Redirecionamento inesperado (HTTP $codigo). Confira a URL do webhook."
+                head -c 400 cabecalhos-da-resposta.txt || true
+              fi
+              exit 1
+              ;;
+            *)
+              echo "::error::O Dokploy recusou o webhook (HTTP $codigo)."
+              head -c 400 resposta.txt || true
+              exit 1
+              ;;
+          esac
 
       # -----------------------------------------------------------------------
       # R-M5 — o passo acima é fire-and-forget e sempre foi.
@@ -324,9 +499,16 @@ jobs:
       # healthcheck. O sinal de "deploy ok" que a equipe aprende a confiar media uma coisa só: que
       # o HTTP POST chegou.
       #
-      # Aqui o job só termina quando o ambiente RESPONDE. `/api/ready` e não `/health`: o readiness
+      # Aqui o job só termina quando o ambiente RESPONDE. `/ready` e não `/health`: o readiness
       # toca o banco, então ele é o único que distingue "o container subiu" de "o deploy
       # funcionou" — inclusive pega migration que rodou pela metade.
+      #
+      # E `/ready` do BFF, NÃO `/api/ready` da API — esta linha já esteve errada. No desenho
+      # BFF-only (doc 59 §3.1) o Traefik só encaminha `/socket` e `/webhooks` para a API; todo o
+      # resto do domínio vai para o BFF, então `/api/ready` responde 404 de fora e este laço
+      # reprovaria um deploy que funcionou. O `/ready` do BFF (`web/src/routes/ready/+server.ts`)
+      # existe exatamente para isto: ele consulta o `/api/ready` da API pela rede interna, então
+      # uma URL só cobre o caminho inteiro. Preso por `Api.CiWorkflowTest`.
       #
       # A espera é longa (5 min) porque o Dokploy builda a imagem NO SERVIDOR depois de aceitar o
       # webhook — o relógio começa antes do build, não depois.
@@ -336,6 +518,13 @@ jobs:
           BASE_PROD: ${{ secrets.DEPLOY_URL_PROD }}
           BASE_HML: ${{ secrets.DEPLOY_URL_HML }}
         run: |
+          # Sem disparo não há o que verificar — e "o /ready respondeu 200" seria um verde que
+          # mede apenas que o ambiente ANTERIOR continua no ar. Mesmo espírito do aviso abaixo.
+          if [ "${DISPARADO:-false}" != "true" ]; then
+            echo "::warning::Nenhum webhook foi disparado — nada a verificar."
+            exit 0
+          fi
+
           if [ "$ALVO" = "prod" ]; then BASE="$BASE_PROD"; else BASE="$BASE_HML"; fi
 
           if [ -z "$BASE" ]; then
@@ -344,9 +533,9 @@ jobs:
             exit 0
           fi
 
-          echo "Aguardando ${BASE}/api/ready responder 200 (até 5 min)…"
+          echo "Aguardando ${BASE}/ready responder 200 (até 5 min)…"
           for i in $(seq 1 60); do
-            codigo=$(curl -s -o /dev/null -w '%{http_code}' -m 10 "${BASE}/api/ready" || echo 000)
+            codigo=$(curl -s -o /dev/null -w '%{http_code}' -m 10 "${BASE}/ready" || echo 000)
             if [ "$codigo" = "200" ]; then
               echo "✓ ${ALVO} respondeu 200 em ~$((i * 5))s"
               exit 0
@@ -355,7 +544,7 @@ jobs:
             sleep 5
           done
 
-          echo "::error::${ALVO} não respondeu 200 em /api/ready após 5 min."
+          echo "::error::${ALVO} não respondeu 200 em /ready após 5 min."
           echo "O webhook foi aceito, mas o ambiente NÃO subiu — build, migrate ou healthcheck."
           exit 1
 

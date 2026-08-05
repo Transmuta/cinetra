@@ -10,6 +10,12 @@ alguma coisa, está marcado como **reavaliação**, com o motivo — nunca como 
 
 Toda correção segue a regra do [CLAUDE.md](../CLAUDE.md): **teste vermelho antes do conserto**.
 
+> **NOTA DE 2026-08-05 — três itens deste plano deixaram de ter objeto.** As entregas **1.7**
+> (verificação do dump), **2.7** (volume dedicado para o `mktemp`) e a parte de **2.1** que cobria o
+> `backup-cron` foram removidas com o backup inteiro pela [ADR-029](00-decisoes.md). O relato
+> abaixo — inclusive a lição de que `pg_restore --list` não pega dump truncado — fica como
+> **registro medido**, não como descrição do repositório de hoje.
+
 ---
 
 ## 1. O reenquadramento que muda o corte
@@ -651,11 +657,19 @@ precisa de credencial de registry e de reconfigurar o Dokploy — decisão que n
 não for tomada, o build continua acontecendo no servidor e continua consumindo ~90% dos 2 vCPU
 (D-21); o que este job entrega é o **gate**, não o alívio de CPU.
 
-**3.5 — R-M5, o deploy deixa de ser fire-and-forget.** Depois do webhook, o job espera
-`/api/ready` responder 200, com até 5 min de tolerância (o relógio começa antes do build no
-servidor, não depois), e falha se não subir. `/api/ready` e não `/health`: o readiness toca o
-banco, então é o único que distingue "o container subiu" de "o deploy funcionou" — inclusive pega
-migration que rodou pela metade.
+**3.5 — R-M5, o deploy deixa de ser fire-and-forget.** Depois do webhook, o job espera o
+readiness responder 200, com até 5 min de tolerância (o relógio começa antes do build no
+servidor, não depois), e falha se não subir. Readiness e não `/health`: ele toca o banco, então é
+o único que distingue "o container subiu" de "o deploy funcionou" — inclusive pega migration que
+rodou pela metade.
+
+> **CORREÇÃO DE 2026-08-05.** Esta entrega nasceu batendo em `${BASE}/api/ready`, que **não é
+> alcançável de fora**: no desenho BFF-only o Traefik só encaminha `/socket` e `/webhooks` para a
+> API, e todo o resto do domínio vai para o BFF — 404 do catch-all. Como os secrets `DEPLOY_URL_*`
+> nunca foram configurados, o passo sempre saiu pelo `::warning::` e o defeito ficou invisível;
+> configurá-los teria reprovado deploys que funcionaram. Corrigido para `${BASE}/ready` (o
+> readiness do BFF, que consulta o `/api/ready` da API pela rede interna) e preso por
+> `Api.CiWorkflowTest`, com mutação conferida nos dois sentidos.
 
 Depende de dois secrets novos (`DEPLOY_URL_PROD`, `DEPLOY_URL_HML`). Ausentes, o passo emite
 `::warning::` dizendo **explicitamente que o deploy não foi verificado**, em vez de passar calado —
@@ -721,6 +735,8 @@ cada PR**, e a regra `.env*` previne o dia em que alguém criar um `web/.env` qu
 #### O que NÃO entrou
 
 - **A publicação em registry** (metade do R-M4): precisa de credencial e de reconfigurar o Dokploy.
+  **Feita depois, em 2026-08-05** — decidido GHCR, por tag, com `pull_policy: always`; ver
+  [doc 105](105-imagem-no-ci-e-webhook-atras-do-access.md).
 - **Nenhum job novo foi executado de verdade.** `imagem` e a verificação pós-deploy só rodam no
   GitHub; aqui foram validados por parsing do YAML e pela conferência dos SHAs contra a API. **A
   primeira execução real é o próximo PR**, e é onde eles podem falhar por algo que este ambiente
@@ -736,7 +752,7 @@ cada PR**, e a regra `.env*` previne o dia em que alguém criar um `web/.env` qu
 | 3.1 (R-A10, R-B3) | ✅ vermelho provado → verde · `deploy` com `permissions: {}` |
 | 3.2 (R-M6) | ✅ vermelho provado → verde · 6 SHAs conferidos contra a API do GitHub |
 | 3.3 (R-M7) | ✅ **3 advisories reais achados e corrigidos no primeiro run** |
-| 3.4 (R-M4, R-M8) | ✅ job de build + 5 digests multi-arch · ⏳ publicação em registry é decisão pendente |
+| 3.4 (R-M4, R-M8) | ✅ job de build + 5 digests multi-arch · ✅ publicação em registry **decidida e feita em 2026-08-05** ([doc 105](105-imagem-no-ci-e-webhook-atras-do-access.md)) |
 | 3.5 (R-M5) | ✅ vermelho provado → verde · ⏳ inerte até os secrets existirem |
 | 3.6 (R-A3, R-M20) | ✅ vermelho provado → verde · 12 testes novos |
 | 3.7 (R-M22) | ✅ **mutação provada nos dois sentidos** · limite semântico declarado |
@@ -1014,25 +1030,48 @@ silêncio** quando o token divergir.
 hospedar um stack de terceiro — de outro cliente, de outra pessoa —, o aceite deixa de valer,
 porque o "vizinho conhecido" some do argumento.
 
-**5.3 · R-M17 — identidade individual no Grafana: Cloudflare Access.** Virou obra, e entrou nesta
-onda. `GF_AUTH_PROXY_*` no `compose.obs.yml`, lendo `Cf-Access-Authenticated-User-Email`, com
-`auto_sign_up` — o Access já autorizou quem chegou ali, e exigir cadastro manual só produziria "não
-consigo entrar" no dia do incidente.
+**5.3 · R-M17 — identidade individual no Grafana: a premissa do achado NÃO se aplica.**
 
-**As duas decisões se cruzam, e é isso que torna a configuração delicada.** `auth.proxy` faz o
-Grafana confiar num HEADER; e o 5.2 acabou de registrar que o Grafana é alcançável na rede
+O doc 95 descreve o R-M17 como *"três pessoas dividem uma senha"*, e é essa premissa que ele cobra.
+Ela não vale nesta instalação: o Zero Trust libera o painel para **um único e-mail**. Com uma
+pessoa, a atribuição já é inequívoca — toda consulta foi ela — e a revogação já é individual (tirar
+o e-mail da política do Access), não troca coordenada de senha. **O mecanismo que o achado pedia
+existe; só não é o Grafana que o provê.**
+
+**Uma precisão que evita a conclusão errada:** nem com `auth.proxy` o Grafana auditaria *consulta*.
+Ele registraria quem abriu a **sessão**, não qual query rodou no Explore. Ou seja, "quem consultou o
+agregado de todas as clínicas" continua sendo respondido no nível de "quem entrou no painel e
+quando" — que é exatamente o que o log do Access já entrega. O que o 5.3 compraria é um usuário do
+Grafana por pessoa **no lugar de todo mundo entrar como `admin`**, e com uma pessoa isso é zero.
+
+**O que entrou mesmo assim, e por que fica desligado.** `GF_AUTH_PROXY_*` está no
+`compose.obs.yml`, lendo `Cf-Access-Authenticated-User-Email`, com `auto_sign_up` — e
+`GRAFANA_AUTH_PROXY=false` por default. É **preparação documentada**, não obra em vigor: inerte
+hoje, pronta para o dia do gatilho.
+
+**As duas decisões se cruzam, e é isso que torna a configuração delicada quando for ligada.**
+`auth.proxy` faz o Grafana confiar num HEADER; e o 5.2 registrou que o Grafana é alcançável na rede
 compartilhada. Sem allowlist de origem, qualquer container da máquina manda
-`Cf-Access-Authenticated-User-Email: quem-eu-quiser` e entra como essa pessoa — ou seja, ligar o
-5.3 sem cuidado transformaria o risco aceito no 5.2 de *reconhecimento* em **admin lateral**.
+`Cf-Access-Authenticated-User-Email: quem-eu-quiser` e entra como essa pessoa — ligar o 5.3 sem
+cuidado transformaria o risco aceito no 5.2 de *reconhecimento* em **admin lateral**. Daí o default
+`GF_AUTH_PROXY_WHITELIST=127.0.0.1`: quem ligar sem configurar a origem faz o Access deixar de ser
+aceito e cai no formulário de login. Falha para o lado chato, não para o aberto.
 
-Daí o default `GF_AUTH_PROXY_WHITELIST=127.0.0.1`: quem ligar o proxy sem configurar a origem faz o
-Access deixar de ser aceito e todo mundo cai no formulário de login. **Falha para o lado chato, não
-para o lado aberto.** E o formulário fica ligado de propósito, como break-glass: se o Access cair, o
-painel é justamente o que se quer abrir. A senha compartilhada não desaparece — ela deixa de ser o
-caminho normal, e o log do Access passa a responder "quem consultou o quê" no dia a dia.
+**E, no dia de ligar, considere `auth.jwt` em vez de `auth.proxy`.** A proteção do `auth.proxy` é
+**posicional** (uma allowlist de IP, que ainda por cima é o IP do Traefik e muda a cada recreate);
+a do `auth.jwt` é **criptográfica** — o Grafana valida o `Cf-Access-Jwt-Assertion` contra o JWKS do
+tenant e contra o `aud` do app, e a posição de rede deixa de importar. Numa rede compartilhada, a
+segunda é estritamente melhor. Não entrou agora porque ligar qualquer uma das duas é prematuro.
 
-**Fica ligado por env, desligado por default** (`GRAFANA_AUTH_PROXY`), porque ligar exige saber o IP
-de quem carimba o header — e esse número só existe na máquina.
+**Gatilho de revisão: a segunda pessoa com acesso ao painel.** É nesse dia que o item volta a valer
+— e é nesse dia que a escolha entre `auth.proxy` e `auth.jwt` precisa ser feita.
+
+**O que continua de pé, e é independente disto:** a senha do Grafana segue sendo o segundo cadeado
+para quem chegue ao painel **sem** passar pelo Access — pelo IP do origin, ou lateralmente pela
+`dokploy-network`. E fechar o origin (Cloudflare Tunnel, ou firewall aceitando só as faixas da
+Cloudflare) é o que impede contornar o Access de uma vez, para o painel, para o Dokploy e para o
+webhook. **Isso não é item de nenhuma das cinco ondas** — não apareceu no doc 95 —, mas é o que
+sustenta o aceite do 5.2 e a decisão deste item.
 
 #### Placar da onda 5
 
@@ -1040,7 +1079,7 @@ de quem carimba o header — e esse número só existe na máquina.
 | --- | --- |
 | 5.1 (R-A9) | ✅ proxy com `POST: 0` · **a metade do cAdvisor não estava registrada no achado** · ⚠️ não verificado de pé |
 | 5.2 (R-M21) | ✅ **decisão: aceitar, registrada com o argumento certo** — ver §4.5.1 |
-| 5.3 (R-M17) | ✅ **decisão: Cloudflare Access** — e ela virou obra, ver §4.5.1 |
+| 5.3 (R-M17) | ✅ **decisão: a premissa do achado não se aplica** (Access libera um e-mail só) · preparação entrou desligada, gatilho = a 2ª pessoa — ver §4.5.1 |
 | 5.4 (R-M19) | ✅ vermelho provado → verde · comentário do compose corrigido |
 | 5.5 (R-B5) | ✅ vermelho provado → verde · ausência de COEP prendida por teste |
 | 5.6 (R-B6) | ✅ vermelho provado → verde · os **dois** formatos de relatório, com PII sanitizada |

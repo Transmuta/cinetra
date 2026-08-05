@@ -54,7 +54,7 @@ defmodule Api.ComposeDeProducao do
 
   @doc """
   Um arquivo qualquer do repositório, pelas mesmas duas raízes. Para os testes que precisam de
-  artefato que não é compose — `.env.exemplo`, `.gitignore`, `backup.sh`.
+  artefato que não é compose — `.env.exemplo`, `.gitignore`, workflow do CI.
   """
   @spec ler_do_repo(String.t()) :: String.t()
   def ler_do_repo(relativo), do: relativo |> caminho() |> File.read!()

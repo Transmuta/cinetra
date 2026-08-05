@@ -307,8 +307,8 @@ groups:
           summary: "Disco em {{ humanizePercentage $values.consulta.Value }} em {{ $labels.mountpoint }}"
           description: >
             É o risco que o doc 62 §3 nomeia como o real de pôr log e banco na mesma máquina.
-            Disco cheio não degrada: para. O Postgres recusa escrita, o Loki para de ingerir e o
-            backup falha em silêncio. O `mountpoint` está no título — não é preciso adivinhar qual
+            Disco cheio não degrada: para. O Postgres recusa escrita e o Loki para de ingerir.
+            O `mountpoint` está no título — não é preciso adivinhar qual
             partição. Ver "Maiores tabelas" (Infraestrutura) se for o volume do banco.
             Alívio rápido: `docker system prune` e a retenção do Loki (LOKI_DATA).
         labels:
@@ -331,7 +331,7 @@ groups:
               # **Excluir os volumes contidos.** `/var/lib/cinetra/loki` e `.../tempo` são loop
               # devices ext4 com tamanho fixo (`criar-volume-limitado.sh`), e encher é o
               # MECANISMO de contenção deles funcionando. Alertar CRÍTICO com o texto "o Postgres
-              # recusa escrita e o backup falha" quando o banco está intacto é o caminho mais
+              # recusa escrita" quando o banco está intacto é o caminho mais
               # rápido para a equipe aprender a ignorar o alerta que mais importa. Eles têm regra
               # própria logo abaixo, com a severidade certa.
               expr: >-
@@ -649,8 +649,8 @@ groups:
           description: >
             O kernel remonta `ro` diante de erro de I/O — é o sintoma de disco com defeito, e o
             `errors=remount-ro` é o default deste sistema de arquivos. O Postgres para de aceitar
-            escrita imediatamente, e o backup também. É o único alerta desta lista em que a ação
-            certa é restaurar noutra máquina, não consertar nesta.
+            escrita imediatamente. É o único alerta desta lista em que a ação certa é restaurar
+            noutra máquina, não consertar nesta.
         labels:
           severity: critico
         data:

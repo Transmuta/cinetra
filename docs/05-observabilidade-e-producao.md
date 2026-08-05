@@ -578,6 +578,14 @@ não travar escrita — importante para a tabela de agendamentos, que é a mais 
 
 ## 7. Backup, restore e DR
 
+> **Superado quanto ao MECANISMO (2026-08-05).** Esta seção foi escrita para a Fly (snapshot do
+> Fly Postgres, PITR por WAL) e a infra é outra desde então. O estado atual está em
+> [`59 §13`](59-deploy-dokploy-oci.md): não há backup nosso no repositório — o dado é coberto pelo
+> snapshot da VPS na Hostinger e pelo snapshot de projeto do Dokploy para o R2, os dois operados
+> por painel. O que continua valendo aqui é o **raciocínio**: restore não testado é hipótese, a
+> chave do `AshCloak` tem custódia própria, e o restore de UMA clínica (7.2) segue sendo o
+> problema difícil, sem mecanismo pronto.
+
 ### 7.1 Backup
 
 - **Postgres:** snapshots automáticos diários do volume (Fly Postgres), retenção de ao

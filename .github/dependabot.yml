@@ -68,7 +68,6 @@ updates:
     directories:
       - /api
       - /web
-      - /deploy/backup
     schedule:
       interval: weekly
       day: monday

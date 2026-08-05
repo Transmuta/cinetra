@@ -12,10 +12,11 @@ Artefatos: [`compose.dokploy.yml`](../compose.dokploy.yml) (o deploy real), `api
 `web/Dockerfile.prod`, `Api.Release`.
 
 > **Mudança de mentalidade em relação ao Fly:** na Fly, o SO, a rede e o TLS eram do provedor.
-> Numa VPS o SO/rede/backup **são nossos**. O deploy do app fica fácil; firewall, patch, backup e
-> o socket do Docker passam a ser responsabilidade nossa. A regra que sustenta isso é **máquina
-> descartável**: estado (banco) e config (env) moram fora da VM, e recriar a máquina é rotina, não
-> catástrofe (ver §Backup e recriar a VM).
+> Numa VPS o SO e a rede **são nossos**: o deploy do app fica fácil, mas firewall, patch e o socket
+> do Docker passam a ser responsabilidade nossa. O **backup** chegou a ser nosso também e desde
+> 2026-08-05 voltou a ser do painel (§13). A regra que sustenta isso é **máquina descartável**:
+> config (env) mora fora da VM e o estado se recupera por snapshot, então recriar a máquina é
+> rotina, não catástrofe (ver §Backup e recriar a VM).
 
 ---
 
@@ -23,23 +24,27 @@ Artefatos: [`compose.dokploy.yml`](../compose.dokploy.yml) (o deploy real), `api
 
 ```
    PR ──> CI (portão: mix coveralls + job api-rls + svelte-check/coverage) — em todo PR e push
+   │      (em PR o job `imagem` CONSTRÓI as imagens como gate, e não publica)
    │
-   ├─ push em DEVELOP ─> webhook ─> Dokploy builda ─> stack HML
+   ├─ push em DEVELOP ─> CI publica :develop no GHCR ─> webhook ─> Dokploy faz PULL ─> stack HML
    │                                  hml.cinetra.com.br (domínio único; /socket e /webhooks -> API)
    │                                  banco próprio · segredos próprios · bucket R2 próprio · dado SINTÉTICO
    │
-   └─ push em MAIN ────> webhook ─> Dokploy builda ─> stack PROD
+   └─ push em MAIN ────> CI publica :main no GHCR ────> webhook ─> Dokploy faz PULL ─> stack PROD
                                       cinetra.com.br (domínio único; /socket e /webhooks -> API)
                                       banco de produção · segredos de produção
 ```
 
 Os **dois stacks rodam no mesmo A1**, a partir do **mesmo** [`compose.dokploy.yml`](../compose.dokploy.yml).
-HML é **idêntico** a prod (mesmo ARM, mesma imagem, mesmo passo de `migrate`); só muda o que é
-injetado por env:
+HML é **idêntico** a prod (mesma máquina, mesmo Dockerfile, mesmo passo de `migrate`); só muda o
+que é injetado por env — **e a imagem do BFF**, que é atada ao ambiente porque a CSP é assada no
+build ([ADR-028](00-decisoes.md)): `cinetra-api` é o mesmo build nas duas tags,
+`cinetra-web:main` ≠ `cinetra-web:develop`.
 
 | | HML (branch `develop`) | PROD (branch `main`) |
 |---|---|---|
 | `STACK` | `hml` | `prod` |
+| `IMAGE_TAG` | `develop` | `main` |
 | `WEB_HOST` (domínio único) | `hml.cinetra.com.br` | `cinetra.com.br` |
 | Banco | próprio (dado sintético) | produção |
 | Segredos | próprios | produção |
@@ -56,20 +61,23 @@ bate **primeiro no HML**, dias antes de chegar na main. É a mitigação mais fo
   Roda em todo PR e push: `mix format --check`, `compile --warnings-as-errors`, `mix coveralls`
   (gate 80%), o job **`api-rls`** (conecta como `cinetra_app` NOBYPASSRLS e prova a RLS),
   `svelte-check` + coverage do web. **Continua no GitHub, igual.**
-- **Dokploy** = só o **deploy**: clona a branch, builda a imagem arm64 no A1 e sobe. Disparado
-  por **webhook**, no fim do workflow, **só quando o CI fica verde**.
+- **Dokploy** = só o **deploy**: clona a branch, **baixa a imagem que o CI publicou** e sobe.
+  Disparado por **webhook**, no fim do workflow, **só quando o CI fica verde**. *(Buildava no
+  servidor até 2026-08-05 — [ADR-028](00-decisoes.md) / [doc 105](105-imagem-no-ci-e-webhook-atras-do-access.md).)*
 
 > **Não empurrar testes para dentro do Dokploy.** Rodar a suíte no `docker build` perde o job
 > `api-rls` (que precisa de um Postgres com os dois roles), perde os gates de cobertura, roda na
 > VM de produção competindo com o app, e só rodaria no deploy — tarde demais, depois do merge. O
 > CI no GitHub roda **em PR**, antes do merge, que é onde o erro tem de ser pego.
 
-O job **`deploy`** já está no `ci.yml`: `needs: [api, api-rls, web]` (só roda depois dos gates),
-`if` só em push para `main` (prod) ou `develop` (hml), nunca em PR. Faz `curl -X POST` no webhook do
-ambiente, cuja URL vem dos secrets `DOKPLOY_DEPLOY_WEBHOOK_PROD`/`_HML`. **Enquanto o Dokploy não
-existir, o secret está ausente e o passo é pulado sem falhar o CI** — falta só criar os webhooks no
-painel e colar as URLs nos GitHub Secrets. O gatilho de push do workflow também passou a incluir
-`develop` (era só `main`), para o fluxo HML.
+O job **`deploy`** já está no `ci.yml`: `needs: [api, api-rls, web, imagem]` (só roda depois dos
+gates **e da publicação da imagem**, para a tag existir quando o Dokploy for buscá-la), `if` só em
+push para `main` (prod) ou `develop` (hml), nunca em PR. Faz um `POST` no webhook do ambiente, cuja
+URL vem dos secrets `DOKPLOY_DEPLOY_WEBHOOK_PROD`/`_HML`, **confere o status da resposta** e manda o
+service token do Cloudflare Access quando ele existe (§5.1 e [doc 105](105-imagem-no-ci-e-webhook-atras-do-access.md)
+§2). **Enquanto o Dokploy não existir, o secret está ausente e o passo é pulado sem falhar o CI** —
+falta só criar os webhooks no painel e colar as URLs nos GitHub Secrets. O gatilho de push do
+workflow também passou a incluir `develop` (era só `main`), para o fluxo HML.
 
 ## 3. Plano de gestão: acesso externo com allowlist de IP + chave
 
@@ -171,6 +179,12 @@ Decidido rodar atrás do Cloudflare com proxy. Feito **certo** — senão a prot
    SSO) antes de tocar o VPS; grátis até 50 usuários. Substitui a allowlist de IP no Traefik. O
    painel fica no domínio `dok.cinetra.com.br` (servido pelo mesmo cert), e a `3000` continua
    fechada (§3).
+
+   > **E o webhook de deploy mora nesse mesmo host.** O Access **não recusa** quem chega sem
+   > credencial: ele **redireciona para o login (302)** — o que faz um `curl -fsS` do CI sair com
+   > código 0 sem ter disparado nada. A saída é um **service token** do Access num app com path
+   > mais específico; o passo a passo, e os dois modos de falha que ele produz, estão no
+   > [doc 105](105-imagem-no-ci-e-webhook-atras-do-access.md).
 6. **Dois detalhes que mordem:**
    - **`/webhooks`:** regra de WAF **skip** para o path `/webhooks` — senão o Cloudflare desafia o
      POST do Resend e o webhook não chega.
@@ -189,9 +203,14 @@ Decidido rodar atrás do Cloudflare com proxy. Feito **certo** — senão a prot
    [`compose.dokploy.yml`](../compose.dokploy.yml), um na branch `main` (prod) e outro na
    `develop` (hml).
 4. Em cada um, preencha a aba **Environment** com os valores do §7 (o compose só referencia
-   `${VAR}` — nada de segredo no arquivo). `STACK`/`WEB_HOST` diferem por ambiente (`STACK` mantém
-   os nomes de router do Traefik únicos entre os dois stacks).
+   `${VAR}` — nada de segredo no arquivo). `STACK`/`WEB_HOST`/`IMAGE_TAG` diferem por ambiente
+   (`STACK` mantém os nomes de router do Traefik únicos entre os dois stacks).
 5. Habilite o auto-deploy por webhook em cada branch.
+
+> **O Dokploy não builda mais nada** (R-M4, [doc 105](105-imagem-no-ci-e-webhook-atras-do-access.md)).
+> As imagens são construídas e publicadas pelo CI no GHCR; o `compose.dokploy.yml` só as consome,
+> com `pull_policy: always` em cada serviço. O que o servidor faz no deploy é `pull` + trocar
+> container — não `mix release` nem `vite build` disputando os 2 vCPU com o produto (D-21).
 
 ### 6.1 O terceiro stack: observabilidade (`obs.cinetra.com.br`)
 
@@ -265,8 +284,10 @@ o pipeline. **HML tem os seus próprios** — nunca compartilhe segredo/banco/bu
 
 | Var | Onde | Observação |
 |---|---|---|
+| `IMAGE_TAG` | env | **obrigatória** — `main` no stack de prod, `develop` no de HML. É a tag que o CI publica no GHCR ([doc 105](105-imagem-no-ci-e-webhook-atras-do-access.md)). Sem ela o stack **recusa subir**, de propósito: um default faria HML servir a imagem de produção, e a imagem do BFF é atada ao ambiente. Para rollback, ponha a tag imutável `sha-<12 primeiros do commit>` — e lembre de devolver a `main`/`develop` depois |
+| `IMAGE_REGISTRY` | env | opcional; só para apontar para outro registro. Default `ghcr.io/transmuta` |
 | `STACK` | env | `prod` ou `hml` (nomes únicos no Traefik) |
-| `WEB_HOST` | env | domínio único do ambiente (não há `API_HOST` — BFF-only) |
+| `WEB_HOST` | env | domínio único do ambiente (não há `API_HOST` — BFF-only). **Continua necessária** mesmo com o build no CI: o Traefik roteia por ela e o `API_PUBLIC_ORIGIN` de runtime sai dela — é ela que a guarda de boot compara com a CSP assada na imagem |
 | `POSTGRES_PASSWORD` / `POSTGRES_DB` | env | banco do ambiente |
 | `DATABASE_APP_USER` / `DATABASE_APP_PASSWORD` | env | role restrito `cinetra_app` |
 | `SECRET_KEY_BASE` / `TOKEN_SIGNING_SECRET` | env | `raise` no boot se faltar |
@@ -317,8 +338,9 @@ que está rodando **agora**. O deploy não é atômico — há uma janela em que
 container ainda é N. Mudança **aditiva** (coluna/tabela/índice novos) é sempre segura (o app antigo
 ignora o que não conhece). Mudança **destrutiva** vira 2–3 deploys.
 
-**Lista perigosa** (quando o `mix ash.codegen` gerar uma destas, trate o deploy como especial —
-`pg_dump` antes e fatie em expand-contract):
+**Lista perigosa** (quando o `mix ash.codegen` gerar uma destas, trate o deploy como especial e
+fatie em expand-contract — desde a remoção do backup do repositório (§13), o expand-contract é a
+**única** rede que resta aqui, porque não há mais dump automático antes do `migrate`):
 
 - remover/renomear atributo; `allow_nil? false` novo num atributo existente; trocar tipo;
 - adicionar `identity`/unique numa tabela que já tem dado;
@@ -348,18 +370,19 @@ Renomear `col_a → col_b` em expand-contract: **(1)** adiciona `col_b`, mantém
 
 | # | Risco | Mitigação |
 |---|---|---|
-| 1 | **Migration destrutiva/trava** — único caso onde rollback da imagem não salva (schema é catraca de sentido único; o perigo é **dado perdido**, não downtime) | HML rodou a mesma migration antes · `pg_dump` de prod imediatamente antes · expand-contract (§8) |
+| 1 | **Migration destrutiva/trava** — único caso onde rollback da imagem não salva (schema é catraca de sentido único; o perigo é **dado perdido**, não downtime) | HML rodou a mesma migration antes · expand-contract (§8) · snapshot mais recente do painel, com a idade que ele tiver (§13) |
 | 2 | **Drift develop→main** — HML validou um commit e a main subiu outro | promova o **commit exato** validado no HML |
 | 3 | **Build ARM / guarda de boot / env faltando** — furos que o CI x86 não vê | HML no mesmo ARM/compose quebra primeiro · o **container antigo segue servindo** se o novo não passa no healthcheck |
-| 4 | **Blip no `migrate`** (recreate do Compose) | expand-contract mantém o app antigo funcional sobre o schema migrado · `pg_dump` |
+| 4 | **Blip no `migrate`** (recreate do Compose) | expand-contract mantém o app antigo funcional sobre o schema migrado |
 | 5 | **Disco/memória no A1** (prod + HML juntos dobram o churn) | `docker system prune` agendado + alerta ~75% · limites de memória por container · deploy de HML fora de pico |
 | 6 | **Cruzamento prod↔HML (LGPD)** | HML com banco/segredos/bucket próprios · dado **sintético** (`Ash.Generator`), nunca paciente real |
 | 7 | **Primeira vez**: DNS/TLS/redirect do Google | checklist do §Verificação; uma vez feito, não volta |
 
 ## 11. O ritual do dia do deploy
 
-1. **Antes:** PR verde no CI · a mudança já roda **saudável no HML** (via develop) · `pg_dump` de
-   prod guardado.
+1. **Antes:** PR verde no CI · a mudança já roda **saudável no HML** (via develop). Se a migration
+   estiver na lista perigosa do §8, dispare um snapshot pelo painel antes — ele não é mais
+   automático (§13).
 2. **Deploy:** merge na `main` → CI verde → webhook → Dokploy builda → `migrate` → swap.
 3. **Depois (smoke, ~2 min):** §Verificação, com o **botão de rollback à mão**.
 
@@ -375,53 +398,44 @@ Renomear `col_a → col_b` em expand-contract: **(1)** adiciona `col_b`, mantém
 
 ## 13. Backup e recriar a VM do zero (máquina descartável)
 
-> **Estado: implementado no compose, ainda não provisionado.** O backup vive em
-> [`deploy/backup/`](../deploy/backup/) e roda em dois gatilhos (ver
-> [`compose.dokploy.yml`](../compose.dokploy.yml)). Antes dele, o volume `pgdata` era a **cópia
-> ÚNICA** do dado.
+> **Estado: fora do repositório, por decisão de 2026-08-05** (ver
+> [`00-decisoes.md`](00-decisoes.md)). O backup era nosso — um `pg_dump` horário cifrado com `age`,
+> em `deploy/backup/`, com gate fail-closed antes do `migrate`. Foi **removido inteiro**: o
+> diretório, a imagem no CI, os dois serviços do compose, as envs
+> `BACKUP_*` e o heartbeat do cron. Quem cobre o dado agora são **dois mecanismos de painel**, e
+> nenhum deles passa por este repositório.
 
-**Dois gatilhos** (mesmo script, [`deploy/backup/backup.sh`](../deploy/backup/backup.sh) — pg_dump
-do owner, que captura tudo bypassando a RLS):
+**O que cobre o dado hoje:**
 
-- **Pré-deploy (fail-closed):** o serviço `backup` roda UMA vez **antes** do `migrate`. Se o upload
-  falhar, o deploy **para** — nunca se altera schema sem um backup fresco. É a rede de segurança do
-  risco de migration (§10).
-- **Agendado 1/1h:** o serviço `backup-cron` dorme 1h e roda (o pré-deploy cobre t=0).
+- **Snapshot da VPS (Hostinger).** Recupera a **máquina** — disco inteiro, incluindo o volume
+  `pgdata`. Backup semanal automático (diário opcional), até 4 retidos; o snapshot manual é 1 por
+  vez e expira em 1 dia. Ver [doc 87 §1](87-servidor-hostinger-riscos-e-cuidados.md) para os
+  limites medidos, inclusive o de segurança: o hPanel que restaura é um caminho root-equivalente.
+- **Snapshot de projeto do Dokploy → R2.** Recupera o **stack** (volumes e configuração do
+  projeto), enviado para um bucket R2. Configurado no painel do Dokploy, não no compose.
 
-**Frequência e retenção (por que 1h + escalonado):** restaurar backup *antigo* é raro — quase todo
-restore usa o mais recente (recuperação de desastre). A **frequência** protege o **RPO**: 1/1h = no
-máximo 1h de dado perdido, o que numa clínica que digita o dia todo vale a pena. A **retenção**
-protege a **janela de detecção** (corrupção achada dias depois). Por isso, em vez de um número
-único, **dois níveis**, self-contained via `rclone --min-age` (sem depender de lifecycle do R2):
+**O que essa troca custou, dito na cara** — três propriedades saíram junto com o script, e nenhuma
+delas volta por acaso:
 
-- `hourly/` — granularidade fina, mantida **48h** (`BACKUP_HOURLY_RETENTION`).
-- `daily/` — um objeto por dia, mantido **30 dias** (`BACKUP_DAILY_RETENTION`).
+1. **O gate fail-closed antes do `migrate` não existe mais.** O `migrate` agora depende só do `db`
+   saudável. Migration destrutiva deixou de ter uma rede de segurança automática: o que sobra é a
+   disciplina de expand-contract do §8 e o snapshot mais recente, seja lá qual for a idade dele.
+2. **O RPO passou a ser o do painel.** Era ≤ 1h por construção, escrita no compose e verificável
+   por leitura. Agora é o que estiver agendado na Hostinger e no Dokploy — se ninguém abrir os dois
+   painéis para conferir, ninguém sabe qual é.
+3. **A cifra `age` acabou.** O dump saía do servidor já cifrado com uma chave cuja privada vivia
+   offline. Snapshot de painel é cifrado (ou não) segundo o que o provedor faz — e o conteúdo é o
+   mesmo: nome, CPF, telefone e evolução clínica de todo paciente. **Confirmar a cifra em repouso
+   nos dois destinos é item de LGPD**, não de infraestrutura.
 
-**Destino:** bucket R2 **privado, SEPARADO do de anexos**, com **credencial própria**
-(`BACKUP_R2_ACCESS_KEY_ID`/`SECRET`) escopada só a esse bucket. Nunca o bucket dos pacientes.
-
-**LGPD (o dump tem CPF):** cifra client-side com `age` — `BACKUP_AGE_RECIPIENT` é a chave
-**pública** (o servidor cifra mas **não** decifra); a **privada fica offline**, usada só no restore.
-Vazio desliga a cifra (ok em HML, dado sintético).
-
-**Restore (pratique):**
-[`deploy/backup/restore.sh <objeto> <db-alvo>`](../deploy/backup/restore.sh) baixa, decifra (com a
-chave privada) e faz `pg_restore` num banco alvo. Restaure para um banco **separado** e extraia as
-linhas — raramente se sobrescreve prod inteiro. **Backup não testado não é backup.**
-
-**Monitorar a falha:** alerta se o `backup-cron` parar — backup que morre em silêncio só aparece no
-desastre.
-
-**Env do backup** (além dos do app, ver §7): `BACKUP_BUCKET`, `BACKUP_R2_ACCESS_KEY_ID`,
-`BACKUP_R2_SECRET_ACCESS_KEY`, `BACKUP_AGE_RECIPIENT` (opcional), `BACKUP_HOURLY_RETENTION`
-(default 48h), `BACKUP_DAILY_RETENTION` (default 30d). Reusa `R2_ACCOUNT_ID` (mesmo endpoint).
-
-Considerar, no futuro, **Postgres gerenciado externo** para desacoplar o dado da VM descartável
-(hoje: container no compose, aceito pelo custo zero).
+**Ainda vale, e agora vale mais:** *backup não testado não é backup*. Restaure para uma máquina ou
+banco **separado** e confira que as linhas estão lá. Sem `restore.sh` no repositório, esse ensaio é
+100% manual, pelo painel — o que o torna mais fácil de adiar e mais caro de descobrir tarde.
 
 **Recriar a VM:**
 
-- **Env vars anotadas** (fora da VM). Com o dump do R2 + as envs, recriar o A1 é rotina de ~30 min.
+- **Env vars anotadas** (fora da VM). Com o snapshot + as envs, recriar a máquina é rotina de
+  ~30 min.
 - **`apt`**: `unattended-upgrades` só para *security updates*; **`apt-mark hold`** no Docker para
   ele não subir sozinho num deploy inesperado; upgrade de Docker/kernel só em janela planejada,
   esperando reboot. (A lição do "`apt upgrade` matou tudo" é de qualquer VPS, não de um provedor.)
@@ -430,7 +444,8 @@ Considerar, no futuro, **Postgres gerenciado externo** para desacoplar o dado da
 
 - **Webhook de deploy no `ci.yml`** — o job `deploy` já existe (esqueletado, pula se o secret
   faltar). Falta **criar os webhooks no painel do Dokploy** e colar as URLs nos GitHub Secrets
-  `DOKPLOY_DEPLOY_WEBHOOK_PROD`/`_HML`.
+  `DOKPLOY_DEPLOY_WEBHOOK_PROD`/`_HML`. **Atravessar o Cloudflare Access** é parte disto e tem
+  runbook próprio: [doc 105](105-imagem-no-ci-e-webhook-atras-do-access.md) §2.
 - **Preview por PR** — decidido **não** fazer agora (HML no `develop` cobre a revisão). Se um dia
   for necessário, os três pré-requisitos na stack são: CSP templatizada pelo domínio do preview,
   banco efêmero por PR e auth por **magic link** (o Google não aceita redirect URI wildcard).

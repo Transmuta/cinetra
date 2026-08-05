@@ -62,7 +62,7 @@ compactor:
     # 7 dias, contra os 30 do Loki e do Prometheus, e a assimetria é deliberada: trace é o sinal
     # mais caro por byte e o que responde à pergunta mais recente ("por que esta requisição
     # demorou"). O que precisa de memória longa — quem mexeu, quando, quantas vezes — é a trilha
-    # de auditoria no banco, com backup horário.
+    # de auditoria no banco, que entra no snapshot da máquina.
     #
     # CONSEQUÊNCIA, que precisa ser conhecida: o log carrega `trace_id` por 30 dias e o link
     # "ver trace" aparece em todos eles. Num log com mais de 7 dias o link abre um trace VAZIO.

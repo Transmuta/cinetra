@@ -168,7 +168,7 @@ Estes não estão precificados em lugar nenhum e são, somados, provavelmente ma
 | Buraco | Por que importa | Ordem de grandeza |
 |---|---|---|
 | **Tarifa de template da Meta** | Os R$ 0,05 da Zernio podem ser **só a Zernio**; a Meta cobra por template de utilidade/marketing por fora. Se for por fora, o custo variável dominante do §4 está **subestimado**. | pode dobrar o §4 |
-| **Backup off-site** | O doc 87 diz "nunca reduzir o backup". Se o destino for R2, tem storage + operações; se for outro provedor, é linha nova. | R$ 5–30/mês |
+| **Backup off-site** | Desde a [ADR-029](00-decisoes.md) não há backup nosso: são o snapshot da VPS (embutido no plano, com custo se subir a frequência) e o snapshot de projeto do Dokploy para o R2, que tem storage + operações. | R$ 5–30/mês |
 | **Conta PJ + contador** | Emitir nota para clínica exige CNPJ. | R$ 200–400/mês |
 | **Gateway de pagamento** | Cobrar da clínica tem taxa sobre a receita, não sobre o custo. | ~4% + R$ 0,40/transação |
 | **Caixa de e-mail do domínio** | Resend **envia**, não **recebe**. `contato@` precisa de Zoho/Workspace. | R$ 0–30/mês |

@@ -3,6 +3,14 @@
 **Data:** 2026-07-30 · **Branch:** `develop` · **Alcance:** todo o encanamento de deploy, rede,
 banco, backup, CI/CD, observabilidade e segredos.
 
+> **NOTA DE 2026-08-05 — os achados de backup perderam o objeto.** R-C3 (chave `age` no working
+> tree), R-M10 (o dump que subia sem ser verificado) e R-M11 (o `mktemp` no disco do `pgdata`) foram
+> pagos nas ondas 1 e 2 do [doc 102](102-plano-de-acao-infraestrutura.md) e depois **removidos
+> inteiros** pela [ADR-029](00-decisoes.md): não há mais `deploy/backup/`, `backup.sh`, `restore.sh`
+> nem serviço de backup no compose. O que este documento diz sobre eles é registro do que existiu,
+> não descrição do repositório de hoje. O estado atual está em
+> [`59 §13`](59-deploy-dokploy-oci.md).
+
 > **ATUALIZAÇÃO 2026-07-31 — isto deixou de ser uma auditoria pré-voo.** O ponto 3 do "Como ler"
 > abaixo diz que *"nada foi medido em servidor nenhum — não há VPS provisionada"*. **Não é mais
 > verdade:** produção está no ar numa **Hostinger KVM 2**, com prod + HML + observabilidade + Dokploy

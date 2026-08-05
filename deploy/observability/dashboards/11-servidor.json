@@ -306,7 +306,7 @@
       "id": 9,
       "type": "timeseries",
       "title": "Rede",
-      "description": "Só as interfaces físicas — `lo`, `veth*`, `br-*` e `docker*` ficam de fora porque contam o tráfego ENTRE containers, que atravessa a memória da máquina e não a rede de verdade. Sem esse filtro, o backup noturno de um container para outro apareceria como pico de banda externa.",
+      "description": "Só as interfaces físicas — `lo`, `veth*`, `br-*` e `docker*` ficam de fora porque contam o tráfego ENTRE containers, que atravessa a memória da máquina e não a rede de verdade. Sem esse filtro, uma cópia grande de um container para outro apareceria como pico de banda externa.",
       "gridPos": { "h": 8, "w": 8, "x": 16, "y": 14 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [

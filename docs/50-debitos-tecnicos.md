@@ -674,7 +674,22 @@ tripwire tem de distinguir "sobra" de "membro de família", ou vai empurrar para
 
 ---
 
-## D-21 · O Dokploy builda na máquina de produção — 90% de CPU, medido só sem carga real
+## D-21 · O Dokploy builda na máquina de produção — 90% de CPU, medido só sem carga real — **PAGO no código em 2026-08-05**
+
+> **PAGO (2026-08-05, [doc 105](105-imagem-no-ci-e-webhook-atras-do-access.md)).** Foi exatamente o
+> remédio que este débito previa: as imagens passaram a ser construídas e publicadas pelo **CI**
+> (GHCR), e o `compose.dokploy.yml` só as consome (`image:` + `pull_policy: always`). O que o
+> servidor faz num deploy passou a ser `pull` + trocar container.
+>
+> **Duas ressalvas, para o registro não valer mais do que vale.** (1) É código escrito e **não
+> medido em produção** — o primeiro push que publica e implanta de verdade é a confirmação;
+> enquanto o operador não criar as variáveis, os stacks e o service token (doc 105 §3), o pipeline
+> não implanta. (2) A pergunta de medição que este débito levantou — *o build degradava quem estava
+> sendo servido?* — fica **sem resposta para sempre**, e tudo bem: o build saiu da máquina. O que
+> **não** saiu é o **R-M12** (nenhum container tem limite de CPU), que continua de pé e é outro
+> item.
+
+
 
 **O que é.** O Dokploy clona e builda a imagem **na própria VPS** de produção
 ([doc 59 §2](59-deploy-dokploy-oci.md)): `mix release` (compilação Elixir) e `vite build` disputam

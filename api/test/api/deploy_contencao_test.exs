@@ -44,9 +44,9 @@ defmodule Api.DeployContencaoTest do
 
   alias Api.ComposeDeProducao, as: Compose
 
-  # Os que ficam de pé. `backup` e `migrate` são one-shot (`restart: "no"`) — teto de memória num
-  # processo que roda uma vez e morre protege contra nada.
-  @produto_longa_duracao ~w(db api web backup-cron)
+  # Os que ficam de pé. O `migrate` é one-shot (`restart: "no"`) — teto de memória num processo
+  # que roda uma vez e morre protege contra nada.
+  @produto_longa_duracao ~w(db api web)
 
   # Os 8 da observabilidade (o `docker-proxy` nasceu na onda 5). O `tempo` aparece nas asserções de teto e de log, mas **não** na de
   # healthcheck: a imagem é distroless e todo `test:` falha por falta de `/bin/sh`, deixando o
@@ -150,26 +150,6 @@ defmodule Api.DeployContencaoTest do
                satura os 2 vCPU, a BEAM entra em `run_queue` e o p95 sobe. A ferramenta de \
                diagnóstico vira a causa.
                """
-      end
-    end
-  end
-
-  describe "o dump não divide a camada gravável com o banco (R-M11)" do
-    test "o ambiente de backup aponta TMPDIR para um volume dedicado", %{produto: compose} do
-      assert compose =~ ~r/^\s+TMPDIR:/m,
-             """
-             O `mktemp -d` do `backup.sh` cai no `/tmp` da camada gravável do container, no mesmo \
-             disco do `pgdata`.
-
-             No momento em que o disco é o recurso escasso — o modo de falha que o doc 87 §4.1 \
-             chama de "o mais provável de todos" —, a ferramenta de recuperação consome espaço \
-             proporcional ao banco exatamente quando não há espaço. E como o `backup` roda ANTES \
-             do `migrate` e é fail-closed, disco cheio vira DEPLOY BLOQUEADO por cima.
-             """
-
-      for nome <- ~w(backup backup-cron) do
-        assert declara?(compose, nome, "volumes"),
-               "`#{nome}` não monta volume — o TMPDIR apontaria para a camada gravável do container"
       end
     end
   end
