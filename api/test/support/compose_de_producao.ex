@@ -15,25 +15,49 @@ defmodule Api.ComposeDeProducao do
 
   import ExUnit.Assertions
 
-  # O compose mora fora de `api/`, e a suíte roda a partir de `api/`. Dois lugares, duas formas de
-  # alcançá-lo: no CI o checkout inteiro está ao lado (`../`); no container de dev, onde só `api/`
-  # é montado em `/app`, o `docker-compose.yml` monta a raiz do repositório em `/repo` só-leitura.
-  # Sem o segundo caminho o teste pularia justamente onde se desenvolve.
-  @caminhos ["../compose.dokploy.yml", "/repo/compose.dokploy.yml"]
+  # Os arquivos moram fora de `api/`, e a suíte roda a partir de `api/`. Duas raízes, duas formas
+  # de alcançá-los: no CI o checkout inteiro está ao lado (`../`); no container de dev, onde só
+  # `api/` é montado em `/app`, o `docker-compose.yml` monta a raiz do repositório em `/repo`
+  # só-leitura. Sem a segunda, o teste pularia justamente onde se desenvolve.
+  @raizes ["..", "/repo"]
 
-  @doc "O conteúdo do compose de produção."
+  @compose_do_produto "compose.dokploy.yml"
+  @compose_da_obs "deploy/observability/compose.obs.yml"
+
+  @doc "O conteúdo do compose de produção (o stack do produto)."
   @spec ler() :: String.t()
   def ler, do: File.read!(caminho())
 
   @doc """
-  Falha em vez de pular quando o compose não é alcançável: um teste de configuração que some
+  O conteúdo do compose da observabilidade.
+
+  Mesmo instrumento, segundo arquivo — e não um módulo irmão, pelo motivo do moduledoc: duas
+  cópias que fatiam YAML de formas ligeiramente diferentes deixam de significar a mesma coisa. O
+  recorte por serviço e as guardas contra vacuidade são exatamente os mesmos nos dois.
+  """
+  @spec ler_obs() :: String.t()
+  def ler_obs, do: File.read!(caminho(@compose_da_obs))
+
+  @doc """
+  Falha em vez de pular quando o arquivo não é alcançável: um teste de configuração que some
   sozinho no ambiente errado é pior do que não existir — ele reporta verde sem ter olhado nada.
   """
-  @spec caminho() :: String.t()
-  def caminho do
-    Enum.find(@caminhos, &File.exists?/1) ||
-      flunk("compose.dokploy.yml não encontrado em nenhum de: #{Enum.join(@caminhos, ", ")}")
+  @spec caminho(String.t()) :: String.t()
+  def caminho(relativo \\ @compose_do_produto) do
+    @raizes
+    |> Enum.map(&Path.join(&1, relativo))
+    |> Enum.find(&File.exists?/1)
+    |> Kernel.||(
+      flunk("#{relativo} não encontrado a partir de nenhuma raiz: #{Enum.join(@raizes, ", ")}")
+    )
   end
+
+  @doc """
+  Um arquivo qualquer do repositório, pelas mesmas duas raízes. Para os testes que precisam de
+  artefato que não é compose — `.env.exemplo`, `.gitignore`, `backup.sh`.
+  """
+  @spec ler_do_repo(String.t()) :: String.t()
+  def ler_do_repo(relativo), do: relativo |> caminho() |> File.read!()
 
   @doc """
   As linhas de um serviço, do cabeçalho dele até o próximo serviço no mesmo recuo.

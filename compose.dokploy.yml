@@ -65,12 +65,38 @@ x-backup-env: &backup-env
   RCLONE_CONFIG_R2_ACCESS_KEY_ID: ${BACKUP_R2_ACCESS_KEY_ID}
   RCLONE_CONFIG_R2_SECRET_ACCESS_KEY: ${BACKUP_R2_SECRET_ACCESS_KEY}
   RCLONE_CONFIG_R2_NO_CHECK_BUCKET: "true"
+  # R-M11 (onda 2). O `mktemp -d` do `backup.sh` caía no `/tmp` da **camada gravável do
+  # container** — que cresce sem teto e sem aparecer em `docker volume ls`. Apontado para um
+  # volume nomeado, o espaço do dump passa a ser contável, inspecionável e limitável pela mesma
+  # técnica de loop device que o `criar-volume-limitado.sh` usa no Loki.
+  #
+  # **O que isto NÃO faz, dito na cara:** numa VPS de disco único, volume nomeado continua no
+  # mesmo dispositivo do `pgdata`. O achado original pedia "fora do disco do pgdata" e isso não é
+  # alcançável aqui. Quem de fato impede o dump de encher o disco do banco é o preflight de espaço
+  # livre no `backup.sh`, que aborta ANTES de começar — porque o `backup` roda antes do `migrate`
+  # e é fail-closed, disco cheio no meio do dump viraria deploy travado por cima de disco cheio.
+  TMPDIR: /var/tmp/backup
 
 services:
   db:
-    image: postgres:16
+    image: postgres:16@sha256:33f923b05f64ca54ac4401c01126a6b92afe839a0aa0a52bc5aeb5cc958e5f20
     restart: unless-stopped
     logging: *logging
+    # R-A4 (onda 2). Teto NÃO é previsão de consumo — é o limite do pior caso, e confundir os dois
+    # foi o erro que o doc 87 §2.1 mediu (a estimativa somou `mem_limit` como se fosse uso e errou
+    # por ~3×). Medido no dev ocioso: o Postgres residente em **199 MiB**. 1g dá folga para
+    # `shared_buffers` + `work_mem` × 16 conexões do pool e ainda contém o pior caso.
+    #
+    # Sem teto, quem escolhe a vítima de um vazamento é o `oom_score` do kernel, que privilegia o
+    # processo MAIOR — que aqui tende a ser justamente este. Um vazamento no BFF derrubava o banco.
+    # E o container sem teto ficava fora do alerta `cinetra-container-no-teto` por construção: ele
+    # filtra por `container_spec_memory_limit_bytes > 0`.
+    mem_limit: ${DB_MEM_LIMIT:-1g}
+    # R-M2 (onda 2). Sem isto, `/dev/shm` fica no default de **64 MB** do Docker. Uma query com
+    # plano paralelo — os agregados das views `metrics_*` e os relatórios são os candidatos —
+    # morre com `could not resize shared memory segment […] No space left on device`: um sintoma
+    # que não parece disco e não parece memória, e por isso custa horas para diagnosticar.
+    shm_size: 256m
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -93,6 +119,8 @@ services:
       db:
         condition: service_healthy
     networks: [data]
+    volumes:
+      - backup_tmp:/var/tmp/backup
     environment: *backup-env
 
   migrate:
@@ -126,7 +154,39 @@ services:
       context: ./api
       dockerfile: Dockerfile.prod
     restart: unless-stopped
+    # 25s porque o drain do Oban é 15s (`Oban.Config`, `shutdown_grace_period`) e o default do
+    # Docker é 10s — ou seja, SEM esta linha o SIGKILL cortava garantidamente o drain que o Oban
+    # planejou, e todo job em voo virava linha `executing` órfã para sempre: o Pruner não a
+    # alcança, não há exceção, não há log, e o alerta `cinetra-job-falhando` conta um evento que
+    # nunca existe. Os 10s de folga sobre os 15 são para o endpoint Phoenix drenar depois das
+    # filas. A outra metade do conserto é o `Oban.Plugins.Lifeline` em `api/config/config.exs`:
+    # este grace reduz a chance, o Lifeline resgata o que ficou (num OOM kill não há SIGTERM
+    # nenhum a respeitar). `Api.DeployCicloDeVidaTest` prende as duas.
+    stop_grace_period: 25s
     logging: *logging
+    # Medido no dev ocioso: a BEAM residente em **232 MiB**. 768m é ~3× isso — folga para as 16
+    # conexões do pool, as duas filas do Oban e o pico de compactação, sem deixar um vazamento
+    # comer a máquina. Ver a nota sobre teto ≠ consumo no serviço `db`.
+    mem_limit: ${API_MEM_LIMIT:-768m}
+    # R-A7 (onda 2). Os labels do Traefik que este serviço tem decidem **roteamento**; este
+    # healthcheck decide **reinício**. Com o processo travado sem morrer — pool esgotado, BEAM em
+    # `run_queue` — o Traefik tirava da rotação e o Docker seguia reportando `Up`, então o
+    # `restart: unless-stopped` nunca disparava e o container ficava zumbi indefinidamente.
+    #
+    # Aponta para `/api/health` (liveness, sem I/O) e NÃO para `/api/ready`: reiniciar a API
+    # porque o banco piscou troca uma indisponibilidade curta por uma longa. Quem precisa saber se
+    # o produto está usável é o monitor externo, e esse bate em `/ready` (doc 62 §9.4).
+    #
+    # `curl` foi acrescentado ao `Dockerfile.prod` para isto: a imagem é `debian:bookworm-slim` com
+    # 4 pacotes e não tinha NENHUM cliente HTTP. A alternativa sem mexer na imagem seria
+    # `bin/api rpc`, que sobe uma BEAM inteira a cada 30s — caro numa máquina de 2 vCPU onde o
+    # build já mede 90% (D-21).
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-m", "5", "http://127.0.0.1:4000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -247,7 +307,31 @@ services:
         API_PUBLIC_ORIGIN: "https://${WEB_HOST}"
         R2_ACCOUNT_ID: ${R2_ACCOUNT_ID}
     restart: unless-stopped
+    # 35s porque o `SHUTDOWN_TIMEOUT` do adapter-node é 30s e o default do Docker é 10s. Aqui o
+    # corte no meio é VISÍVEL para o usuário: o HTML do SSR é streamed (`lib/server/compress.ts`,
+    # `pipeThrough(CompressionStream)`), então requisição morta a meio caminho entrega **gzip
+    # truncado** — página quebrada, e não um erro que dê para tentar de novo.
+    stop_grace_period: 35s
     logging: *logging
+    mem_limit: ${WEB_MEM_LIMIT:-512m}
+    # Mesma distinção do serviço `api`: o label do Traefik decide roteamento, este decide
+    # reinício. E aqui o modo de falha é o clássico do Node — event loop bloqueado, processo vivo
+    # e mudo.
+    #
+    # `node -e` em vez de curl porque a imagem é `node:22-slim` e o `fetch` global já existe: não
+    # há pacote a acrescentar. Aponta para `/health` (liveness) pelo mesmo motivo do label do
+    # Traefik, que `compose.dokploy.yml` já explica alguns comentários abaixo — tirar o BFF do ar
+    # quando a API pisca faz o site deixar de servir até a página de erro.
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
     depends_on:
       - api
     networks: [app, dokploy-network]
@@ -263,8 +347,18 @@ services:
       # esse, e a razão é que o `getClientAddress()` do adapter-node **levanta** quando o header
       # configurado falta na requisição — com um vendor hardcoded, qualquer requisição que chegue
       # à origem fora daquela edge vira 500 em toda página que fale com a API. O
-      # `x-forwarded-for` do default não tem esse risco e também não é forjável: o adapter conta
-      # da DIREITA (`XFF_DEPTH=1`) e quem escreve a última posição é o Traefik.
+      # `x-forwarded-for` do default **tem o mesmo risco** — corrigido em 2026-08-04 (R-M19, onda 5
+      # do doc 102). O comentário anterior afirmava que não tinha, e estava errado: o
+      # `getClientAddress()` levanta para QUALQUER header configurado que falte na requisição, não
+      # só para os de vendor. Quem chega sem passar pelo Traefik — outro serviço na rede `app`, um
+      # `curl` de diagnóstico de dentro da `dokploy-network`, um probe futuro — batia em 500.
+      #
+      # Quem fecha isso agora é o `ipDoCliente()` de `web/src/lib/server/api.ts`, que trata a
+      # exceção e a string vazia. **Comentário que mente sobre segurança é pior que comentário
+      # ausente**, porque alguém decide com base nele — e este quase decidiu.
+      #
+      # O que continua verdade: o `x-forwarded-for` do default não é forjável aqui, porque o
+      # adapter conta da DIREITA (`XFF_DEPTH=1`) e quem escreve a última posição é o Traefik.
       #
       # Se um dia mexer no `XFF_DEPTH`: ele levanta quando a profundidade pedida é maior que a
       # cadeia recebida. O 1 é o certo aqui.
@@ -276,6 +370,14 @@ services:
       OTEL_SERVICE_NAME: cinetra-web
       OTEL_RESOURCE_ATTRIBUTES: deployment.environment=${STACK}
       PORT: "3000"
+      # Em SEGUNDOS (o adapter-node multiplica por 1000). O `keepAliveTimeout` do Node é 5s por
+      # default e o pool de saída do Traefik segura conexão ociosa por 90s
+      # (`forwardingTimeouts.idleConnTimeout`): com o Node fechando primeiro, o proxy reaproveita
+      # uma conexão no instante em que ela está sendo fechada e o cliente leva **502**. Não há log
+      # na aplicação — a requisição nunca chegou nela. Vira "flakiness inexplicável", e aparece
+      # justamente em BAIXA carga, que é quando a conexão fica ociosa tempo bastante.
+      # A regra é o Node segurar por mais tempo que o proxy, nunca o contrário.
+      KEEP_ALIVE_TIMEOUT: "95"
     labels:
       - traefik.enable=true
       - traefik.docker.network=dokploy-network
@@ -300,14 +402,23 @@ services:
     restart: unless-stopped
     logging: *logging
     command: ["sh", "-c", "while true; do sleep 3600; /backup.sh || echo '[backup-cron] falhou'; done"]
+    # Pequeno de propósito: o `pg_dump --format=custom` escreve em stream e o `rclone` sobe em
+    # pedaços — nenhum dos dois carrega o banco em memória. 256m contém um vazamento sem apertar
+    # o caminho feliz.
+    mem_limit: ${BACKUP_MEM_LIMIT:-256m}
     depends_on:
       db:
         condition: service_healthy
     networks: [data]
+    volumes:
+      - backup_tmp:/var/tmp/backup
     environment: *backup-env
 
 volumes:
   pgdata:
+  # Onde o dump é gerado antes de subir (R-M11). Ver o comentário do `TMPDIR` na âncora
+  # `x-backup-env`, inclusive sobre o que um volume nomeado não resolve.
+  backup_tmp:
 
 networks:
   data: # só db + migrate + api — o web NÃO entra (só a API fala com o banco)

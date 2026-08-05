@@ -90,6 +90,23 @@ config :api, Oban,
   # poda que varre clínica a clínica por minutos — aviso de vaga que chega tarde não vale nada.
   queues: [housekeeping: 2, notifications: 5],
   plugins: [
+    # R-A1 (doc 95, onda 1 do doc 102) — quem devolve à vida o job que o SIGKILL deixou pelo
+    # caminho. Sem ele a linha fica em `state = 'executing'` PARA SEMPRE: o `Pruner` abaixo não a
+    # alcança (poda `completed`, `cancelled` e `discarded`), não há exceção, portanto não há linha
+    # de log — e o alerta `cinetra-job-falhando` conta eventos `job:exception` que nunca vão
+    # existir. O lembrete não sai e nada avisa.
+    #
+    # A outra metade do conserto é o `stop_grace_period` do `compose.dokploy.yml`, e as duas são
+    # indivisíveis: o grace reduz a chance de criar órfão, este plugin resgata o que ficou — e num
+    # OOM kill ou num `restart: unless-stopped` não existe SIGTERM nenhum para o grace respeitar.
+    #
+    # `rescue_after` explícito em 60 min, que é o default, porque o número MERECE ser lido: o
+    # Lifeline decide por tempo e não por saber se o nó está vivo — o moduledoc dele avisa que
+    # pode ressuscitar job genuinamente em execução e causar execução dupla. Na fila
+    # `notifications` isso seria lembrete duplicado para o paciente. 60 min é três ordens de
+    # grandeza acima de qualquer job de notificação e tem folga sobre as podas; é ESTE o número a
+    # revisitar no dia em que uma poda legitimamente passar de uma hora.
+    {Oban.Plugins.Lifeline, rescue_after: :timer.minutes(60)},
     # A fila que executa as podas também precisava de uma. Sem isto, `oban_jobs` só cresce —
     # medido: 779 jobs `completed` acumulados em 4 dias de dev, e os crons da Onda 4 garantem
     # +314 linhas/dia. 7 dias é escolha humana: curto o bastante para a tabela não pesar, longo
