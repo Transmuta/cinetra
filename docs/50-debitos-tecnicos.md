@@ -855,3 +855,25 @@ tarefa, e dos quais só um era.
 > semânticas para a GUC vazia") e **um mal enquadrado** (P2-13), os dois por ler o schema sem ler
 > os contratos estruturais que já vivem em `test/` — `tenant_guc_test.exs` e `on_delete_test.exs`.
 > A errata está no topo do doc 92.
+
+---
+
+## D-26 · O `/descadastrar` ficou com a cara antiga enquanto o `/confirmar` ganhou a da marca
+
+**O que é.** As duas telas de paciente são irmãs: mesmo público (quem não tem login), mesmo tipo de
+link assinado, mesma estrutura de uma pergunta e um botão. Em 2026-08-04 a `/confirmar` passou a
+usar o `CartaoPaciente` — papel/navy da marca, topo com o nome da clínica, tema claro fixo (doc
+[104](104-a-tela-do-paciente.md)). A `/descadastrar` continua no design system do app interno.
+
+**Por que virou débito.** O pedido era sobre a tela de confirmação, e ampliar sozinho para a outra
+seria decidir pelo usuário o tamanho da fatia. O componente já serve as duas sem mudança nenhuma —
+`CartaoPaciente` recebe `clinica`, `telefone`, o conteúdo e a nota, que é exatamente o que a de
+descadastro precisa.
+
+**O que custa hoje.** Duas telas de paciente falando línguas visuais diferentes, e — o que é pior —
+a `/descadastrar` continua seguindo o `prefers-color-scheme` do aparelho: quem lê no escuro abre um
+e-mail em papel creme e cai numa página quase preta. É o mesmo defeito que o doc 104 §1 mediu, ainda
+de pé na outra porta.
+
+**O que o paga.** Trocar a moldura e as classes: ~30 minutos, com o teste da tela seguindo o modelo
+de `confirmar/[token]/page.svelte.test.ts`. Não há decisão pendente — é só trabalho.
