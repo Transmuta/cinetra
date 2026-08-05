@@ -290,22 +290,51 @@ defmodule ApiWeb.AuthController do
     end
   end
 
+  # A identidade da clínica que viaja no /me, com o prefixo `clinic_` (o payload é um membership
+  # por clínica). Alimenta o topo do sidebar — nome no lugar da marca, CNPJ, contato e endereço —
+  # sem um fetch extra e reagindo à troca de tenant; a `clinic` já vem carregada pela read
+  # `active_for_user`, então nada disto custa query.
+  #
+  # É uma LISTA, e espelha o `@campos_de_info` do `ClinicController`, porque foi exatamente aí
+  # que ela falhou: quando o endereço deixou de ser uma linha livre e virou sete campos, só
+  # `endereco` (o logradouro) continuou atravessando. A tela salvava número, bairro, cidade e
+  # CEP, e o sidebar mostrava "Av. Paulista" — dado gravado e invisível, sem erro nenhum.
+  # Campo novo lá entra aqui, e chega ao sidebar.
+  @campos_da_clinica for campo <- [
+                           :nome,
+                           :cnpj,
+                           :telefone,
+                           :cep,
+                           :endereco,
+                           :numero,
+                           :complemento,
+                           :bairro,
+                           :cidade,
+                           :uf,
+                           # Por membership também, e não só no topo: na troca de tenant o fuso
+                           # muda junto, e a UI não deveria precisar de um /me novo para saber.
+                           :timezone
+                         ],
+                         do: {campo, :"clinic_#{campo}"}
+
   defp membership_json(%Membership{} = m) do
-    %{
-      clinic_id: m.clinic_id,
-      clinic_nome: m.clinic && m.clinic.nome,
-      # Identidade da clínica também viaja no /me: alimenta o topo do sidebar (nome no lugar da
-      # marca + CNPJ/endereço) sem um fetch extra e reagindo à troca de tenant. A `clinic` já vem
-      # carregada pela read `active_for_user`.
-      clinic_cnpj: m.clinic && m.clinic.cnpj,
-      clinic_endereco: m.clinic && m.clinic.endereco,
-      # Por membership também, e não só no topo: na troca de tenant o fuso muda junto, e a UI
-      # não deveria precisar de um /me novo para saber disso.
-      clinic_timezone: m.clinic && m.clinic.timezone,
-      papel: m.papel,
-      professional_id: m.professional_id
-    }
+    Map.merge(
+      %{
+        clinic_id: m.clinic_id,
+        papel: m.papel,
+        professional_id: m.professional_id
+      },
+      clinic_json(m.clinic)
+    )
   end
+
+  defp clinic_json(%Api.Accounts.Clinic{} = clinic) do
+    Map.new(@campos_da_clinica, fn {campo, chave} -> {chave, Map.get(clinic, campo)} end)
+  end
+
+  # Membership sem a clínica carregada: as chaves continuam existindo, nulas. O cliente não deve
+  # precisar distinguir "a API não manda esse campo" de "a clínica não preencheu".
+  defp clinic_json(_), do: Map.new(@campos_da_clinica, fn {_campo, chave} -> {chave, nil} end)
 
   # Acha a membership da clínica ativa e SÓ ENTÃO extrai o fuso. A forma óbvia —
   # `Enum.find_value` com `m.clinic_id == clinic_id && m.clinic.timezone` — parece equivalente

@@ -8,6 +8,7 @@
 	import Circle from '@lucide/svelte/icons/circle';
 	import Info from '@lucide/svelte/icons/info';
 	import { maskCnpj, normalizeCnpj, isValidCnpj } from '$lib/cnpj';
+	import { enderecoEmLinha } from '$lib/endereco';
 	import { maskTel } from '$lib/masks';
 	import { canManageClinic } from '$lib/session';
 	import { toast } from '$lib/toast.svelte';
@@ -93,19 +94,11 @@
 
 	const inputCls = `${CONTROL_CLASS} ${CONTROL_PX} ${CONTROL_H} w-full`;
 
-	// O endereço em uma linha, para a leitura de quem não edita. Junta só o que existe: uma
-	// clínica que só preencheu a cidade não deve ler "— , — - SP".
-	const enderecoLinha = $derived(
-		[
-			[data.clinic.endereco, data.clinic.numero].filter(Boolean).join(', '),
-			data.clinic.complemento,
-			data.clinic.bairro,
-			[data.clinic.cidade, data.clinic.uf].filter(Boolean).join('/'),
-			data.clinic.cep
-		]
-			.filter((parte) => parte && String(parte).trim() !== '')
-			.join(' · ')
-	);
+	// O endereço em uma linha, para a leitura de quem não edita. Junta só o que existe (uma
+	// clínica que só preencheu a cidade não deve ler "— , — - SP") — a regra mora em
+	// `$lib/endereco`, que é a mesma que o topo do sidebar usa. Escrita aqui, ela divergia:
+	// o sidebar mostrava só o logradouro.
+	const enderecoLinha = $derived(enderecoEmLinha(data.clinic));
 </script>
 
 <svelte:head><title>Clínica · Cinetra</title></svelte:head>

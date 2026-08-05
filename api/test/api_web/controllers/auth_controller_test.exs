@@ -161,6 +161,67 @@ defmodule ApiWeb.AuthControllerTest do
       assert tz == clinic.timezone
     end
 
+    # A identidade da clínica viaja no /me porque é ela que o topo do sidebar mostra, sem um
+    # fetch extra e reagindo à troca de tenant. O endereço, porém, deixou de ser uma linha livre
+    # e virou sete campos (`cep`..`uf`), e só o logradouro atravessava: quem preenchia número,
+    # bairro, cidade e CEP em /configuracoes/clinica salvava tudo e via só "Av. Paulista" no
+    # sidebar. O que a tela de identidade edita é o que o /me devolve.
+    test "traz a identidade INTEIRA da clínica ativa: contato e endereço estruturado", %{
+      conn: conn
+    } do
+      user = create_user()
+      clinic = onboard(user)
+
+      Accounts.update_clinic_info!(
+        clinic,
+        %{
+          cnpj: "12ABC34501DE35",
+          telefone: "(11) 3456-7890",
+          cep: "01310-100",
+          endereco: "Av. Paulista",
+          numero: "1000",
+          complemento: "Sala 42",
+          bairro: "Bela Vista",
+          cidade: "São Paulo",
+          uf: "SP"
+        },
+        actor: user
+      )
+
+      body = conn |> authed(user) |> get(~p"/api/auth/me") |> json_response(200)
+
+      assert [
+               %{
+                 "clinic_cnpj" => "12ABC34501DE35",
+                 "clinic_telefone" => "(11) 3456-7890",
+                 "clinic_cep" => "01310-100",
+                 "clinic_endereco" => "Av. Paulista",
+                 "clinic_numero" => "1000",
+                 "clinic_complemento" => "Sala 42",
+                 "clinic_bairro" => "Bela Vista",
+                 "clinic_cidade" => "São Paulo",
+                 "clinic_uf" => "SP"
+               }
+             ] = body["memberships"]
+    end
+
+    # Campo vazio vai como `null`, e a chave continua lá: o cliente não deve precisar distinguir
+    # "a API não manda esse campo" de "a clínica não preencheu".
+    test "clínica sem endereço: as chaves existem, nulas", %{conn: conn} do
+      user = create_user()
+      onboard(user)
+
+      body = conn |> authed(user) |> get(~p"/api/auth/me") |> json_response(200)
+
+      assert [membership] = body["memberships"]
+
+      for chave <- ~w(clinic_cnpj clinic_telefone clinic_cep clinic_endereco clinic_numero
+                      clinic_complemento clinic_bairro clinic_cidade clinic_uf) do
+        assert Map.has_key?(membership, chave), "o /me não devolve #{chave}"
+        assert membership[chave] == nil
+      end
+    end
+
     # O relógio NÃO viaja no /me, e isso é decisão, não esquecimento: o payload é carregado
     # pelo layout do SvelteKit, que não reexecuta em navegação client-side — um instante daqui
     # congelaria na abertura da aba. Fuso pode ser cacheado; relógio, não.

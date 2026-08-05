@@ -8,7 +8,7 @@
 	import Toast from '$lib/components/Toast.svelte';
 	import { aprisionarTab } from '$lib/dialogo';
 	import { criarAnunciante } from '$lib/anuncio.svelte';
-	import { activeMembership } from '$lib/session';
+	import { activeMembership, clinicIdentity } from '$lib/session';
 	import { connectNotifications } from '$lib/realtime';
 	import { usarTokenRealtime } from '$lib/realtime-token.svelte';
 	import type { LayoutData } from './$types';
@@ -21,9 +21,9 @@
 	// O papel na clínica ativa. O rail o usa para esconder a Auditoria de quem levaria 403 —
 	// e precisa chegar nas DUAS instâncias do rail (desktop e gaveta mobile).
 	const papel = $derived(me.papel ?? null);
-	const clinicName = $derived(membership?.clinic_nome ?? null);
-	const clinicCnpj = $derived(membership?.clinic_cnpj ?? null);
-	const clinicEndereco = $derived(membership?.clinic_endereco ?? null);
+	// A identidade da clínica ativa (nome, CNPJ, telefone e o endereço estruturado) num objeto
+	// só — ver `clinicIdentity`. Reage à troca de tenant como o resto do `me`.
+	const clinic = $derived(clinicIdentity(membership));
 	const pathname = $derived(page.url.pathname);
 	const theme = $derived((page.data.theme as string | null) ?? null);
 
@@ -91,7 +91,7 @@
 -->
 {#snippet cromo()}
 	<Rail {pathname} {theme} {unread} {papel} />
-	<Sidebar {pathname} {clinicName} {clinicCnpj} {clinicEndereco} />
+	<Sidebar {pathname} {clinic} />
 {/snippet}
 
 <!--
