@@ -22,4 +22,15 @@ describe('load', () => {
 		m.fetchProfessionals.mockResolvedValueOnce({ status: 502, data: null });
 		await expect(load({} as never)).rejects.toMatchObject({ status: 502 });
 	});
+
+	// 403 é o papel `profissional` desde 2026-08-04 (doc 103): a tela não é dele. Tem mensagem
+	// PRÓPRIA — "não foi possível carregar" leria como falha de rede e mandaria tentar de novo
+	// uma tela que, para ele, não existe.
+	it('403 → mensagem de perfil, não de falha de carregamento', async () => {
+		m.fetchProfessionals.mockResolvedValueOnce({ status: 403, data: null });
+		await expect(load({} as never)).rejects.toMatchObject({
+			status: 403,
+			body: { message: 'Esta tela não está disponível para o seu perfil.' }
+		});
+	});
 });

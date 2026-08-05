@@ -138,15 +138,19 @@ defmodule Api.Directory.Professional do
   field_policies do
     field_policy @ficha_contratual do
       # Quem administra a clínica vê a ficha inteira, de todo mundo — é quem paga e contrata.
+      #
+      # O papel `profissional` tinha cláusula própria aqui: ele via a PRÓPRIA ficha, e a
+      # justificativa era boa (a preparation `OwnProfessionalOnly` já reduzira a leitura ao
+      # próprio registro, então "a linha que ele lê" e "a ficha dele" eram a mesma coisa por
+      # construção). **Saiu em 2026-08-04** (doc 103), junto com a tela: a decisão foi que o
+      # diretório não é dele, e isso inclui o próprio CPF, endereço e dados bancários.
+      #
+      # Field policy é o lugar certo para a segunda metade desse fechamento porque ela **não
+      # derruba a leitura** — devolve `%Ash.ForbiddenField{}` no lugar do valor. É o que permite
+      # o `load_agenda` continuar lendo o registro para montar a coluna (nome, cor) enquanto o
+      # dado sensível não viaja, mesmo por um caminho que ninguém previu.
       authorize_if {Api.Accounts.Checks.HasClinicRole,
                     roles: [:owner, :admin], clinic_from: :tenant}
-
-      # O profissional vê a PRÓPRIA ficha. Não é preciso comparar id aqui: a preparation
-      # `OwnProfessionalOnly` já reduziu a leitura ao próprio registro **e é fail-closed** quando
-      # o vínculo é nulo (filtra `false`, devolve vazio). Logo, para este papel, "a linha que ele
-      # está lendo" e "a ficha dele" são a mesma coisa por construção.
-      authorize_if {Api.Accounts.Checks.HasClinicRole,
-                    roles: [:profissional], clinic_from: :tenant}
     end
 
     # Todo o resto é diretório: liberado a quem já passou pela policy de leitura acima.

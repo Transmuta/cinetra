@@ -13,6 +13,8 @@ import {
 	hasAttendingDay,
 	weekToHoursRows,
 	professionalNameMap,
+	canViewProfessionals,
+	canManageProfessionals,
 	CONTRACT_LABELS,
 	type Professional,
 	type HoursRow
@@ -242,5 +244,30 @@ describe('professionalNameMap', () => {
 	// A tela chama isto com `data.professionals`, que é opcional no `load` de algumas rotas.
 	it('tolera ausência — a coluna fica sem nome, não quebra a tela', () => {
 		expect(professionalNameMap(undefined)).toEqual({});
+	});
+});
+
+// 2026-08-04 (doc 103): a tela de Profissionais fechou para o papel `profissional`. É recorte
+// PRÓPRIO — não é o de gestão (owner/admin), porque a recepção continua lendo o diretório.
+// Espelho da guarda `@papeis_do_diretorio` do `ProfessionalsController`.
+describe('canViewProfessionals', () => {
+	it.each(['owner', 'admin', 'recepcao'] as const)('%s entra na tela', (papel) => {
+		expect(canViewProfessionals(papel)).toBe(true);
+	});
+
+	it('o profissional não entra — nem para ver a própria ficha', () => {
+		expect(canViewProfessionals('profissional')).toBe(false);
+	});
+
+	it('sem papel, não entra', () => {
+		expect(canViewProfessionals(null)).toBe(false);
+		expect(canViewProfessionals(undefined)).toBe(false);
+	});
+
+	// Ver ≠ gerir: a recepção lê o diretório e não mexe nele. Se os dois predicados colapsarem
+	// num só, é este teste que avisa.
+	it('ver é mais largo que gerir — a recepção lê, mas não edita', () => {
+		expect(canViewProfessionals('recepcao')).toBe(true);
+		expect(canManageProfessionals('recepcao')).toBe(false);
 	});
 });

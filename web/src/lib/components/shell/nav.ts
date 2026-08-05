@@ -42,9 +42,19 @@ export interface RailItem {
 	section: Section;
 	label: string;
 	href: string;
-	// Restrito a owner·admin (a Auditoria). O rail mostra o item só para quem pode entrar — a
-	// autoridade real continua na policy da API (403). Ausente = visível a todo membro.
-	ownerAdmin?: boolean;
+	/**
+	 * A quem o destino é restrito. O rail mostra o item só para quem pode entrar — a autoridade
+	 * real continua na guarda da API (403). Ausente = visível a todo membro.
+	 *
+	 * É um rótulo e não um booleano porque os dois recortes de hoje são diferentes:
+	 * `owner-admin` é a Auditoria; `sem-profissional` é Profissionais, onde a **recepção
+	 * continua entrando** (2026-08-04, doc 103). Um segundo booleano teria feito a leitura do
+	 * `filter` do `Rail` depender de lembrar qual flag exclui quem.
+	 *
+	 * Este módulo é de dados — quem traduz o rótulo em predicado é o `Rail`, onde os
+	 * `can*` já moram.
+	 */
+	restrito?: 'owner-admin' | 'sem-profissional';
 }
 
 // Destinos do rail. Todas as seções abaixo já têm tela construída; nenhuma é mais andaime/404.
@@ -55,10 +65,15 @@ export interface RailItem {
 export const RAIL_ITEMS: RailItem[] = [
 	{ section: 'agenda', label: 'Agenda', href: '/agenda' },
 	{ section: 'pacientes', label: 'Pacientes', href: '/pacientes' },
-	{ section: 'profissionais', label: 'Profissionais', href: '/profissionais' },
+	{
+		section: 'profissionais',
+		label: 'Profissionais',
+		href: '/profissionais',
+		restrito: 'sem-profissional'
+	},
 	{ section: 'fila', label: 'Fila de espera', href: '/fila' },
 	{ section: 'relatorios', label: 'Relatórios', href: '/relatorios' },
-	{ section: 'auditoria', label: 'Auditoria', href: '/auditoria', ownerAdmin: true },
+	{ section: 'auditoria', label: 'Auditoria', href: '/auditoria', restrito: 'owner-admin' },
 	{ section: 'config', label: 'Configurações', href: '/configuracoes' }
 ];
 

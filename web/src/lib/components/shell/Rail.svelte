@@ -12,6 +12,7 @@
 	import Mark from '$lib/components/Mark.svelte';
 	import ThemeToggle from '$lib/components/ThemeToggle.svelte';
 	import { canViewAudit } from '$lib/audit';
+	import { canViewProfessionals } from '$lib/professionals';
 	import type { Papel } from '$lib/session';
 	import { sectionOf, RAIL_ITEMS, type Section } from './nav';
 
@@ -29,9 +30,16 @@
 
 	const active = $derived(sectionOf(pathname));
 
-	// A Auditoria é owner·admin: o ícone só aparece para quem pode entrar (a policy da API é a
-	// autoridade — os demais levariam 403). Os outros destinos são de todo membro.
-	const items = $derived(RAIL_ITEMS.filter((item) => !item.ownerAdmin || canViewAudit(papel)));
+	// Os destinos restritos só aparecem para quem pode entrar (a guarda da API é a autoridade —
+	// os demais levariam 403). Os outros são de todo membro. São dois recortes diferentes: a
+	// Auditoria é owner·admin; Profissionais exclui só o próprio profissional, porque a recepção
+	// continua lendo o diretório (2026-08-04, doc 103).
+	const PODE: Record<NonNullable<(typeof RAIL_ITEMS)[number]['restrito']>, typeof canViewAudit> = {
+		'owner-admin': canViewAudit,
+		'sem-profissional': canViewProfessionals
+	};
+
+	const items = $derived(RAIL_ITEMS.filter((item) => !item.restrito || PODE[item.restrito](papel)));
 	const notificacoesActive = $derived(pathname.startsWith('/notificacoes'));
 	// Cap visual do badge: acima de 9 vira "9+" (o número real está na tela).
 	const badge = $derived(unread > 9 ? '9+' : String(unread));

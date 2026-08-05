@@ -76,6 +76,22 @@ export interface ProfessionalsData {
 export const canManageProfessionals: (papel: Papel | null | undefined) => boolean =
 	canManageMembers;
 
+/**
+ * Quem ALCANÇA a tela de Profissionais — mais largo que quem a gere: a recepção lê o diretório
+ * inteiro e não edita nada nele.
+ *
+ * O papel `profissional` saiu em 2026-08-04 (doc 103): a tela não é dele, e isso inclui a
+ * própria ficha, onde moram CPF, endereço e dados bancários. Antes ele via uma listagem de uma
+ * linha só — ele mesmo, recortado pela preparation `OwnProfessionalOnly`.
+ *
+ * Espelho de `@papeis_do_diretorio` no `ProfessionalsController`, que é a autoridade (403). Note
+ * que o **recurso** continua legível para ele por dentro: é de lá que a coluna da própria agenda
+ * tira nome e cor. O que fechou foi a tela.
+ */
+export function canViewProfessionals(papel: Papel | null | undefined): boolean {
+	return papel === 'owner' || papel === 'admin' || papel === 'recepcao';
+}
+
 // Rótulos do vínculo (badge da lista).
 export const CONTRACT_LABELS: Record<ContractType, string> = {
 	autonomo: 'Autônomo',

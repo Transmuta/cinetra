@@ -23,10 +23,26 @@ defmodule ApiWeb.ProfessionalsController do
   alias Api.Directory
   alias Api.Scheduling
 
+  # Quem alcança a TELA de Profissionais (2026-08-04, doc 103). O papel `profissional` saiu: a
+  # tela não é dele — nem o diretório, nem a própria ficha, que é onde moram CPF, endereço e
+  # dados bancários. Antes ele via uma listagem de uma linha só (a dele), recortada pela
+  # preparation `OwnProfessionalOnly`, e abria a própria ficha completa.
+  #
+  # **A guarda é aqui, e não na policy de leitura do recurso**, e a diferença não é de estilo:
+  # `Api.Scheduling.load_agenda/4` chama `list_professionals!(scope: scope)` por dentro para
+  # montar a coluna da agenda. Como a policy de leitura é `SimpleCheck` (nega, não filtra),
+  # fechá-la faria a agenda dele **estourar Forbidden** — o oposto de "pode visualizar a sua
+  # agenda". Este controller é a superfície da tela; `load_agenda` não passa por ele.
+  #
+  # A segunda metade do fechamento mora na `field_policy` de `@ficha_contratual` em
+  # `Api.Directory.Professional`, que deixou de ter cláusula para o papel. As duas juntas: ele
+  # não chega à tela, e o dado sensível não viaja nem se um caminho novo o alcançasse.
+  @papeis_do_diretorio [:owner, :admin, :recepcao]
+
   # GET /api/professionals — ativos E arquivados (a tela filtra). Vai junto o expediente da
   # clínica (`clinic_hours`), que a coluna "Atendimento" usa para resolver os dias `:herda`.
   def index(conn, _params) do
-    with_member_scope(conn, fn scope ->
+    with_roles_scope(conn, @papeis_do_diretorio, fn scope ->
       json(conn, %{
         professionals: Enum.map(Directory.list_clinic_professionals(scope), &prof_json/1),
         clinic_hours: Enum.map(Scheduling.list_clinic_hours(scope), &hours_row_json/1)
@@ -36,7 +52,7 @@ defmodule ApiWeb.ProfessionalsController do
 
   # GET /api/professionals/:id — a ficha completa, com a grade e as exceções.
   def show(conn, %{"id" => id}) do
-    with_member_scope(conn, fn scope ->
+    with_roles_scope(conn, @papeis_do_diretorio, fn scope ->
       case Directory.fetch_clinic_professional(scope, id, load: [:weekly_hours, :exceptions]) do
         {:ok, %{} = prof} -> json(conn, %{professional: prof_json(prof, exceptions: true)})
         {:ok, nil} -> not_found(conn)

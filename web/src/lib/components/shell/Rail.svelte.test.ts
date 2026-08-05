@@ -4,8 +4,13 @@ import { render, cleanup } from '@testing-library/svelte';
 import Rail from './Rail.svelte';
 
 describe('Rail', () => {
+	// Com `papel` porque dois destinos são restritos e somem sem ele — Profissionais é um deles
+	// desde 2026-08-04 (doc 103). Quem prova o recorte são as describes do fim do arquivo; aqui
+	// o que se afirma é que o rail desenha os destinos como links.
 	it('lista os destinos do app (todos como links)', () => {
-		const { getByTitle } = render(Rail, { props: { pathname: '/configuracoes/equipe' } });
+		const { getByTitle } = render(Rail, {
+			props: { pathname: '/configuracoes/equipe', papel: 'owner' as const }
+		});
 		expect(getByTitle('Agenda')).toHaveAttribute('href', '/agenda');
 		expect(getByTitle('Profissionais')).toHaveAttribute('href', '/profissionais');
 		expect(getByTitle('Configurações')).toHaveAttribute('href', '/configuracoes');
@@ -77,5 +82,32 @@ describe('Rail — Auditoria (owner·admin)', () => {
 	it('destaca a seção quando em /auditoria', () => {
 		const { getByTitle } = render(Rail, { props: { pathname: '/auditoria', papel: 'owner' } });
 		expect(getByTitle('Auditoria')).toHaveAttribute('aria-current', 'page');
+	});
+});
+
+// 2026-08-04 (doc 103): a tela de Profissionais deixou de ser do papel `profissional` — nem o
+// diretório, nem a própria ficha. O recorte NÃO é o da Auditoria: a recepção continua entrando.
+describe('Rail — Profissionais (todos menos o profissional)', () => {
+	afterEach(cleanup);
+
+	it.each(['owner', 'admin', 'recepcao'] as const)('%s vê o destino', (papel) => {
+		const { getByTitle } = render(Rail, { props: { pathname: '/agenda', papel } });
+		expect(getByTitle('Profissionais')).toHaveAttribute('href', '/profissionais');
+	});
+
+	it('o profissional NÃO vê — mas continua com Agenda e Fila', () => {
+		const { queryByTitle, getByTitle } = render(Rail, {
+			props: { pathname: '/agenda', papel: 'profissional' }
+		});
+		expect(queryByTitle('Profissionais')).toBeNull();
+		expect(getByTitle('Agenda')).toBeInTheDocument();
+		expect(getByTitle('Fila de espera')).toBeInTheDocument();
+	});
+
+	// Sem papel resolvido o rail some com o destino, como já faz com a Auditoria: a tela em
+	// branco é recuperável, o vazamento de um caminho que dá 403 é ruído.
+	it('sem papel conhecido, esconde', () => {
+		const { queryByTitle } = render(Rail, { props: { pathname: '/agenda' } });
+		expect(queryByTitle('Profissionais')).toBeNull();
 	});
 });
