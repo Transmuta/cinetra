@@ -1033,9 +1033,11 @@ describe('AppointmentDrawer', () => {
 			expect(encaixe).toBe('true');
 		});
 
-		// A9/D2: profissional não marca encaixe — e na vaga de falta a conversão é encaixe por
-		// definição, então o botão nem oferece o caminho que o servidor recusaria.
-		it('profissional não agenda na vaga de falta (encaixe é de quem responde pela agenda)', () => {
+		// Antes o botão aparecia DESABILITADO para o profissional: ele agendava, mas a vaga de
+		// falta só entra como encaixe (A9/D2) e encaixe não é dele. Desde 2026-08-04 ele não
+		// agenda em situação nenhuma, então o botão não chega a ser desenhado — quem lê a fila
+		// pelo drawer continua lendo, e o que sai é a caneta. A lista de candidatos, essa, fica.
+		it('profissional não recebe o botão de agendar da fila', () => {
 			render(AppointmentDrawer, {
 				props: {
 					appt: appt({ status: 'faltou' }),
@@ -1044,7 +1046,8 @@ describe('AppointmentDrawer', () => {
 					candidatos: [candidato()]
 				}
 			});
-			expect(screen.getByRole('button', { name: 'Agendar' })).toBeDisabled();
+			expect(screen.queryByRole('button', { name: 'Agendar' })).toBeNull();
+			expect(screen.getByText(candidato().patient.nome)).toBeInTheDocument();
 		});
 
 		// O horário foi tomado no meio-tempo (vaga de cancelamento re-ocupada): o 422 volta com a

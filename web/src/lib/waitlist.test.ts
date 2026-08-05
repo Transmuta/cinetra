@@ -224,12 +224,16 @@ describe('priorityCounts', () => {
 });
 
 describe('canManageWaitlist', () => {
-	// A8: administrar a fila é dos quatro papéis — inclusive profissional (a fila não é "dele",
-	// mas ele mexe na fila da clínica). É o que separa este predicado de canManageMembers.
-	it('todos os quatro papéis podem', () => {
-		for (const papel of ['owner', 'admin', 'recepcao', 'profissional'] as const) {
+	// A8: administrar a fila é de quem opera a agenda. O profissional saiu em 2026-08-04, junto
+	// com o agendar: a saída natural de um item da fila é virar agendamento.
+	it('o balcão pode', () => {
+		for (const papel of ['owner', 'admin', 'recepcao'] as const) {
 			expect(canManageWaitlist(papel)).toBe(true);
 		}
+	});
+
+	it('o profissional não — ele lê a fila, mas não mexe', () => {
+		expect(canManageWaitlist('profissional')).toBe(false);
 	});
 
 	it('sem papel, não pode', () => {

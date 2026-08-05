@@ -637,9 +637,15 @@ export function conflictIds(appts: Appointment[]): Set<string> {
 // Permissões (espelho de UX — a autoridade é a policy da API)
 // ---------------------------------------------------------------------------
 
-/** A8: recepção é quem agenda; profissional agenda a própria. */
+/**
+ * A8: agendar é do balcão — owner/admin/recepção.
+ *
+ * O `profissional` saiu em 2026-08-04: ele **vê** a própria agenda e os próprios agendamentos, e
+ * não lança, não remarca, não cancela e não marca presença. Espelho da policy do `Appointment`;
+ * a autoridade continua sendo o 403 da API — isto só evita oferecer um botão que dá erro.
+ */
 export function canCreateAppointment(papel: Papel | null | undefined): boolean {
-	return papel === 'owner' || papel === 'admin' || papel === 'recepcao' || papel === 'profissional';
+	return papel === 'owner' || papel === 'admin' || papel === 'recepcao';
 }
 
 /** A9 / D2: encaixe fura a grade, então é de quem responde pela agenda — profissional não. */
