@@ -124,8 +124,9 @@ Provado com um `curl` de mentira encenando cada cenário:
 |---|---|---|
 | **2xx** | ✓ segue para a verificação do `/ready` | — |
 | **3xx com `cloudflareaccess.com` no `location`** | ❌ falha | credencial: token ausente/expirado, política não é `Service Auth`, ou o app específico não cobre o path |
-| **3xx sem isso** | ❌ falha | a URL do webhook está errada |
-| **4xx/5xx** | ❌ falha, imprimindo o corpo | o Dokploy recusou |
+| **3xx sem isso** | ❌ falha, imprimindo `location:` **e o corpo** | a URL ou o payload; se o corpo diz `Branch Not Match`, é a branch (§2.4) |
+| **403 com `cf-access-aud`** | ❌ falha | **o Access** recusou — o POST não chegou ao Dokploy. A mensagem lista as três causas e imprime o AUD do app que respondeu |
+| **outros 4xx/5xx** | ❌ falha, imprimindo o corpo | o Dokploy recusou |
 | **secret ausente** | pula sem falhar, e a verificação do `/ready` **também** pula | Dokploy ainda não provisionado |
 
 Esse último item conserta um verde vazio de tabela: antes, sem webhook disparado, o passo de
@@ -134,6 +135,41 @@ no ar.
 
 **Mutação, para não ficar como prosa:** o passo antigo (`curl -fsS -X POST`) contra o mesmo 302 do
 Access sai com **código 0**. É o bug, reproduzido.
+
+### 2.4 O primeiro deploy real, e as duas coisas que ninguém tinha medido
+
+Tudo acima foi escrito **antes** de o pipeline rodar de verdade. Quando rodou, falhou — e por dois
+motivos que a encenação com `curl` de mentira não tinha como produzir. Ficam aqui porque custaram
+três rodadas de investigação **no lugar errado**.
+
+**1. O Dokploy quer o payload de push, não um gatilho vazio.** O endpoint compara o `ref` do corpo
+com a branch configurada no stack. Medido ao vivo contra o webhook de HML, em 2026-08-05:
+
+| Requisição | Resposta |
+|---|---|
+| `POST` sem corpo | `301` · `{"message":"Branch Not Match"}` (30 bytes) |
+| `POST` + `X-GitHub-Event: push` + `{"ref":"refs/heads/develop"}` | `200` · `{"message":"Compose deployed successfully"}` |
+
+O passo agora manda `Content-Type: application/json`, `X-GitHub-Event: push` e `{"ref":"$REF"}` —
+o **REF do evento**, não uma constante. Isso é de graça e vira gate: se a branch do stack divergir
+da que disparou o CI, o Dokploy recusa em vez de implantar a versão errada.
+
+**2. O `.access` do Client ID, que só apareceu no teste manual.** O Client ID de um service token
+termina em `.access`. Reproduzido lado a lado contra o servidor real, mesma URL e mesmo secret:
+
+| Client ID | Resposta |
+|---|---|
+| `420…6ee` | `403` do Cloudflare Access |
+| `420…6ee.access` | passa o Access, chega no Dokploy |
+
+**A lição, que é maior que os dois defeitos.** O 403 existia **só no teste manual** — no CI o Access
+sempre passou. A prova estava no primeiro erro o tempo todo: `content-length: 30`, o tamanho exato
+de `{"message":"Branch Not Match"}`. Perseguimos o Access por três rodadas, mexendo em políticas do
+Zero Trust que não tinham problema nenhum, porque o diagnóstico do passo escondia o corpo da
+resposta atrás de um `head -c 400` nos **cabeçalhos**.
+
+Quando o teste manual e o automatizado divergem, **a diferença está no teste, não no sistema** — e
+a primeira coisa a fazer é igualar os dois, não sair mexendo no sistema.
 
 ---
 
@@ -163,11 +199,21 @@ falha no lugar certo (é o desenho).
 3. **Dokploy → Environment de cada stack:** `IMAGE_TAG=main` (prod) e `IMAGE_TAG=develop` (HML).
    **Sem isso o stack recusa subir** — de propósito.
 4. **Dokploy → Deployments → Webhook** em cada stack; cole as URLs em `DOKPLOY_DEPLOY_WEBHOOK_PROD`
-   e `DOKPLOY_DEPLOY_WEBHOOK_HML` (GitHub Secrets).
+   e `DOKPLOY_DEPLOY_WEBHOOK_HML` (GitHub Secrets). A URL do stack em modo Compose tem o formato
+   `https://<painel>/api/deploy/compose/<refreshToken>` — o `/compose/` faz parte, e o
+   `refreshToken` é **segredo**: ele sozinho dispara deploy se a política do path for Bypass.
 5. **Cloudflare Access:** §2.1 (ou §2.2), e os secrets `CF_ACCESS_CLIENT_ID` /
-   `CF_ACCESS_CLIENT_SECRET`.
-6. **`DEPLOY_URL_PROD` / `DEPLOY_URL_HML`** — continuam pendentes desde a onda 3; sem eles a
-   verificação pós-deploy avisa que **não verificou** em vez de passar calada.
+   `CF_ACCESS_CLIENT_SECRET`. **O Client ID termina em `.access`** — copie o valor inteiro. Sem o
+   sufixo o Access recusa com 403, e o log do CI (desde §2.4) diz isso na primeira linha.
+
+   O app do Access que cobre `<painel>/api/deploy` precisa de política **Service Auth** com
+   *Include → Service Token*. Ele convive com o app do painel inteiro, que fica com a política de
+   humanos (*Allow* + e-mail): o Access resolve pelo path **mais específico**. Não ponha Service
+   Auth no app do painel — humano nunca entra numa política Service Auth, e o sintoma é você
+   trancado para fora do próprio Dokploy.
+6. **`DEPLOY_URL_PROD` / `DEPLOY_URL_HML`** — a base com esquema e **sem barra no fim**
+   (`https://cinetra.com.br`); o passo concatena `/ready`. Sem eles a verificação pós-deploy avisa
+   que **não verificou** em vez de passar calada.
 
 **Ordem sugerida:** faça o HML inteiro primeiro (1 → 5, com `develop`) e só depois prod. O primeiro
 push em `develop` é o primeiro `docker push` e o primeiro disparo através do Access — os dois lugares

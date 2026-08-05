@@ -214,6 +214,62 @@ defmodule Api.CiWorkflowTest do
              """
     end
 
+    # Medido ao vivo contra o servidor em 2026-08-05, contra o webhook de HML:
+    #
+    #   POST sem corpo                        -> 301 {"message":"Branch Not Match"}   (30 bytes)
+    #   POST + X-GitHub-Event + ref=develop   -> 200 {"message":"Compose deployed successfully"}
+    #
+    # O endpoint do Dokploy NÃO é um gatilho genérico: ele espera o payload de um push de git e
+    # compara o `ref` com a branch configurada no stack. Sem corpo não há branch, e ele recusa.
+    #
+    # Isso segurou o primeiro deploy real, e custou três rodadas de investigação no lugar errado —
+    # o 301 foi lido como problema de URL, e o 403 que aparecia no teste manual (Client ID sem o
+    # sufixo `.access`) reforçou a pista falsa de que o Cloudflare Access estava barrando. No CI o
+    # Access sempre passou: a prova é que o erro original trazia `content-length: 30`, o tamanho
+    # exato de `{"message":"Branch Not Match"}`.
+    test "o disparo manda o payload de push que o Dokploy exige", %{ci: ci} do
+      disparo = passo_do_job(ci, "deploy", "Disparar")
+
+      assert disparo =~ "X-GitHub-Event",
+             """
+             O disparo não declara `X-GitHub-Event`.
+
+             É por esse cabeçalho que o Dokploy reconhece o formato do payload. Sem ele o corpo \
+             não é interpretado, e o webhook responde `301 {"message":"Branch Not Match"}` — um \
+             3xx, então nem cai no ramo de erro que fala em recusa.
+             """
+
+      assert disparo =~ ~r/-d\s+"\{\\"ref\\":\\"\$REF\\"\}"/,
+             """
+             O disparo não manda `{"ref":"$REF"}` no corpo.
+
+             `$REF` já chega como `refs/heads/<branch>`, que é exatamente o formato do campo `ref` \
+             do evento de push do GitHub — é o que o Dokploy lê para decidir se a branch bate com \
+             a do stack.
+
+             Mandar o REF do evento (e não uma constante) é o que transforma isto num gate: se a \
+             branch configurada no Dokploy divergir da que disparou o CI, ele RECUSA em vez de \
+             implantar a versão errada.
+             """
+    end
+
+    test "o 403 do Access não é confundido com recusa do Dokploy", %{ci: ci} do
+      disparo = passo_do_job(ci, "deploy", "Disparar")
+
+      assert disparo =~ "cf-access-aud",
+             """
+             O passo não distingue um 403 DO ACESSO de um 403 do Dokploy.
+
+             Política `Service Auth` **nega com 403**, não redireciona — então a detecção que \
+             procura `cloudflareaccess.com` no ramo 3xx não a alcança, e o 403 cai no ramo \
+             genérico imprimindo "O Dokploy recusou o webhook". Diagnóstico invertido: manda quem \
+             lê o log procurar no painel do Dokploy enquanto o problema está no Zero Trust.
+
+             O cabeçalho `cf-access-aud` só aparece quando quem respondeu foi o Access, e ainda \
+             diz QUAL aplicação — que é o dado com que se acha a política errada.
+             """
+    end
+
     test "o disparo manda o service token do Access quando ele existe", %{ci: ci} do
       disparo = passo_do_job(ci, "deploy", "Disparar")
 

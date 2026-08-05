@@ -460,8 +460,24 @@ jobs:
           fi
 
           echo "Disparando deploy de $ALVO no Dokploy…"
+
+          # O endpoint do Dokploy NÃO é um gatilho genérico: ele espera o PAYLOAD de um push de
+          # git e compara o `ref` com a branch configurada no stack. Medido ao vivo em 2026-08-05
+          # contra o webhook de HML:
+          #
+          #   POST sem corpo                       -> 301 {"message":"Branch Not Match"}  (30 bytes)
+          #   POST + X-GitHub-Event + ref=develop  -> 200 {"message":"Compose deployed successfully"}
+          #
+          # `$REF` já vem como `refs/heads/<branch>`, que é o formato exato do campo `ref` do
+          # evento de push do GitHub. Mandar o REF DO EVENTO (e não uma constante) faz disto um
+          # gate: se a branch do stack no Dokploy divergir da que disparou o CI, ele recusa em vez
+          # de implantar a versão errada.
           codigo=$(curl -sS -X POST -m 30 -o resposta.txt -D cabecalhos-da-resposta.txt \
-            -w '%{http_code}' "${cabecalhos[@]}" "$URL" || echo 000)
+            -w '%{http_code}' \
+            -H "Content-Type: application/json" \
+            -H "X-GitHub-Event: push" \
+            -d "{\"ref\":\"$REF\"}" \
+            "${cabecalhos[@]}" "$URL" || echo 000)
 
           case "$codigo" in
             2*)
@@ -479,8 +495,37 @@ jobs:
                 echo "  3. o app do Access mais específico não cobre o path do webhook, e quem responde"
                 echo "     é a política de humanos do painel inteiro."
               else
-                echo "::error::Redirecionamento inesperado (HTTP $codigo). Confira a URL do webhook."
-                head -c 400 cabecalhos-da-resposta.txt || true
+                echo "::error::Redirecionamento inesperado (HTTP $codigo)."
+                # O `location:` é o campo que nomeia a causa, e ele JÁ ficou escondido uma vez:
+                # o dump cru de 400 bytes cortava antes dele, e o corpo não era impresso — que era
+                # justamente onde estava a mensagem `Branch Not Match` que explicava tudo.
+                grep -i '^location:' cabecalhos-da-resposta.txt \
+                  || echo "(sem location — quem respondeu foi a aplicação, não um proxy)"
+                echo "--- corpo da resposta ---"
+                head -c 400 resposta.txt || true
+                echo
+                echo "Se o corpo diz 'Branch Not Match', o payload não bate com a branch"
+                echo "configurada no stack do Dokploy. Este disparo mandou ref=$REF."
+              fi
+              exit 1
+              ;;
+            403)
+              # Política `Service Auth` do Access NEGA com 403 — ela não redireciona, então este
+              # caso nunca chega no ramo 3xx acima. Sem esta distinção o log dizia "O Dokploy
+              # recusou", mandando quem investiga para o painel errado: o POST não chegou lá.
+              if grep -qi '^cf-access-aud:' cabecalhos-da-resposta.txt; then
+                echo "::error::O Cloudflare Access RECUSOU o disparo (403) — o POST NÃO chegou ao Dokploy."
+                echo "Causas, na ordem em que já morderam este projeto:"
+                echo "  1. CF_ACCESS_CLIENT_ID SEM o sufixo '.access' — o ID completo termina nele,"
+                echo "     e sem ele o Access recusa exatamente assim;"
+                echo "  2. a política do app que cobre o path não é Service Auth, ou não inclui"
+                echo "     este token (troque o Include por 'Any Access Service Token' para isolar);"
+                echo "  3. token expirado ou revogado (o padrão do Access é 1 ano)."
+                echo "A aplicação do Access que respondeu (procure este AUD em Zero Trust → Access):"
+                grep -i '^cf-access-aud:' cabecalhos-da-resposta.txt
+              else
+                echo "::error::O Dokploy recusou o webhook (HTTP 403)."
+                head -c 400 resposta.txt || true
               fi
               exit 1
               ;;
