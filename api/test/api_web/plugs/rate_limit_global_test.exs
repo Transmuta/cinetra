@@ -289,4 +289,42 @@ defmodule ApiWeb.Plugs.RateLimitGlobalTest do
     assert [retry_after] = get_resp_header(barrado, "retry-after")
     assert String.to_integer(retry_after) in 1..60
   end
+
+  # R-B1 (doc 95, onda 5 do doc 102) — a deriva entre a prosa e a constante.
+  #
+  # O achado era `router.ex` dizendo "teto folgado (400/min)" contra `@edge_limit 2_000` aqui: 5x
+  # de diferenca, e quem dimensionasse capacidade lendo o comentario erraria por isso. Verificado
+  # em 2026-08-04: **ja estava fechado** — o texto foi corrigido quando o estagio de borda migrou
+  # para o `Endpoint` (doc 96, L-2).
+  #
+  # Esta guarda existe porque fechar nao impede voltar: o numero vive em DOIS lugares do mesmo
+  # arquivo (o `@moduledoc` e o `@edge_limit`) e nada os ligava. Comentario que mente sobre um teto
+  # de seguranca e pior que comentario ausente — foi assim que o R-M19 quase decidiu errado, no
+  # outro arquivo.
+  #
+  # Le a FONTE, e nao o modulo compilado: `@edge_limit` nao e persistido em `__info__(:attributes)`,
+  # e persisti-lo so para o teste seria mudar producao para acomodar a guarda.
+  test "o teto documentado no moduledoc e o teto que o codigo aplica" do
+    fonte = File.read!("lib/api_web/plugs/rate_limit_global.ex")
+
+    documentado =
+      case Regex.run(~r/\(([\d.]+)\/min\)/, fonte) do
+        [_todo, n] -> n |> String.replace(".", "") |> String.to_integer()
+        nil -> flunk("o moduledoc nao declara mais um teto no formato `(N/min)`")
+      end
+
+    aplicado =
+      case Regex.run(~r/@edge_limit\s+([\d_]+)/, fonte) do
+        [_todo, n] -> n |> String.replace("_", "") |> String.to_integer()
+        nil -> flunk("`@edge_limit` sumiu do modulo — esta guarda ficou cega")
+      end
+
+    assert documentado == aplicado,
+           """
+           O moduledoc diz #{documentado}/min e o codigo aplica #{aplicado}/min.
+
+           Quem dimensionar capacidade pelo comentario erra pelo fator da diferenca. Atualize os
+           dois juntos.
+           """
+  end
 end
