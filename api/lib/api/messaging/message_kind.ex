@@ -30,7 +30,7 @@ defmodule Api.Messaging.MessageKind do
       :lembrete,
       # "Sua sessão mudou para <dia> às <hora>" — C7(b), o gatilho de remarcação.
       :remarcacao,
-      # "Sua sessão de <dia> foi cancelada" — C7(b). **Só o cancelamento**: excluir (doc 40) é
+      # "Sua sessão de <dia> às <hora> foi cancelada" — C7(b). **Só o cancelamento**: excluir (doc 40) é
       # corrigir um lançamento errado, e dar a esse gesto um efeito fora do sistema seria avisar
       # o paciente por causa de um erro de digitação. Ver `Api.Messaging.Notifier`.
       :cancelamento,

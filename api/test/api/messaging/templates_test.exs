@@ -159,7 +159,9 @@ defmodule Api.Messaging.TemplatesTest do
         assert html =~ "<!DOCTYPE html", "#{template}: HTML sem documento"
         # O §9.1.4 no canal que tem cabeçalho: quem fala com o paciente é a clínica.
         assert html =~ "Clínica Cinetra", "#{template}: HTML sem o nome da clínica"
-        assert html =~ "Sua clínica", "#{template}: HTML sem o cabeçalho da clínica"
+        # O rótulo "Sua clínica" saiu: o nome da clínica já diz de quem é a mensagem, e a
+        # etiqueta em cima dele só repetia isso em caixa alta.
+        refute html =~ "Sua clínica", "#{template}: o rótulo voltou ao cabeçalho"
         # E a Cinetra aparece como quem entrega, não como quem fala.
         assert html =~ "CINETRA", "#{template}: HTML sem o crédito no rodapé"
       end
@@ -243,6 +245,42 @@ defmodule Api.Messaging.TemplatesTest do
       {:ok, %{html: html}} = Templates.render_email("confirmacao_v1", vars)
 
       assert html =~ "Olá, Ana&amp;Bia."
+    end
+  end
+
+  describe "o assunto diz o que a mensagem tem de novo" do
+    test "a remarcação leva a HORA nova no assunto, não só a data" do
+      # O que muda numa remarcação é quase sempre o horário, com a data igual — arrastar o card
+      # duas linhas na agenda é o gesto de terça. "Sua sessão mudou para 28/07/2026" chega então
+      # à caixa de entrada dizendo exatamente o que o paciente já sabia, e o único dado novo (as
+      # 14:00) fica escondido atrás de um clique. O contrato do átomo sempre disse a hora —
+      # `Api.Messaging.MessageKind`: "Sua sessão mudou para <dia> às <hora>".
+      {:ok, %{assunto: assunto}} = Templates.render_email("remarcacao_v1", @vars)
+
+      assert assunto =~ "28/07/2026"
+      assert assunto =~ "14:00", "o assunto da remarcação não diz a hora nova: #{assunto}"
+    end
+
+    test "o cancelamento também diz a hora — a data sozinha não identifica a sessão" do
+      # Paciente com duas sessões no mesmo dia (o caso comum de quem faz pacote) recebia
+      # "sua sessão de 28/07/2026 foi cancelada" e não sabia qual das duas caiu.
+      {:ok, %{assunto: assunto}} = Templates.render_email("cancelamento_v1", @vars)
+
+      assert assunto =~ "28/07/2026"
+      assert assunto =~ "14:00", "o assunto do cancelamento não diz a hora: #{assunto}"
+    end
+
+    test "o assunto e o corpo contam a MESMA sessão" do
+      # A razão de `conteudo/2` existir: assunto e corpo nascem da mesma definição. Um assunto
+      # que perde um dado que o corpo tem é a divergência que essa estrutura devia impedir.
+      for template <- ["confirmacao_v1", "remarcacao_v1", "cancelamento_v1"] do
+        {:ok, %{assunto: assunto, texto: texto}} = Templates.render_email(template, @vars)
+
+        for dado <- [@vars["data"], @vars["hora"]] do
+          assert assunto =~ dado, "#{template}: o corpo diz #{dado}, o assunto não"
+          assert texto =~ dado, "#{template}: #{dado} sumiu do corpo"
+        end
+      end
     end
   end
 

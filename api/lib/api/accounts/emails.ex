@@ -135,8 +135,7 @@ defmodule Api.Accounts.Emails do
 
     3. Ligue a comunicação. Confirmação, remarcação e cancelamento por WhatsApp ou e-mail.
 
-    São 14 dias de teste, sem cartão de crédito. Precisa de ajuda para configurar? Escreva para
-    #{@contato}.
+    Precisa de ajuda para configurar? Escreva para #{@contato}.
     """)
     |> html_body(html_boas_vindas(user, clinic_nome))
     |> Api.Mailer.deliver()
@@ -174,7 +173,7 @@ defmodule Api.Accounts.Emails do
           }
         ]),
         EmailLayout.destaque(
-          "<strong style=\"color:#212A37;\">São 14 dias de teste, sem cartão de crédito.</strong> Precisa de ajuda para configurar? Escreva para <a href=\"mailto:#{@contato}\" style=\"color:#4E7468;\">#{@contato}</a> que a gente ajuda a montar a sua agenda."
+          "<strong style=\"color:#212A37;\">Precisa de ajuda para configurar?</strong> Escreva para <a href=\"mailto:#{@contato}\" style=\"color:#4E7468;\">#{@contato}</a> que a gente ajuda a montar a sua agenda."
         ),
         EmailLayout.rodape_conta()
       ]

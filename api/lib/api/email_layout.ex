@@ -181,7 +181,6 @@ defmodule Api.EmailLayout do
         <tr>
           <td class="cn-pad" bgcolor="#{@escuro}" style="background-color:#{@escuro};padding:32px 40px 30px 40px;">
             <table #{@tabela} width="100%" style="#{@reset_tabela}">
-              <tr><td style="font-family:#{@fonte};font-size:11px;line-height:16px;mso-line-height-rule:exactly;letter-spacing:2px;text-transform:uppercase;color:#{@sage};padding-bottom:10px;">Sua clínica</td></tr>
               <tr><td class="cn-h1" style="font-family:#{@fonte};font-size:28px;line-height:34px;letter-spacing:-0.5px;mso-line-height-rule:exactly;font-weight:bold;color:#FFFFFF;padding-bottom:14px;">#{escapar(nome)}</td></tr>
               <tr><td#{if telefone_visivel?(telefone), do: ~s( style="padding-bottom:14px;")}><table #{@tabela} width="52" style="#{@reset_tabela}"><tr><td height="3" bgcolor="#{@sage}" style="height:3px;line-height:3px;font-size:0;mso-line-height-rule:exactly;border-radius:2px;">&nbsp;</td></tr></table></td></tr>
     #{linha_telefone(telefone)}

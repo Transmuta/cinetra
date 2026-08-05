@@ -349,7 +349,9 @@ defmodule Api.Messaging.Templates do
 
   defp conteudo("remarcacao_v1", v) do
     %{
-      assunto: "#{nome(v, "clinica")}: sua sessão mudou para #{v["data"]}",
+      # A hora entra no assunto porque numa remarcação ela é, quase sempre, a única coisa que
+      # mudou: sem ela o assunto repete a data que o paciente já tinha e não avisa nada.
+      assunto: "#{nome(v, "clinica")}: sua sessão mudou para #{v["data"]} às #{v["hora"]}",
       titulo: "Sua sessão mudou de horário",
       preheader: "Agora é #{nome(v, "data")} às #{nome(v, "hora")}.",
       paragrafo:
@@ -367,7 +369,9 @@ defmodule Api.Messaging.Templates do
 
   defp conteudo("cancelamento_v1", v) do
     %{
-      assunto: "#{nome(v, "clinica")}: sua sessão de #{v["data"]} foi cancelada",
+      # A hora entra aqui pelo mesmo motivo da remarcação, com um agravante: quem faz pacote
+      # costuma ter duas sessões no mesmo dia, e a data sozinha não diz qual delas caiu.
+      assunto: "#{nome(v, "clinica")}: sua sessão de #{v["data"]} às #{v["hora"]} foi cancelada",
       titulo: "Sua sessão foi cancelada",
       preheader: "#{nome(v, "data")} às #{nome(v, "hora")}, na #{nome(v, "clinica")}.",
       paragrafo:

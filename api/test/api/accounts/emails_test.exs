@@ -119,6 +119,21 @@ defmodule Api.Accounts.EmailsTest do
         assert mail.html_body =~ "contato@cinetra.app"
       end)
     end
+
+    # O e-mail transacional não é lugar de condição comercial: o prazo do teste é decisão de
+    # negócio que muda sem passar por aqui, e uma frase esquecida no corpo vira promessa que o
+    # produto não cumpre. Nas DUAS partes, porque o texto é escrito à mão, separado do HTML.
+    test "não anuncia prazo de teste nem condição de pagamento" do
+      assert_email_sent(fn mail ->
+        for corpo <- [mail.text_body, mail.html_body] do
+          refute corpo =~ "14 dias"
+          refute corpo =~ "cartão"
+          refute corpo =~ "teste"
+        end
+
+        true
+      end)
+    end
   end
 
   # Fora do `describe` acima de propósito: o `setup` dele já mandou um e-mail, e
