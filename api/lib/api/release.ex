@@ -162,7 +162,15 @@ defmodule Api.Release do
   # Sobrescreve a config **antes** do `with_repo` (o `url:` opt do with_repo não sobrepõe a url do
   # runtime.exs).
   # Sem `DATABASE_ADMIN_URL`, usa a config atual (setups onde a `DATABASE_URL` já é de owner).
-  defp with_admin_config(fun) do
+  #
+  # **Público com `@doc false` só para ser testável** (R-M23, onda 3 do doc 102). Não é API: é o
+  # trecho mais perigoso do caminho de deploy, e a regressão que ele guarda não tem sintoma
+  # visível. Se o `after` deixar de restaurar a config, o processo segue com o Repo apontando para
+  # a conexão de OWNER — e, num setup onde a API subisse no mesmo nó, ela passaria a ler
+  # **bypassando a RLS**. A suíte não veria: ela já roda como superusuário, e é justamente essa
+  # cegueira que o job `api-rls` existe para compensar em outro lugar.
+  @doc false
+  def with_admin_config(fun) do
     case System.get_env("DATABASE_ADMIN_URL") do
       nil ->
         fun.()
