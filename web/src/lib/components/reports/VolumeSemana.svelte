@@ -1,5 +1,12 @@
 <script lang="ts">
-	import { barPct, maxTotal, fmtWeekday, fmtDayMonth, type DayPoint } from '$lib/reports';
+	import {
+		barPct,
+		diaFechado,
+		maxTotal,
+		fmtWeekday,
+		fmtDayMonth,
+		type DayPoint
+	} from '$lib/reports';
 
 	// O volume de uma janela CURTA (o preset "Esta semana"), em linhas horizontais.
 	//
@@ -24,7 +31,7 @@
 <div class="flex flex-col gap-[11px]">
 	{#each porDia as dia (dia.date)}
 		{@const hoje = dia.date === today}
-		{@const fechado = !dia.aberto && !dia.total}
+		{@const fechado = diaFechado(dia)}
 		<div class="flex items-center gap-2.5" aria-current={hoje ? 'date' : undefined}>
 			<span
 				class="w-[68px] shrink-0 text-rotulo {hoje ? 'font-semibold text-accent-text' : 'text-muted'}"

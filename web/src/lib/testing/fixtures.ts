@@ -10,6 +10,8 @@ import type { Clinic } from '../server/clinics';
 import type { AgendaProfessional } from '../agenda';
 import type { DayCount, ProfessionalCount } from '../agenda-views';
 import type { AuditEntry } from '../audit';
+import { weekdayIndex, type DayPoint } from '../reports';
+import { shiftDate } from '../agenda';
 
 export function membershipFixture(over: Partial<MembershipSummary> = {}): MembershipSummary {
 	return {
@@ -140,4 +142,30 @@ export function clinicFixture(over: Partial<Clinic> = {}): Clinic {
 		msg_silencio_fim: 8,
 		...over
 	};
+}
+
+/**
+ * Uma janela de `por_dia` como o servidor a devolve: um ponto por data corrida a partir de `from`,
+ * com domingo fechado (o seed da clínica, `dow: 0` sem períodos) — que é o que separa "fechado" de
+ * "aberto e vazio" nos gráficos de volume.
+ *
+ * Existe porque `reports.test.ts` e `VolumeCalendario.svelte.test.ts` tinham cada um a sua cópia,
+ * com o mesmo nome, a mesma assinatura e o mesmo comentário — mas `concluidos` divergindo em
+ * silêncio (`total` num, `Math.floor(total / 2)` no outro). Quem lesse um e fosse escrever o outro
+ * presumiria o contrato errado.
+ *
+ * `concluidos` é metade do total, arredondado para baixo: um dia com atendimento tem concluído e
+ * pendente, que é o caso que exercita a distinção. Quem precisar de outra proporção passa `over`.
+ */
+export function janelaDePontos(
+	from: string,
+	dias: number,
+	totals: Record<string, number> = {},
+	over: (d: DayPoint) => DayPoint = (d) => d
+): DayPoint[] {
+	return Array.from({ length: dias }, (_, i) => {
+		const date = shiftDate(from, i);
+		const total = totals[date] ?? 0;
+		return over({ date, total, concluidos: Math.floor(total / 2), aberto: weekdayIndex(date) !== 6 });
+	});
 }
