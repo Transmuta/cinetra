@@ -14,7 +14,9 @@
 	import SubmitButton from '$lib/components/SubmitButton.svelte';
 	import { envioPorItem } from '$lib/forms.svelte';
 	import { canonizarTelefone, linkWhatsapp } from '$lib/telefone';
+	import { descricaoDaSessao, linkGoogleAgenda, tituloDaSessao } from '$lib/calendario';
 	import CalendarClock from '@lucide/svelte/icons/calendar-clock';
+	import CalendarDays from '@lucide/svelte/icons/calendar-days';
 	import CalendarPlus from '@lucide/svelte/icons/calendar-plus';
 	import Check from '@lucide/svelte/icons/check';
 	import Info from '@lucide/svelte/icons/info';
@@ -53,6 +55,20 @@
 				: `tenho sessão em ${quandoEmTexto} e preciso falar com vocês.`
 	);
 	const zap = $derived(linkWhatsapp(resumo?.clinica_telefone, `Olá! ${euSou}${assunto}`));
+
+	// Levar a sessão para o calendário. São DOIS caminhos porque um só não atende os dois celulares
+	// (ver `$lib/calendario`): no Android o `.ics` cai em Downloads e nada abre — quem tocou no
+	// botão não vê acontecer nada —, e no iPhone é o `.ics` que resolve, direto na folha nativa.
+	// `null` quando a API não mandou instante: aí nenhum dos dois leva a lugar nenhum, e o `.ics`
+	// responderia 404.
+	const google = $derived(
+		linkGoogleAgenda({
+			inicio: resumo?.inicio,
+			fim: resumo?.fim,
+			titulo: tituloDaSessao(resumo?.clinica),
+			descricao: descricaoDaSessao(resumo?.clinica, resumo?.clinica_telefone)
+		})
+	);
 
 	// Dois botões, um form: a chave do "em voo" é o `value` do botão clicado. Quem responde por
 	// WhatsApp está no celular, muitas vezes em rede ruim — sem sinal nenhum o toque parece
@@ -192,12 +208,21 @@
 		     quem confirmou não tinha o que fazer, e quem pediu remarcação — que é justamente quem
 		     tem um problema — ficava sem nenhuma saída na mão. -->
 		<div class="cn-paciente-secundarias">
-			{#if respondeu && resumo.resposta === 'confirmou' && !encerrada}
-				<!-- Caminho absoluto: relativo a `/confirmar/<token>` (sem barra no fim), um
-				     `sessao.ics` solto resolveria para `/confirmar/sessao.ics`. E
-				     `data-sveltekit-reload` porque o destino é um arquivo, não uma rota do app. -->
+			<!-- `google` só é não-nulo quando há instante — e sem instante o `.ics` responde 404,
+			     então os dois caem juntos. -->
+			{#if respondeu && resumo.resposta === 'confirmou' && !encerrada && google}
+				<!-- O Google vem primeiro porque é o que resolve no Android, onde o `.ics` sozinho
+				     não abre nada: ele cai em Downloads e a pessoa fica achando que o botão quebrou. -->
+				<a class="cn-paciente-link" href={google} target="_blank" rel="noopener">
+					<CalendarPlus size={17} /> Adicionar ao Google Agenda
+				</a>
+
+				<!-- A saída de quem NÃO é Google — iPhone, Outlook. Caminho absoluto: relativo a
+				     `/confirmar/<token>` (sem barra no fim), um `sessao.ics` solto resolveria para
+				     `/confirmar/sessao.ics`. E `data-sveltekit-reload` porque o destino é um
+				     arquivo, não uma rota do app. -->
 				<a class="cn-paciente-link" href="{page.url.pathname}/sessao.ics" data-sveltekit-reload>
-					<CalendarPlus size={17} /> Adicionar à agenda
+					<CalendarDays size={17} /> Outro calendário (iPhone, Outlook)
 				</a>
 			{/if}
 

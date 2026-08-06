@@ -67,6 +67,18 @@ describe('GET /confirmar/[token]/sessao.ics', () => {
 		expect(corpo).toContain('SUMMARY:Sessão na Clínica Moving');
 	});
 
+	it('serve `inline`: com `attachment` o iPhone manda o arquivo para o app Arquivos', async () => {
+		// Medido no celular: `attachment` faz o Safari (iOS 13+) baixar o `.ics` em vez de abrir a
+		// folha nativa de evento, e a pessoa precisa sair do navegador, achar o arquivo e tocar
+		// nele. `inline` é o que devolve o "Adicionar ao Calendário" para a tela onde ela está.
+		fetchMock.mockResolvedValueOnce(res(200, resumo));
+
+		const disposicao = (await GET(evento())).headers.get('content-disposition') ?? '';
+
+		expect(disposicao).toContain('inline');
+		expect(disposicao).not.toContain('attachment');
+	});
+
 	it('não guarda o token no arquivo — ele pode acabar num calendário compartilhado', async () => {
 		fetchMock.mockResolvedValueOnce(res(200, resumo));
 
