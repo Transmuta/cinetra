@@ -3,7 +3,7 @@
 # ferramentas de build no runtime, como usuário não-root.
 
 # ---- build ----
-FROM elixir:1.18.4-otp-27@sha256:1f8c9923c1c2ff2830e772852dd65e1263d424a50a2651ce757c03eedff3f56e AS build
+FROM elixir:1.20.1-otp-29@sha256:19ee088049ac64d76779c7789745a3a119e49abd70bbc74b0e3b95ab4a14842b AS build
 
 RUN apt-get update -y \
   && apt-get install -y --no-install-recommends build-essential git \
