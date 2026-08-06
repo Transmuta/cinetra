@@ -60,10 +60,10 @@
 
 	{#snippet footer()}
 		{#if nova}
-			Você será a <strong class="text-ink">dona</strong> desta clínica.
+			Você será o(a) <strong class="text-ink">dono(a)</strong> desta clínica.
 			<a class="ml-1 text-accent-text hover:underline" href="/">Voltar</a>
 		{:else}
-			Você será a <strong class="text-ink">dona</strong> desta clínica.
+			Você será o(a) <strong class="text-ink">dono(a)</strong> desta clínica.
 		{/if}
 	{/snippet}
 </AuthCard>
