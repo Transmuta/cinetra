@@ -31,11 +31,11 @@
 		"@types/phoenix": "^1.6.7",
 		"@vitest/coverage-v8": "^4.1.10",
 		"jsdom": "^29.1.1",
-		"svelte": "^5.56.1",
+		"svelte": "^5.56.8",
 		"svelte-check": "^4.6.0",
 		"tailwindcss": "^4.3.2",
 		"typescript": "^6.0.3",
-		"vite": "^8.0.16",
+		"vite": "^8.2.0",
 		"vitest": "^4.1.10"
 	},
 	"dependencies": {
