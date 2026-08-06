@@ -640,7 +640,7 @@ services:
     # A prontidão é verificada de fora, por quem tem cliente HTTP: `verificar.sh` §12.
 
   alloy:
-    image: grafana/alloy:v1.12.1
+    image: grafana/alloy:v1.18.0
     restart: unless-stopped
     logging: *logging
     # Subiu de 256m junto com o receptor OTLP: o `otelcol.processor.batch` segura lotes de span em
