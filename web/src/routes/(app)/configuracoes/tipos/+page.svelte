@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import SubmitButton from '$lib/components/SubmitButton.svelte';
+	import Badge from '$lib/components/Badge.svelte';
 	import { envioPorItem, reagirAoForm } from '$lib/forms.svelte';
 	import Plus from '@lucide/svelte/icons/plus';
 	import Pencil from '@lucide/svelte/icons/pencil';
@@ -82,11 +83,11 @@
 		<div class="flex min-w-0 flex-1 flex-wrap items-center gap-x-1.5 gap-y-1">
 			<span class="truncate text-corpo font-semibold">{t.nome}</span>
 			{#if t.grupo}
-				<span
-					class="shrink-0 rounded-micro bg-info-solid px-1.5 py-px text-micro font-bold text-on-solid"
-				>
-					grupo · cap {t.capacidade}
-				</span>
+				<!-- Era `bg-info-solid` + `text-on-solid` a 10px: 4,65:1, passava o piso de 1.4.3 e
+				     não dava para ler. O azul sólido é a pior base da família para tinta escura (o
+				     âmbar da ENCAIXE mede 8,63 na mesma anatomia). Vai no par tingido do `Badge`,
+				     que é medido nos dois temas. -->
+				<Badge tone="info" class="shrink-0">grupo · cap {t.capacidade}</Badge>
 			{/if}
 		</div>
 

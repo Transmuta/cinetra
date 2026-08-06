@@ -78,10 +78,21 @@ if config_env() != :test do
     config :swoosh, :api_client, Swoosh.ApiClient.Finch
   end
 
-  config :api, Api.Messaging.PatientEmails,
-    remetente:
-      {System.get_env("MAIL_FROM_NAME") || "Cinetra",
-       System.get_env("MAIL_FROM") || "nao-responda@cinetra.local"}
+  # O remetente é UM, e alimenta os DOIS módulos que mandam e-mail. Enquanto ele chegava só no
+  # `PatientEmails`, os e-mails de conta saíam de uma constante do módulo
+  # (`nao-responda@cinetra.local`) — domínio que não é verificado em provedor nenhum. Em produção
+  # o Resend recusa com 403 antes de a mensagem existir, e o sintoma era o pior possível: e-mail de
+  # paciente saindo normalmente, magic link não chegando, log limpo. Ninguém entrava no sistema.
+  # Achado ao vivo em 2026-08-06; regressão em `test/api/mailer_config_test.exs`.
+  #
+  # E é um só de propósito: dois endereços seriam duas reputações de envio a aquecer e monitorar
+  # para o mesmo produto, e a caixa do destinatário trata reputação por domínio.
+  remetente =
+    {System.get_env("MAIL_FROM_NAME") || "Cinetra",
+     System.get_env("MAIL_FROM") || "nao-responda@cinetra.local"}
+
+  config :api, Api.Messaging.PatientEmails, remetente: remetente
+  config :api, Api.Accounts.Emails, remetente: remetente
 
   # Segredos de assinatura dos webhooks. Sem eles o endpoint recusa **tudo** — fail closed, e a
   # alternativa (aceitar sem verificar) seria um endpoint aberto de escrita cujo sintoma é nenhum.
@@ -128,7 +139,8 @@ config :api, Api.Heartbeat,
     "Api.Notifications.SessionSoonJob" => "session-soon",
     "Api.Housekeeping.PruneTrail" => "prune-trail",
     "Api.Housekeeping.PruneNotifications" => "prune-notifications",
-    "Api.Housekeeping.PruneAttachments" => "prune-attachments"
+    "Api.Housekeeping.PruneAttachments" => "prune-attachments",
+    "Api.Housekeeping.PruneWebhookEvents" => "prune-webhook-events"
   },
   urls:
     %{
@@ -137,7 +149,9 @@ config :api, Api.Heartbeat,
       "Api.Housekeeping.PruneTrail" => System.get_env("HEARTBEAT_URL_PRUNE_TRAIL"),
       "Api.Housekeeping.PruneNotifications" =>
         System.get_env("HEARTBEAT_URL_PRUNE_NOTIFICATIONS"),
-      "Api.Housekeeping.PruneAttachments" => System.get_env("HEARTBEAT_URL_PRUNE_ATTACHMENTS")
+      "Api.Housekeeping.PruneAttachments" => System.get_env("HEARTBEAT_URL_PRUNE_ATTACHMENTS"),
+      "Api.Housekeeping.PruneWebhookEvents" =>
+        System.get_env("HEARTBEAT_URL_PRUNE_WEBHOOK_EVENTS")
     }
     |> Map.reject(fn {_worker, url} -> is_nil(url) or url == "" end)
 

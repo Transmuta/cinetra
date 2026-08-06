@@ -17,8 +17,6 @@ defmodule ApiWeb.Plugs.LoadScope do
   @behaviour Plug
   import Plug.Conn
 
-  require Logger
-
   alias Api.Accounts
   alias Api.Accounts.Membership
   alias Api.Scope

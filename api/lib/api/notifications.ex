@@ -13,8 +13,6 @@ defmodule Api.Notifications do
 
   import Api.Tenancy, only: [in_clinic: 2]
 
-  require Ash.Query
-
   resources do
     resource Api.Notifications.Notification do
       define :create_notification, action: :notify

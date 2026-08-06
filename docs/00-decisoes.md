@@ -527,6 +527,33 @@ container existe para conter o pior caso; usá-lo para prever o caso comum super
 por folga que não seria usada. A regra que fica: **teto declarado não é medição** — e o doc 87 §9
 já dizia que a conta era estimativa, o que salvou a decisão de ser tomada às cegas.
 
+**Emenda de 2026-08-05 — os tetos por container subiram dentro da mesma máquina.** `db` 1g → **2g**,
+`api` 768m → **1536m**, `web` 512m → **1g**, valendo para o stack de PROD; o HML desce para
+768m/640m/384m no Environment dele. O que pagou o aumento foi o **build ter saído da máquina**
+(ADR-028): o pico de 1–2 GB transitórios que sustentava a cautela do doc 87 §2 não acontece mais
+aqui. A regra que o número respeita é que **cada teto isolado continua menor que a RAM livre**
+(≈4,5 GB de 8 GB) — é isso que faz um vazamento estourar o próprio cgroup antes de esgotar o host;
+teto maior que a folga devolveria a escolha da vítima ao `oom_score`, que é o que estes limites
+existem para impedir. Nada disto é a decisão do ADR: a máquina continua sendo o KVM 2.
+
+Duas correções vieram junto, e valem mais que os números:
+
+- **`effective_cache_size=4GB` dentro de um container de 1g.** O Postgres subia nos defaults de
+  fábrica — o `mem_limit` não governava nada do que ele fazia. Esse parâmetro não aloca; ele
+  informa o planner quanto de cache de SO existe, e em cgroup v2 esse cache é cobrado do próprio
+  container. Prometer 4× o teto enviesa o plano para index scan onde seq scan ganharia, **sem
+  sintoma**: nada quebra, a query só fica mais lenta, e o `EXPLAIN` local não reproduz porque no
+  local o número é verdade. Agora são `256MB`/`1GB` declarados — e `shared_buffers` é o número
+  honesto, não o generoso: o banco tem 48 MB medidos, e o que é alocado de saída vira RSS de
+  verdade.
+- **O V8 não lê o cgroup.** O BFF dimensionava o heap velho pela RAM da *máquina* (8 GB) dentro de
+  um container de 512m, adiando o GC major para além do teto: OOM kill exatamente onde havia coleta
+  a fazer, sem exceção, sem stack e sem log. Fechado com `--max-old-space-size=768` (75% do teto).
+
+`Api.DeployContencaoTest` ganhou a classe de asserção que faltava: os testes antigos provam que o
+teto **existe**; os novos provam que o processo lá dentro **o conhece**. Teto que só aparece no
+`docker inspect` não é freio.
+
 **Gatilho de reavaliação.** Voltar a considerar a Oracle (ou o KVM 4/8) se **qualquer** um ocorrer:
 
 - a medição sob carga real do [D-21](50-debitos-tecnicos.md) mostrar aperto de RAM, CPU ou disco;

@@ -33,8 +33,6 @@ defmodule ApiWeb.Plugs.TraceMetadata do
 
   @behaviour Plug
 
-  require Logger
-
   @impl Plug
   def init(opts), do: opts
 

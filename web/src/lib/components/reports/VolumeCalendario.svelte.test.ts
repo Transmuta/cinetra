@@ -2,17 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import '@testing-library/jest-dom/vitest';
 import { render, cleanup, fireEvent } from '@testing-library/svelte';
 import VolumeCalendario from './VolumeCalendario.svelte';
-import { weekdayIndex, type DayPoint } from '$lib/reports';
-import { shiftDate } from '$lib/agenda';
-
-// Domingo fechado (o seed da clínica), como o servidor devolve.
-function janela(from: string, dias: number, totals: Record<string, number> = {}): DayPoint[] {
-	return Array.from({ length: dias }, (_, i) => {
-		const date = shiftDate(from, i);
-		const total = totals[date] ?? 0;
-		return { date, total, concluidos: Math.floor(total / 2), aberto: weekdayIndex(date) !== 6 };
-	});
-}
+import { janelaDePontos as janela } from '$lib/testing/fixtures';
 
 // 01/06/2026 é uma segunda; 28 dias fecham quatro semanas cheias.
 const JUNHO = janela('2026-06-01', 28, { '2026-06-03': 8, '2026-06-08': 4, '2026-06-17': 1 });
@@ -51,6 +41,41 @@ describe('VolumeCalendario', () => {
 		const { getByRole } = montar(janela('2026-06-01', 28, { '2026-06-07': 2 }));
 		expect(getByRole('rowheader', { name: 'dom' })).toBeInTheDocument();
 		expect(getByRole('button', { name: '14/06: clínica fechada' })).toBeInTheDocument();
+	});
+
+	// A outra metade de "fechado": a marca VISUAL. Sem este teste dava para apagar o ponto e devolver
+	// a cor de heat ao dia fechado — desfazendo a tese do doc 106 — com a suíte inteira verde. O
+	// gancho é `data-fechado`, e não a cor computada, que em jsdom não se lê de forma estável.
+	it('o dia fechado é marcado e ganha o ponto; o dia aberto e vazio não', () => {
+		const { getByRole, getAllByTestId } = montar(janela('2026-06-01', 28, { '2026-06-07': 2 }));
+
+		// 14/06 é domingo sem atendimento: fechado.
+		expect(getByRole('button', { name: '14/06: clínica fechada' })).toHaveAttribute(
+			'data-fechado',
+			'true'
+		);
+		// 02/06 é terça sem atendimento: aberto e vazio — coisa diferente.
+		expect(getByRole('button', { name: '02/06: 0 atendimentos, 0 concluídos' })).toHaveAttribute(
+			'data-fechado',
+			'false'
+		);
+		// 07/06 é domingo COM atendimento: tem volume a mostrar, então não é fechado.
+		expect(getByRole('button', { name: '07/06: 2 atendimentos, 1 concluído' })).toHaveAttribute(
+			'data-fechado',
+			'false'
+		);
+
+		// Os domingos da janela, menos o 07/06 que teve atendimento.
+		expect(getAllByTestId('ponto-fechado')).toHaveLength(3);
+
+		// E a célula fechada não recebe fundo nenhum. É a outra metade da distinção do doc 106:
+		// sem isto, o fechado volta a ser o mesmo quadrado apagado do aberto-e-vazio. O `style` é
+		// atributo que este componente escreve, então dá para afirmar sobre ele — `getComputedStyle`
+		// com `color-mix` é que não se lê de forma estável no jsdom.
+		const fechado = getByRole('button', { name: '14/06: clínica fechada' });
+		const abertoVazio = getByRole('button', { name: '02/06: 0 atendimentos, 0 concluídos' });
+		expect(fechado.getAttribute('style')).toContain('transparent');
+		expect(abertoVazio.getAttribute('style')).not.toContain('transparent');
 	});
 
 	it('a média por dia da semana fica na coluna da direita', () => {

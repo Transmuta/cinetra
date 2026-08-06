@@ -9,6 +9,7 @@ import {
 	weekdayIndex,
 	weekStart,
 	calendarGrid,
+	diaFechado,
 	firstCell,
 	nextCell,
 	heatLevel,
@@ -24,6 +25,7 @@ import {
 	type DayPoint
 } from './reports';
 import { shiftDate } from './agenda';
+import { janelaDePontos } from './testing/fixtures';
 
 // 2026-06-17 é uma quarta; a semana ISO é 15/06 (seg) – 21/06 (dom). O mês é junho inteiro.
 const QUARTA = '2026-06-17';
@@ -77,15 +79,10 @@ describe('proporções das barras', () => {
 	});
 });
 
-// Uma janela de dias corridos a partir de `from`. Domingo fecha (o seed da clínica: `dow 0`
-// sem períodos), que é o que separa "fechado" de "aberto e vazio" na grade.
-function janela(from: string, dias: number, totals: Record<string, number> = {}): DayPoint[] {
-	return Array.from({ length: dias }, (_, i) => {
-		const date = shiftDate(from, i);
-		const total = totals[date] ?? 0;
-		return { date, total, concluidos: total, aberto: weekdayIndex(date) !== 6 };
-	});
-}
+// Uma janela de dias corridos a partir de `from`, com domingo fechado — o contrato mora em
+// `$lib/testing/fixtures` porque o teste do calendário monta a mesma coisa, e as duas cópias já
+// divergiam em `concluidos`.
+const janela = janelaDePontos;
 
 describe('volumeMode', () => {
 	it('um dia só degenera e a tela mostra "por profissional"', () => {
@@ -232,9 +229,23 @@ describe('heatLevel', () => {
 		expect(heatLevel(20, 20)).toBe(4);
 	});
 
+	// A propriedade que a função promete, no caso que de fato a exercita: um atendimento solitário
+	// numa janela movimentada. `heatLevel(1, 1)` passava pelo `Math.min` e não provava nada disso —
+	// quem garante o piso é o `ceil`, e é uma troca por `round` que o teste precisa pegar.
 	it('um único atendimento no período nunca some no nível 0', () => {
+		expect(heatLevel(1, 400)).toBe(1); // com `round` seria 0 — a célula sumiria no fundo
 		expect(heatLevel(1, 1)).toBe(4);
 		expect(heatLevel(1, 0)).toBe(0); // max 0 é série vazia, não divisão por zero
+	});
+});
+
+describe('diaFechado', () => {
+	// A distinção que a feature inteira existe para desenhar. As três combinações que importam.
+	it('separa "fechado" de "aberto e vazio" — e o fechado com atendimento não é fechado', () => {
+		expect(diaFechado({ date: '2026-06-14', total: 0, concluidos: 0, aberto: false })).toBe(true);
+		expect(diaFechado({ date: '2026-06-15', total: 0, concluidos: 0, aberto: true })).toBe(false);
+		// Encaixe em dia fechado: houve atendimento, então a célula tem volume para mostrar.
+		expect(diaFechado({ date: '2026-06-14', total: 2, concluidos: 1, aberto: false })).toBe(false);
 	});
 });
 

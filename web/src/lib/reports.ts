@@ -72,6 +72,19 @@ export interface DayPoint {
 	aberto: boolean;
 }
 
+/**
+ * O dia sem expediente **e** sem ninguém — o que a tela desenha como "clínica fechada", diferente
+ * do dia aberto e vazio.
+ *
+ * Existe como função porque a pergunta estava escrita em quatro grafias em três arquivos, e já
+ * divergindo: aqui era `d.total > 0`, nos componentes era `dia.total` por truthiness. Hoje as duas
+ * coincidem; no dia em que `total` ganhar um valor sentinela ou a regra passar a considerar
+ * feriado, quem corrigisse uma delas deixaria as outras para trás.
+ */
+export function diaFechado(d: DayPoint): boolean {
+	return !d.aberto && d.total <= 0;
+}
+
 export interface TypePoint {
 	appointment_type_id: string;
 	total: number;
@@ -232,7 +245,7 @@ export function calendarGrid(porDia: DayPoint[]): CalendarGrid {
 
 	const usados = new Set(porDia.map((d) => weekdayIndex(d.date)));
 	const relevantes = new Set(
-		porDia.filter((d) => d.aberto || d.total > 0).map((d) => weekdayIndex(d.date))
+		porDia.filter((d) => !diaFechado(d)).map((d) => weekdayIndex(d.date))
 	);
 	const linhas = relevantes.size ? relevantes : usados;
 	const weekdays = [0, 1, 2, 3, 4, 5, 6].filter((w) => linhas.has(w));
@@ -258,7 +271,11 @@ export function calendarGrid(porDia: DayPoint[]): CalendarGrid {
 // uma coluna é o do PRIMEIRO dia dela dentro da janela — a semana da virada (25/05–31/05) fica em
 // maio, e não em junho, que é como o calendário se lê.
 function monthSpans(weeks: CalendarWeek[]): CalendarMonth[] {
-	const chaves = weeks.map((w) => (w.days.find((d) => d !== null) as DayPoint).date.slice(0, 7));
+	// Sem `as DayPoint`: era o cast que escondia do `svelte-check` a coluna sem nenhuma célula, e
+	// com ele o `.date` de `undefined` só aparecia em runtime — como 500 na tela. `calendarGrid` já
+	// descarta essas colunas; o fallback para a segunda da semana mantém a função total de qualquer
+	// forma, em vez de reintroduzir a mesma promessa que o tipo não sustenta.
+	const chaves = weeks.map((w) => (w.days.find((d) => d !== null)?.date ?? w.start).slice(0, 7));
 	// Ano no rótulo só quando a janela cruza a virada — "dez" e "jan" soltos não dizem qual é qual.
 	const cruzaAno = new Set(chaves.map((c) => c.slice(0, 4))).size > 1;
 
@@ -295,6 +312,12 @@ export function firstCell(grid: CalendarGrid): CellPos {
  * continua focável, porque "fechado" é informação que o leitor de tela precisa ouvir.
  */
 export function nextCell(grid: CalendarGrid, from: CellPos, dWeek: number, dRow: number): CellPos {
+	// Passo nulo não anda, e sem esta saída o laço abaixo nunca termina: nenhum dos dois limites
+	// muda, e uma célula de partida vazia não satisfaz a outra saída. Os quatro deltas do
+	// componente nunca são (0,0), então isto é armadilha para o próximo caller — só que o modo de
+	// falha é travar a aba, não errar o foco (medido: 5 milhões de voltas sem sair).
+	if (!dWeek && !dRow) return from;
+
 	let { week, row } = from;
 
 	for (;;) {
@@ -313,10 +336,15 @@ const NIVEIS = 4;
  * A intensidade da célula, 0–4, repartida contra o maior dia da janela. Nível 0 é reservado ao
  * dia sem nenhum atendimento: um único atendimento numa janela movimentada ainda pinta 1, senão
  * ele desapareceria dentro do fundo e o gráfico mentiria por arredondamento.
+ *
+ * Quem garante esse piso é o **`ceil`** sobre um valor já positivo (o guard de zero acima), e não
+ * um `Math.max(1, …)` — que esteve aqui e era inalcançável: comparadas as duas versões em todos os
+ * pares `0 ≤ total ≤ max ≤ 400`, nenhuma divergia. Trocar `ceil` por `round` é o que quebraria a
+ * propriedade, e é isso que o teste desta função ancora.
  */
 export function heatLevel(total: number, max: number): number {
 	if (total <= 0 || max <= 0) return 0;
-	return Math.min(NIVEIS, Math.max(1, Math.ceil((total / max) * NIVEIS)));
+	return Math.min(NIVEIS, Math.ceil((total / max) * NIVEIS));
 }
 
 /**

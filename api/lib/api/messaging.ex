@@ -24,8 +24,6 @@ defmodule Api.Messaging do
 
   import Api.Tenancy, only: [in_clinic: 2]
 
-  require Ash.Query
-
   resources do
     resource Api.Messaging.Message do
       define :enqueue_message, action: :enqueue

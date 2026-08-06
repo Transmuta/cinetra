@@ -140,6 +140,33 @@ defmodule ApiWeb.RequestLoggerTest do
       end)
     end
 
+    # As linhas do evento SOB TESTE, e só elas — para provar que o filtro engoliu o evento.
+    #
+    # Por que não `evento(...) == ""`, que é o óbvio e era o que estava aqui: `capture_log`
+    # captura o Logger do **nó**, não o do processo do teste. Como este módulo é `async: true`,
+    # qualquer teste concorrente que logue dentro da janela de captura entra no buffer, e a
+    # igualdade contra `""` quebra sem ter nada a ver com o filtro.
+    #
+    # Não é hipótese: quebrou no CI em 2026-08-06 (PR #16), com uma linha de
+    # `route=/api/reply/:token` — do teste do controller de resposta do paciente — dentro da
+    # asserção do health check. Reproduzido depois de forma determinística com um módulo vizinho
+    # que loga em volume.
+    #
+    # Filtrar pelo último segmento do path (`health`, `ready`) mantém o que o teste promete — se o
+    # filtro furar, a linha do evento carrega o path e aparece aqui — e para de depender de quem
+    # mais está logando no mesmo instante. `async: false` também resolveria o vizinho, mas não
+    # resolveria log de processo de fundo, e custaria o paralelismo do arquivo.
+    defp silencio(conn_extra) do
+      marcador =
+        conn_extra.request_path |> String.trim("/") |> String.split("/") |> List.last()
+
+      conn_extra
+      |> evento()
+      |> String.split("\n", trim: true)
+      |> Enum.filter(&String.contains?(&1, marcador))
+      |> Enum.join("\n")
+    end
+
     # O metadata **real** do evento, e não o texto formatado.
     #
     # `payload` e `response` não estão na lista de metadata do formatter de teste, então eles
@@ -251,15 +278,15 @@ defmodule ApiWeb.RequestLoggerTest do
     test "health check com sucesso NÃO gera linha" do
       # 34.560 requisições/dia de puro ruído (doc 62 §2.1). Filtrar aqui, e não na consulta, é o
       # que impede o ruído de consumir rede, disco e retenção.
-      assert evento(%{request_path: "/api/health"}) == ""
-      assert evento(%{request_path: "/api/ready"}) == ""
+      assert silencio(%{request_path: "/api/health"}) == ""
+      assert silencio(%{request_path: "/api/ready"}) == ""
     end
 
     test "barra final não fura o filtro" do
       # Medido ao vivo: `/api/health/` escapou do match exato e foi para o log. Proxy, monitor e
       # copiar-colar de URL acrescentam a barra sem avisar — e o ruído volta inteiro.
-      assert evento(%{request_path: "/api/health/"}) == ""
-      assert evento(%{request_path: "/api/ready/"}) == ""
+      assert silencio(%{request_path: "/api/health/"}) == ""
+      assert silencio(%{request_path: "/api/ready/"}) == ""
     end
 
     test "a raiz continua sendo registrada" do

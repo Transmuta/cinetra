@@ -387,19 +387,39 @@ O lado do código está pronto; falta **criar os checks no monitor** e colar as 
 **Elixir** ([`Api.Heartbeat`](../api/lib/api/heartbeat.ex)) — o gancho é o telemetry do Oban, então
 nenhum job precisou ser tocado: `[:oban, :job, :stop]` → `GET <url>`,
 `[:oban, :job, :exception]` → `GET <url>/fail`. Distinguir os dois importa porque "não rodou" e
-"rodou e falhou" pedem investigações diferentes. Uma env por job (§`runtime.exs`), ausente =
-desligado:
+"rodou e falhou" pedem investigações diferentes. **Um slug por job**, fixo em código
+(`runtime.exs`), com o prefixo do ambiente na frente (`prod-`, `hml-`); sem
+`HEARTBEAT_BASE_URL`, desligado. O nome no monitor tem de bater byte a byte com o slug — divergir
+não dá erro, o healthchecks.io cria um check novo e o antigo alarma sozinho.
 
-| Job | Env | Por que monitorar |
-|---|---|---|
-| `Api.Messaging.ReminderJob` | `HEARTBEAT_URL_REMINDER` | O único que fala com o **paciente** |
-| `Api.Notifications.DailyDigestJob` | `HEARTBEAT_URL_DIGEST` | Resumo diário da equipe |
-| `Api.Notifications.SessionSoonJob` | `HEARTBEAT_URL_SESSION_SOON` | Aviso de sessão em 15 min |
-| `Api.Housekeeping.PruneTrail` | `HEARTBEAT_URL_PRUNE_TRAIL` | Falha devagar: tabela só cresce |
-| `Api.Housekeeping.PruneNotifications` | `HEARTBEAT_URL_PRUNE_NOTIFICATIONS` | idem |
-| `Api.Housekeeping.PruneAttachments` | `HEARTBEAT_URL_PRUNE_ATTACHMENTS` | idem, + bytes órfãos no R2 |
+| Job | Slug | Period / Grace | Por que monitorar |
+|---|---|---|---|
+| `Api.Notifications.SessionSoonJob` | `session-soon` | 5 min / 15 min | Aviso de sessão em 15 min; roda a cada 5 min |
+| `Api.Notifications.DailyDigestJob` | `digest` | 1 h / 20 min | Resumo diário da equipe; acorda de hora em hora (ADR-009) |
+| `Api.Housekeeping.PruneTrail` | `prune-trail` | 1 dia / 1 h | 03:00 — falha devagar: tabela só cresce |
+| `Api.Housekeeping.PruneNotifications` | `prune-notifications` | 1 dia / 1 h | 03:15 — idem |
+| `Api.Housekeeping.PruneAttachments` | `prune-attachments` | 1 dia / 1 h | 03:30 — idem, + bytes órfãos no R2 |
+| `Api.Housekeeping.PruneWebhookEvents` | `prune-webhook-events` | 1 dia / 1 h | 03:45 — a janela **é** a defesa contra replay (doc 96 S-7) |
 
-> **O backup saiu desta lista em 2026-08-05.** Havia um oitavo sinal, `HEARTBEAT_URL_BACKUP`,
+`HEARTBEAT_URL_<JOB>` continua existindo para sobrescrever um job específico (URL por UUID, ou
+outro monitor) e tem precedência sobre o slug.
+
+**O período do check é o do cron, não um default.** As três primeiras podas ficaram configuradas
+com `1 hour` no painel enquanto rodam **uma vez por dia** — resultado: vermelhas 23h por dia,
+recebendo os pings certinhos às 03:00/03:15/03:30. Alarme que mente para baixo custa caro de um
+jeito difícil de desfazer: a equipe aprende a ignorar a cor. A graça de 1 h existe para absorver a
+janela de deploy (o Oban **não** faz backfill de ocorrência perdida) sem empurrar o aviso para
+depois do café. Job que estoura não espera nada disso — vai direto em `/fail`.
+
+> **Cron e slug são amarrados por teste** (`Api.HeartbeatTest`, "cobertura"). São duas configs em
+> arquivos que não se conhecem — `crontab` em `config.exs`, slugs em `runtime.exs` — e os dois
+> modos de divergência são silenciosos e já aconteceram: `PruneWebhookEvents` nasceu **sem vigia**
+> (achado em 2026-08-06, um mês depois), e o check `prod-reminder` sobreviveu à remoção do
+> `Api.Messaging.ReminderJob` em [`d852f3b`](../api/lib/api/messaging/send_job.ex) — o lembrete ao
+> paciente virou `SendJob` agendado por mensagem, que não é cron e não tem "deixou de acontecer"
+> que um heartbeat meça. Cron sem slug morre calado; slug sem cron alarma para sempre.
+
+> **O backup saiu desta lista em 2026-08-05.** Havia um sinal a mais, `HEARTBEAT_URL_BACKUP`,
 > emitido pelo `backup.sh` depois do upload confirmado. O backup deixou de ser nosso
 > ([`59 §13`](59-deploy-dokploy-oci.md)) e o sinal foi junto. Consequência a saber: **snapshot de
 > painel que para de rodar não avisa ninguém por este caminho** — quem confere é quem abre o

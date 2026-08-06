@@ -42,7 +42,6 @@ defmodule Api.Packages.Bulk do
   import Api.Params, only: [get: 2, truthy?: 2]
   import Api.Tenancy, only: [in_clinic: 2]
 
-  require Ash.Query
   require Logger
 
   alias Api.Scheduling

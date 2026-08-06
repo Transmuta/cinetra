@@ -102,6 +102,46 @@ defmodule Api.ComposeDeProducao do
   end
 
   @doc """
+  O default de `${NOME:-valor}`, ou a linha inteira quando não há interpolação.
+
+  O default do compose **é o valor de produção**: HML sobrescreve no Environment do stack, prod
+  não sobrescreve nada. Então é o default que precisa ser coerente com o resto do serviço — e é
+  por isso que os testes de teto leem daqui, e não de um `.env`.
+  """
+  @spec default_de([String.t()], String.t()) :: String.t()
+  def default_de(linhas, chave) do
+    valor = linhas |> valor_de(chave) |> String.trim()
+
+    case Regex.run(~r/\$\{[A-Z0-9_]+:-([^}]+)\}/, valor) do
+      [_todo, default] -> default
+      nil -> valor
+    end
+  end
+
+  @doc """
+  Um tamanho de memória em bytes.
+
+  Aceita as unidades do **Docker** (`512m`, `1g`) e as do **Postgres** (`256MB`, `4GB`), porque
+  desde que o `db` ganhou tuning os dois convivem no mesmo serviço — e o ponto de compará-los é
+  justamente esse: `mem_limit` é o teto do container, `shared_buffers` é o que o processo pede
+  dentro dele. Enquanto as duas unidades não fossem redutíveis a um número, a relação entre elas
+  não era testável.
+  """
+  @spec bytes(String.t()) :: non_neg_integer()
+  def bytes(valor) do
+    case Regex.run(~r/^(\d+)\s*(kb|mb|gb|b|k|m|g)?$/i, String.trim(valor)) do
+      [_todo, n] -> String.to_integer(n)
+      [_todo, n, unidade] -> String.to_integer(n) * multiplicador(String.downcase(unidade))
+      nil -> flunk("`#{valor}` não é um tamanho que o Docker ou o Postgres aceitem")
+    end
+  end
+
+  defp multiplicador("b"), do: 1
+  defp multiplicador(u) when u in ~w(k kb), do: 1024
+  defp multiplicador(u) when u in ~w(m mb), do: 1024 * 1024
+  defp multiplicador(u) when u in ~w(g gb), do: 1024 * 1024 * 1024
+
+  @doc """
   Quantas réplicas o serviço declara. `1` quando não declara nada — que é o default do Compose e
   o estado registrado na ADR-023 / `docs/04 §12`.
   """

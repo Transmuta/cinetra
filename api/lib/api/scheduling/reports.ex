@@ -129,11 +129,38 @@ defmodule Api.Scheduling.Reports do
   defp summary_filter({:one, pid}), do: [professional_id: pid]
   defp summary_filter(_), do: []
 
+  # Só as colunas que esta tela usa. Sem o `select`, a leitura trazia as 39 colunas de
+  # `professionals` — CPF, RG, PIX, banco, agência, endereço — para renderizar 6 e calcular
+  # capacidade. As field policies redigem esse bloco para quem não é owner/admin, mas para
+  # owner/admin o dado sensível saía do banco e entrava na memória do processo a cada carga de
+  # Relatórios, sem nenhum uso. É o mesmo corte que `patients_for` já tinha feito (doc: "corta PII
+  # que não é usada e o peso de coluna no caminho quente") e que Relatórios não tinha herdado.
+  #
+  # A lista: os 6 campos do `AgendaJSON.professional/1`, mais `segue_horario_clinica`, que é o que
+  # `Availability.day_periods/3` exige para a camada D do fallback de horário.
+  @colunas_do_relatorio [
+    :id,
+    :nome,
+    :nome_exibicao,
+    :crefito,
+    :cor_indice,
+    :segue_horario_clinica,
+    :ativo
+  ]
+
   defp summary_professionals(scope, {:one, pid}),
-    do: Api.Directory.list_professionals!(scope: scope, query: [filter: [id: pid]])
+    do:
+      Api.Directory.list_professionals!(
+        scope: scope,
+        query: [filter: [id: pid], select: @colunas_do_relatorio]
+      )
 
   defp summary_professionals(scope, :all),
-    do: Api.Directory.list_professionals!(scope: scope, query: [filter: [ativo: true]])
+    do:
+      Api.Directory.list_professionals!(
+        scope: scope,
+        query: [filter: [ativo: true], select: @colunas_do_relatorio]
+      )
 
   defp summary_professionals(_scope, :none), do: []
 

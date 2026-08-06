@@ -149,6 +149,55 @@ defmodule Api.Accounts.EmailsTest do
     end
   end
 
+  # 2026-08-06. Os três e-mails de conta saíam de uma constante do módulo,
+  # `nao-responda@cinetra.local`, enquanto `MAIL_FROM` só chegava em `Api.Messaging.PatientEmails`.
+  # `cinetra.local` não é domínio verificado em provedor nenhum: em produção o Resend recusa com
+  # 403 antes de a mensagem existir. O sintoma era o pior possível — e-mail de paciente saindo
+  # normalmente, magic link não chegando, e nenhuma linha de log dizendo por quê (ninguém entrava
+  # no sistema). O `from` agora vem do config, como o do paciente sempre veio.
+  describe "remetente" do
+    setup do
+      original = Application.get_env(:api, Emails)
+      Application.put_env(:api, Emails, remetente: {"Cinetra", "acesso@cinetra.app"})
+      on_exit(fn -> restaurar(Emails, original) end)
+      :ok
+    end
+
+    test "o magic link sai do endereço CONFIGURADO, não de uma constante do módulo" do
+      Emails.send_magic_link_email("ana@example.com", "tok-123")
+
+      assert_email_sent(fn mail ->
+        assert mail.from == {"Cinetra", "acesso@cinetra.app"}
+      end)
+    end
+
+    test "as boas-vindas idem" do
+      Emails.send_welcome_email(%{email: "marina@example.com", nome: "Marina"}, "Clínica X")
+
+      assert_email_sent(fn mail -> assert mail.from == {"Cinetra", "acesso@cinetra.app"} end)
+    end
+
+    test "o aviso de acesso removido idem" do
+      Emails.send_access_revoked_email(%{email: "ana@example.com"}, "Clínica X")
+
+      assert_email_sent(fn mail -> assert mail.from == {"Cinetra", "acesso@cinetra.app"} end)
+    end
+  end
+
+  describe "remetente sem configuração" do
+    test "cai no placeholder de dev — a falta da env não pode derrubar o envio" do
+      original = Application.get_env(:api, Emails)
+      Application.delete_env(:api, Emails)
+      on_exit(fn -> restaurar(Emails, original) end)
+
+      Emails.send_magic_link_email("ana@example.com", "tok-123")
+
+      assert_email_sent(fn mail ->
+        assert mail.from == {"Cinetra", "nao-responda@cinetra.local"}
+      end)
+    end
+  end
+
   describe "acesso removido" do
     test "diz qual clínica nas duas partes" do
       Emails.send_access_revoked_email(%{email: "ana@example.com"}, "Clínica Movimento")
@@ -171,4 +220,7 @@ defmodule Api.Accounts.EmailsTest do
       end)
     end
   end
+
+  defp restaurar(modulo, nil), do: Application.delete_env(:api, modulo)
+  defp restaurar(modulo, original), do: Application.put_env(:api, modulo, original)
 end

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import {
 		calendarGrid,
+		diaFechado,
 		firstCell,
 		nextCell,
 		heatLevel,
@@ -16,8 +17,9 @@
 	//
 	// A barra por dia funcionava no mês (~26px cada) e desmontava no trimestre: 90 barras num
 	// cartão de ~970px dão 4,8px de largura contra 6px de vão, e no celular 0,5px — um pente de
-	// fios de cabelo. A célula do calendário tem tamanho fixo, então 90 dias viram 13 colunas e o
-	// desenho não depende mais da largura disponível.
+	// fios de cabelo. A célula do calendário tem tamanho fixo, então 90 dias viram 13 ou 14 colunas
+	// — conforme o dia da semana em que a janela começa — e o desenho não depende mais da largura
+	// disponível.
 	//
 	// O que o formato acrescenta, além de caber: o dia-da-semana vira uma LINHA, então "toda terça
 	// cai" e "sábado rende metade" se leem de relance — a pergunta que a série de barras escondia.
@@ -75,7 +77,7 @@
 	// O mesmo texto serve o nome acessível da célula e a linha de detalhe — uma frase só, para as
 	// duas não divergirem.
 	function resumo(dia: DayPoint): string {
-		if (!dia.aberto && !dia.total) return 'clínica fechada';
+		if (diaFechado(dia)) return 'clínica fechada';
 		return `${plural(dia.total, 'atendimento', 'atendimentos')}, ${plural(dia.concluidos, 'concluído', 'concluídos')}`;
 	}
 
@@ -130,9 +132,11 @@
 						{@const dia = semana.days[row]}
 						<td class="p-0">
 							{#if dia}
+								{@const fechado = diaFechado(dia)}
 								<button
 									type="button"
 									data-cell="{week}-{row}"
+									data-fechado={fechado}
 									tabindex={foco.week === week && foco.row === row ? 0 : -1}
 									aria-label="{fmtDayMonth(dia.date)}: {resumo(dia)}"
 									aria-current={dia.date === today ? 'date' : undefined}
@@ -145,17 +149,22 @@
 									onmouseleave={() => (ativo = null)}
 									onkeydown={navegar}
 									class="grid size-[14px] place-items-center rounded-micro sm:size-[17px]"
-									style="{dia.aberto || dia.total
-										? fundo(dia, grid.max)
-										: 'background:transparent'};{dia.date === today
+									style="{fechado
+										? 'background:transparent'
+										: fundo(dia, grid.max)};{dia.date === today
 										? 'outline:2px solid var(--color-accent);outline-offset:1px'
 										: ''}"
 								>
 									<!-- Dia fechado não é dia vazio: sem expediente a célula não tem fundo, só um
 									     ponto. Antes os dois eram o mesmo quadrado apagado, e os ~9 domingos de um
-									     mês se liam como buraco de dado. -->
-									{#if !dia.aberto && !dia.total}
-										<span class="size-[3px] rounded-full bg-faint" aria-hidden="true"></span>
+									     mês se liam como buraco de dado. O `data-fechado` acima é o que deixa esta
+									     distinção testável sem depender de cor computada. -->
+									{#if fechado}
+										<span
+											data-testid="ponto-fechado"
+											class="size-[3px] rounded-full bg-faint"
+											aria-hidden="true"
+										></span>
 									{/if}
 								</button>
 							{:else}

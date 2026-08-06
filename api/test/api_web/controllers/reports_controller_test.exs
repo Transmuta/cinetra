@@ -87,6 +87,35 @@ defmodule ApiWeb.ReportsControllerTest do
       assert body["timezone"] == "America/Sao_Paulo"
     end
 
+    # A bandeira `aberto` atravessando a fronteira nos DOIS valores. O teste acima só via `true`, e
+    # o `false` é a razão de ser da feature: é ele que separa "clínica fechada" de "aberto e sem
+    # ninguém" no gráfico. A classe que ficava aberta é de serialização — `render_dia/1` perder a
+    # chave num ramo, ou o JSON cuspir `null` em vez de `false` — e o sintoma seria o front lendo
+    # `undefined` como falsy e desenhando o mês inteiro como fechado, com a suíte verde.
+    test "`aberto` atravessa a fronteira como false no dia fechado", %{conn: conn} do
+      ctx = fixture()
+      create_appt(conn, ctx, ctx.owner, "2026-07-20T11:00:00Z")
+
+      # Segunda (aberta, com atendimento) até domingo (fechado no seed: `dow: 0, periods: []`).
+      body =
+        get_summary(conn, ctx.owner, %{"date_from" => @segunda, "date_to" => "2026-07-26"})
+        |> json_response(200)
+
+      por_dia = body["por_dia"]
+      assert length(por_dia) == 7
+      assert Enum.map(por_dia, & &1["aberto"]) == [true, true, true, true, true, true, false]
+
+      # E o domingo conta 0 como a terça conta 0: só `aberto` os distingue no wire.
+      domingo = List.last(por_dia)
+
+      assert domingo == %{
+               "date" => "2026-07-26",
+               "total" => 0,
+               "concluidos" => 0,
+               "aberto" => false
+             }
+    end
+
     test "sem sessão é 401", %{conn: conn} do
       conn = get(conn, "/api/reports/summary?date_from=#{@segunda}&date_to=#{@segunda}")
       assert json_response(conn, 401)

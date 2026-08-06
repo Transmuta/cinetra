@@ -61,9 +61,89 @@ defmodule Api.CiWorkflowTest do
 
   @workflow ".github/workflows/ci.yml"
   @dependabot ".github/dependabot.yml"
+  @dockerfile_api "api/Dockerfile.prod"
+  @dockerfile_api_dev "api/Dockerfile.dev"
+  @dockerfile_web "web/Dockerfile.prod"
+  @dockerfile_web_dev "web/Dockerfile.dev"
 
   setup_all do
     {:ok, ci: Repo.ler_do_repo(@workflow)}
+  end
+
+  # ---------------------------------------------------------------------------
+  # O gate só vale se testar a MESMA toolchain que a imagem embarca.
+  #
+  # Medido em 2026-08-06: o Dependabot bumpou `api/Dockerfile.prod` para elixir 1.20.1-otp-29 e
+  # `web/Dockerfile.prod` para node 25 (ecossistema `docker`), enquanto `ci.yml` seguiu em
+  # elixir 1.18.4/OTP 27 e node 22. Ele não enxerga `elixir-version:`/`node-version:` porque são
+  # string solta no YAML, não dependência.
+  #
+  # A consequência não foi teórica: no node 25, 20 testes quebravam em
+  # `TypeError: localStorage.clear is not a function` — e o CI ficava VERDE, porque rodava no 22.
+  # O gate provava uma versão e a imagem de produção embarcava outra.
+  # ---------------------------------------------------------------------------
+  describe "paridade de toolchain entre o CI e as imagens" do
+    test "o CI roda o MESMO Elixir/OTP que a imagem de produção da API", %{ci: ci} do
+      [_, elixir_img, otp_img] =
+        Regex.run(~r/^FROM elixir:([\d.]+)-otp-(\d+)/m, Repo.ler_do_repo(@dockerfile_api))
+
+      elixires = Regex.scan(~r/elixir-version:\s*"([^"]+)"/, ci) |> Enum.map(&List.last/1)
+      otps = Regex.scan(~r/otp-version:\s*"([^"]+)"/, ci) |> Enum.map(&List.last/1)
+
+      assert elixires != [], "nenhum `elixir-version:` no ci.yml — a forma do workflow mudou?"
+
+      for versao <- elixires do
+        assert versao == elixir_img,
+               """
+               ci.yml testa em Elixir #{versao}, mas api/Dockerfile.prod embarca #{elixir_img}.
+
+               O gate deixa de provar o que vai para produção. Alinhe os dois — e rode a suíte na
+               versão nova ANTES de mudar aqui.
+               """
+      end
+
+      for versao <- otps do
+        assert versao == otp_img,
+               "ci.yml testa em OTP #{versao}, mas a imagem embarca OTP #{otp_img}."
+      end
+
+      assert Repo.ler_do_repo(@dockerfile_api_dev) =~ "FROM elixir:#{elixir_img}-otp-#{otp_img}",
+             "api/Dockerfile.dev divergiu do prod — dev e produção compilando em toolchains " <>
+               "diferentes é bug que só aparece no deploy."
+    end
+
+    test "o CI roda o MESMO Node que a imagem de produção do BFF", %{ci: ci} do
+      web = Repo.ler_do_repo(@dockerfile_web)
+      bases = Regex.scan(~r/^FROM node:(\d+)/m, web) |> Enum.map(&List.last/1) |> Enum.uniq()
+
+      assert length(bases) == 1,
+             "web/Dockerfile.prod mistura majors do Node entre os estágios: #{inspect(bases)}"
+
+      [node_img] = bases
+
+      assert rem(String.to_integer(node_img), 2) == 0,
+             """
+             node #{node_img} é ÍMPAR, e no Node só a linha par vira LTS — ímpar é "Current" e sai
+             de manutenção em meses. Foi exatamente o PR #9 (node 22 → 25) de 2026-08-06.
+             """
+
+      nodes = Regex.scan(~r/node-version:\s*"([^"]+)"/, ci) |> Enum.map(&List.last/1)
+
+      assert nodes != [], "nenhum `node-version:` no ci.yml — a forma do workflow mudou?"
+
+      for versao <- nodes do
+        assert versao == node_img,
+               """
+               ci.yml testa em Node #{versao}, mas web/Dockerfile.prod embarca #{node_img}.
+
+               Foi assim que 20 testes quebrados no node 25 passaram despercebidos: o CI rodava
+               no 22 e ficava verde.
+               """
+      end
+
+      assert Repo.ler_do_repo(@dockerfile_web_dev) =~ ~r/^FROM node:#{node_img}\b/m,
+             "web/Dockerfile.dev divergiu do prod."
+    end
   end
 
   describe "permissão do GITHUB_TOKEN (R-A10)" do
@@ -135,6 +215,64 @@ defmodule Api.CiWorkflowTest do
                Fixar por SHA (R-M6) sem Dependabot troca "atualiza sozinho e sem revisão" por \
                "nunca atualiza" — que é pior para CVE. As duas metades andam juntas.
                """
+      end
+    end
+
+    test "toda atualização mira `develop`, e nenhuma cai direto em `main`" do
+      dependabot = Repo.ler_do_repo(@dependabot)
+
+      ecossistemas = Regex.scan(~r/^\s*-\s*package-ecosystem:\s*(\S+)/m, dependabot)
+      alvos = Regex.scan(~r/^\s*target-branch:\s*(\S+)/m, dependabot)
+
+      assert ecossistemas != [],
+             "a extração não achou nenhum `package-ecosystem:` — o formato do arquivo mudou?"
+
+      assert length(alvos) == length(ecossistemas),
+             """
+             #{length(ecossistemas)} ecossistemas configurados, mas só #{length(alvos)} com \
+             `target-branch:`.
+
+             Sem `target-branch`, o Dependabot abre contra a branch DEFAULT — que aqui é `main`. \
+             E `ci.yml` dispara `DOKPLOY_DEPLOY_WEBHOOK_PROD` em todo push para `main`. Logo cada \
+             merge de bump vira um deploy de PRODUÇÃO que nunca passou por HML, pulando o \
+             `develop` que é o fluxo de todo o resto do repositório.
+
+             Medido em 2026-08-05: a primeira varredura abriu 18 PRs, os 18 contra `main`.
+             """
+
+      for [_, alvo] <- alvos do
+        assert alvo == "develop",
+               "`target-branch: #{alvo}` — o alvo tem de ser `develop`, que é a branch de HML."
+      end
+    end
+
+    test "toda atualização espera antes de adotar versão recém-publicada" do
+      dependabot = Repo.ler_do_repo(@dependabot)
+
+      ecossistemas = Regex.scan(~r/^\s*-\s*package-ecosystem:\s*(\S+)/m, dependabot)
+      carencias = Regex.scan(~r/^\s*cooldown:\s*$/m, dependabot)
+
+      assert length(carencias) == length(ecossistemas),
+             """
+             #{length(ecossistemas)} ecossistemas configurados, mas só #{length(carencias)} com \
+             `cooldown:`.
+
+             Este é o ÚNICO item deste arquivo que endereça pacote MALICIOSO, e não CVE. \
+             `mix deps.audit`, `npm audit` e o próprio Dependabot comparam a versão contra banco \
+             de advisory — e publicação maliciosa não está em banco nenhum no instante em que \
+             você instala. O advisory nasce depois.
+
+             Sem carência o Dependabot AUMENTA a exposição: a função dele é levar para a versão \
+             mais nova o mais rápido possível, que é exatamente onde o malware está. Publicação \
+             maliciosa tem meia-vida curta — o registro despublica, o mantenedor recupera a \
+             conta —, então esperar alguns dias evita quase toda a janela.
+
+             Atualização de SEGURANÇA do GitHub passa por fora do cooldown, como deve.
+             """
+
+      for [_, dias] <- Regex.scan(~r/^\s*default-days:\s*(\d+)/m, dependabot) do
+        assert String.to_integer(dias) >= 3,
+               "`default-days: #{dias}` é curto demais para o pacote malicioso ser despublicado."
       end
     end
   end

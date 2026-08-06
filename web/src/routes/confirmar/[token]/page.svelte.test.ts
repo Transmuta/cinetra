@@ -32,8 +32,10 @@ const resumo = {
 	paciente: 'Ana',
 	data: '05/08/2026',
 	hora: '08:30',
-	inicio: '2026-08-05T11:30:00Z',
-	fim: '2026-08-05T12:20:00Z',
+	// `null` é o caso real da sessão que a API não resolveu: sem instante não há calendário a
+	// oferecer, nem `.ics` nem Google.
+	inicio: '2026-08-05T11:30:00Z' as string | null,
+	fim: '2026-08-05T12:20:00Z' as string | null,
 	timezone: 'America/Sao_Paulo',
 	ativa: true,
 	resposta: null as string | null,
@@ -77,13 +79,41 @@ describe('/confirmar — a pergunta', () => {
 
 describe('/confirmar — o depois da resposta', () => {
 	it('confirmou: caixa de desfecho e o evento para a agenda do celular', () => {
+		// O `.ics` é a saída de quem NÃO é Google (iPhone, Outlook) — daí o rótulo dizer "outro
+		// calendário" em vez de "adicionar à agenda", que era ambíguo ao lado do botão do Google.
 		const { getByText, getByRole } = tela({ resposta: 'confirmou' });
 
 		expect(getByText(/Presença confirmada/)).toBeInTheDocument();
-		expect(getByRole('link', { name: /Adicionar à agenda/ })).toHaveAttribute(
+		expect(getByRole('link', { name: /Outro calendário/ })).toHaveAttribute(
 			'href',
 			'/confirmar/tok-abc/sessao.ics'
 		);
+	});
+
+	it('confirmou: oferece o Google Agenda, que é o que de fato abre no Android', () => {
+		// O `.ics` sozinho não resolvia: no Android ele cai em Downloads e nada abre — o paciente
+		// toca em "adicionar à agenda" e não vê acontecer nada.
+		const { getByRole } = tela({ resposta: 'confirmou' });
+
+		const link = getByRole('link', { name: /Google Agenda/ });
+
+		expect(link).toHaveAttribute('href', expect.stringContaining('calendar.google.com'));
+		expect(link).toHaveAttribute(
+			'href',
+			expect.stringContaining('dates=20260805T113000Z/20260805T122000Z')
+		);
+		// Abre fora da tela do paciente; sem `noopener` a página de destino recebe uma referência
+		// para esta janela, que carrega o token na URL.
+		expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'));
+	});
+
+	it('sem instante da API não oferece calendário nenhum — os dois links dariam em nada', () => {
+		// O `.ics` responde 404 sem `inicio`/`fim`, e o link do Google sairia sem horário. Botão
+		// que não leva a lugar nenhum é pior que a ausência dele.
+		const { queryByRole } = tela({ resposta: 'confirmou', inicio: null, fim: null });
+
+		expect(queryByRole('link', { name: /Google Agenda/ })).toBeNull();
+		expect(queryByRole('link', { name: /Outro calendário/ })).toBeNull();
 	});
 
 	it('quer remarcar: tom de espera (não de sucesso) e o WhatsApp na mão', () => {

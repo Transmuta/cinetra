@@ -42,7 +42,6 @@ defmodule Api.Housekeeping.Poda do
   mão) — nunca de args do job, params de request ou varredura do catálogo.
   """
 
-  require Ash.Query
   require Logger
 
   # Teto por lote. Repetimos até a tabela não devolver mais nada.

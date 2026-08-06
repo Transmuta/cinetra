@@ -105,7 +105,7 @@ e é o preço de a leitura não mentir.
 | Estado | O que ela mostra |
 | --- | --- |
 | perguntando | clínica no topo (navy + régua + telefone discável), `10:00` em 34px, `segunda-feira, 10 de agosto`, selo `amanhã` quando cabe, dois botões a 14px de distância |
-| confirmou | caixa **verde** de desfecho + **adicionar à agenda** (`.ics`) + **falar com a clínica no WhatsApp** |
+| confirmou | caixa **verde** de desfecho + **Google Agenda** e **outro calendário** (`.ics`) + **falar com a clínica no WhatsApp** |
 | quer remarcar | caixa **azul** de espera (não é desfecho: depende de a clínica responder) + **falar com a clínica no WhatsApp** |
 | sessão cancelada | "Esta sessão foi cancelada", sem botão de confirmar, com o WhatsApp |
 | sessão já passada | "Essa sessão já passou", idem |
@@ -118,6 +118,27 @@ Cinco decisões dentro disso:
    aparelho em que esta tela mais é aberta. O `UID` é um **digest do token**, não o token: o arquivo
    acaba em calendário compartilhado com a família, e um `UID` estável ainda faz o app **atualizar**
    o evento quando a sessão for remarcada, em vez de criar um segundo.
+
+   > **Correção de 2026-08-06, medida no celular.** O parágrafo acima continua certo sobre `data:` e
+   > Blob, mas errava no passo seguinte: dizia que o `.ics` "é aberto pelo app de calendário padrão
+   > do aparelho". Não é o que acontece, por causa de dois detalhes que só aparecem no aparelho:
+   >
+   > - **`Content-Disposition: attachment` quebra o iPhone.** Com ele, o Safari (iOS 13+) baixa o
+   >   arquivo para o app **Arquivos**; a pessoa precisa sair do navegador para achá-lo. Sem ele
+   >   (`inline`), o Safari abre a folha nativa de evento com "Adicionar ao Calendário" na hora.
+   > - **No Android nenhuma disposição resolve.** O Chrome baixa `text/calendar` de qualquer forma;
+   >   o arquivo cai em Downloads e **nada abre**. Quem toca no botão vê acontecer nada — foi assim
+   >   que o problema foi relatado.
+   >
+   > Daí as duas mudanças: a rota passou a servir `inline`, e a tela ganhou um **segundo** link, o
+   > template do Google Agenda, que é o que de fato abre o app no Android. O `.ics` continua ao
+   > lado, rotulado "outro calendário (iPhone, Outlook)".
+   >
+   > O argumento original contra o Google — "metade dos pacientes não usa Google Agenda" — era
+   > contra ele ser a **única** opção, e segue valendo assim. O que ele custa, e é decisão
+   > consciente: a URL leva o título (`Sessão na <clínica>`) para um domínio do Google, coisa que o
+   > `.ics` no nosso domínio não fazia. Se incomodar, o conserto é passar `titulo: 'Sessão'` ao
+   > `linkGoogleAgenda` e deixar o nome da clínica só no `.ics`.
 2. **Respondeu, acabou: os botões somem e não voltam** (decisão de 2026-08-04, revendo um primeiro
    desenho que oferecia "mudar minha resposta"). Qualquer afordância de responder de novo convida
    ao segundo toque sem a pessoa saber se o primeiro valeu — que é o motivo de os botões sumirem em
@@ -162,6 +183,7 @@ Cinco decisões dentro disso:
 | [`data-hora.ts`](../web/src/lib/data-hora.ts) | `quandoParaPaciente/3` — a quarta forma de dizer "quando", a única que não fala com a recepção |
 | [`telefone.ts`](../web/src/lib/telefone.ts) | `linkWhatsapp/2` — o `wa.me` com a mensagem já escrita, e `null` para quem não recebe WhatsApp |
 | [`server/ics.ts`](../web/src/lib/server/ics.ts) | `eventoIcs/1` e `uidDeSessao/1` (RFC 5545: CRLF, escape, dobra em 75 **octetos** sem partir multibyte) |
+| [`calendario.ts`](../web/src/lib/calendario.ts) | (2026-08-06) `linkGoogleAgenda/1`, mais `tituloDaSessao/1`, `descricaoDaSessao/2` e `utcCompacto/1` — o que o evento diz num lugar só, porque agora tem dois consumidores. **Não** é server-only: a tela monta o link do Google no browser |
 | [`confirmar/[token]/resposta.ts`](../web/src/routes/confirmar/[token]/resposta.ts) | a chamada à API num lugar só — o `.ics` é o segundo consumidor, e o IP do paciente não pode divergir entre eles |
 | [`confirmar/[token]/sessao.ics/+server.ts`](../web/src/routes/confirmar/[token]/sessao.ics/+server.ts) | serve o evento; 404 sem instante ou com sessão cancelada |
 | [`confirmar/[token]/+page.svelte`](../web/src/routes/confirmar/[token]/+page.svelte) | a tela |

@@ -220,6 +220,54 @@ defmodule Api.HeartbeatTest do
     end
   end
 
+  describe "cobertura — todo cron tem vigia, todo vigia tem cron" do
+    # Estes dois não exercitam o módulo: eles amarram DUAS configs que moram em arquivos
+    # diferentes e não se conhecem — o `crontab` (`config.exs`) e o mapa de slugs
+    # (`runtime.exs`). A divergência entre elas não produz erro nenhum: um cron sem slug roda
+    # para sempre em silêncio (e o dia em que parar também será silencioso), e um slug sem cron
+    # cria um check que alarma para sempre e ensina a equipe a ignorar o painel.
+    #
+    # Os dois modos de falha já aconteceram: `PruneWebhookEvents` nasceu sem vigia em 2026-08-02,
+    # e o check `prod-reminder` sobreviveu à remoção do `Api.Messaging.ReminderJob` (d852f3b).
+
+    defp crontab do
+      :api
+      |> Application.get_env(Oban, [])
+      |> Keyword.fetch!(:plugins)
+      |> Enum.find_value(fn
+        {Oban.Plugins.Cron, opts} -> Keyword.fetch!(opts, :crontab)
+        _outro -> nil
+      end)
+      # `job.worker` chega como string ao handler — é assim que o Oban a grava.
+      |> Enum.map(&inspect(elem(&1, 1)))
+      |> MapSet.new()
+    end
+
+    defp vigiados do
+      config = Application.get_env(:api, Heartbeat, [])
+
+      [:slugs, :urls]
+      |> Enum.flat_map(&(config |> Keyword.get(&1, %{}) |> Map.keys()))
+      |> MapSet.new()
+    end
+
+    test "nenhum job agendado fica sem sinal" do
+      sem_vigia = MapSet.difference(crontab(), vigiados())
+
+      assert Enum.empty?(sem_vigia),
+             "cron sem heartbeat: #{inspect(Enum.sort(sem_vigia))} — " <>
+               "adicione o slug em config/runtime.exs (Api.Heartbeat)"
+    end
+
+    test "nenhum slug aponta para um job que não existe mais" do
+      orfaos = MapSet.difference(vigiados(), crontab())
+
+      assert Enum.empty?(orfaos),
+             "slug sem cron: #{inspect(Enum.sort(orfaos))} — o check correspondente vai " <>
+               "alarmar para sempre; remova o slug e apague o check no monitor"
+    end
+  end
+
   describe "attach/0" do
     test "é idempotente — rebootar não duplica o handler" do
       assert :ok = Heartbeat.attach()

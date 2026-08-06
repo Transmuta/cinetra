@@ -44,4 +44,18 @@ describe('Topbar', () => {
 		const { queryByRole } = render(Topbar, { props: { pathname: '/agenda', me } });
 		expect(queryByRole('button', { name: /tema/i })).toBeNull();
 	});
+
+	// Doc 108 §6: a ajuda é consultada NO MEIO de uma tarefa, então o "?" leva ao tópico DA TELA —
+	// e abre em outra aba, para não jogar fora o formulário que está meio preenchido atrás.
+	it('o "?" abre a ajuda da tela atual, em outra aba', () => {
+		const { getByRole } = render(Topbar, { props: { pathname: '/pacientes/novo', me } });
+		const link = getByRole('link', { name: /^Ajuda:/ });
+		expect(link).toHaveAttribute('href', '/ajuda/cadastrar-paciente');
+		expect(link).toHaveAttribute('target', '_blank');
+	});
+
+	it('em tela sem tópico próprio, o "?" cai no índice da central', () => {
+		const { getByRole } = render(Topbar, { props: { pathname: '/', me } });
+		expect(getByRole('link', { name: 'Central de ajuda' })).toHaveAttribute('href', '/ajuda');
+	});
 });

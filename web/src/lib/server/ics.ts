@@ -17,6 +17,7 @@
 // onde. Cada regra abaixo existe por causa de um desses.
 
 import { createHash } from 'node:crypto';
+import { utcCompacto } from '$lib/calendario';
 
 export interface EventoIcs {
 	uid: string;
@@ -43,11 +44,6 @@ export interface EventoIcs {
  */
 export function uidDeSessao(token: string): string {
 	return `${createHash('sha256').update(token).digest('hex').slice(0, 16)}@cinetra`;
-}
-
-/** Instante ISO → `AAAAMMDDTHHMMSSZ`, a única forma que dispensa declarar fuso no arquivo. */
-function utcCompacto(iso: string): string {
-	return new Date(iso).toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
 }
 
 /**
