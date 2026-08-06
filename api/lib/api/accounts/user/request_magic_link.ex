@@ -19,6 +19,9 @@ defmodule Api.Accounts.User.RequestMagicLink do
   """
   use Ash.Resource.Actions.Implementation
 
+  require Logger
+
+  alias Api.Messaging.Falhas
   alias Ash.{ActionInput, Query}
   alias AshAuthentication.{Info, Jwt}
 
@@ -72,9 +75,33 @@ defmodule Api.Accounts.User.RequestMagicLink do
 
       sender.send(recipient, token, build_opts)
     end
+    |> registrar()
 
     :ok
   end
+
+  # A resposta é `:ok` **sempre** — é o ADR-015, e um endpoint público não pode revelar se o
+  # e-mail tem conta. Mas neutra para o visitante nunca quis dizer cega para o operador: enquanto
+  # o retorno do `with` acima era simplesmente descartado, uma recusa do provedor (403 de domínio
+  # não verificado, chave inválida, rate limit) virava exatamente nada — 200 no browser, log
+  # limpo, e-mail nenhum. E este é o caminho que, quando quebra, tranca a porta da frente do
+  # sistema para todo mundo. Achado em produção em 2026-08-06; regressão em
+  # `test/api/accounts/magic_link_falha_de_entrega_test.exs`.
+  #
+  # `Api.Mailer.deliver/1` devolve `{:error, _}` em vez de levantar, então não há `rescue` que
+  # pegue isto — a mesma armadilha que o `Api.Accounts.AccessRevokedEmailJob` documenta.
+  #
+  # O motivo passa pelo `Falhas.para_tela/1` e não vai cru: **bounce de e-mail embute o
+  # destinatário** (`550 ... <ana@exemplo.com>: User unknown`), e o texto do provedor no log poria
+  # PII de titular no Loki — a barreira do doc 62 §7.3, respeitada pela mesma função no
+  # `Api.Messaging.SendJob`. Escrito antes como `inspect(motivo)` puro, e o teste pegou o vazamento
+  # na hora. As três falhas que de fato trancam a porta têm frase própria lá: domínio não
+  # verificado, chave inválida e 429.
+  defp registrar({:error, motivo}) do
+    Logger.error("magic link: entrega falhou (#{Falhas.para_tela(inspect(motivo))})")
+  end
+
+  defp registrar(_ok), do: :ok
 
   # Espelha `MagicLink.request_token_for_identity`, mas embute o `nome` do cadastro quando
   # houver. Os demais claims (`act`, `identity`) e o ciclo do token seguem os do strategy.

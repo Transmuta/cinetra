@@ -28,10 +28,18 @@ defmodule Api.Accounts.Emails do
 
   alias Api.EmailLayout
 
-  # A marca, num lugar só. O `from` continua em `cinetra.local` porque é placeholder de dev e
-  # trocá-lo é assunto de configuração de domínio, não de copy.
+  # A marca, num lugar só.
   @marca "Cinetra"
-  @remetente {@marca, "nao-responda@cinetra.local"}
+
+  # O remetente vem do CONFIG (`MAIL_FROM`, via `runtime.exs`), como o do paciente sempre veio —
+  # e a constante abaixo é só o placeholder de dev, para a falta da env não derrubar o envio.
+  #
+  # Ele já foi uma constante e só uma, e isso custou caro: `cinetra.local` não é domínio verificado
+  # em provedor nenhum, então em produção o Resend recusava o magic link com 403 **antes** de a
+  # mensagem existir. Como o e-mail do paciente lê o config, ele saía normal — o que apontava o
+  # dedo para o lado errado do problema. Ver `Api.Messaging.PatientEmails` e o comentário do
+  # `runtime.exs`; regressão em `test/api/accounts/emails_test.exs` e `test/api/mailer_config_test.exs`.
+  @default_remetente {@marca, "nao-responda@cinetra.local"}
 
   # A caixa que uma pessoa lê, e por isso ela aparece **escrita** no corpo em vez de um
   # "responda este e-mail": o remetente é `nao-responda@`, e convidar a responder ali seria mandar
@@ -53,7 +61,7 @@ defmodule Api.Accounts.Emails do
 
     new()
     |> to(address)
-    |> from(@remetente)
+    |> from(remetente())
     |> subject("Seu link de acesso ao #{@marca}")
     |> text_body("""
     Olá!
@@ -119,7 +127,7 @@ defmodule Api.Accounts.Emails do
   def send_welcome_email(%{email: address} = user, clinic_nome) when is_binary(clinic_nome) do
     new()
     |> to(to_string(address))
-    |> from(@remetente)
+    |> from(remetente())
     |> subject("Sua conta da #{clinic_nome} está pronta")
     |> text_body("""
     #{com_nome("Olá", primeiro_nome(user))}!
@@ -194,7 +202,7 @@ defmodule Api.Accounts.Emails do
   def send_access_revoked_email(%{email: address}, clinic_nome) when is_binary(clinic_nome) do
     new()
     |> to(to_string(address))
-    |> from(@remetente)
+    |> from(remetente())
     |> subject("Seu acesso a #{clinic_nome} foi removido")
     |> text_body("""
     Olá!
@@ -229,6 +237,10 @@ defmodule Api.Accounts.Emails do
       ]
     )
   end
+
+  # Mesma leitura de `Api.Messaging.PatientEmails.remetente/0` — os dois módulos que mandam e-mail
+  # perguntam a mesma coisa ao config, e o `runtime.exs` responde com o mesmo valor.
+  defp remetente, do: Application.get_env(:api, __MODULE__, [])[:remetente] || @default_remetente
 
   # A validade sai da configuração da strategy, não de um número escrito na frase. Um
   # `token_lifetime` alterado no recurso e um "30 minutos" esquecido no texto produzem o pior tipo

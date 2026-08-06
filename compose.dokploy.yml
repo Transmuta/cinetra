@@ -225,6 +225,12 @@ services:
       # O remetente precisa ser de domínio verificado no Resend, e é POR AMBIENTE: prod manda do
       # domínio real, HML de um subdomínio próprio — nunca do mesmo, senão um teste em homologação
       # queima a reputação de envio da produção.
+      #
+      # Ele vale para os DOIS remetentes desde 2026-08-06 — o do paciente e o de CONTA (magic link,
+      # boas-vindas, acesso removido). Até ali o de conta era uma constante em `cinetra.local`, e o
+      # Resend recusava o magic link com 403 enquanto o e-mail do paciente saía normal: login
+      # trancado para todo mundo, com o log limpo e o sintoma apontando para o lado errado. Agora
+      # um `MAIL_FROM` errado quebra os dois canais junto — mais barulhento, e por isso melhor.
       MAIL_FROM: ${MAIL_FROM:?remetente de dominio verificado no Resend, um por ambiente}
       MAIL_FROM_NAME: ${MAIL_FROM_NAME:-Cinetra}
       # Fase 2, WhatsApp via Zernio (doc 65). Vazio = canal desligado, que é o estado em que o

@@ -14,18 +14,20 @@ defmodule Api.MailerConfigTest do
   use ExUnit.Case, async: false
 
   setup do
-    original = System.get_env("RESEND_API_KEY")
+    originais =
+      for var <- ~w(RESEND_API_KEY MAIL_FROM MAIL_FROM_NAME), do: {var, System.get_env(var)}
 
     on_exit(fn ->
-      if original,
-        do: System.put_env("RESEND_API_KEY", original),
-        else: System.delete_env("RESEND_API_KEY")
+      for {var, valor} <- originais do
+        if valor, do: System.put_env(var, valor), else: System.delete_env(var)
+      end
     end)
 
     :ok
   end
 
-  defp mailer(env), do: Config.Reader.read!("config/runtime.exs", env: env)[:api][Api.Mailer]
+  defp ler(env), do: Config.Reader.read!("config/runtime.exs", env: env)[:api]
+  defp mailer(env), do: ler(env)[Api.Mailer]
 
   test "variável VAZIA não escolhe o Resend — a caixa de dev continua funcionando" do
     # O bug medido: `if api_key = System.get_env("RESEND_API_KEY")` casa com `""`, porque em Elixir
@@ -54,5 +56,34 @@ defmodule Api.MailerConfigTest do
     config = mailer(:dev)
     assert config[:adapter] == Swoosh.Adapters.Resend
     assert config[:api_key] == "re_chave_de_teste"
+  end
+
+  describe "remetente dos e-mails de conta" do
+    # O bug de 2026-08-06: `Api.Accounts.Emails` tinha o `from` numa constante do módulo
+    # (`nao-responda@cinetra.local`) enquanto só `Api.Messaging.PatientEmails` recebia `MAIL_FROM`
+    # do runtime. Em produção o Resend recusa remetente de domínio não verificado — e o magic link
+    # morria com 403 sem log nenhum. E-mail de paciente funcionava; ninguém conseguia entrar.
+    test "MAIL_FROM alimenta os e-mails de CONTA, não só os do paciente" do
+      System.put_env("MAIL_FROM", "acesso@cinetra.app")
+      System.put_env("MAIL_FROM_NAME", "Cinetra")
+
+      config = ler(:dev)
+
+      assert config[Api.Accounts.Emails][:remetente] == {"Cinetra", "acesso@cinetra.app"},
+             "o magic link sairia de um domínio não verificado e o Resend recusaria com 403"
+
+      # E os dois lados continuam falando do mesmo endereço: dois remetentes diferentes seria
+      # duas reputações de envio para o mesmo produto.
+      assert config[Api.Messaging.PatientEmails][:remetente] ==
+               config[Api.Accounts.Emails][:remetente]
+    end
+
+    test "sem MAIL_FROM cai no placeholder de dev, igual ao do paciente" do
+      System.delete_env("MAIL_FROM")
+      System.delete_env("MAIL_FROM_NAME")
+
+      assert ler(:dev)[Api.Accounts.Emails][:remetente] ==
+               {"Cinetra", "nao-responda@cinetra.local"}
+    end
   end
 end
