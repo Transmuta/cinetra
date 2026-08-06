@@ -254,30 +254,11 @@ defmodule ApiWeb.AuthController do
       id: user.id,
       nome: user.nome,
       email: to_string(user.email),
-      avatar_url: avatar_url(user)
+      # URL assinada de vida curta, nunca a chave do objeto. A regra inteira — e o porquê de cada
+      # parte dela — mora em `ApiWeb.AvatarUrl`, que a lista da equipe usa igual.
+      avatar_url: ApiWeb.AvatarUrl.for_user(user)
     }
   end
-
-  # A foto de perfil sai como **URL assinada de vida curta**, nunca como a chave do objeto: a
-  # chave é o endereço interno no bucket e o cliente não teria o que fazer com ela.
-  #
-  # Vida de #{div(900, 60)} min, mais longa que os 5 do anexo, porque o consumo é outro: o anexo
-  # é um clique que abre uma aba, e o avatar é um `<img>` que a tela do usuário monta a cada
-  # `/me`. A URL não é segredo (aponta para uma foto de perfil), mas continua expirando —
-  # link vazado deixa de valer.
-  #
-  # Falha do storage não derruba o `/me`: sem foto, a tela cai nas iniciais, e a sessão inteira
-  # não pode depender do Cloudflare estar de pé.
-  defp avatar_url(%{avatar_key: chave}) when is_binary(chave) do
-    tipo = Api.Accounts.User.Avatar.tipo_da_chave(chave)
-
-    case Api.Storage.presign_get(chave, "avatar", tipo, expires_in: 900) do
-      {:ok, %{url: url}} -> url
-      _ -> nil
-    end
-  end
-
-  defp avatar_url(_user), do: nil
 
   # Reconstrói o scope em memória após a troca de tenant, para o /me refletir na hora.
   defp reload_scope(conn, user, clinic_id) do

@@ -4,7 +4,7 @@
 	import LogOut from '@lucide/svelte/icons/log-out';
 	import Check from '@lucide/svelte/icons/check';
 	import Building2 from '@lucide/svelte/icons/building-2';
-	import UserAvatar from './UserAvatar.svelte';
+	import UserAvatar from '$lib/components/UserAvatar.svelte';
 	import { ROLE_META } from '$lib/members';
 	import type { Me } from '$lib/session';
 

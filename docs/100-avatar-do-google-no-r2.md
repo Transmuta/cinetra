@@ -24,10 +24,15 @@ login Google → user_info.picture  ─┐
                                    │
     users.avatar_key + avatar_origem
                                    │
-        GET /api/auth/me ──────────┤  presign_get de 15 min
+   GET /api/auth/me · /api/members ─┤  presign_get de 15 min (ApiWeb.AvatarUrl)
                                    │
               <img> no UserAvatar ─┘  (img-src da CSP autoriza o bucket)
 ```
+
+Onde a foto aparece: o **menu do usuário** e **/perfil** (a própria pessoa, avatar colorido) e a
+**lista da Equipe** (co-membros, avatar neutro — ali ele identifica sem competir com papel e
+status). Quem lê `/api/members` já é membro ativo da clínica e já enxerga nome e e-mail de todos
+pela mesma policy, então a foto não abre superfície nova.
 
 Arquivos: `api/lib/api/accounts/user/avatar.ex` (regras puras),
 `api/lib/api/accounts/user/changes/sync_google_avatar.ex` (quando enfileirar),
@@ -59,6 +64,13 @@ as iniciais, num lugar só).
   falha do `PUT` do anexo (doc 51 §5.3). **Não há variável nova**: é a mesma do build.
 - **`user_json/1` no `AuthController`** — `/me` e o PATCH de perfil descreviam o usuário com dois
   literais iguais; o `avatar_url` seria o campo que ficaria só num deles.
+- **`ApiWeb.AvatarUrl`** — quando a lista da Equipe passou a mostrar a foto, a assinatura da URL
+  ganhou um segundo chamador, e a regra tem três partes que não podem divergir entre eles (nunca
+  devolver a chave, derivar o tipo da extensão, não deixar falha do storage derrubar a resposta).
+  Duplicada, a segunda cópia seria a que esqueceria a terceira.
+- **`UserAvatar` saiu de `components/shell/` para a raiz do design system** e ganhou
+  `variant: 'cor' | 'neutro'`. As duas telas já discordavam antes da foto e as duas estão certas:
+  o menu é a própria pessoa (slot de cor fixo), a Equipe é gente que não é você.
 
 ## 4. O que os testes provam (e o que não)
 

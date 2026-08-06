@@ -18,6 +18,12 @@ export interface Member {
 	user_id?: string;
 	nome: string;
 	email: string;
+	/**
+	 * A foto de perfil do membro — URL **já assinada** pela API, de vida curta (`ApiWeb.AvatarUrl`),
+	 * ou nula quando a pessoa não tem foto. Opcional pelo mesmo motivo de `user_id`: a tela monta um
+	 * `Member` sintético para convidar um profissional sem acesso, e ali não há usuário.
+	 */
+	avatar_url?: string | null;
 	papel: Papel;
 	status: MemberStatus;
 	professional_id: string | null;
@@ -36,7 +42,7 @@ export interface MembersData {
 // Rótulo + descrição de cada papel (o ícone é resolvido no componente, que importa lucide).
 export const ROLE_META: Record<Papel, { label: string; desc: string }> = {
 	owner: {
-		label: 'Dona',
+		label: 'Dono(a)',
 		desc: 'Controle total: configurações, equipe, faturamento e a própria clínica.'
 	},
 	admin: {

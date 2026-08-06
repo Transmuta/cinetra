@@ -21,6 +21,7 @@
 	} from '$lib/members';
 	import { canManageMembers } from '$lib/session';
 	import { initials } from '$lib/format';
+	import UserAvatar from '$lib/components/UserAvatar.svelte';
 	import { toast } from '$lib/toast.svelte';
 	import type { PageData, ActionData } from './$types';
 
@@ -154,11 +155,14 @@
 				<!-- identidade (com as ações à direita no mobile) -->
 				<div class="flex items-center gap-2.5">
 					<span class="flex min-w-0 flex-1 items-center gap-2.5">
-						<span
-							class="grid size-8 shrink-0 place-items-center rounded-full bg-surface-2 text-meta font-bold text-muted"
-						>
-							{initials(m.nome)}
-						</span>
+						<!-- A foto de perfil quando a pessoa entrou com Google (doc 100); iniciais quando
+						     não. `neutro` porque aqui o avatar identifica sem competir com papel e status. -->
+						<UserAvatar
+							nome={m.nome}
+							url={m.avatar_url}
+							variant="neutro"
+							class="size-8 text-meta"
+						/>
 						<span class="min-w-0">
 							<span class="block truncate text-corpo font-semibold">{m.nome}</span>
 							<span class="block truncate font-mono text-meta text-faint">{m.email}</span>

@@ -8,7 +8,7 @@
 	import Building2 from '@lucide/svelte/icons/building-2';
 	import Check from '@lucide/svelte/icons/check';
 	import LogOut from '@lucide/svelte/icons/log-out';
-	import UserAvatar from '$lib/components/shell/UserAvatar.svelte';
+	import UserAvatar from '$lib/components/UserAvatar.svelte';
 	import { ROLE_META } from '$lib/members';
 	import { toast } from '$lib/toast.svelte';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';

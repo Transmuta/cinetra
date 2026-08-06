@@ -136,6 +136,10 @@ defmodule ApiWeb.MembersController do
       user_id: m.user_id,
       nome: m.user.nome,
       email: to_string(m.user.email),
+      # A foto de perfil do co-membro (doc 100), na mesma forma do `/me`: URL assinada de vida
+      # curta, nunca a chave. Quem lê esta lista já é membro ativo da clínica e já enxerga nome e
+      # e-mail da pessoa — a foto não abre superfície nova, é o mesmo recorte de policy.
+      avatar_url: ApiWeb.AvatarUrl.for_user(m.user),
       papel: m.papel,
       status: m.status,
       professional_id: m.professional_id
