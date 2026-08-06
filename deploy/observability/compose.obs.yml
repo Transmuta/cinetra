@@ -160,7 +160,7 @@ services:
       start_period: 10s
 
   loki:
-    image: grafana/loki:3.5.7
+    image: grafana/loki:3.7.4
     # `expand-env` é o que permite um único loki.yml servir dev (filesystem) e produção (R2).
     command: ["-config.file=/etc/loki/loki.yml", "-config.expand-env=true"]
     restart: unless-stopped
