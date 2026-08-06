@@ -31,7 +31,24 @@ RUN mix compile
 RUN mix release
 
 # ---- runtime ----
-FROM debian:bookworm-slim@sha256:abd67ffcfa541b485a3dff59865ab629aa048a6c613e639d36e7456b0b229241 AS app
+#
+# **O Debian daqui tem de ser o MESMO do builder acima.** A ERTS é compilada nativamente lá e
+# copiada para cá; se o runtime for mais velho, o `beam.smp` não encontra os símbolos da glibc
+# contra a qual foi ligado e a imagem **não executa uma única instrução**:
+#
+#   beam.smp: /lib/x86_64-linux-gnu/libm.so.6: version `GLIBC_2.38' not found
+#
+# Medido em 2026-08-06, com as duas bases pregadas por digest (ou seja, o CI produzia a mesma
+# imagem quebrada): `elixir:1.20.1-otp-29` é Debian 13 trixie, **glibc 2.41**; o
+# `debian:bookworm-slim` que estava aqui é Debian 12, **glibc 2.36**. A imagem subiu no GHCR,
+# passou em todo gate do CI e derrubou a HML — o `migrate` saiu com `exit 1` e o log do deploy
+# não menciona glibc, banco nem migration.
+#
+# Pin por digest NÃO protege contra isto: protege contra a base mudar sozinha, e o problema aqui é
+# as duas mudarem em ritmos diferentes. Ao subir a versão do Elixir, confira o Debian da imagem
+# nova (`cat /etc/os-release`) e traga esta linha junto. O gate que pega o esquecimento é o passo
+# de smoke do job `imagem` no CI, que **roda** a imagem construída em vez de só construí-la.
+FROM debian:trixie-slim@sha256:3a39a0592364683e6bab97937b72cad5a8fa6dcbbee90edb3bb48c7f8e94f258 AS app
 
 # `curl` existe por um motivo só: o `healthcheck` do serviço `api` em `compose.dokploy.yml`
 # (R-A7). A imagem não tinha NENHUM cliente HTTP — e sem healthcheck de Docker o

@@ -396,6 +396,35 @@ jobs:
             ${{ steps.alvo.outputs.registro }}/cinetra-api:sha-${{ steps.alvo.outputs.sha_curto }}
           cache-from: type=gha,scope=api
           cache-to: type=gha,mode=max,scope=api
+          # `load: true` põe a imagem no daemon local para o passo seguinte poder RODÁ-LA.
+          # Vale também em PR, onde `push` é falso e não haveria como buscá-la no registro.
+          load: true
+
+      # ---------------------------------------------------------------------
+      # O build passar não prova que a imagem EXECUTA. Em 2026-08-06 a HML caiu com o `migrate`
+      # em `exit 1` porque a ERTS, compilada no builder (Debian 13 trixie, glibc 2.41), foi
+      # copiada para um runtime `debian:bookworm-slim` (glibc 2.36): o `beam.smp` morria em
+      # `version 'GLIBC_2.38' not found` sem executar uma instrução. Os dois bases estavam
+      # pregados por digest e todos os gates estavam verdes — este job construiu, publicou e
+      # aprovou uma imagem que não roda.
+      #
+      # `bin/api eval` é o comando mais barato que prova o que precisa ser provado: carrega a
+      # ERTS, o release e o `runtime.exs`. Não toca banco (as envs abaixo são de fachada, e o
+      # `eval` não abre conexão sozinho), então não precisa de serviço nenhum no runner.
+      # ---------------------------------------------------------------------
+      - name: API — smoke da imagem (ela EXECUTA?)
+        env:
+          IMAGEM: ${{ steps.alvo.outputs.registro }}/cinetra-api:${{ steps.alvo.outputs.tag }}
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -e SECRET_KEY_BASE=smoke-secret-key-base-com-64-caracteres-para-o-release-bootar-ok \
+            -e TOKEN_SIGNING_SECRET=smoke \
+            -e DATABASE_URL=ecto://u:p@db/smoke \
+            -e PHX_HOST=smoke.invalido \
+            -e WEB_APP_URL=https://smoke.invalido \
+            -e PHX_SERVER=false \
+            "$IMAGEM" bin/api eval 'IO.puts("smoke ok")'
 
       # Em PR o host é `ci.invalido` e o `R2_ACCOUNT_ID` é vazio — estado VÁLIDO (o
       # `Dockerfile.prod` diz isso por escrito): o bucket só não entra no `connect-src`. O que o
