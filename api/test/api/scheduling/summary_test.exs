@@ -14,6 +14,8 @@ defmodule Api.Scheduling.SummaryTest do
   # Segunda e terça de uma semana comum (clínica aberta 08–12 / 13–18 = 540 min/dia no seed).
   @segunda ~D[2026-07-20]
   @terca ~D[2026-07-21]
+  # O domingo da mesma semana — fechado no seed (`SeedClinicHours`: `dow: 0, periods: []`).
+  @domingo ~D[2026-07-26]
   @tz "America/Sao_Paulo"
 
   defp setup_clinic,
@@ -181,6 +183,37 @@ defmodule Api.Scheduling.SummaryTest do
       assert Enum.map(r.por_dia, & &1.total) == [2, 1]
       assert r.totais.pico == %{date: @segunda, total: 2}
       assert r.totais.dias_uteis == 2
+    end
+
+    # O gráfico de volume desenha uma célula por data da janela, e sem esta bandeira "clínica
+    # fechada" e "dia aberto sem ninguém" viram a mesma célula vazia — ~9 buracos por mês que se
+    # leem como falha de dado. A capacidade por dia já era calculada aqui (o denominador de
+    # `dias_uteis`) e era descartada; agora ela atravessa a fronteira.
+    test "por_dia marca `aberto` pelo expediente do dia — o domingo fechado não é dia vazio" do
+      ctx = setup_clinic()
+      schedule(ctx, @segunda, "08:00")
+
+      por_dia = summary(ctx, @segunda, @domingo).por_dia
+
+      assert Enum.map(por_dia, & &1.aberto) == [true, true, true, true, true, true, false]
+      # A terça (aberta, ninguém marcado) e o domingo (fechado) contam 0 do mesmo jeito: só
+      # `aberto` os separa.
+      assert Enum.map(por_dia, & &1.total) == [1, 0, 0, 0, 0, 0, 0]
+    end
+
+    # `aberto` é do escopo SELECIONADO, como a ocupação: filtrar por quem não atende naquele dia
+    # fecha o dia no gráfico. É a mesma pergunta que o denominador responde ("havia expediente
+    # para estes profissionais?"), e duas respostas divergentes na mesma tela seriam pior.
+    test "`aberto` segue o filtro de profissional, como o denominador da ocupação" do
+      ctx = setup_clinic()
+      outra = profissional!(ctx, "Dra. Folga")
+
+      {:ok, _rows} =
+        Scheduling.update_professional_hours(ctx.scope, outra.id, [%{dow: 1, modo: :fechado}])
+
+      por_dia = summary(ctx, @segunda, @terca, outra.id).por_dia
+
+      assert Enum.map(por_dia, & &1.aberto) == [false, true]
     end
 
     test "por_tipo conta os ativos por tipo, em ordem decrescente" do

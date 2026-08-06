@@ -79,7 +79,7 @@ defmodule ApiWeb.ReportsControllerTest do
       assert body["totals"]["atendimentos"] == 2
       assert body["totals"]["futuros"] == 2
       assert body["totals"]["capacidade_minutos"] == 540
-      assert [%{"date" => @segunda, "total" => 2}] = body["por_dia"]
+      assert [%{"date" => @segunda, "total" => 2, "aberto" => true}] = body["por_dia"]
       assert [%{"professional_id" => pid, "total" => 2}] = body["por_profissional"]
       assert pid == ctx.prof.id
       assert Enum.any?(body["professionals"], &(&1["id"] == ctx.prof.id))

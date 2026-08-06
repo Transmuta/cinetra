@@ -6,6 +6,8 @@
 	import Gauge from '@lucide/svelte/icons/gauge';
 	import Info from '@lucide/svelte/icons/info';
 	import Modal from '$lib/components/Modal.svelte';
+	import VolumeCalendario from '$lib/components/reports/VolumeCalendario.svelte';
+	import VolumeSemana from '$lib/components/reports/VolumeSemana.svelte';
 	import { avatarColor, avatarStyle } from '$lib/avatar';
 	import { initials } from '$lib/format';
 	import { todayInZone } from '$lib/agenda';
@@ -17,7 +19,7 @@
 		barPct,
 		sharePct,
 		maxTotal,
-		showDaily,
+		volumeMode,
 		fmtDayMonth,
 		rangeLabel
 	} from '$lib/reports';
@@ -41,8 +43,11 @@
 	);
 	const rangeLbl = $derived(rangeLabel(report.range));
 
-	const daily = $derived(showDaily(report.por_dia));
-	const maxDia = $derived(Math.max(1, ...report.por_dia.map((d) => d.total)));
+	// Qual desenho a janela pede (doc 106): um dia degenera em "por profissional", a semana vira
+	// linhas por dia e o mês/trimestre vira calendário. A barra vertical servia os três e
+	// desmontava nos extremos — 145px de largura na semana, 4,8px no trimestre.
+	const modo = $derived(volumeMode(report.por_dia));
+	const daily = $derived(modo !== 'profissional');
 	const maxTipo = $derived(Math.max(1, maxTotal(report.por_tipo)));
 	const maxProf = $derived(Math.max(1, maxTotal(report.por_profissional)));
 
@@ -169,7 +174,7 @@
 		)}
 	</div>
 
-	<!-- Volume: por dia (janela) ou por profissional (dia único) -->
+	<!-- Volume: calendário (mês/trimestre), linhas por dia (semana) ou por profissional (dia único) -->
 	<div class="mb-3.5 overflow-hidden rounded-cartao border border-edge bg-surface">
 		<div class="flex items-center justify-between gap-2.5 border-b border-edge px-4 py-[13px]">
 			<!-- `h2` como os outros títulos de cartão (ACC-22): a hierarquia já era visual. -->
@@ -181,46 +186,10 @@
 			{/if}
 		</div>
 		<div class="px-4 py-3.5">
-			{#if daily}
-				<div class="flex h-[132px] items-end gap-[3px] sm:gap-1.5">
-					{#each report.por_dia as d (d.date)}
-						{@const hp = barPct(d.total, maxDia)}
-						{@const cf = d.total ? Math.round((d.concluidos / d.total) * 100) : 0}
-						{@const isToday = d.date === today}
-						<div
-							class="flex h-full min-w-0 flex-1 flex-col items-center gap-[5px]"
-							title="{fmtDayMonth(d.date)} · {d.total} atend. · {d.concluidos} concl."
-						>
-							<div class="flex w-full flex-1 items-end">
-								<div
-									class="flex w-full items-end overflow-hidden rounded-t-micro bg-surface-2"
-									style="height:{hp}%;min-height:{d.total ? '4px' : '0'};{isToday
-										? 'outline:2px solid var(--color-accent);outline-offset:-1px'
-										: ''}"
-								>
-									<div class="w-full bg-accent" style="height:{cf}%"></div>
-								</div>
-							</div>
-							<div
-								class="h-3 font-mono text-micro {isToday
-									? 'font-bold text-accent-text'
-									: 'text-faint'}"
-							>
-								{report.por_dia.length <= 16 || new Date(d.date + 'T00:00').getDay() === 1
-									? Number(d.date.slice(-2))
-									: ''}
-							</div>
-						</div>
-					{/each}
-				</div>
-				<div class="mt-2.5 flex gap-4 text-meta text-muted">
-					<span class="inline-flex items-center gap-[5px]">
-						<span class="size-[9px] rounded-controle bg-accent"></span> Concluídos
-					</span>
-					<span class="inline-flex items-center gap-[5px]">
-						<span class="size-[9px] rounded-controle border border-edge bg-surface-2"></span> Demais
-					</span>
-				</div>
+			{#if modo === 'calendario'}
+				<VolumeCalendario porDia={report.por_dia} {today} />
+			{:else if modo === 'semana'}
+				<VolumeSemana porDia={report.por_dia} {today} />
 			{:else}
 				<div class="flex flex-col gap-[11px]">
 					{#each report.por_profissional as pp (pp.professional_id)}

@@ -93,8 +93,8 @@ defmodule Api.Scheduling.Reports do
       ativos = Enum.reject(appointments, &(&1.status == :cancelado))
       sources = gather_sources(prof_ids, dates, tenant: scope.clinic_id, authorize?: false)
 
-      dias = summary_por_dia(ativos, dates, timezone)
       capacidade_dia = summary_capacidade_por_dia(breakdown, dates, sources)
+      dias = summary_por_dia(ativos, dates, timezone, capacidade_dia)
       ocupado = summary_ocupado_minutos(ativos)
 
       %{
@@ -149,11 +149,18 @@ defmodule Api.Scheduling.Reports do
   defp summary_filter_professionals(scope, _escopo, _breakdown),
     do: summary_professionals(scope, :all)
 
-  defp summary_por_dia(ativos, dates, timezone) do
+  # `capacidade_dia` é a lista paralela a `dates` — a mesma que dá `dias_uteis`. Ela entra aqui
+  # só para virar `aberto`: o gráfico desenha uma célula por data da janela, e sem a bandeira
+  # "clínica fechada" e "dia aberto sem ninguém" são a mesma célula vazia. Num mês são ~9 células
+  # que se leem como buraco de dado. Minuto de expediente não sobe ao wire — a tela não tem o que
+  # fazer com ele, e a ocupação já é publicada agregada.
+  defp summary_por_dia(ativos, dates, timezone, capacidade_dia) do
     by_date =
       Enum.group_by(ativos, &Api.Scheduling.LocalTime.to_local_date(&1.starts_at, timezone))
 
-    Enum.map(dates, fn date ->
+    dates
+    |> Enum.zip(capacidade_dia)
+    |> Enum.map(fn {date, capacidade} ->
       # Mesma unidade do cartão (presença, não bloco): senão o gráfico "Volume por dia" somaria
       # 12 embaixo de um KPI que diz 19, e o número volta a ser incontestável por falta de conta.
       presencas = by_date |> Map.get(date, []) |> summary_presencas()
@@ -161,7 +168,11 @@ defmodule Api.Scheduling.Reports do
       %{
         date: date,
         total: length(presencas),
-        concluidos: Enum.count(presencas, &(&1.status == :concluida))
+        concluidos: Enum.count(presencas, &(&1.status == :concluida)),
+        # Do escopo SELECIONADO, como o denominador da ocupação: filtrar por quem não atende na
+        # segunda fecha a segunda no gráfico. Duas respostas divergentes para "havia expediente?"
+        # na mesma tela seria pior que a assimetria.
+        aberto: capacidade > 0
       }
     end)
   end

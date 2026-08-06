@@ -71,6 +71,12 @@ defmodule ApiWeb.ReportsController do
   defp render_pico(nil), do: nil
   defp render_pico(%{date: date, total: total}), do: %{date: Date.to_iso8601(date), total: total}
 
-  defp render_dia(%{date: date, total: total, concluidos: concluidos}),
-    do: %{date: Date.to_iso8601(date), total: total, concluidos: concluidos}
+  defp render_dia(%{date: date, total: total, concluidos: concluidos, aberto: aberto}),
+    do: %{
+      date: Date.to_iso8601(date),
+      total: total,
+      concluidos: concluidos,
+      # A tela distingue "fechado" de "aberto e vazio" — os dois têm total 0 (doc 106).
+      aberto: aberto
+    }
 end
