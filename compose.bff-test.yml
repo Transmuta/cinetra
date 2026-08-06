@@ -18,7 +18,7 @@ services:
   # Traefik por FILE PROVIDER (deploy/bff-test/traefik-dynamic.yml). O provider DOCKER (labels),
   # usado em produção, não funciona no Docker Desktop/WSL (socket-proxy). Ver o header do dynamic.
   traefik:
-    image: traefik:v3.1
+    image: traefik:v3.7
     command:
       - --providers.file.filename=/etc/traefik/dynamic.yml
       - --providers.file.watch=true

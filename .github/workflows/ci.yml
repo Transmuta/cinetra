@@ -53,7 +53,7 @@ jobs:
       DATABASE_USER: postgres
       DATABASE_PASSWORD: postgres
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Elixir/OTP
         uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
@@ -62,7 +62,7 @@ jobs:
           otp-version: "27"
 
       - name: Cache deps e _build
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             api/deps
@@ -156,7 +156,7 @@ jobs:
       DATABASE_USER: postgres
       DATABASE_PASSWORD: postgres
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Elixir/OTP
         uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
@@ -165,7 +165,7 @@ jobs:
           otp-version: "27"
 
       - name: Cache deps e _build
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             api/deps
@@ -209,10 +209,10 @@ jobs:
       run:
         working-directory: web
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
           cache: npm
@@ -264,12 +264,12 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # `cache-from`/`cache-to` do tipo `gha` guardam as camadas no cache do próprio Actions —
       # sem isso, cada PR recompila o release Elixir do zero.
       - name: Setup Buildx
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
       # ---------------------------------------------------------------------
       # Um lugar só decide: publica? com que tag? e com que identidade de ambiente?
@@ -363,7 +363,7 @@ jobs:
       #   - a IMUTÁVEL (`sha-…`) é o que torna rollback possível — `IMAGE_TAG=sha-…` no Environment
       #     do stack e redeploy, sem depender de o Git ter voltado atrás.
       - name: API — build (e publicação)
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: ./api
           file: ./api/Dockerfile.prod
@@ -379,7 +379,7 @@ jobs:
       # `Dockerfile.prod` diz isso por escrito): o bucket só não entra no `connect-src`. O que o
       # build de PR prova é a guarda de sourcemap e o `npm prune`, não a configuração do ambiente.
       - name: BFF — build (e publicação)
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: ./web
           file: ./web/Dockerfile.prod
