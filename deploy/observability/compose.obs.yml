@@ -104,7 +104,7 @@ services:
   # dead man's switch acusa em 10 min) e o cAdvisor perde os rótulos de nome (os painéis de
   # container esvaziam). Ambos são visíveis e reversíveis — o rollback é voltar o bind do socket.
   docker-proxy:
-    image: tecnativa/docker-socket-proxy:0.3.0@sha256:9e4b9e7517a6b660f2cc903a19b257b1852d5b3344794e3ea334ff00ae677ac2
+    image: tecnativa/docker-socket-proxy:v0.5.0@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459
     restart: unless-stopped
     logging: *logging
     mem_limit: ${DOCKER_PROXY_MEM_LIMIT:-64m}
