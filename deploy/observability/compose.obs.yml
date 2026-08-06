@@ -363,7 +363,7 @@ services:
   # estado o negócio está", e estas três respondem **"em que estado a máquina está"** — a lacuna
   # que o doc 62 §11.2 registrou por escrito e deixou em aberto.
   prometheus:
-    image: prom/prometheus:v3.13.1
+    image: prom/prometheus:v3.13.2
     restart: unless-stopped
     # Série temporal é barata em disco e cara em memória: o Prometheus mantém os blocos das
     # últimas 2h em RAM. Com ~1.500 séries (medido, ver doc 74 §6) 512m sobra.
