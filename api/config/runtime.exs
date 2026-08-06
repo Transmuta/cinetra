@@ -139,7 +139,8 @@ config :api, Api.Heartbeat,
     "Api.Notifications.SessionSoonJob" => "session-soon",
     "Api.Housekeeping.PruneTrail" => "prune-trail",
     "Api.Housekeeping.PruneNotifications" => "prune-notifications",
-    "Api.Housekeeping.PruneAttachments" => "prune-attachments"
+    "Api.Housekeeping.PruneAttachments" => "prune-attachments",
+    "Api.Housekeeping.PruneWebhookEvents" => "prune-webhook-events"
   },
   urls:
     %{
@@ -148,7 +149,9 @@ config :api, Api.Heartbeat,
       "Api.Housekeeping.PruneTrail" => System.get_env("HEARTBEAT_URL_PRUNE_TRAIL"),
       "Api.Housekeeping.PruneNotifications" =>
         System.get_env("HEARTBEAT_URL_PRUNE_NOTIFICATIONS"),
-      "Api.Housekeeping.PruneAttachments" => System.get_env("HEARTBEAT_URL_PRUNE_ATTACHMENTS")
+      "Api.Housekeeping.PruneAttachments" => System.get_env("HEARTBEAT_URL_PRUNE_ATTACHMENTS"),
+      "Api.Housekeeping.PruneWebhookEvents" =>
+        System.get_env("HEARTBEAT_URL_PRUNE_WEBHOOK_EVENTS")
     }
     |> Map.reject(fn {_worker, url} -> is_nil(url) or url == "" end)
 
