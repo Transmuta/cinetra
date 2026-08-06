@@ -601,7 +601,7 @@ services:
   # Recebe SÓ do Alloy (ver `tempo.yml`): é lá que a redação mora, e um segundo caminho de entrada
   # seria um caminho sem redação.
   tempo:
-    image: grafana/tempo:2.10.7
+    image: grafana/tempo:3.0.2
     # `expand-env` pelo mesmo motivo do Loki: um arquivo serve dev e produção, e a retenção vira
     # variável de ambiente em vez de fork do arquivo.
     command: ["-config.file=/etc/tempo/tempo.yml", "-config.expand-env=true"]
