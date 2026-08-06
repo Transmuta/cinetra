@@ -3,7 +3,7 @@
 # ferramentas de build no runtime, como usuário não-root.
 
 # ---- build ----
-FROM elixir:1.18.4-otp-27@sha256:1f8c9923c1c2ff2830e772852dd65e1263d424a50a2651ce757c03eedff3f56e AS build
+FROM elixir:1.20.1-otp-29@sha256:19ee088049ac64d76779c7789745a3a119e49abd70bbc74b0e3b95ab4a14842b AS build
 
 RUN apt-get update -y \
   && apt-get install -y --no-install-recommends build-essential git \
@@ -31,7 +31,7 @@ RUN mix compile
 RUN mix release
 
 # ---- runtime ----
-FROM debian:bookworm-slim@sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818 AS app
+FROM debian:bookworm-slim@sha256:abd67ffcfa541b485a3dff59865ab629aa048a6c613e639d36e7456b0b229241 AS app
 
 # `curl` existe por um motivo só: o `healthcheck` do serviço `api` em `compose.dokploy.yml`
 # (R-A7). A imagem não tinha NENHUM cliente HTTP — e sem healthcheck de Docker o
