@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -242,5 +243,92 @@ describe('contraste dos tokens (WCAG 2 AA)', () => {
 		expect(Object.keys(CLARO)).toContain('faint');
 		expect(Object.keys(ESCURO)).toContain('faint');
 		expect(CLARO.faint).not.toBe(ESCURO.faint);
+	});
+});
+
+/**
+ * O piso de 4,5 é de 1.4.3, e 1.4.3 não distingue 10px de 17px — abaixo de "texto grande" está
+ * tudo no mesmo balde. Na tela isso não se sustenta: a badge `grupo · cap N` da lista de tipos
+ * media **4,65** (`--mv-on-solid` sobre `--mv-info-solid`), passava o teste de par acima, e não
+ * dava para ler. Azul saturado é a pior base da família para tinta escura — os vizinhos medem
+ * 5,31 (success) e 8,63 (warning), e é por isso que a ENCAIXE, que é a mesma anatomia em âmbar,
+ * nunca reclamou.
+ *
+ * Então: **fundo semântico sólido carregando `text-micro` (10px) pede o piso AAA de 7:1.** Não é
+ * regra de WCAG para este tamanho — é a leitura de que 10px bold sobre cor cheia gasta a margem
+ * que 4,5 não tem sobrando. Quem não alcançar 7 usa o par tingido (`bg-<sem>/14` + `text-<sem>`,
+ * medido logo acima), que é o que o `Badge` do design system já emite.
+ *
+ * Varre a MARCAÇÃO porque o par sozinho não denuncia nada: `info-solid` + `on-solid` é legítimo
+ * num botão de 13px. O que reprova é a combinação com o tamanho.
+ */
+describe('fundo semântico sólido com texto de 10px', () => {
+	const APP = new URL('../../', import.meta.url).pathname;
+
+	/** Só o `class="…"` literal; `class={expr}` computado não é varrido (o `Badge` mora lá). */
+	const CLASSES = /class="([^"]*)"/g;
+	const SOLIDO = /\bbg-(success|warning|danger|info|accent)-solid\b/;
+	const PISO_MICRO = 7;
+
+	function svelteDoAppInterno(dir: string, acc: string[] = []): string[] {
+		for (const nome of readdirSync(dir)) {
+			const caminho = join(dir, nome);
+			if (statSync(caminho).isDirectory()) svelteDoAppInterno(caminho, acc);
+			else if (nome.endsWith('.svelte')) acc.push(caminho);
+		}
+		return acc;
+	}
+
+	/** Cada `class="…"` que junta um fundo sólido a `text-micro`, com o par de cor que ele pinta. */
+	function paresMicro(): { onde: string; fundo: string; texto: string; razao: number }[] {
+		const alvos = [
+			...svelteDoAppInterno(join(APP, 'lib/components')),
+			...svelteDoAppInterno(join(APP, 'routes/(app)'))
+		];
+
+		const achados = [];
+
+		for (const caminho of alvos) {
+			const rel = relative(APP, caminho).replaceAll('\\', '/');
+
+			for (const [, classe] of readFileSync(caminho, 'utf8').matchAll(CLASSES)) {
+				const m = SOLIDO.exec(classe);
+				if (!m || !/\btext-micro\b/.test(classe)) continue;
+
+				const fundo = COMPARTILHADO[`${m[1]}_solid`];
+				const texto = /\btext-white\b/.test(classe) ? '#ffffff' : COMPARTILHADO.on_solid;
+
+				achados.push({
+					onde: `${rel} → bg-${m[1]}-solid`,
+					fundo,
+					texto,
+					razao: razao(texto, fundo)
+				});
+			}
+		}
+
+		return achados;
+	}
+
+	it('todo par sólido + micro passa 7:1', () => {
+		for (const p of paresMicro()) {
+			expect(
+				p.razao,
+				`${p.onde}: ${p.texto} sobre ${p.fundo} dá ${p.razao.toFixed(2)} — 10px bold sobre cor ` +
+					`cheia precisa de ${PISO_MICRO}; use o par tingido (bg-<sem>/14 + text-<sem>)`
+			).toBeGreaterThanOrEqual(PISO_MICRO);
+		}
+	});
+
+	it('o scanner enxerga: a badge ENCAIXE é o par sólido + micro que passa', () => {
+		// Guarda contra o pior desfecho — verde por a varredura não achar nada.
+		const pares = paresMicro();
+		expect(
+			pares.length,
+			'nenhum par sólido+micro encontrado — o scanner parou de ler'
+		).toBeGreaterThan(0);
+		expect(pares.map((p) => p.onde)).toContain(
+			'lib/components/agenda/ListView.svelte → bg-warning-solid'
+		);
 	});
 });
