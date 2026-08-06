@@ -44,7 +44,14 @@ defmodule Api.Accounts.Emails do
   # A caixa que uma pessoa lê, e por isso ela aparece **escrita** no corpo em vez de um
   # "responda este e-mail": o remetente é `nao-responda@`, e convidar a responder ali seria mandar
   # a mensagem para o vazio. É o mesmo endereço das páginas legais (`web/src/lib/legal.ts`).
-  @contato "contato@cinetra.app"
+  #
+  # **Do mesmo domínio que assina o e-mail, e isso é regra, não estética.** Ele já foi
+  # `contato@cinetra.app` — domínio que nunca foi registrado (NXDOMAIN, sem SOA nem NS). Além de
+  # o cliente escrever para o vazio, filtro de spam resolve os domínios citados no corpo, e um
+  # que não existe conta contra a entrega; foi um dos achados de 2026-08-06, quando TODO e-mail
+  # estava indo para a caixa de spam. `cinetra.com.br` é o domínio verificado no Resend, assinado
+  # pelo DKIM, e recebe de volta pelo Email Routing do Cloudflare.
+  @contato "contato@cinetra.com.br"
 
   @doc """
   Monta e envia o e-mail de magic link. Recebe um `%User{}` (já existe) ou uma string
