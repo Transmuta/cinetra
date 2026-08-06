@@ -104,7 +104,7 @@ services:
   # dead man's switch acusa em 10 min) e o cAdvisor perde os rótulos de nome (os painéis de
   # container esvaziam). Ambos são visíveis e reversíveis — o rollback é voltar o bind do socket.
   docker-proxy:
-    image: tecnativa/docker-socket-proxy:0.3.0@sha256:9e4b9e7517a6b660f2cc903a19b257b1852d5b3344794e3ea334ff00ae677ac2
+    image: tecnativa/docker-socket-proxy:v0.5.0@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459
     restart: unless-stopped
     logging: *logging
     mem_limit: ${DOCKER_PROXY_MEM_LIMIT:-64m}
@@ -203,7 +203,7 @@ services:
       start_period: 30s
 
   grafana:
-    image: grafana/grafana:12.3.1
+    image: grafana/grafana:13.1.1
     restart: unless-stopped
     logging: *logging
     mem_limit: ${GRAFANA_MEM_LIMIT:-512m}
@@ -601,7 +601,7 @@ services:
   # Recebe SÓ do Alloy (ver `tempo.yml`): é lá que a redação mora, e um segundo caminho de entrada
   # seria um caminho sem redação.
   tempo:
-    image: grafana/tempo:2.10.7
+    image: grafana/tempo:3.0.2
     # `expand-env` pelo mesmo motivo do Loki: um arquivo serve dev e produção, e a retenção vira
     # variável de ambiente em vez de fork do arquivo.
     command: ["-config.file=/etc/tempo/tempo.yml", "-config.expand-env=true"]
@@ -640,7 +640,7 @@ services:
     # A prontidão é verificada de fora, por quem tem cliente HTTP: `verificar.sh` §12.
 
   alloy:
-    image: grafana/alloy:v1.12.1
+    image: grafana/alloy:v1.18.0
     restart: unless-stopped
     logging: *logging
     # Subiu de 256m junto com o receptor OTLP: o `otelcol.processor.batch` segura lotes de span em

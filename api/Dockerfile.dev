@@ -1,6 +1,6 @@
 # Dev image for the Api API (Phoenix + Ash). Runtime only —
 # source is bind-mounted and deps/_build live in named volumes (see compose).
-FROM elixir:1.18.4-otp-27
+FROM elixir:1.20.1-otp-29
 
 RUN apt-get update -y \
   && apt-get install -y --no-install-recommends build-essential git inotify-tools postgresql-client \
