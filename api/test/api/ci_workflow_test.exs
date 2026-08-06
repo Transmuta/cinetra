@@ -449,6 +449,40 @@ defmodule Api.CiWorkflowTest do
              """
     end
 
+    test "o job `imagem` RODA a imagem da API, não só a constrói", %{ci: ci} do
+      smoke = passo_do_job(ci, "imagem", "smoke da imagem")
+
+      assert smoke =~ "docker run",
+             """
+             O passo de smoke não executa a imagem.
+
+             Build verde não prova que a imagem RODA. Em 2026-08-06 a HML caiu com o `migrate` em \
+             `exit 1`: a ERTS compilada no builder (Debian 13 trixie, glibc 2.41) foi copiada para \
+             um runtime `debian:bookworm-slim` (glibc 2.36), e o `beam.smp` morria em \
+             `GLIBC_2.38 not found` sem executar uma instrução. Os dois bases estavam pregados por \
+             digest e TODOS os gates estavam verdes — este job construiu, publicou e aprovou uma \
+             imagem que não roda.
+             """
+
+      assert smoke =~ "bin/api eval",
+             """
+             O smoke roda a imagem mas não força o release a carregar.
+
+             `docker run` sozinho pode sair 0 sem exercitar a ERTS. `bin/api eval` carrega ERTS, \
+             release e `runtime.exs` — que é exatamente o caminho onde o defeito de glibc mora.
+             """
+
+      build = passo_do_job(ci, "imagem", "API — build")
+
+      assert build =~ ~r/load:\s*true/,
+             """
+             O build da API não declara `load: true`.
+
+             Sem isso a imagem não entra no daemon do runner e o passo de smoke não tem o que \
+             rodar — em PR, onde `push` é falso, ela não existe em lugar nenhum.
+             """
+    end
+
     test "a publicação cobra as variáveis que a CSP assa na imagem", %{ci: ci} do
       imagem = ci |> bloco_do_job("imagem") |> Enum.join("\n")
 
