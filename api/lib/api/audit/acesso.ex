@@ -80,6 +80,32 @@ defmodule Api.Audit.Acesso do
   end
 
   @doc """
+  O mesmo que `anexo_tocado/3`, mas **propaga a falha** em vez de engolir.
+
+  Existe para o caminho do **download**, que é o único em que a trilha é pré-condição do acesso e
+  não registro posterior: a URL assinada dá ao portador os bytes de um laudo, e a LGPD pergunta
+  "quem baixou". Emitir a URL sem conseguir gravar quem a pediu é entregar o dado sem rastro.
+
+  Até o doc 96 (B-5) isso era só uma promessa de docstring: `Api.Records` tinha um
+  `registrar_evento!/3` que era clone **byte a byte** do `registrar_evento/3` sem bang, e os dois
+  caíam no `gravar/7`, que termina em `Logger.warning` + `:ok` e **nunca** levanta. Três lugares
+  — o nome com `!`, o `@doc` de `attachment_download/2` e a implementação — diziam duas coisas
+  diferentes, e a que valia era a mais frouxa.
+
+  Os demais eventos de acesso seguem best-effort de propósito (ver `gravar/7`): abrir uma ficha
+  não pode falhar porque a trilha falhou. O download é a exceção, e é deliberada.
+  """
+  def anexo_tocado!(%Api.Scope{} = scope, acao, anexo) do
+    meta = %{"patient_id" => anexo.patient_id, "attachment_id" => anexo.id}
+
+    registrar(scope, :attachment, anexo.id, anexo.nome, to_string(acao), meta,
+      tipo: tipo_do_anexo(acao),
+      dedup?: false,
+      propagar?: true
+    )
+  end
+
+  @doc """
   Registra uma **autorização negada** (doc 61 §3b) — o quarto evento que o `06 §4` pede e que
   alimenta a detecção de abuso do `06 §8`.
 
@@ -90,10 +116,27 @@ defmodule Api.Audit.Acesso do
   Deduplicado pela mesma janela, e por um motivo prático: sem isso um cliente em laço transforma
   a trilha num log de acesso e a poda passa a ser a única coisa que a segura.
   """
-  def acesso_negado(%Api.Scope{} = scope, caminho) when is_binary(caminho) do
-    registrar(scope, :seguranca, nil, caminho, "acesso_negado", %{"caminho" => caminho},
-      tipo: :deny
-    )
+  def acesso_negado(%Api.Scope{} = scope, caminho) when is_binary(caminho),
+    do: acesso_negado(scope, caminho, caminho)
+
+  @doc """
+  O mesmo, com a **rota normalizada** separada do caminho cru.
+
+  A dedup para eventos sem `record_id` casa por `label` — e enquanto o label era o path cru, com
+  os UUIDs dentro, ela nunca casava justamente no caso que esta função existe para detectar:
+  varredura por IDOR produz **um path distinto por tentativa** (doc 96, B-7). O resultado era o
+  oposto do desenhado: uma linha por request na tabela que mais cresce do sistema, mais uma query
+  síncrona de dedup a cada 403. O mecanismo anti-abuso amplificava o abuso.
+
+  O `label` passa a ser a rota agrupável (`/api/patients/:id`), que é o que dedupa; o caminho cru
+  continua em `meta["caminho"]`, que é o que permite investigar **qual** id foi tentado.
+
+  A normalização é responsabilidade de quem conhece o roteador — a fronteira HTTP —, e não do
+  domínio: `Api.Audit` não deve saber o que é um path do Phoenix.
+  """
+  def acesso_negado(%Api.Scope{} = scope, rota, caminho)
+      when is_binary(rota) and is_binary(caminho) do
+    registrar(scope, :seguranca, nil, rota, "acesso_negado", %{"caminho" => caminho}, tipo: :deny)
   end
 
   # ---- interno ----
@@ -109,7 +152,9 @@ defmodule Api.Audit.Acesso do
     if dedup? and ja_registrado?(scope, resource, record_id, label, acao) do
       :ok
     else
-      gravar(scope, resource, record_id, label, acao, tipo, meta)
+      gravar(scope, resource, record_id, label, acao, tipo, meta,
+        propagar?: Keyword.get(opts, :propagar?, false)
+      )
     end
   end
 
@@ -154,7 +199,7 @@ defmodule Api.Audit.Acesso do
   # mesma coisa. Antes o retorno era descartado e a função devolvia `:ok` incondicionalmente:
   # a metade da auditoria que o `06 §4` cobra por nome podia falhar 100% em produção sem nada
   # acender. Foi assim que um caminho longo demais evadiu a trilha do 403 em silêncio.
-  defp gravar(scope, resource, record_id, label, acao, tipo, meta) do
+  defp gravar(scope, resource, record_id, label, acao, tipo, meta, opts) do
     Api.Audit.record_event(
       %{
         resource: resource,
@@ -185,7 +230,9 @@ defmodule Api.Audit.Acesso do
           "trilha de acesso não gravada (#{resource}/#{acao}): campos #{inspect(campos(erro))}"
         )
 
-        :ok
+        # `propagar?` é o que separa os dois contratos (doc 96, B-5): best-effort em toda leitura
+        # de tela, e **fail-closed** no download de anexo, onde a trilha é pré-condição do acesso.
+        if Keyword.get(opts, :propagar?, false), do: {:error, erro}, else: :ok
     end
   end
 

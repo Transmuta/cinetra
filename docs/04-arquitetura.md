@@ -68,14 +68,14 @@ Os quatro motores de regra do protótipo (ADR-001) são código de domínio puro
 
 | Motor | Origem no protótipo | Onde vive |
 |---|---|---|
-| `dayPeriods` — disponibilidade por precedência de 4 camadas | [`:854`](../interface/Movimento.dc.html#L854) | `Movimento.Scheduling.Availability` (servidor) |
-| `futureConflicts` — impacto retroativo de mudança de horário | [`:864`](../interface/Movimento.dc.html#L864) | `Movimento.Scheduling.ImpactAnalysis` (servidor) |
-| `filaVagas` — busca de vagas na fila | [`:2531`](../interface/Movimento.dc.html#L2531) | `Movimento.Waitlist.SlotFinder` (servidor) |
+| `dayPeriods` — disponibilidade por precedência de 4 camadas | [`:854`](../interface/Movimento.dc.html#L854) | `Api.Scheduling.Availability` (servidor) |
+| `futureConflicts` — impacto retroativo de mudança de horário | [`:864`](../interface/Movimento.dc.html#L864) | `Api.Scheduling.ImpactAnalysis` (servidor) |
+| `filaVagas` — busca de vagas na fila | [`:2531`](../interface/Movimento.dc.html#L2531) | `Api.Waitlist.SlotFinder` (servidor) |
 | `layoutAppts` — coloração de grafo de intervalos p/ raias | [`:1576`](../interface/Movimento.dc.html#L1576) | função pura **no cliente** |
 
 As **4 camadas de precedência** do `dayPeriods` ([`:854`](../interface/Movimento.dc.html#L854)) valem a pena registrar, porque a ordem é regra de negócio, não detalhe: (1) exceção de data da clínica que não seja `'horario'` fecha o dia para todos; (2) exceção do profissional na data (folga ou horário pontual) sobrepõe tudo abaixo; (3) horário especial da clínica na data; (4) horário semanal do profissional — que por sua vez pode "seguir a clínica" (`followClinic`) ou ter grade própria, resolvido em `profWeek` ([`:840`](../interface/Movimento.dc.html#L840)).
 
-Além desses quatro, `computeSerie` ([`:1081`](../interface/Movimento.dc.html#L1081)) — geração da série de sessões de um pacote, pulando feriados e opcionalmente a data-âncora — é lógica de domínio de peso equivalente e mora em `Movimento.Packages.Series`.
+Além desses quatro, `computeSerie` ([`:1081`](../interface/Movimento.dc.html#L1081)) — geração da série de sessões de um pacote, pulando feriados e opcionalmente a data-âncora — é lógica de domínio de peso equivalente e mora em `Api.Packages.Series`.
 
 Cada motor é um módulo com funções puras que recebem dados **e o relógio** (ADR-009), testadas isoladamente. As resource actions do Ash apenas os orquestram dentro da transação.
 
@@ -420,14 +420,27 @@ Onde houver espelho, a função pura correspondente é validada por **contrato d
 
 ## 12. Ambientes
 
-| | dev | staging | produção |
+> **Atualizado em 2026-08-03** (doc 101, B2). A tabela abaixo dizia Fly.io `gru` nos três
+> ambientes; o Fly **nunca chegou a ser provisionado**, e o alvo real é uma VPS Hostinger com
+> Dokploy — decisão registrada na [ADR-023](00-decisoes.md#adr-023) e desenhada nos docs
+> [59](59-deploy-dokploy-oci.md) e [87](87-servidor-hostinger-riscos-e-cuidados.md). A metade da
+> ADR-008 sobre **OpenTelemetry sem vendor lock continua valendo** — e foi ela que permitiu a
+> troca sair barata.
+
+| | dev | homologação | produção |
 |---|---|---|---|
-| API | `mix phx.server` | Fly `gru` | Fly `gru` |
-| Web | `vite dev` | Fly `gru` | Fly `gru` |
-| Postgres | Docker local | Fly Postgres | Fly Postgres + réplica |
-| Storage | MinIO | Tigris/R2 | Tigris/R2 |
+| API | `docker compose` (`mix phx.server`) | Dokploy (`compose.dokploy.yml`, branch `develop`) | Dokploy (branch `main`) |
+| Web | `docker compose` (`vite dev`) | Dokploy, mesmo compose | Dokploy, mesmo compose |
+| Postgres | container `db` | Postgres no mesmo host | Postgres no mesmo host; backup por snapshot de painel, fora do repo (doc 59 §13) |
+| Storage | `Api.Storage` em memória / R2 de dev | Cloudflare R2 | Cloudflare R2 |
 | Dados | seed derivado do protótipo | **anonimizado** | real |
-| Telemetria | console | coletor OTel | coletor OTel |
+| Telemetria | console | Alloy → Loki/Tempo/Prometheus (`deploy/observability/`) | idem, self-hosted |
+
+**Instância única, e isso é escolha.** Não há réplica de API, de web nem de banco: os três rodam
+na mesma máquina, e o compose não define `replicas`. Para o estágio do produto é a troca certa
+(custo e simplicidade contra disponibilidade); o que ela cobra é lembrar disso antes de escalar —
+os tetos de rate limit são por-nó (ETS), então uma segunda instância os multiplica em silêncio.
+Está registrado como M7 no [doc 101](101-plano-de-acao-analise-arquitetural.md).
 
 **Staging nunca recebe cópia de produção.** Dado de saúde não sai do ambiente que o protege (ADR-007). O seed de dev sai do próprio protótipo, cujos dados são sintéticos por construção — o bloco de seed vai de [`:43`](../interface/Movimento.dc.html#L43) (semente do PRNG, `let s=987654321`) a [`:263`](../interface/Movimento.dc.html#L263) (fecho do IIFE de seed), gerado por um PRNG determinístico (`s=(s*1103515245+12345)&0x7fffffff`). Isso nos dá um conjunto de fixtures realista e legalmente inerte, de graça.
 

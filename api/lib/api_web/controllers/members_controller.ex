@@ -92,7 +92,27 @@ defmodule ApiWeb.MembersController do
 
   # ---- helpers ----
 
-  defp fetch(id, scope), do: Accounts.get_membership(id, scope: scope)
+  # A checagem explícita de `clinic_id` é a **segunda camada** que `memberships` não tem no banco
+  # (doc 96, S-5). Todas as 17 tabelas por-tenant têm RLS; esta não tem, e não pode ter uma policy
+  # por `cinetra.clinic_id`: ela é lida CROSS-CLINIC por desenho — o `/me` lista todos os vínculos
+  # do usuário, e o `LoadScope` resolve o vínculo ativo **antes** de existir tenant. Uma policy
+  # por tenant aqui derrubaria o login.
+  #
+  # Sem esta linha a fronteira dependia só da expressão da policy do recurso — correta hoje, mas
+  # uma camada, não duas, contra a norma do projeto (ADR-018). Efeito colateral observável que ela
+  # também fecha: um `owner` de A que tentasse `PATCH` num id de B onde ele também é membro recebia
+  # **403** (a leitura passava, a escrita recusava), enquanto um id inexistente dava **404** — o
+  # par distinguia "existe numa clínica que você conhece" de "não existe".
+  #
+  # A ausência de RLS aqui é **exceção documentada**, não esquecimento. Ver `docs/00-decisoes.md`.
+  defp fetch(id, %{clinic_id: clinic_id} = scope) do
+    case Accounts.get_membership(id, scope: scope) do
+      {:ok, %{clinic_id: ^clinic_id} = membership} -> {:ok, membership}
+      # De outra clínica é indistinguível de inexistente: 404, nunca 403.
+      {:ok, %{}} -> {:ok, nil}
+      outro -> outro
+    end
+  end
 
   defp revoke(membership, scope) do
     case Accounts.revoke_access(membership, scope: scope) do
@@ -116,6 +136,10 @@ defmodule ApiWeb.MembersController do
       user_id: m.user_id,
       nome: m.user.nome,
       email: to_string(m.user.email),
+      # A foto de perfil do co-membro (doc 100), na mesma forma do `/me`: URL assinada de vida
+      # curta, nunca a chave. Quem lê esta lista já é membro ativo da clínica e já enxerga nome e
+      # e-mail da pessoa — a foto não abre superfície nova, é o mesmo recorte de policy.
+      avatar_url: ApiWeb.AvatarUrl.for_user(m.user),
       papel: m.papel,
       status: m.status,
       professional_id: m.professional_id

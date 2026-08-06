@@ -79,42 +79,85 @@ defmodule Api.Waitlist.SlotFinder do
           now_minutes: non_neg_integer()
         }
 
+  @doc """
+  Compõe o expediente de cada par `(profissional, dia)` **uma vez**.
+
+  O resultado depende só de `(prof, date)` — nunca do item da fila. Chamado de dentro de
+  `slots_for/7`, ele era recomposto por entry: com a página cheia (teto 200) e 15 profissionais
+  ativos × 14 dias, eram **42.000 composições idênticas por request**, cada uma varrendo
+  `clinic_exceptions`/`professional_exceptions`/`professional_hours` linearmente (doc 96, P-1).
+
+  O moduledoc já tinha resolvido o N+1 de **banco** (`appts_index/5`); este é o N+1 de **CPU**,
+  que ficou de pé. Materializado aqui, cai de `entries × N × 14` para `N × 14`.
+  """
+  @spec periods_index([map()], %{Ecto.UUID.t() => Availability.sources()}, Date.t()) ::
+          %{{Ecto.UUID.t(), Date.t()} => term()}
+  def periods_index(professionals, sources_by_prof, today) do
+    for prof <- professionals,
+        date <- date_window(today),
+        into: %{} do
+      {{prof.id, date},
+       Availability.day_periods(date, prof, Map.get(sources_by_prof, prof.id, empty_sources()))}
+    end
+  end
+
   @spec find_slots(input()) :: [slot()]
-  def find_slots(%{
-        entry: entry,
-        professionals: professionals,
-        sources_by_prof: sources_by_prof,
-        appts_by_prof_day: appts_by_prof_day,
-        today: today,
-        now_minutes: now_minutes
-      }) do
+  def find_slots(
+        %{
+          entry: entry,
+          professionals: professionals,
+          sources_by_prof: sources_by_prof,
+          appts_by_prof_day: appts_by_prof_day,
+          today: today,
+          now_minutes: now_minutes
+        } = input
+      ) do
+    # Sem índice pronto (uso avulso, teste de unidade), compõe o seu — o motor continua sendo
+    # chamável com a entrada mínima.
+    periods =
+      Map.get_lazy(input, :periods_by_prof_day, fn ->
+        periods_index(professionals, sources_by_prof, today)
+      end)
+
     # `today` viaja dentro do `entry` para o `fits_win` decidir expiração/`usable_rules?` contra
     # o HOJE real (ADR-009), não contra a data do slot varrido.
     entry = Map.put(entry, :today, today)
 
     today
     |> date_window()
-    |> scan_days(entry, professionals, sources_by_prof, appts_by_prof_day, today, now_minutes)
+    |> scan_days(entry, professionals, periods, appts_by_prof_day, today, now_minutes)
     |> sort_slots()
   end
 
   defp date_window(today), do: Enum.map(0..(@days - 1), &Date.add(today, &1))
 
   # Acumula dia a dia e para depois do primeiro dia que cruza o teto (`out.length>=CAP` [:2588]).
-  defp scan_days(dates, entry, professionals, sources, appts, today, now_min) do
-    Enum.reduce_while(dates, [], fn date, acc ->
-      day_slots =
-        Enum.flat_map(professionals, fn prof ->
-          slots_for(entry, prof, date, Date.diff(date, today), sources, appts, now_min)
-        end)
+  #
+  # O acumulador é uma lista de blocos, invertida, com a contagem carregada ao lado: `acc ++
+  # day_slots` seguido de `length(acc)` a cada dia era append quadrático — mitigado pelo `@cap`,
+  # mas gratuito (doc 96, P-1).
+  defp scan_days(dates, entry, professionals, periods, appts, today, now_min) do
+    {blocos, _total} =
+      Enum.reduce_while(dates, {[], 0}, fn date, {acc, total} ->
+        day_slots =
+          Enum.flat_map(professionals, fn prof ->
+            slots_for(entry, prof, date, Date.diff(date, today), periods, appts, now_min)
+          end)
 
-      acc = acc ++ day_slots
-      if length(acc) >= @cap, do: {:halt, acc}, else: {:cont, acc}
-    end)
+        total = total + length(day_slots)
+        acc = [day_slots | acc]
+
+        if total >= @cap, do: {:halt, {acc, total}}, else: {:cont, {acc, total}}
+      end)
+
+    blocos |> Enum.reverse() |> Enum.concat()
   end
 
-  defp slots_for(entry, prof, date, d_off, sources, appts, now_min) do
-    case Availability.day_periods(date, prof, Map.get(sources, prof.id, empty_sources())) do
+  defp slots_for(entry, prof, date, d_off, periods, appts, now_min) do
+    case Map.get(periods, {prof.id, date}) do
+      nil ->
+        []
+
       {:closed, _reason} ->
         []
 

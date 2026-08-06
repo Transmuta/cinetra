@@ -39,8 +39,9 @@ defmodule Api.Records.Attachment.Conteudo do
   @max_por_paciente 100
 
   # Quantos bytes bastam para farejar. 16 cobre com folga a maior assinatura da lista (WEBP, que
-  # precisa do byte 11), e é um `GET` de faixa de custo desprezível.
-  @amostra 16
+  # precisa do byte 11), e é um `GET` de faixa de custo desprezível. O número mora em
+  # `Api.Storage.MagicBytes` junto das assinaturas — é ele que decide quanto é "o suficiente".
+  @amostra Api.Storage.MagicBytes.amostra()
 
   # Lista (não `Map.keys/1`) porque a ORDEM vai para a tela: é o "PDF, PNG, JPEG, WEBP" que a
   # drop-zone anuncia, e a ordem de um mapa é a do hash — mudaria sozinha ao acrescentar um tipo.
@@ -79,15 +80,12 @@ defmodule Api.Records.Attachment.Conteudo do
   @doc """
   Que tipo os bytes **são de verdade**? Devolve `{:ok, content_type}` ou `:error`.
 
-  Sem heurística e sem lista de extensões: só as quatro assinaturas que a allowlist aceita. O que
-  não casa não entra — é a postura certa quando o custo do falso-negativo é "o usuário reenvia" e
-  o do falso-positivo é "executável no prontuário".
+  As assinaturas em si moram em `Api.Storage.MagicBytes`, porque o avatar do Google
+  (`Api.Accounts.User.Avatar`) faz a mesma pergunta sobre bytes que também vêm de fora. O que
+  continua sendo desta fatia é a **allowlist**: farejar um `application/pdf` é resposta válida
+  aqui e resposta recusada lá.
   """
-  def farejar(<<"%PDF-", _::binary>>), do: {:ok, "application/pdf"}
-  def farejar(<<0x89, "PNG\r\n", 0x1A, "\n", _::binary>>), do: {:ok, "image/png"}
-  def farejar(<<0xFF, 0xD8, 0xFF, _::binary>>), do: {:ok, "image/jpeg"}
-  def farejar(<<"RIFF", _::binary-size(4), "WEBP", _::binary>>), do: {:ok, "image/webp"}
-  def farejar(_), do: :error
+  defdelegate farejar(amostra), to: Api.Storage.MagicBytes
 
   @doc """
   O objeto que chegou ao bucket confere com o que foi prometido?

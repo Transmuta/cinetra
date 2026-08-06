@@ -105,6 +105,8 @@ defmodule ApiWeb.AgendaChannel do
   # já carregou — e um `agenda_changed` com o dia a recarregar.
   @impl true
   def handle_info({:agenda_event, evento}, %{assigns: %{mode: :signal}} = socket) do
+    entregue(:signal, false)
+
     if visivel?(socket.assigns.scope, evento) do
       push(socket, "agenda_changed", %{day: Date.to_iso8601(evento.date), change: "count"})
     end
@@ -120,6 +122,8 @@ defmodule ApiWeb.AgendaChannel do
   # qualquer forma). Semana/Mês caem no clause de cima (`mode: :signal`) e recarregam a contagem.
   @impl true
   def handle_info({:agenda_event, %{event: "appointment_excluded"} = evento}, socket) do
+    entregue(:block, false)
+
     if visivel?(socket.assigns.scope, evento) do
       push(socket, "appointment_excluded", %{appointment_id: evento.appointment_id})
     end
@@ -129,10 +133,61 @@ defmodule ApiWeb.AgendaChannel do
 
   @impl true
   def handle_info({:agenda_event, evento}, socket) do
-    case Scheduling.load_visible_appointment(socket.assigns.scope, evento.appointment_id) do
+    entregue(:block, true)
+
+    case medir_releitura(socket.assigns.scope, evento.appointment_id) do
       nil -> {:noreply, socket}
       visivel -> {:noreply, push_event(socket, evento, visivel)}
     end
+  end
+
+  # ---- a instrumentação do M6 (doc 101) ----
+  #
+  # O achado: o canal relê o bloco do banco **uma vez por assinante, por evento**, e o
+  # `bloco_load()` traz subconsulta correlacionada e agregado com sort. Isso escala com
+  # assinantes × eventos, não com o dado.
+  #
+  # A decisão registrada no plano foi **não mexer ainda, e medir** — e ela continua certa por uma
+  # razão que o próprio desenho impõe: a releitura por assinante é o que faz o recorte A7 valer no
+  # WebSocket (cada um lê com o próprio escopo). Trocá-la por uma leitura só, compartilhada, exige
+  # reimplementar `OwnAgendaOnly` no canal — a segunda cópia da regra de vazamento, que é
+  # exatamente o que o moduledoc deste arquivo existe para impedir. Só vale pagar esse preço com
+  # número na mão.
+  #
+  # Os dois sinais que dão o número, e por que são dois:
+  #
+  #   * `[:api, :agenda, :broadcast]` (no `AgendaNotifier`) — quantas vezes o servidor publicou;
+  #   * `[:api, :agenda_channel, :entrega]` — quantas vezes um canal tratou o evento, com `modo` e
+  #     `releitura` como rótulos.
+  #
+  # A razão entre eles **é** a amplificação: entregas/broadcast = assinantes por tópico. Com um
+  # contador só não dá para distinguir "muita gente na tela" de "muita escrita na agenda", e são
+  # dois problemas com remédios opostos. O tempo da releitura vai em `[:api, :agenda_channel,
+  # :releitura]` — é ele que diz se o `bloco_load()` custa 2 ms ou 60 ms sob carga real.
+  @doc "Evento de telemetria: um canal tratou um evento de agenda (o numerador do M6)."
+  def evento_entrega, do: [:api, :agenda_channel, :entrega]
+
+  @doc "Evento de telemetria: o tempo de UMA releitura de bloco com o escopo do assinante."
+  def evento_releitura, do: [:api, :agenda_channel, :releitura]
+
+  defp entregue(modo, releitura?) do
+    :telemetry.execute(evento_entrega(), %{count: 1}, %{
+      modo: to_string(modo),
+      releitura: to_string(releitura?)
+    })
+  end
+
+  defp medir_releitura(scope, appointment_id) do
+    inicio = System.monotonic_time()
+    visivel = Scheduling.load_visible_appointment(scope, appointment_id)
+
+    :telemetry.execute(
+      evento_releitura(),
+      %{duration: System.monotonic_time() - inicio},
+      %{achou: to_string(not is_nil(visivel))}
+    )
+
+    visivel
   end
 
   # A7 no caminho do sinal. `:sem_vinculo` não acontece por aqui (o `join` exigiu membership

@@ -31,7 +31,7 @@
 	const validation = $derived(validateDayPeriods(periods));
 
 	const input =
-		'h-[30px] min-w-0 max-w-[112px] flex-1 rounded-[7px] border bg-surface px-1.5 font-mono text-[11.5px] text-ink';
+		'h-[30px] min-w-0 max-w-[112px] flex-1 rounded-controle border bg-surface px-1.5 font-mono text-meta text-ink';
 	const borderFor = (i: number) => (validation.badIndices.includes(i) ? 'border-danger' : 'border-edge');
 </script>
 
@@ -66,7 +66,7 @@
 				title="Remover período"
 				aria-label="Remover período {pi + 1}"
 				onclick={() => onchange(removePeriod(periods, pi))}
-				class="grid size-7 shrink-0 place-items-center rounded-md border border-edge bg-surface text-danger hover:bg-surface-2"
+				class="grid size-7 shrink-0 place-items-center rounded-controle border border-edge bg-surface text-danger hover:bg-surface-2"
 			>
 				<X size={13} />
 			</button>
@@ -74,13 +74,13 @@
 	{/each}
 
 	{#if validation.message}
-		<p role="alert" class="text-[11px] font-medium text-danger">{validation.message}</p>
+		<p role="alert" class="text-meta font-medium text-danger">{validation.message}</p>
 	{/if}
 
 	<button
 		type="button"
 		onclick={() => onchange(appendPeriod(periods))}
-		class="flex items-center gap-1 self-start rounded-md border border-dashed border-edge px-2 py-[3px] text-[11.5px] font-semibold text-teal-text hover:bg-surface-2"
+		class="flex items-center gap-1 self-start rounded-controle border border-dashed border-edge px-2 py-[3px] text-meta font-semibold text-accent-text hover:bg-surface-2"
 	>
 		<Plus size={12} /> período
 	</button>

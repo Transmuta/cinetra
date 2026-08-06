@@ -31,17 +31,17 @@
 </script>
 
 <Modal title="Conflitos com a agenda" {onClose} maxWidth="max-w-[520px]">
-	<p class="mb-3 text-[13px] text-muted">
+	<p class="mb-3 text-corpo text-muted">
 		{resumoConflitos(conflitos)}. Remarque ou cancele antes de aplicar a mudança.
 	</p>
 
 	<ul class="flex flex-col gap-1.5">
 		{#each conflitos.conflicts as c (c.appointment_id)}
-			<li class="rounded-lg border border-edge bg-surface-2 px-3 py-2">
+			<li class="rounded-controle border border-edge bg-surface-2 px-3 py-2">
 				<div class="flex items-baseline gap-2">
-					<span class="text-[13px] font-bold text-ink">{diaCurto(c.date)} · {c.hora}</span>
+					<span class="text-corpo font-bold text-ink">{diaCurto(c.date)} · {c.hora}</span>
 					{#if c.professional.nome}
-						<span class="truncate text-[12.5px] text-muted">{c.professional.nome}</span>
+						<span class="truncate text-rotulo text-muted">{c.professional.nome}</span>
 					{/if}
 					<span class="flex-1"></span>
 					<!--
@@ -56,7 +56,7 @@
 						href={appointmentHref(c.appointment_id, c.date)}
 						target="_blank"
 						rel="noopener"
-						class="inline-flex shrink-0 items-center gap-1 text-[11.5px] font-semibold text-teal-text hover:underline"
+						class="inline-flex shrink-0 items-center gap-1 text-meta font-semibold text-accent-text hover:underline"
 						aria-label="Abrir {diaCurto(c.date)} às {c.hora} na agenda, em outra aba"
 					>
 						<ExternalLink size={12} /> Abrir
@@ -64,23 +64,23 @@
 				</div>
 
 				{#if c.patients.length}
-					<div class="truncate text-[12.5px] text-ink">{c.patients.join(', ')}</div>
+					<div class="truncate text-rotulo text-ink">{c.patients.join(', ')}</div>
 				{/if}
 
-				<div class="text-[11.5px] text-faint">{motivoLabel(c)}</div>
+				<div class="text-meta text-faint">{motivoLabel(c)}</div>
 			</li>
 		{/each}
 	</ul>
 
 	{#if resto}
-		<p class="mt-2 text-[12px] font-semibold text-muted">{resto}</p>
+		<p class="mt-2 text-rotulo font-semibold text-muted">{resto}</p>
 	{/if}
 
 	{#snippet footer()}
 		<button
 			type="button"
 			onclick={onClose}
-			class="rounded-lg bg-primary px-4 py-2 text-[13px] font-semibold text-on-primary hover:bg-primary-hover"
+			class="rounded-controle bg-primary px-4 py-2 text-corpo font-semibold text-on-primary hover:bg-primary-hover"
 		>
 			Entendi
 		</button>

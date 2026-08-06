@@ -188,7 +188,11 @@ defmodule ApiWeb.ProfessionalsControllerTest do
     # P1 (2026-07-21): o recorte `OwnProfessionalOnly` vale também na ficha por id — um
     # profissional lê a própria (200) mas a do colega é indistinguível de inexistente (404),
     # sem vazar CPF/dados bancários. `list` idem: só a si.
-    test "profissional lê a própria ficha, mas a do colega é 404", %{
+    # 2026-08-04 (doc 103): a tela de Profissionais deixou de existir para o papel. Antes ele
+    # tinha a listagem recortada a si mesmo (`OwnProfessionalOnly`) e abria a própria ficha —
+    # com CPF, endereço e dados bancários. Agora as duas superfícies devolvem **403**, e a do
+    # colega deixa de ser 404 porque nem chega a haver busca: a guarda é de papel, antes do id.
+    test "profissional toma 403 na listagem e na ficha — inclusive na dele", %{
       base_conn: base,
       owner: owner,
       clinic: clinic
@@ -198,11 +202,33 @@ defmodule ApiWeb.ProfessionalsControllerTest do
       prof = sessao_de_membro!(owner, clinic, :profissional, eu.id)
       conn = authed(base, prof)
 
-      assert conn |> get(~p"/api/professionals/#{eu.id}") |> json_response(200)
-      assert conn |> get(~p"/api/professionals/#{colega.id}") |> json_response(404)
+      assert conn |> get(~p"/api/professionals") |> json_response(403)
+      assert conn |> get(~p"/api/professionals/#{eu.id}") |> json_response(403)
+      assert conn |> get(~p"/api/professionals/#{colega.id}") |> json_response(403)
+    end
 
-      %{"professionals" => lista} = conn |> get(~p"/api/professionals") |> json_response(200)
-      assert Enum.map(lista, & &1["id"]) == [eu.id]
+    # O CONTROLE POSITIVO da linha acima, e a razão de a guarda ser do CONTROLLER e não da policy
+    # de leitura do recurso: `Api.Scheduling.load_agenda/4` lê `list_professionals!(scope: scope)`
+    # por dentro, para montar a coluna. Fechar o recurso derrubaria a agenda dele com 500 — o
+    # oposto de "pode visualizar a sua agenda". Aqui se prova que a agenda continua de pé E que
+    # ela traz só a coluna dele.
+    test "mas a agenda dele continua resolvendo a PRÓPRIA coluna", %{
+      base_conn: base,
+      owner: owner,
+      clinic: clinic
+    } do
+      eu = create_prof(clinic, "Eu")
+      _colega = create_prof(clinic, "Colega")
+      prof = sessao_de_membro!(owner, clinic, :profissional, eu.id)
+
+      body =
+        base
+        |> authed(prof)
+        |> get("/api/appointments?from=2026-07-20")
+        |> json_response(200)
+
+      assert [%{"id" => id, "nome" => "Eu"}] = body["professionals"]
+      assert id == eu.id
     end
   end
 
@@ -301,6 +327,67 @@ defmodule ApiWeb.ProfessionalsControllerTest do
 
       assert conn |> get(~p"/api/professionals") |> json_response(200)
       assert conn |> post(~p"/api/professionals", %{"nome" => "X"}) |> json_response(403)
+    end
+
+    # Regressão (auditoria doc 96, S-1). "Ler o diretório" e "ler a ficha de pagamento do colega"
+    # estavam colapsadas na mesma permissão: a guarda era `with_member_scope` (qualquer papel), a
+    # policy do recurso era `roles: :any` para leitura, não havia `field_policies`, e o
+    # serializador mandava a ficha inteira. Recepção e profissional recebiam CPF, RG, CNPJ e os
+    # dados BANCÁRIOS (banco, agência, conta, PIX) de todo mundo ao abrir a tela.
+    #
+    # O `MembersController` já restringia a mesma leitura com `select:` — era assimetria, não
+    # decisão de produto. A matriz de acesso publicada ao usuário nunca prometeu isso.
+    @sigilosos ~w(cpf rg cnpj razao_social banco agencia conta conta_tipo pix
+                  nascimento estado_civil cep endereco numero complemento bairro cidade uf
+                  emergencia_nome emergencia_tel)
+
+    test "recepção NÃO recebe dado bancário nem documento do profissional",
+         %{base_conn: base, owner: owner, clinic: clinic} do
+      create_prof(clinic, "Dra. Marina", %{
+        cpf: "111.444.777-35",
+        rg: "12.345.678-9",
+        banco: "341",
+        agencia: "0001",
+        conta: "12345-6",
+        pix: "marina@clinica.com"
+      })
+
+      recep = sessao_de_membro!(owner, clinic, :recepcao)
+      body = base |> authed(recep) |> get(~p"/api/professionals") |> json_response(200)
+
+      assert [p] = body["professionals"]
+      # O diretório continua servindo para o que ele existe.
+      assert p["nome"] == "Dra. Marina"
+
+      for campo <- @sigilosos do
+        refute Map.has_key?(p, campo), "vazou #{campo} para a recepção: #{inspect(p[campo])}"
+      end
+
+      refute inspect(p) =~ "marina@clinica.com"
+      refute inspect(p) =~ "12345-6"
+    end
+
+    test "owner continua recebendo a ficha completa", %{conn: conn, clinic: clinic} do
+      prof =
+        create_prof(clinic, "Dra. Marina", %{cpf: "111.444.777-35", pix: "marina@clinica.com"})
+
+      body = conn |> get(~p"/api/professionals") |> json_response(200)
+
+      assert [p] = body["professionals"]
+      assert p["cpf"] == prof.cpf
+      assert p["pix"] == prof.pix
+      refute is_nil(prof.cpf)
+    end
+
+    # Era "o profissional vê a PRÓPRIA ficha completa" — CPF e PIX inclusive. Desde 2026-08-04
+    # ele não vê ficha nenhuma: o endpoint recusa antes, e a `field_policy` de `@ficha_contratual`
+    # deixou de ter cláusula para o papel (as duas metades, para o dia em que a superfície mudar).
+    test "o profissional não alcança a própria ficha",
+         %{base_conn: base, owner: owner, clinic: clinic} do
+      prof = create_prof(clinic, "Dra. Marina", %{cpf: "111.444.777-35", pix: "eu@clinica.com"})
+      user = sessao_de_membro!(owner, clinic, :profissional, prof.id)
+
+      assert base |> authed(user) |> get(~p"/api/professionals") |> json_response(403)
     end
   end
 

@@ -173,8 +173,8 @@ defmodule Api.Waitlist.WaitlistEntryTest do
       assert Enum.map(pagina2.entries, & &1.prio) == [:normal, :normal]
 
       # O total é do RECORTE inteiro, não da página — é o "de Z" do rótulo.
-      assert pagina1.page.total == 5
-      assert pagina1.page.more == true
+      assert pagina1.page.count == 5
+      assert pagina1.page.more? == true
       assert pagina2.page.offset == 2
 
       ids1 = MapSet.new(pagina1.entries, & &1.id)
@@ -187,7 +187,7 @@ defmodule Api.Waitlist.WaitlistEntryTest do
       scope = scope_for(owner, clinic)
       Waitlist.enqueue_entry(scope, %{patient_id: patient(clinic, owner).id})
 
-      assert %{entries: [_], page: %{total: 1, more: false}} = Waitlist.list_entries(scope)
+      assert %{entries: [_], page: %{count: 1, more?: false}} = Waitlist.list_entries(scope)
     end
 
     test "limit e offset absurdos não derrubam a request" do
@@ -216,6 +216,39 @@ defmodule Api.Waitlist.WaitlistEntryTest do
 
       assert updated.prio == :alta
       assert [%{dows: [5]}] = updated.rules
+    end
+
+    # Achado M9 (doc 101): o `WaitlistEntry` tem `Api.Audit.Capture`, mas as regras entram por
+    # `manage_relationship` e o diff do pai **ignora relacionamento**. Trocar a disponibilidade de
+    # um item da fila — "posso às segundas 09–11" virando "só sextas 13–18" — não deixava rastro
+    # nenhum: a trilha registrava a edição do item com o mesmo `prio` de antes e mais nada.
+    #
+    # Trilha com buraco é pior que trilha ausente, porque cria confiança injustificada em quem a lê.
+    test "mudar as regras de disponibilidade deixa rastro na trilha" do
+      {owner, clinic} = owner_and_clinic()
+      scope = scope_for(owner, clinic)
+      p = patient(clinic, owner)
+
+      {:ok, entry} =
+        Waitlist.enqueue_entry(scope, %{
+          patient_id: p.id,
+          prio: :normal,
+          rules: [semana([1], [["09:00", "11:00"]])]
+        })
+
+      # só as REGRAS mudam — a prioridade fica igual, para que o rastro não possa vir do pai
+      {:ok, _} =
+        Waitlist.update_entry(scope, entry.id, %{
+          prio: :normal,
+          rules: [semana([5], [["13:00", "18:00"]])]
+        })
+
+      %{entries: eventos} = Api.Audit.list_events(scope, limit: 50)
+
+      assert Enum.any?(eventos, &(&1.resource == :availability_rule)),
+             "nenhum evento de `availability_rule` na trilha — a disponibilidade da fila mudou " <>
+               "sem rastro. Recursos vistos: " <>
+               inspect(eventos |> Enum.map(& &1.resource) |> Enum.uniq())
     end
 
     test "dequeue remove o item" do
@@ -414,10 +447,10 @@ defmodule Api.Waitlist.WaitlistEntryTest do
   end
 
   describe "RBAC" do
-    test "todos os papéis que agendam administram a fila" do
+    test "os papéis que agendam administram a fila" do
       {owner, clinic} = owner_and_clinic()
 
-      for papel <- [:admin, :recepcao, :profissional] do
+      for papel <- [:admin, :recepcao] do
         scope = scope_for(member_with_role(clinic, papel), clinic)
         p = patient(clinic, owner, "P #{papel}")
 
@@ -425,6 +458,63 @@ defmodule Api.Waitlist.WaitlistEntryTest do
         assert %{entries: entries} = Waitlist.list_entries(scope)
         assert entry.id in Enum.map(entries, & &1.id)
       end
+    end
+
+    # A fila é a antessala da agenda — a saída natural de um item é virar agendamento. Desde a A8
+    # de 2026-08-04 (doc 103) o `profissional` não agenda, e administrar a fila seria a mesma
+    # escrita pela porta ao lado.
+    test "o profissional não põe ninguém na fila" do
+      {owner, clinic} = owner_and_clinic()
+      scope = scope_for(member_with_role(clinic, :profissional), clinic)
+      p = patient(clinic, owner, "P prof")
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Waitlist.enqueue_entry(scope, %{patient_id: p.id})
+    end
+
+    # E o controle positivo: ele continua LENDO a fila inteira da clínica. Não é detalhe — o
+    # motor de vagas depende de ele enxergar as colunas dos colegas (regressão E-4, doc 96), e
+    # uma fila vazia por engano é subnotificação silenciosa.
+    test "mas lê a fila inteira, inclusive o que o balcão enfileirou" do
+      {owner, clinic} = owner_and_clinic()
+      balcao = scope_for(member_with_role(clinic, :recepcao), clinic)
+      prof = scope_for(member_with_role(clinic, :profissional), clinic)
+
+      {:ok, entry} =
+        Waitlist.enqueue_entry(balcao, %{patient_id: patient(clinic, owner, "Quem espera").id})
+
+      assert %{entries: entries} = Waitlist.list_entries(prof)
+      assert entry.id in Enum.map(entries, & &1.id)
+    end
+  end
+
+  # Regressão (auditoria doc 96, E-4). O motor de vagas lia os profissionais candidatos com
+  # `scope:`, e `Professional` tem a preparation global `OwnProfessionalOnly` — então o papel
+  # `profissional` só enxergava a si mesmo como candidato.
+  #
+  # O sintoma era SILENCIOSO: ele abria a fila e via "sem vaga" para todo item cuja preferência
+  # não o incluísse, concluindo que não havia horário quando havia. O moduledoc de `find_slots/2`
+  # já declarava a intenção certa e o `WaitlistChannel` afirmava o mesmo; só a leitura discordava.
+  describe "o motor de vagas não é recortado por papel (E-4)" do
+    test "profissional vê as vagas das colunas dos COLEGAS, não só as suas" do
+      ctx = clinica()
+      colega = profissional!(ctx, "Dra. Colega")
+      eu = escopo_de_membro!(ctx, :profissional, ctx.prof.id)
+
+      {:ok, entry} =
+        Waitlist.enqueue_entry(ctx.scope, %{
+          patient_id: paciente!(ctx, "Quem espera").id,
+          prio: :urgente,
+          janela: :qualquer,
+          # A preferência é pelo COLEGA — eu não estou nela.
+          professional_ids: [colega.id],
+          rules: []
+        })
+
+      vagas = Waitlist.find_slots(eu, entry)
+
+      assert vagas != [], "o profissional viu a fila vazia — subnotificação silenciosa"
+      assert Enum.all?(vagas, &(&1.professional_id == colega.id))
     end
   end
 end

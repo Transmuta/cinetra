@@ -42,6 +42,31 @@ defmodule ApiWeb.MembersControllerTest do
       refute membership_id == user_id
     end
 
+    # A foto de perfil (doc 100) na lista da equipe: mesma forma do `/me` — URL assinada de vida
+    # curta, nunca a chave do objeto. Quem vê é co-membro ativo da clínica, que já enxerga nome e
+    # e-mail da pessoa pela mesma policy.
+    test "membro sem foto: avatar_url nulo (a linha cai nas iniciais)", %{conn: conn} do
+      body = conn |> get(~p"/api/members") |> json_response(200)
+
+      assert [%{"avatar_url" => nil}] = body["members"]
+    end
+
+    test "membro com foto: avatar_url assinado, e a chave não vaza", %{conn: conn, owner: owner} do
+      chave = Api.Accounts.User.Avatar.chave(owner.id, "image/png")
+
+      Accounts.set_user_avatar!(owner, %{avatar_key: chave, avatar_origem: "https://x"},
+        authorize?: false
+      )
+
+      body = conn |> get(~p"/api/members") |> json_response(200)
+
+      assert [%{"avatar_url" => url} = membro] = body["members"]
+      assert url =~ "https://"
+      assert url =~ chave
+      assert url =~ "image/png"
+      refute Map.has_key?(membro, "avatar_key")
+    end
+
     test "sem sessão devolve 401", %{base_conn: base_conn} do
       assert base_conn |> get(~p"/api/members") |> json_response(401)
     end

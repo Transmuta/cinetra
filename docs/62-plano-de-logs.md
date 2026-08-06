@@ -133,9 +133,9 @@ Medido em 2026-07-28: 17,7 MB recebidos ocuparam 1,58 MB de chunks (+1,3 MB de W
 descarregado) — **~6× de compressão**, exatamente a premissa da §2. Extrapolando para o teto do
 projeto, 30 dias cabem em **~6 GB**. Num volume de 200 GB isso é irrelevante.
 
-**O que se perde:** com disco local, os 30 dias morrem junto com a máquina. O backup horário cobre
-o **Postgres**, não o volume do Loki — e não deve cobrir: chunks mudam o tempo todo e um tar de
-Loki ativo não sai consistente.
+**O que se perde:** com disco local, os 30 dias morrem junto com a máquina. O snapshot de painel
+que cobre o dado ([`59 §13`](59-deploy-dokploy-oci.md)) inclui o volume do Loki por tabela, mas não
+se deve contar com ele: chunks mudam o tempo todo e uma cópia de Loki ativo não sai consistente.
 
 **Por que isso é aceitável aqui:** o que tem valor legal — a trilha de auditoria (`audit_events`,
 docs 61/63) — vive no **banco**, que é dumpado de hora em hora e cifrado no R2. O Loki guarda log
@@ -239,7 +239,8 @@ compactor:
 
 **Verificação obrigatória:** 31 dias depois de ligar, conferir que o objeto mais antigo no bucket
 tem menos de 30 dias. Retenção não verificada é a mesma classe de erro que backup não testado — e o
-[`59` §13](59-deploy-dokploy-oci.md) já cravou "backup não testado não é backup".
+[`59` §13](59-deploy-dokploy-oci.md) segue cravando "backup não testado não é backup", agora sobre
+snapshot de painel.
 
 **Retenção diferenciada (opcional, quando doer).** O Loki aceita override por stream: manter
 `level=error` por 90 dias e o resto por 30. Vale se a investigação de incidente antigo se mostrar
@@ -295,6 +296,12 @@ porque o funil está na ordem certa.
 
 1. **`LoggerJSON`** como formatter em produção. Dev fica como está — texto colorido é melhor para
    humano.
+
+   > **Atualizado em 2026-08-01 ([ADR-024](00-decisoes.md#adr-024--o-log-json-tem-os-campos-na-raiz-e-o-formatter-é-do-projeto)).**
+   > O formatter passou a ser `Api.LogFormatter`, do projeto, e não o `LoggerJSON.Formatters.Basic`:
+   > o Basic aninha o metadata sob a chave `metadata`, o `| json` do Loki achata isso com `_`, e os
+   > painéis que consultavam `status` liam um campo que não existia — abrindo **"No data"** com o
+   > log inteiro presente. Diagnóstico em [doc 99](99-o-painel-vazio-e-o-formato-do-log.md).
 2. **Carimbo de contexto no [`LoadScope`](../api/lib/api_web/plugs/load_scope.ex#L34).** É o ponto
    certo: já resolve `actor` e `clinic_id`, e **toda rota de domínio passa por ele**. Um
    `Logger.metadata(clinic_id: ..., actor_id: ...)` ali dá contexto a todo log daquela requisição de
@@ -366,12 +373,12 @@ Duas camadas, e só uma delas é deste plano:
 
 - **Interna** — regras no Grafana sobre o log (taxa de `level=error`, ausência de evento esperado).
   Sai de graça depois que a stack estiver de pé.
-- **Externa (dead-man's switch)** — serviço de terceiro batendo em `/api/ready` e recebendo
-  heartbeat dos crons. É o **único** componente que precisa sobreviver à perda total da tenancy, e
+- **Externa (dead-man's switch)** — serviço de terceiro batendo no `/ready` do BFF (§9.4 — de
+  fora, `/api/ready` não é alcançável) e recebendo heartbeat dos crons. É o **único** componente que precisa sobreviver à perda total da tenancy, e
   por isso não pode viver na `obs`. Carrega zero risco de PHI: só bate numa URL.
 
-A externa é mais urgente que este plano inteiro. Fecha inclusive o buraco que o
-[`59` §13](59-deploy-dokploy-oci.md) nomeou e deixou aberto — o `backup-cron` que morre em silêncio.
+A externa é mais urgente que este plano inteiro: é ela que responde "algo **deixou** de acontecer",
+que nenhum log e nenhum health check alcançam.
 
 ### 9.1 Heartbeat dos crons — construído
 
@@ -392,11 +399,12 @@ desligado:
 | `Api.Housekeeping.PruneNotifications` | `HEARTBEAT_URL_PRUNE_NOTIFICATIONS` | idem |
 | `Api.Housekeeping.PruneAttachments` | `HEARTBEAT_URL_PRUNE_ATTACHMENTS` | idem, + bytes órfãos no R2 |
 
-**Backup** ([`backup.sh`](../deploy/backup/backup.sh)) — `HEARTBEAT_URL_BACKUP`, com
-`trap 'sinal /fail' ERR` para pegar estouro no meio (o `set -e` sai calado), e o sinal de sucesso
-**depois** do upload confirmado — sinalizar antes diria "estou vivo" para um backup que não subiu,
-que é pior que não monitorar. Verificado ao vivo contra um servidor real: sucesso → `/hb`,
-falha → `/hb/fail` com `exit=1` preservado, sem env → nada.
+> **O backup saiu desta lista em 2026-08-05.** Havia um oitavo sinal, `HEARTBEAT_URL_BACKUP`,
+> emitido pelo `backup.sh` depois do upload confirmado. O backup deixou de ser nosso
+> ([`59 §13`](59-deploy-dokploy-oci.md)) e o sinal foi junto. Consequência a saber: **snapshot de
+> painel que para de rodar não avisa ninguém por este caminho** — quem confere é quem abre o
+> painel. Se o Dokploy ou a Hostinger expuserem um webhook de sucesso, ligá-lo a um check aqui é o
+> conserto barato.
 
 ### 9.2 Duas armadilhas do `:telemetry` que este trabalho expôs
 
@@ -418,7 +426,7 @@ São mecanismos **opostos**, e é por isso que os dois são necessários:
 | | Quem chama quem | Detecta | Não detecta |
 |---|---|---|---|
 | **Uptime** (HTTP check) | O monitor **chama** você | "está fora do ar" — processo morto, TLS vencido, deploy quebrado, banco inalcançável | cron parado (não há requisição para falhar) |
-| **Heartbeat** (dead man's switch) | Você **avisa** o monitor | "deixou de acontecer" — cron parado, worker morto, backup falhando calado | site fora do ar entre execuções |
+| **Heartbeat** (dead man's switch) | Você **avisa** o monitor | "deixou de acontecer" — cron parado, worker morto, job falhando calado | site fora do ar entre execuções |
 
 O heartbeat inverte a lógica: em vez de perguntar "está de pé?", ele **espera** um sinal e reclama
 quando ele não chega dentro do prazo. É a única forma de detectar ausência — nenhum log registra o
@@ -469,7 +477,6 @@ vira alarme falso.
 
 | Slug (= nome do check) | Period | Grace | Quem sinaliza |
 |---|---|---|---|
-| `backup` | 1 h | 20 min | `backup.sh` |
 | `reminder` | 1 h | 15 min | `Api.Messaging.ReminderJob` |
 | `digest` | 1 h | 15 min | `Api.Notifications.DailyDigestJob` |
 | `session-soon` | 5 min | 5 min | `Api.Notifications.SessionSoonJob` |
@@ -480,9 +487,9 @@ vira alarme falso.
 **Prod e HML precisam de checks distintos** — compartilhar esconde qual dos dois parou e, pior, o
 sinal do HML mantém o check verde com a produção morta. Duas formas, e o código aceita as duas:
 
-- **Um projeto só, com prefixo** (funciona sempre): 14 checks nomeados `prod-reminder`,
-  `hml-reminder`, `prod-backup`… Uma Ping Key, e `HEARTBEAT_SLUG_PREFIX` diferencia.
-- **Dois projetos** (`cinetra-prod` e `cinetra-hml`): 7 checks em cada, nomes sem prefixo, uma Ping
+- **Um projeto só, com prefixo** (funciona sempre): 12 checks nomeados `prod-reminder`,
+  `hml-reminder`, `prod-digest`… Uma Ping Key, e `HEARTBEAT_SLUG_PREFIX` diferencia.
+- **Dois projetos** (`cinetra-prod` e `cinetra-hml`): 6 checks em cada, nomes sem prefixo, uma Ping
   Key por projeto. Isola melhor — chave vazada do HML não alcança os checks de produção. *(A doc do
   plano grátis não diz se há limite de projetos; se houver, use a opção acima.)*
 
@@ -528,7 +535,7 @@ a API fora, `/health` respondeu 200 e `/ready` respondeu 503.)
 Intervalo de 1 min é suficiente; o endpoint tem teto de 3 s.
 
 **Passo 6 — provar que alarma.** Um monitor nunca testado é hipótese, não monitor — a mesma regra
-que o [`59` §13](59-deploy-dokploy-oci.md) aplica ao backup. Pause o container do `api` e confirme
+que o [`59` §13](59-deploy-dokploy-oci.md) aplica ao restore. Pause o container do `api` e confirme
 que o check de uptime fica vermelho e que o alerta chega **no canal**, não só na tela. Para um
 heartbeat, basta esperar `Period + Grace` sem que o job rode.
 
@@ -704,7 +711,7 @@ deploy só", e a diferença é deliberada:
 
 | Stack | Arquivo | Sobe quando |
 |---|---|---|
-| App (db · api · web · backup) | `compose.dokploy.yml` | push em `main` / `develop` |
+| App (db · migrate · api · web) | `compose.dokploy.yml` | push em `main` / `develop` |
 | Observabilidade (loki · grafana · alloy) | [`compose.obs.yml`](../deploy/observability/compose.obs.yml) | quando a config de observabilidade mudar |
 
 Separar os **stacks** (não as máquinas) é o que impede um deploy da aplicação de reiniciar a

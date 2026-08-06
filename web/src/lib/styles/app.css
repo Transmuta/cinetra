@@ -17,24 +17,106 @@
 	--mv-font-sans: 'Hanken Grotesk Variable', 'Hanken Grotesk', system-ui, sans-serif;
 	--mv-font-mono: 'Martian Mono', ui-monospace, monospace;
 
-	/* Raios. Campos/botões = 8px — e o utilitário de fato usado no app para eles é
-	   `rounded-lg` (77 usos: botões, inputs, painéis pequenos), então `--mv-radius-lg`
-	   PRECISA valer 8px, não 14px. Cards não usam `rounded-lg`: cada superfície leva um
-	   raio arbitrário próprio (rounded-[10px] listas, rounded-[12px] fila/modais). Pill = 999px. */
-	--mv-radius-sm: 6px;
-	--mv-radius: 8px;
-	--mv-radius-lg: 8px; /* era 14px — deixava todo botão/campo do app arredondado demais */
+	/* ── Raio, por PAPEL ──
+	   Eram 13 valores efetivos em 378 usos, e quatro deles tinham duas ou três grafias para o
+	   mesmo pixel (doc 93 §M-2). O caso que resume: `rounded-md` e `rounded-lg` renderizavam
+	   **o mesmo 8px**, e 184 usos escolhiam entre dois nomes idênticos sem critério — três
+	   botões do mesmo tamanho saíam com três grafias. Pior era o cartão: `border-edge
+	   bg-surface` + raio aparecia em 133 lugares com 13 grafias, então um cartão de /pacientes
+	   e um de /relatorios não tinham o mesmo canto.
+
+	   A escala nomeia o papel, não o tamanho — a mesma lição que as cores já aplicavam
+	   (`--color-ink`, não `--color-cinza-escuro`). Quem escreve o próximo componente escolhe
+	   entre quatro coisas que significam algo, em vez de copiar o número do vizinho.
+
+	   O que cada degrau absorveu:
+	     micro    ← 3px, 4px, 5px, `rounded` sem sufixo
+	     controle ← 6px, 7px, 8px, 9px, `rounded-sm`, `rounded-md`, `rounded-lg`
+	     cartao   ← 10px, 11px, 12px, 14px, `rounded-xl`, `rounded-2xl`
+	     pill     ← `rounded-full`
+
+	   Os nomes do Tailwind (`sm`/`md`/`lg`/`xl`) deixaram de ser sobrescritos DE PROPÓSITO: com
+	   a escala por papel, mantê-los redefinidos deixaria dois vocabulários vivos para a mesma
+	   coisa. `dimensao.test.ts` barra o retorno deles — e precisa barrar, porque um `rounded-md`
+	   esquecido não quebra nada: ele passa a valer o default do Tailwind, silenciosamente. */
+	--mv-radius-micro: 4px;
+	--mv-radius-controle: 8px;
+	--mv-radius-cartao: 12px;
 	--mv-radius-pill: 999px;
 
-	/* Sombras — sutil no claro; pop de menus/cards flutuantes */
+	/* Sombras — sutil no claro; pop de menus/cards flutuantes.
+
+	   Duas sombras saíram daqui em 2026-07-30 por estarem definidas e **nunca usadas** (doc 93
+	   §M-7): `--shadow-accent` e — a que mais custou — `--shadow-card`.
+
+	   O `--shadow-card` merece a nota porque era a ÚNICA sombra do sistema que respondia ao tema
+	   (valia sombra no claro e `none` no escuro), foi desenhada de propósito, e **nenhum dos 133
+	   cartões do app a aplicava**. A intenção de design evaporou em silêncio e o token continuou
+	   ali dizendo que ela existia — que é a mentira que este arquivo existe para não contar.
+
+	   Foi removida em vez de aplicada porque aplicar é uma decisão de DESENHO com 133 cartões na
+	   mesa, não uma arrumação. Quem quiser a sombra de volta tem o valor aqui e a decisão inteira
+	   para tomar: `0 12px 40px rgba(20, 24, 30, 0.08)` no claro, nada no escuro.
+
+	   `--color-accent-hover` e `--color-success-solid` também não têm uso hoje e **ficaram**. Eles
+	   não são órfãos no sentido que importa: são membros de FAMÍLIAS que o `contraste.test.ts`
+	   mede por inteiro (o par solid/hover do acento; os quatro fundos semânticos + `on-solid`).
+	   Removê-los quebrou aquele teste na primeira tentativa — que é exatamente o trabalho dele. */
 	--mv-shadow-1: 0 1px 1px rgba(20, 24, 30, 0.03);
-	--mv-shadow-card: 0 12px 40px rgba(20, 24, 30, 0.08);
 	--mv-shadow-pop: 0 8px 24px rgba(8, 10, 12, 0.18);
-	/* brilho teal da marca (quadrado do rail, :1310) */
-	--mv-shadow-teal: 0 2px 8px rgba(15, 181, 166, 0.35);
 	/* toast (:3494) e painel de modal (:1901) — iguais nos dois temas */
 	--mv-shadow-toast: 0 8px 24px rgba(8, 10, 12, 0.3);
 	--mv-shadow-modal: 0 24px 60px rgba(8, 10, 12, 0.4);
+
+	/* ── Tipografia, por PAPEL ──
+	   Eram **22 tamanhos em 643 usos**, 261 deles em meio-pixel (12.5, 11.5, 10.5, 13.5…), contra
+	   11 usos da escala do Tailwind no app inteiro (doc 93 §M-1). Não foi acidente: o design veio
+	   de um protótipo HTML com valores em px e a fidelidade foi (corretamente) priorizada. O custo
+	   apareceu depois — `12px` e `12.5px` são indistinguíveis na tela e carregavam papéis
+	   diferentes em arquivos diferentes, sem nada dizer qual era qual. Quem escrevia o próximo
+	   componente não tinha como acertar: só copiar do vizinho.
+
+	   Nomeados pelo PAPEL, como as cores já eram. O que cada degrau absorveu:
+	     micro    ← 8, 8.5, 9, 9.5, 10, 10.5   (92 usos)
+	     meta     ← 11, 11.5                   (129)
+	     rotulo   ← 12, 12.5                   (212)
+	     corpo    ← 13, 13.5                   (158)
+	     leitura  ← 14                         (28)
+	     titulo   ← 15, 15.5, 16, 17           (14)
+	     destaque ← 18, 19, 20, 23, 24         (10)
+
+	   **Sem `line-height` de propósito.** Os 643 usos que estes degraus substituem eram
+	   `text-[Npx]`, que não define entrelinha — acoplar uma agora moveria o layout do app inteiro
+	   por um motivo que não é o desta mudança. Os 11 usos da escala do Tailwind, que TINHAM
+	   entrelinha, receberam um `leading-*` explícito na migração para não andarem. */
+	--mv-text-micro: 10px;
+	--mv-text-meta: 11px;
+	--mv-text-rotulo: 12px;
+	--mv-text-corpo: 13px;
+	--mv-text-leitura: 14px;
+	--mv-text-titulo: 16px;
+	--mv-text-destaque: 20px;
+
+	/* ── Camadas flutuantes ──
+	   A ordem era **convenção oral**: quatro números soltos espalhados por seis arquivos, e nada
+	   impedia o próximo popover de nascer com `z-50` e ficar por baixo do Toast — ou por cima do
+	   Drawer (doc 93 §M-6). Aqui a regra fica legível no lugar onde ela é decidida.
+
+	   A escala é só para o que FLUTUA sobre a página. Empilhamento local dentro de um componente
+	   (a grade da agenda usa 5–9 entre os próprios elementos) continua sendo número cru de
+	   propósito: ali o contexto de empilhamento é outro, e emprestar um token global daria a
+	   entender uma relação com o Toast que não existe. */
+	--mv-z-cobertura: 40; /* o que cobre a página: véu do drawer, apanhador de clique do popover */
+	--mv-z-painel: 50; /* o que fica POR CIMA da cobertura: painel de modal, painel de popover */
+	--mv-z-toast: 60; /* acima de tudo que flutua — é o retorno de uma ação que já aconteceu */
+	--mv-z-atalho: 70; /* o "pular para o conteúdo": precisa alcançar o teclado antes de tudo */
+
+	/* Véu atrás de modal, drawer e gaveta mobile. Igual nos dois temas — ele escurece o que está
+	   ATRÁS, e o que está atrás já mudou de cor com o tema. Existe como token porque estava
+	   escrito de três formas e em dois valores (`rgba(8,10,12,0.42)` no Modal e no Drawer,
+	   `bg-black/40` no layout e no modal artesanal de anexos), e a divergência era o sintoma que
+	   denunciava um diálogo escrito fora do padrão (doc 93 §B-6/§A-3). */
+	--mv-overlay: rgba(8, 10, 12, 0.42);
 
 	/* ── Semânticas: FUNDO (badge, chip, botão sólido) ──
 	   Iguais nos dois temas, e é de propósito: badge é badge — a de ENCAIXE é âmbar no claro e
@@ -53,9 +135,30 @@
 	/* Texto/ícone sobre fundo semântico sólido. Fixo nos dois temas porque o fundo é fixo. */
 	--mv-on-solid: #161a1e;
 
-	/* Teal — cor de marca / foco. solid/hover iguais nos dois temas (:303) */
-	--mv-teal-solid: #0fb5a6;
-	--mv-teal-hover: #0ba294;
+	/* ── Acento de UI (foco, "agora", estado ativo, chip) ──
+	   ADR-021 (2026-07-30): esta família ERA o teal do protótipo (`#0fb5a6` e derivados) e passou
+	   a ser o **sage da marca**. O pedido foi "o teal sai de vez"; o nome mudou junto, porque um
+	   token chamado `teal` valendo um verde-acinzentado é a mentira que o resto deste arquivo
+	   existe para não contar.
+
+	   Por que sage e não outra cor — foi medido antes de escolher. O acento carrega o **anel de
+	   foco**, e o rail é escuro NOS DOIS TEMAS: uma cor escura some ali (o blue da marca dá 2,47
+	   sobre o rail, reprova 1.4.11). O sage é claro como o teal era, então o contrato do anel
+	   duplo sobrevive sem remedição — sage/rail 6,56 contra os 6,92 do teal. Todos os outros
+	   papéis caem dentro de ±0,4 do que o teal media.
+
+	   O preço, registrado: sage tem saturação 17% contra os 85% do teal, então o acento lê mais
+	   discreto. Foi decisão consciente de marca, não descuido.
+
+	   ⚠️ Três tokens valem #7fa59a hoje, e a diferença é de PAPEL, não de valor:
+	     --mv-sage          → pigmento da marca (logo, gradiente de landing)
+	     --mv-primary       → botão primário (ADR-020)
+	     --mv-accent-solid  → acento de UI, a família com text/subtle/border
+	   Continuam separados de propósito: quem for ajustar o contraste de um não arrasta os outros.
+
+	   solid/hover iguais nos dois temas, como o teal era (:303). */
+	--mv-accent-solid: #7fa59a;
+	--mv-accent-hover: #72958b;
 
 	/* Cores de marca do logo Cinetra (swooshes) e dos gradientes de landing/aside.
 	   Iguais nos dois temas — são pigmento da marca, não superfície (cinetra.html :21). */
@@ -76,6 +179,12 @@
 :root,
 :root[data-theme='light'],
 [data-theme='light'] {
+	/* A metade da troca de tema que os tokens NÃO fazem. `--mv-*` pinta tudo que é nosso; o que
+	   sobra é o que o browser desenha no shadow-DOM da UA — ícone do `<input type="date">`, painel
+	   do `<select>`, barra de rolagem, realce de autofill. Sem esta linha o browser assume
+	   documento claro e pinta ícone PRETO sobre a superfície escura: #000 sobre #16181c = 1,15:1,
+	   fotografado em Chromium (doc 93 §A-1). Trava em `tema-escopo.test.ts`. */
+	color-scheme: light;
 	--mv-canvas: #fbfcfd;
 	--mv-surface: #ffffff;
 	--mv-surface2: #f6f8f9;
@@ -88,13 +197,35 @@
 	   MÍNIMO que passa 4,5, de propósito: `muted` está em 5,49 e a faixa utilizável é estreita,
 	   então cada ponto a mais aproxima os dois cinzas e apaga a hierarquia. */
 	--mv-faint: #6b737c;
-	--mv-primary: #16181c;
-	--mv-primary-hover: #2a2e34;
+
+	/* ⚠️ EXCEÇÃO DE CONTRASTE REGISTRADA — ADR-020 / débito D-17 (decisão de 2026-07-30).
+	   O botão primário é o **sage da marca** (`--mv-sage`, #7fa59a) com texto **branco**: 2,71:1,
+	   abaixo dos 4,5 de 1.4.3 e abaixo até dos 3 de 1.4.11. A alternativa conforme era texto
+	   escuro (#16181c sobre sage = 6,56), recusada por legibilidade percebida.
+
+	   Consequências deste bloco, todas deliberadas:
+	   - `primary` deixou de INVERTER por tema — era quase-preto no claro e quase-branco no
+	     escuro. Agora é o mesmo sage nos dois, então o Toast do tema escuro deixa de ser
+	     quase-branco. Por isso os três blocos de tema repetem os mesmos três valores.
+	   - `--mv-sage` continua existindo e vale o mesmo hex: ele é o PIGMENTO DA MARCA (logo,
+	     landing, gradientes) e `primary` é o PAPEL DE UI. São dois nomes de propósito — quem
+	     quiser consertar o contraste um dia mexe só neste, sem tocar na marca.
+	   - o hover ESCURECE (mesma matiz, ~90%), seguindo a convenção do acento
+	     (`--mv-accent-solid` → `--mv-accent-hover`), e não clareia como o primary antigo fazia.
+
+	   A trava é `contraste.test.ts`, que crava o 2,71 em vez de fingir que ele passa. */
+	--mv-primary: #7fa59a;
+	--mv-primary-hover: #72958b;
 	--mv-on-primary: #ffffff;
-	--mv-teal-text: #067a6f; /* era #0a7e73 — 4,46 sobre o próprio chip; agora 4,71 */
-	--mv-teal-subtle: #e5f7f4;
-	--mv-teal-border: #7fdacd;
-	--mv-card-shadow: var(--mv-shadow-card);
+	/* Acento como TEXTO (link, item ativo, "hoje") e o chip que ele habita. Derivados do sage na
+	   mesma matiz (163°), escurecendo até passar 4,5 sobre as três superfícies E sobre o próprio
+	   chip — que é o caso apertado, como era no teal (4,71). Aqui sobra mais: 5,30. */
+	--mv-accent-text: #3b6d5f;
+	--mv-accent-subtle: #ebf4f2;
+	/* A borda do chip fica em 1,83 sobre `surface`, abaixo dos 3 de 1.4.11 — MAS o teal já estava
+	   em 1,64 e isto não é o único indicador do chip: ele também tem fundo tingido e o texto em
+	   `accent-text` a 5,30. Melhorou junto com a troca; consertar de vez é o débito D-18. */
+	--mv-accent-border: #9cc9bc;
 
 	/* Semânticas como TEXTO/ÍCONE (`text-danger`, `text-warning`…) — por tema, e não
 	   compartilhadas, porque **uma cor que contrasta com branco não contrasta com quase-preto**.
@@ -124,6 +255,7 @@
 
 /* ---- Tema escuro (theme() com d=true) ---- */
 :root[data-theme='dark'] {
+	color-scheme: dark; /* ver a nota no bloco claro */
 	--mv-canvas: #0c0d0e;
 	--mv-surface: #16181c;
 	--mv-surface2: #1c1f24;
@@ -132,13 +264,13 @@
 	--mv-text: #eceef0;
 	--mv-muted: #9aa3ac;
 	--mv-faint: #7e8790; /* era #6b747d — 3,48 sobre surface2; agora 4,53 */
-	--mv-primary: #eceef0;
-	--mv-primary-hover: #ffffff;
-	--mv-on-primary: #16181c;
-	--mv-teal-text: #3fd6c7;
-	--mv-teal-subtle: rgba(15, 181, 166, 0.16);
-	--mv-teal-border: rgba(127, 218, 205, 0.45);
-	--mv-card-shadow: none; /* sombra do card só no claro (:1683) */
+	/* Iguais ao tema claro — `primary` não inverte mais. Ver a nota no bloco claro (ADR-020). */
+	--mv-primary: #7fa59a;
+	--mv-primary-hover: #72958b;
+	--mv-on-primary: #ffffff;
+	--mv-accent-text: #8ec2b3;
+	--mv-accent-subtle: rgba(127, 165, 154, 0.16);
+	--mv-accent-border: rgba(127, 165, 154, 0.45);
 
 	/* Semânticas como texto — ver o bloco claro. Aqui `success` e `warning` ficam nos valores
 	   originais: sobre fundo quase-preto eles já passavam (5,40 e 8,77). Só o vermelho e o azul
@@ -158,6 +290,7 @@
 /* Respeita o SO quando não há escolha explícita de tema. */
 @media (prefers-color-scheme: dark) {
 	:root:not([data-theme]) {
+		color-scheme: dark; /* ver a nota no bloco claro */
 		--mv-canvas: #0c0d0e;
 		--mv-surface: #16181c;
 		--mv-surface2: #1c1f24;
@@ -166,13 +299,13 @@
 		--mv-text: #eceef0;
 		--mv-muted: #9aa3ac;
 		--mv-faint: #7e8790;
-		--mv-primary: #eceef0;
-		--mv-primary-hover: #ffffff;
-		--mv-on-primary: #16181c;
-		--mv-teal-text: #3fd6c7;
-		--mv-teal-subtle: rgba(15, 181, 166, 0.16);
-		--mv-teal-border: rgba(127, 218, 205, 0.45);
-		--mv-card-shadow: none;
+		/* Iguais aos outros dois blocos — `primary` não inverte mais (ADR-020). */
+		--mv-primary: #7fa59a;
+		--mv-primary-hover: #72958b;
+		--mv-on-primary: #ffffff;
+		--mv-accent-text: #8ec2b3;
+		--mv-accent-subtle: rgba(127, 165, 154, 0.16);
+		--mv-accent-border: rgba(127, 165, 154, 0.45);
 		/* As semânticas de TEXTO também entram aqui: sem elas, quem não escolheu tema e está no
 		   escuro do SO herdaria as do bloco claro (marrom sobre quase-preto). */
 		--mv-success: #2da160;
@@ -192,19 +325,33 @@
 	--font-sans: var(--mv-font-sans);
 	--font-mono: var(--mv-font-mono);
 
-	/* sobrescreve a escala de raio do Tailwind pela do protótipo, de propósito */
-	--radius-sm: var(--mv-radius-sm);
-	--radius-md: var(--mv-radius);
-	--radius-lg: var(--mv-radius-lg);
+	/* Tipografia por papel → text-micro … text-destaque. Os nomes de tamanho do Tailwind
+	   (`text-sm`, `text-xl`) continuam existindo, mas não devem ser usados no app: dois
+	   vocabulários para a mesma coisa é o que esta escala existe para acabar. `dimensao.test.ts`
+	   barra os dois — o nome do Tailwind e o valor arbitrário. */
+	--text-micro: var(--mv-text-micro);
+	--text-meta: var(--mv-text-meta);
+	--text-rotulo: var(--mv-text-rotulo);
+	--text-corpo: var(--mv-text-corpo);
+	--text-leitura: var(--mv-text-leitura);
+	--text-titulo: var(--mv-text-titulo);
+	--text-destaque: var(--mv-text-destaque);
+
+	/* Raio por papel → rounded-micro / rounded-controle / rounded-cartao / rounded-full.
+	   Os nomes de TAMANHO do Tailwind não são sobrescritos — ver a nota na Camada 1. */
+	--radius-micro: var(--mv-radius-micro);
+	--radius-controle: var(--mv-radius-controle);
+	--radius-cartao: var(--mv-radius-cartao);
 	--radius-full: var(--mv-radius-pill);
 
 	--shadow-sm: var(--mv-shadow-1);
-	--shadow-card: var(--mv-card-shadow);
 	--shadow-lg: var(--mv-shadow-lg);
 	--shadow-pop: var(--mv-shadow-pop);
-	--shadow-teal: var(--mv-shadow-teal);
 	--shadow-toast: var(--mv-shadow-toast);
 	--shadow-modal: var(--mv-shadow-modal);
+
+	/* véu de diálogo → bg-overlay */
+	--color-overlay: var(--mv-overlay);
 
 	/* superfícies → bg-canvas, bg-surface, bg-surface-2 */
 	--color-canvas: var(--mv-canvas);
@@ -224,11 +371,11 @@
 	--color-primary-hover: var(--mv-primary-hover);
 	--color-on-primary: var(--mv-on-primary);
 
-	--color-teal: var(--mv-teal-solid);
-	--color-teal-hover: var(--mv-teal-hover);
-	--color-teal-text: var(--mv-teal-text);
-	--color-teal-subtle: var(--mv-teal-subtle);
-	--color-teal-border: var(--mv-teal-border);
+	--color-accent: var(--mv-accent-solid);
+	--color-accent-hover: var(--mv-accent-hover);
+	--color-accent-text: var(--mv-accent-text);
+	--color-accent-subtle: var(--mv-accent-subtle);
+	--color-accent-border: var(--mv-accent-border);
 
 	/* Marca Cinetra → text-wordmark, bg-sage, bg-blue, from-blue/to-sage (gradientes) */
 	--color-wordmark: var(--mv-wordmark);
@@ -252,6 +399,23 @@
 	--color-danger-solid: var(--mv-danger-solid);
 	--color-info-solid: var(--mv-info-solid);
 	--color-on-solid: var(--mv-on-solid);
+}
+
+/* As camadas viram utilitário por `@utility`, e não por `@theme`, porque **`z-index` não é um
+   namespace temável no Tailwind v4** — medido: `--z-index-modal: 50` no `@theme` não gera classe
+   nenhuma, e o pior é que ela some em silêncio (utilitário desconhecido não é erro de build nem
+   de `svelte-check`, só deixa de existir no CSS). Trava em `camadas.test.ts`. */
+@utility z-cobertura {
+	z-index: var(--mv-z-cobertura);
+}
+@utility z-painel {
+	z-index: var(--mv-z-painel);
+}
+@utility z-toast {
+	z-index: var(--mv-z-toast);
+}
+@utility z-atalho {
+	z-index: var(--mv-z-atalho);
 }
 
 /* As animações do protótipo viram tokens --animate-* → animate-* */
@@ -314,16 +478,18 @@
 
 	/* Anel de foco DUPLO (1.4.11, piso 3:1).
 
-	   O teal sozinho media 2,41–2,57 sobre as superfícies do tema claro: quem navega por teclado
-	   quase não via onde estava. Trocar o teal por uma cor escura não resolve — o **rail é escuro
-	   nos dois temas**, e ali o escuro é que desapareceria. Nenhuma cor única serve.
+	   O acento sozinho mede 2,54–2,71 sobre as superfícies do tema claro (o teal media 2,41–2,57,
+	   ou seja: a ADR-021 não mudou o problema): quem navega por teclado quase não via onde estava.
+	   Trocar por uma cor escura não resolve — o **rail é escuro nos dois temas**, e ali o escuro é
+	   que desapareceria. Nenhuma cor única serve. Foi por isso que o sage venceu o blue da marca
+	   na escolha do acento: o blue dá 2,47 sobre o rail e mataria este anel.
 
 	   Daí os dois anéis: o `box-shadow` preenche o 1px que o `outline-offset` abre, na cor do
 	   texto do tema. Em cada superfície pelo menos um dos dois contrasta — sobre `surface`
-	   claro o companheiro dá 17,49; sobre o rail, o teal dá 6,92. O contrato está fixado em
+	   claro o companheiro dá 17,49; sobre o rail, o acento dá 6,56. O contrato está fixado em
 	   `contraste.test.ts`, que também confere se esta regra continua citando os dois. */
 	:where(input, select, button, textarea, [tabindex]):focus-visible {
-		outline: 2px solid var(--mv-teal-solid);
+		outline: 2px solid var(--mv-accent-solid);
 		outline-offset: 1px;
 		box-shadow: 0 0 0 1px var(--mv-text);
 	}

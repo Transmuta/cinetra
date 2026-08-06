@@ -5,9 +5,18 @@
 	// por este componente: sem uma constante, cada modal reescrevia a lista à mão e ela
 	// divergiu — a agenda tinha `px-2.5` (10px) e perdeu `text-ink`/`placeholder:text-faint`.
 	export const CONTROL_CLASS =
-		'rounded-md border border-edge-strong bg-surface text-[13.5px] text-ink placeholder:text-faint';
+		'rounded-controle border border-edge-strong bg-surface text-corpo text-ink placeholder:text-faint';
 	/** Padding horizontal padrão do controle. */
 	export const CONTROL_PX = 'px-[11px]';
+	/**
+	 * Altura padrão do controle (38px).
+	 *
+	 * Fora do `CONTROL_CLASS` pela mesma razão que o padding: o textarea cresce e o campo de
+	 * busca tem a sua. Mas EXISTE, porque era o único pedaço que os formulários grandes não
+	 * podiam pegar da constante — e foi essa lacuna que justificou o `inputCls` paralelo que
+	 * divergiu em três eixos (doc 93 §M-3).
+	 */
+	export const CONTROL_H = 'h-9.5';
 </script>
 
 <script lang="ts">
@@ -63,17 +72,17 @@
 <!-- Campo do protótipo: fld() :1933 (label 12/600 muted) + inputStyle() :1934 (h38, r8, bd). -->
 {#if control}
 	<label class="mb-3 block min-w-0">
-		<span class="mb-[5px] block text-[12px] font-semibold text-muted">{label}</span>
+		<span class="mb-[5px] block text-rotulo font-semibold text-muted">{label}</span>
 		{@render control()}
 	</label>
 {:else if children}
 	<div class="mb-3 min-w-0" role="group" aria-label={label}>
-		<span class="mb-[5px] block text-[12px] font-semibold text-muted">{label}</span>
+		<span class="mb-[5px] block text-rotulo font-semibold text-muted">{label}</span>
 		{@render children()}
 	</div>
 {:else}
 	<label class="mb-3 block min-w-0">
-		<span class="mb-[5px] block text-[12px] font-semibold text-muted">{label}</span>
+		<span class="mb-[5px] block text-rotulo font-semibold text-muted">{label}</span>
 		<input
 			{name}
 			{type}

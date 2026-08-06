@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { fetchPackageSessions } from '$lib/server/packages';
+import type { PackageSessionsResponse } from '$lib/packages';
 
 // A trilha do pacote (doc 69 §7 item 9), buscada sob demanda pelo modal "Sessões do pacote".
 //
@@ -13,8 +14,8 @@ export const GET: RequestHandler = async (event) => {
 	const r = await fetchPackageSessions(event, event.params.pkg);
 
 	if (r.status && r.status >= 400) {
-		return json({ sessions: [] }, { status: r.status });
+		return json({ sessions: [] } satisfies PackageSessionsResponse, { status: r.status });
 	}
 
-	return json({ sessions: r.sessions });
+	return json({ sessions: r.sessions } satisfies PackageSessionsResponse);
 };

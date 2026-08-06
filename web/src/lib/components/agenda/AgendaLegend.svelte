@@ -63,7 +63,7 @@
 		type="button"
 		onclick={alternar}
 		aria-expanded={aberta}
-		class="flex items-center gap-1 text-[11px] font-semibold text-muted hover:text-ink"
+		class="flex items-center gap-1 text-meta font-semibold text-muted hover:text-ink"
 	>
 		Entenda a agenda
 		<span
@@ -77,11 +77,11 @@
 	{#if aberta}
 		<div class="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1.5 pb-0.5">
 			<div class="flex flex-wrap items-center gap-x-2.5 gap-y-1">
-				<span class="text-[10px] font-semibold tracking-wide text-faint uppercase">
+				<span class="text-micro font-semibold tracking-wide text-faint uppercase">
 					O que aconteceu
 				</span>
 				{#each STATUS as s (s)}
-					<span class="flex items-center gap-1 text-[11px] text-muted">
+					<span class="flex items-center gap-1 text-meta text-muted">
 						<span
 							class="size-1.5 shrink-0 rounded-full"
 							style="background:{corDoTom(STATUS_META[s].tone)}"
@@ -92,18 +92,18 @@
 			</div>
 
 			<div class="flex flex-wrap items-center gap-x-2.5 gap-y-1">
-				<span class="text-[10px] font-semibold tracking-wide text-faint uppercase">
+				<span class="text-micro font-semibold tracking-wide text-faint uppercase">
 					Exige atenção
 				</span>
-				<span class="flex items-center gap-1 text-[11px] text-muted">
+				<span class="flex items-center gap-1 text-meta text-muted">
 					<span class="text-danger"><TriangleAlert size={11} /></span> Conflito de horário
 				</span>
-				<span class="flex items-center gap-1 text-[11px] text-muted">
+				<span class="flex items-center gap-1 text-meta text-muted">
 					<span class="text-warning"><Zap size={11} /></span> Encaixe
 				</span>
-				<span class="flex items-center gap-1 text-[11px] text-muted">
+				<span class="flex items-center gap-1 text-meta text-muted">
 					<span
-						class="rounded px-1 py-px text-[9px] font-bold text-warning"
+						class="rounded-micro px-1 py-px text-micro font-bold text-warning"
 						style="background:color-mix(in srgb, var(--color-warning) 12%, transparent)"
 					>
 						Registrar status
@@ -118,14 +118,14 @@
 
 			     A ordem repete a do card: o pedido de remarcação primeiro, porque é o que pede ação. -->
 			<div class="flex flex-wrap items-center gap-x-2.5 gap-y-1">
-				<span class="text-[10px] font-semibold tracking-wide text-faint uppercase">
+				<span class="text-micro font-semibold tracking-wide text-faint uppercase">
 					O paciente respondeu
 				</span>
-				<span class="flex items-center gap-1 text-[11px] text-muted">
+				<span class="flex items-center gap-1 text-meta text-muted">
 					<span class="text-warning"><CalendarClock size={11} /></span> Pediu para remarcar
 				</span>
-				<span class="flex items-center gap-1 text-[11px] text-muted">
-					<span class="text-teal"><Star size={11} /></span> Confirmou presença
+				<span class="flex items-center gap-1 text-meta text-muted">
+					<span class="text-accent"><Star size={11} /></span> Confirmou presença
 				</span>
 			</div>
 
@@ -138,10 +138,10 @@
 			     (Eram TRÊS até "Cancelado" ganhar o `faint` que o protótipo já lhe dava — agendado e
 			     cancelado, que são estados opostos, saíam idênticos no ponto.) -->
 			<div class="flex flex-wrap items-center gap-x-2.5 gap-y-1">
-				<span class="text-[10px] font-semibold tracking-wide text-faint uppercase">Turma</span>
-				<span class="flex items-center gap-1 text-[11px] text-muted">
+				<span class="text-micro font-semibold tracking-wide text-faint uppercase">Turma</span>
+				<span class="flex items-center gap-1 text-meta text-muted">
 					<span
-						class="rounded px-1 py-px text-[9px] font-bold text-muted"
+						class="rounded-micro px-1 py-px text-micro font-bold text-muted"
 						style="background:color-mix(in srgb, var(--color-muted) 12%, transparent)"
 					>
 						3 de 4 concluídas
@@ -152,7 +152,7 @@
 
 			<!-- A quarta dimensão do card não é chip: é posição. Dizer isso em uma frase evita a
 			     pergunta "e essa listra colorida?" que a cor sozinha não responde. -->
-			<span class="text-[11px] text-faint">
+			<span class="text-meta text-faint">
 				A faixa colorida à esquerda do bloco é a cor do profissional.
 			</span>
 		</div>

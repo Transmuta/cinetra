@@ -354,13 +354,12 @@ defmodule Api.Records do
   nenhuma, porque dá a impressão de existir.
   """
   def attachment_download(%Api.Scope{} = scope, %Attachment{} = anexo) do
-    case Api.Storage.presign_get(anexo.chave, anexo.nome, anexo.content_type) do
-      {:ok, %{url: url, expira_em: expira_em}} ->
-        registrar_evento!(scope, :visualizou, anexo)
-        {:ok, %{url: url, expira_em: expira_em}}
-
-      erro ->
-        erro
+    with {:ok, %{url: url, expira_em: expira_em}} <-
+           Api.Storage.presign_get(anexo.chave, anexo.nome, anexo.content_type),
+         # A ordem importa: a URL é montada (nada saiu do servidor ainda), a trilha é gravada, e
+         # só então a URL é devolvida. Se a gravação falhar, a URL **não vai** para o cliente.
+         :ok <- registrar_evento!(scope, :visualizou, anexo) do
+      {:ok, %{url: url, expira_em: expira_em}}
     end
   end
 
@@ -392,19 +391,6 @@ defmodule Api.Records do
       registrar_evento(scope, :removeu, anexo)
       :ok
     end
-  end
-
-  @doc """
-  A trilha de um anexo (owner/admin) — quem tocou, o quê e quando.
-
-  Delega para `Api.Audit`: a trilha do anexo deixou de ser uma tabela própria (doc 63). Fica como
-  atalho nomeado porque "o histórico deste anexo" é uma pergunta da ficha, não do feed.
-  """
-  def list_clinic_attachment_events(%Api.Scope{} = scope, attachment_id) do
-    %{entries: entries} =
-      Api.Audit.list_events(scope, resource: :attachment, record_id: attachment_id)
-
-    entries
   end
 
   # ---- interno ----
@@ -457,6 +443,8 @@ defmodule Api.Records do
   # o laudo da Maria?" só saía por `psql`.
   defp registrar_evento(scope, acao, anexo), do: Api.Audit.Acesso.anexo_tocado(scope, acao, anexo)
 
+  # A versão que de fato propaga. Ela e a de cima eram clones byte a byte — o `!` era decoração
+  # (doc 96, B-5), e o `@doc` de `attachment_download/2` prometia um fail-closed que não existia.
   defp registrar_evento!(scope, acao, anexo),
-    do: Api.Audit.Acesso.anexo_tocado(scope, acao, anexo)
+    do: Api.Audit.Acesso.anexo_tocado!(scope, acao, anexo)
 end

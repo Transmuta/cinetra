@@ -5,9 +5,14 @@ import { test as testComStack } from './fixtures';
 import { emailUnico, entrar } from './helpers';
 
 /**
- * Entrada, cadastro e onboarding ignoram o tema escuro (pedido de 2026-07-30).
+ * Entrada, cadastro, onboarding — e a tela do paciente — ignoram o tema escuro.
  *
- * Estas três telas são o protótipo papel/navy da Cinetra — cor de MARCA, não superfície de app.
+ * As três primeiras por pedido de 2026-07-30; a `/confirmar` entrou depois, e nela o custo era
+ * maior: o paciente chega de um e-mail em papel creme e **nunca** tem cookie de tema, então quem
+ * decidia era o `prefers-color-scheme` do aparelho. Quem lê no escuro abria uma página quase preta
+ * a um clique de um e-mail claro — duas marcas para a mesma mensagem.
+ *
+ * Estas telas são o protótipo papel/navy da Cinetra — cor de MARCA, não superfície de app.
  * O `AuthCard` fixa `data-theme="light"` no próprio nó e o `app.css` re-declara ali os tokens
  * claros, então tudo que está dentro resolve pelo claro mesmo com o `<html>` no escuro.
  *
@@ -44,10 +49,12 @@ async function token(page: Page, seletor: string, nome: string): Promise<string>
 		: valor;
 }
 
-test.describe('Entrada e cadastro no escuro do sistema', () => {
+test.describe('Entrada, cadastro e tela do paciente no escuro do sistema', () => {
 	test.use({ colorScheme: 'dark' });
 
-	for (const rota of ['/entrar', '/criar-conta']) {
+	// `/confirmar` com token inválido: é o estado que não precisa de stack nem de mensagem no
+	// banco, e a moldura (`CartaoPaciente`) é a mesma dos outros estados da tela.
+	for (const rota of ['/entrar', '/criar-conta', '/confirmar/token-invalido']) {
 		test(`${rota}: o <html> está no escuro e a tela continua clara`, async ({ page }) => {
 			await page.goto(rota);
 

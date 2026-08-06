@@ -15,9 +15,14 @@ defmodule ApiWeb.MessagesController do
 
   ## Quem pode disparar
 
-  Os mesmos papéis que agendam (`owner`·`admin`·`recepcao`·`profissional`). Não é a policy do
-  recurso porque a escrita de `Message` é de sistema — quem guarda é a fronteira, e o
-  `disparado_por_id` registra quem foi.
+  `owner`·`admin`·`recepcao`·`profissional`. Não é a policy do recurso porque a escrita de
+  `Message` é de sistema — quem guarda é a fronteira, e o `disparado_por_id` registra quem foi.
+
+  Esta lista **era** descrita como "os mesmos papéis que agendam", e deixou de ser em 2026-08-04
+  (doc 103): o `profissional` saiu do agendar e continua aqui, de propósito. A matriz de acesso
+  sempre tratou comunicação como célula própria (`:propria` — ele fala nos próprios atendimentos),
+  e a decisão daquele dia foi sobre a agenda. Se um dia a comunicação for reavaliada, é aqui e na
+  linha `comunicacao` de `Api.Accounts.AccessMatrix` que ela muda — não por arrasto.
   """
   use ApiWeb, :controller
 
@@ -47,8 +52,12 @@ defmodule ApiWeb.MessagesController do
   def create(conn, %{"appointment_id" => appointment_id} = params) do
     with_roles_scope(conn, @papeis_que_disparam, fn scope ->
       case disparar(scope, appointment_id, params["patient_id"]) do
+        # 201 só quando alguma mensagem de fato nasceu. Se todos os participantes caíram em
+        # `{:skip, motivo}` — já confirmou, opt-out, sem canal — nenhuma `Message` foi criada, e
+        # `201 Created` afirmava uma criação que não houve (doc 96, H-9).
         {:ok, resultados} ->
-          conn |> put_status(:created) |> json(%{resultados: resultados})
+          status = if Enum.any?(resultados, &(&1[:status] != :skip)), do: :created, else: :ok
+          conn |> put_status(status) |> json(%{resultados: resultados})
 
         :error ->
           not_found(conn)
@@ -76,18 +85,18 @@ defmodule ApiWeb.MessagesController do
 
   defp linha_do_participante(attendance, clinic, mensagens) do
     %{
-      attendanceId: attendance.id,
-      patientId: attendance.patient_id,
+      attendance_id: attendance.id,
+      patient_id: attendance.patient_id,
       paciente: attendance.patient.nome,
       mensagens: Enum.map(mensagens, &serializar/1),
       # A explicação do silêncio (§6). Só faz sentido quando não há mensagem nenhuma: depois de
       # uma tentativa, o que a recepção precisa ler é o estado dela, não o motivo hipotético.
-      semEnvio: if(mensagens == [], do: motivo_sem_envio(attendance.patient, clinic))
+      sem_envio: if(mensagens == [], do: motivo_sem_envio(attendance.patient, clinic))
     }
   end
 
   defp motivo_sem_envio(patient, clinic) do
-    case Dispatch.avaliar(patient, clinic_id: clinic.id) do
+    case Dispatch.avaliar(patient, clinic: clinic) do
       {:skip, motivo} -> to_string(motivo)
       {:ok, _canal, _destino} -> nil
     end
@@ -104,24 +113,24 @@ defmodule ApiWeb.MessagesController do
       # provider fala inglês técnico, e quem lê a timeline é a recepção no balcão — texto em
       # inglês ali não informa, gera chamado (`Api.Messaging.Falhas`).
       erro: message.erro,
-      erroTexto: Falhas.para_tela(message.erro),
+      erro_texto: Falhas.para_tela(message.erro),
       resposta: message.resposta,
       # Nulo = automático. É a distinção que a recepção usa para saber se precisa fazer algo (§6).
       automatico: is_nil(message.disparado_por_id),
-      enfileiradoEm: message.enfileirado_em,
+      enfileirado_em: message.enfileirado_em,
       # Preenchido só quando a janela de silêncio adiou (§7). É o que separa "na fila" de "não
       # saiu": sem ele a tela mostra uma mensagem parada e ninguém sabe se ela ainda vai sair.
-      agendadoPara: message.agendado_para,
-      enviadoEm: message.enviado_em,
-      entregueEm: message.entregue_em,
-      lidoEm: message.lido_em,
-      falhouEm: message.falhou_em,
+      agendado_para: message.agendado_para,
+      enviado_em: message.enviado_em,
+      entregue_em: message.entregue_em,
+      lido_em: message.lido_em,
+      falhou_em: message.falhou_em,
       # A retirada da fila (§7 + doc 40): o bloco foi cancelado ou excluído enquanto a mensagem
       # esperava a janela de silêncio abrir. O motivo viaja porque "Não enviada" sozinho manda a
       # recepção procurar um defeito onde houve uma decisão.
-      descartadaEm: message.descartada_em,
-      descarteMotivo: message.descarte_motivo,
-      respondidoEm: message.respondido_em,
+      descartada_em: message.descartada_em,
+      descarte_motivo: message.descarte_motivo,
+      respondido_em: message.respondido_em,
       # O texto vem do template + vars gravados, renderizado na leitura — o corpo não é
       # persistido (§4, retenção).
       titulo: titulo(message)
@@ -129,8 +138,8 @@ defmodule ApiWeb.MessagesController do
   end
 
   defp titulo(message) do
-    case Templates.render_email(message.template, message.vars) do
-      {:ok, %{assunto: assunto}} -> assunto
+    case Templates.assunto(message.template, message.vars) do
+      {:ok, assunto} -> assunto
       :error -> to_string(message.kind)
     end
   end
@@ -161,17 +170,17 @@ defmodule ApiWeb.MessagesController do
          ) do
       {:ok, message} ->
         %{
-          patientId: attendance.patient_id,
+          patient_id: attendance.patient_id,
           enviado: true,
-          messageId: message.id,
+          message_id: message.id,
           # A janela de silêncio (§7) adiou: o pedido foi aceito e a mensagem NÃO sai agora.
           # Sem isto a tela diria "Mensagem enviada" para algo que ainda está na fila — o mesmo
           # "Feito" que não enviava, com outra causa.
-          agendadoPara: message.agendado_para
+          agendado_para: message.agendado_para
         }
 
       {:skip, motivo} ->
-        %{patientId: attendance.patient_id, enviado: false, motivo: motivo}
+        %{patient_id: attendance.patient_id, enviado: false, motivo: motivo}
     end
   end
 

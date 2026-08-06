@@ -13,7 +13,8 @@ defmodule Api.Messaging.Dispatch do
 
   Toda a razão de este módulo existir é ser chamado pelos **dois** lados:
 
-    * o envio (manual, gatilho de criação, cron) — que precisa saber se manda;
+    * o envio (o clique da recepção, os gatilhos de remarcação/cancelamento, o cron do lembrete) —
+      que precisa saber se manda;
     * a **leitura** da timeline — que precisa explicar por que *não* mandou (§6). O "nada
       enviado" da tela não é uma linha em `Message`; é a ausência dela, e quem a explica é
       `avaliar/2`.
@@ -36,10 +37,16 @@ defmodule Api.Messaging.Dispatch do
   ## Canal desligado não é "paciente sem contato"
 
   `Api.Messaging.Transport.disponivel?/1` responde por canal, e com WhatsApp desligado a
-  resolução cai para o e-mail pelo caminho normal. Mas **quando não há reserva** os dois casos
-  se separam: sem destino na ficha é `:sem_contato`, e destino sem transporte é
-  `:canal_indisponivel`. São ações diferentes de gente diferente — preencher a ficha é da
-  recepção, ligar o canal não é.
+  resolução cai para o e-mail pelo caminho normal. Mas **quando não há reserva** os casos se
+  separam: sem destino na ficha é `:sem_contato`, destino sem transporte é `:canal_indisponivel`,
+  e transporte de pé com o canal desligado **nesta clínica** é `:whatsapp_desligado`. São ações
+  de gente diferente — preencher a ficha é da recepção, ligar o canal é da gestão da clínica, e
+  pôr o transporte de pé é de quem opera a instalação.
+
+  São **duas chaves em série**, e confundi-las custa caro nos dois sentidos: a global
+  (`Transport.disponivel?/1`, config do nó) diz se a instalação fala WhatsApp; a por-clínica
+  (`Clinic.msg_whatsapp_ativo`) diz se aquela clínica quis o canal — e ela nasce desligada porque
+  cada mensagem é paga.
   """
   require Logger
 
@@ -52,10 +59,13 @@ defmodule Api.Messaging.Dispatch do
 
   # Quantas confirmações uma presença pode receber, no total.
   #
-  # **Dois, e o número tem uma leitura:** a primeira é a automática da criação (ou o primeiro
-  # clique da recepção), a segunda é a insistência legítima de quem não obteve resposta. A terceira
-  # é o paciente sendo cobrado três vezes pela mesma sessão — no WhatsApp, três vezes **pago**, e é
-  # assim que se perde um número por bloqueio (§9.1.1).
+  # **Dois, e o número tem uma leitura:** o primeiro clique da recepção e a insistência legítima de
+  # quem não obteve resposta. O terceiro é o paciente sendo cobrado três vezes pela mesma sessão —
+  # no WhatsApp, três vezes **pago**, e é assim que se perde um número por bloqueio (§9.1.1).
+  #
+  # Os dois eram "a automática da criação + um clique" até 2026-07-31 (doc 98), quando a criação
+  # deixou de falar com o paciente. O teto não mudou de número porque o que ele protege é o
+  # paciente, não a origem do disparo.
   @limite_de_confirmacoes 2
 
   # Os estados que **gastam** uma unidade do teto: a mensagem chegou ao paciente, ou vai chegar.
@@ -75,6 +85,7 @@ defmodule Api.Messaging.Dispatch do
     * `:sem_consentimento` — a ficha não autoriza comunicação;
     * `:sem_contato` — não há e-mail nem telefone utilizável **na ficha**;
     * `:canal_indisponivel` — a ficha tem destino, mas o transporte dele não está de pé;
+    * `:whatsapp_desligado` — o transporte está de pé, mas **esta clínica** não ligou o canal;
     * `:opt_out` — o paciente pediu para parar;
     * `:ja_na_fila` — já existe uma mensagem deste tipo esperando para esta presença;
     * `:ja_confirmou` — o paciente já respondeu que vem;
@@ -88,11 +99,17 @@ defmodule Api.Messaging.Dispatch do
   celular na ficha e WhatsApp desligado lia "sem e-mail nem telefone cadastrado". Cada motivo
   existe porque leva a uma **ação diferente** — e "abra a ficha e preencha" é o conselho errado
   para quem já preencheu. `:canal_indisponivel` não é da recepção: é de quem opera a instalação.
+
+  `:whatsapp_desligado` nasceu da mesma régua, e é a razão de ele não ter sido dobrado dentro de
+  `:canal_indisponivel`: o transporte está de pé, quem não ligou o canal foi **a clínica**, e a
+  correção é um interruptor em /configuracoes/comunicacao. Dizer "indisponível" ali mandaria a
+  clínica abrir chamado para uma coisa que ela mesma resolve em dois cliques.
   """
   @type motivo ::
           :sem_consentimento
           | :sem_contato
           | :canal_indisponivel
+          | :whatsapp_desligado
           | :opt_out
           | :ja_na_fila
           | :ja_confirmou
@@ -103,11 +120,15 @@ defmodule Api.Messaging.Dispatch do
 
   **Não escreve nada** — é a pergunta, não o envio. É o que a timeline usa para explicar o
   silêncio, e o que o `dispatch/4` usa antes de gravar.
+
+  Recebe a **clínica**, não o `clinic_id`: além do tenant do opt-out, a decisão precisa saber se
+  esta clínica ligou o WhatsApp (`msg_whatsapp_ativo`). Dois argumentos para dois fatos do mesmo
+  registro convidariam a passar um sem o outro.
   """
   @spec avaliar(map(), keyword()) :: {:ok, atom(), String.t()} | {:skip, motivo()}
   def avaliar(patient, opts \\ []) do
     if consentiu?(patient) do
-      escolher_canal(patient, Keyword.get(opts, :clinic_id))
+      escolher_canal(patient, Keyword.fetch!(opts, :clinic))
     else
       {:skip, :sem_consentimento}
     end
@@ -119,22 +140,22 @@ defmodule Api.Messaging.Dispatch do
   # São duas perguntas, e separá-las é o que dá a explicação certa para cada silêncio: primeiro
   # "a ficha tem destino?", depois "esse destino tem transporte?". Uma pergunta só respondia
   # "sem contato" para as duas — ver o `@typedoc` de `motivo`.
-  defp escolher_canal(patient, clinic_id) do
+  defp escolher_canal(patient, clinic) do
     case destinos(patient) do
       [] -> {:skip, :sem_contato}
-      destinos -> por_transporte_disponivel(destinos, clinic_id)
+      destinos -> por_transporte_disponivel(destinos, clinic)
     end
   end
 
-  defp por_transporte_disponivel(destinos, clinic_id) do
-    case Enum.filter(destinos, fn {canal, _destino} -> Transport.disponivel?(canal) end) do
+  defp por_transporte_disponivel(destinos, clinic) do
+    case Enum.filter(destinos, fn {canal, _destino} -> ligado?(canal, clinic) end) do
       [] ->
-        {:skip, :canal_indisponivel}
+        {:skip, sem_transporte(destinos, clinic)}
 
       [{canal, destino} | resto] ->
         _ = resto
 
-        if Messaging.opted_out?(canal, destino, clinic_id) do
+        if Messaging.opted_out?(canal, destino, clinic.id) do
           # Aqui está o §10.4. Não é "tenta o `resto`": quem pediu para parar pediu para parar,
           # e a reserva não pode virar contorno.
           {:skip, :opt_out}
@@ -144,10 +165,40 @@ defmodule Api.Messaging.Dispatch do
     end
   end
 
-  # Os destinos que existem **na ficha**, em ordem de preferência (C8) — sem opinar sobre
-  # transporte. "Telefone fixo" e "campo vazio" caem aqui, porque os dois são ausência de
-  # destino; "o WhatsApp está desligado" não, porque aquilo não é um dado da ficha.
-  defp destinos(patient) do
+  # Duas chaves em série, e as duas precisam estar ligadas: a instalação tem transporte de
+  # WhatsApp (config do nó) **e** esta clínica quis o canal (coluna dela). Desligar a segunda faz
+  # o WhatsApp sumir da lista de destinos — e o e-mail, que é o próximo da ordem C8, atende. Isso
+  # é queda para a reserva, não interrupção: o §10.4 vale para quem pediu para parar de receber,
+  # não para a clínica que escolheu outro canal.
+  defp ligado?(:whatsapp, clinic),
+    do: clinic.msg_whatsapp_ativo and Transport.disponivel?(:whatsapp)
+
+  defp ligado?(canal, _clinic), do: Transport.disponivel?(canal)
+
+  # Qual dos dois silêncios explicar quando não sobrou canal nenhum. A distinção existe porque as
+  # correções têm donos diferentes: o interruptor é da clínica, o transporte é de quem opera a
+  # instalação. Só é `:whatsapp_desligado` quando o WhatsApp era de fato o destino que existia e
+  # o transporte estava de pé — senão a causa verdadeira é a outra.
+  defp sem_transporte(destinos, clinic) do
+    tinha_whatsapp? = Enum.any?(destinos, &match?({:whatsapp, _}, &1))
+
+    if tinha_whatsapp? and not clinic.msg_whatsapp_ativo and Transport.disponivel?(:whatsapp) do
+      :whatsapp_desligado
+    else
+      :canal_indisponivel
+    end
+  end
+
+  @doc """
+  Os destinos que existem **na ficha**, em ordem de preferência (C8) — sem opinar sobre
+  transporte. "Telefone fixo" e "campo vazio" caem aqui, porque os dois são ausência de destino;
+  "o WhatsApp está desligado" não, porque aquilo não é um dado da ficha.
+
+  Público porque o opt-in (`Api.Messaging.revoke_patient_opt_outs/2`) precisa da MESMA derivação,
+  já canonicalizada: revogar por um número escrito de outro jeito não encontra a linha gravada.
+  Duplicar isso lá criaria a segunda definição de "por onde eu falo com este paciente".
+  """
+  def destinos(patient) do
     [{:whatsapp, whatsapp_de(patient)}, {:email, normalizar(:email, patient.email)}]
     |> Enum.filter(fn {_canal, destino} -> destino != nil end)
   end
@@ -203,7 +254,7 @@ defmodule Api.Messaging.Dispatch do
   end
 
   def normalizar(:whatsapp, valor) when is_binary(valor) do
-    digitos = String.replace(valor, ~r/\D/, "")
+    digitos = Api.Texto.somente_digitos(valor)
 
     cond do
       # Já veio com o código do país (55 + DDD + 8 ou 9 dígitos).
@@ -218,8 +269,8 @@ defmodule Api.Messaging.Dispatch do
   Grava a mensagem e enfileira o envio — ou explica por que não.
 
   Devolve `{:ok, message}` ou `{:skip, motivo}`. **Nunca levanta por motivo de negócio**: quem
-  chama é o gatilho de criação de agendamento e o cron, e nenhum dos dois pode falhar porque um
-  paciente não tem e-mail.
+  chama são os gatilhos do ciclo de vida do bloco e o cron do lembrete, e nenhum deles pode falhar
+  porque um paciente não tem e-mail.
 
   Recebe a `attendance` já com `patient` e `appointment` carregados, e a `clinic` — quem chama
   costuma ter as três à mão, e lê-las aqui de novo seria N+1 no caminho do cron.
@@ -230,7 +281,7 @@ defmodule Api.Messaging.Dispatch do
   """
   @spec dispatch(map(), map(), map(), atom(), keyword()) :: {:ok, map()} | {:skip, motivo()}
   def dispatch(clinic, attendance, patient, kind, opts \\ []) do
-    with {:ok, canal, destino} <- avaliar(patient, clinic_id: clinic.id),
+    with {:ok, canal, destino} <- avaliar(patient, clinic: clinic),
          nil <- barreira(clinic, attendance, kind) do
       {:ok, gravar_e_enfileirar(clinic, attendance, patient, kind, canal, destino, opts)}
     else
@@ -303,29 +354,82 @@ defmodule Api.Messaging.Dispatch do
     # Uma leitura só do relógio para os dois usos. Chamar `quando_enviar/1` duas vezes deixaria a
     # linha e o job discordarem quando a chamada cai na virada da janela — a tela diria uma hora e
     # o Oban outra.
-    agendado_para = quando_enviar(clinic)
+    agendado_para = quando_sai(kind, clinic)
 
-    message =
-      Messaging.enqueue_message!(
-        %{
-          attendance_id: attendance.id,
-          appointment_id: attendance.appointment_id,
-          patient_id: patient.id,
-          canal: canal,
-          kind: kind,
-          template: Templates.para(kind),
-          vars: Map.merge(vars(clinic, attendance, patient), extras(opts)),
-          destino: destino,
-          disparado_por_id: Keyword.get(opts, :disparado_por_id),
-          agendado_para: agendado_para
-        },
-        tenant: clinic.id,
-        authorize?: false
-      )
+    # A corrida da barreira (doc 96, B-8), fechada no banco.
+    #
+    # `barreira/3` lê numa transação e esta escrita acontece em **outra**: dois pedidos simultâneos
+    # para a mesma `(attendance_id, kind)` passam os dois pela leitura. A barreira resolve o caso
+    # sequencial; quem arbitra concorrência é o Postgres, pelo índice único parcial
+    # `messages_uma_pendente_por_presenca`. No WhatsApp cada duplicata é **paga**.
+    #
+    # Aqui a violação é traduzida de volta para a linguagem do domínio: se o banco diz "já existe
+    # uma pendente para esta presença e este tipo", isso é exatamente `{:skip, :ja_na_fila}` — a
+    # mesma resposta que a barreira daria se tivesse enxergado a linha a tempo.
+    attrs = %{
+      attendance_id: attendance.id,
+      appointment_id: attendance.appointment_id,
+      patient_id: patient.id,
+      canal: canal,
+      kind: kind,
+      template: Templates.para(kind),
+      vars: Map.merge(vars(clinic, attendance, patient), extras(opts)),
+      destino: destino,
+      disparado_por_id: Keyword.get(opts, :disparado_por_id),
+      agendado_para: agendado_para
+    }
 
-    Api.Messaging.SendJob.enqueue(message, agendar_para: agendado_para)
+    attrs
+    |> Messaging.enqueue_message!(tenant: clinic.id, authorize?: false)
+    |> enfileirar(clinic, agendado_para)
+  rescue
+    erro ->
+      # SÓ esta constraint, pelo nome. Engolir qualquer erro aqui esconderia defeito de validação
+      # como se fosse concorrência — trocaria um bug caro por um silêncio, que é pior.
+      if colisao_de_pendente?(erro), do: {:skip, :ja_na_fila}, else: reraise(erro, __STACKTRACE__)
+  end
 
-    message
+  # A violação chega como `Postgrex.Error` (o índice é escrito à mão, fora do conhecimento do Ash)
+  # ou embrulhada num erro do Ash. Casar pelo nome do índice cobre as duas formas sem depender de
+  # qual camada traduziu.
+  defp colisao_de_pendente?(erro) do
+    inspect(erro) =~ "messages_uma_pendente_por_presenca"
+  end
+
+  # O retorno do `Oban.insert` NÃO pode ser descartado. Sem job, a linha fica `:pendente` para
+  # sempre — e aí `na_fila?/2` passa a recusar toda tentativa futura com `{:skip, :ja_na_fila}`.
+  # Não havia caminho de volta: nem cron, nem botão de reenviar; a tela dizia "Na fila"
+  # indefinidamente e a mensagem nunca saía (doc 96, B-4).
+  #
+  # Marcar `:falhou` é o que devolve o controle à recepção: o motivo aparece na tela e o próximo
+  # disparo é aceito, porque a barreira só bloqueia o que está pendente.
+  defp enfileirar(message, clinic, agendado_para) do
+    case Api.Messaging.SendJob.enqueue(message, agendar_para: agendado_para) do
+      {:ok, _job} ->
+        message
+
+      {:error, motivo} ->
+        Logger.error("não foi possível enfileirar o envio; a mensagem vai para :falhou",
+          message_id: message.id,
+          clinic_id: clinic.id,
+          motivo: inspect(motivo)
+        )
+
+        marcar_falha_de_enfileiramento(message, clinic.id)
+    end
+  end
+
+  defp marcar_falha_de_enfileiramento(message, clinic_id) do
+    Messaging.do_advance_message!(
+      message,
+      %{novo_status: :falhou, erro: "nao_enfileirada"},
+      tenant: clinic_id,
+      authorize?: false
+    )
+  rescue
+    # Se nem o registro da falha passa, devolver a linha original é melhor que derrubar o
+    # disparo inteiro: o efeito visível continua sendo "não saiu", que é a verdade.
+    _ -> message
   end
 
   @doc """
@@ -343,7 +447,11 @@ defmodule Api.Messaging.Dispatch do
       "clinica" => clinic.nome,
       "paciente" => patient.nome,
       "data" => data,
-      "hora" => hora
+      "hora" => hora,
+      # O telefone viaja **na mensagem**, como o nome da clínica e pelo mesmo motivo: ele é
+      # posicional obrigatória do template, e o histórico tem de continuar dizendo o número que a
+      # mensagem de fato anunciou depois que a clínica trocar de telefone.
+      "telefone" => clinic.telefone
     }
     |> com_conta_de_whatsapp(clinic)
   end
@@ -382,12 +490,22 @@ defmodule Api.Messaging.Dispatch do
   defp consentiu?(%{comunicacao: true}), do: true
   defp consentiu?(_patient), do: false
 
+  # Toda mensagem passa pela janela de silêncio (§7).
+  #
+  # O lembrete era a exceção — ele ignorava a janela porque, saindo 2 h antes, adiar produzia
+  # mensagem falsa (doc 98 §3). O gatilho saiu em 2026-08-01 e a exceção foi junto: o que sobrou
+  # nasce de um clique da recepção e continua verdadeiro horas depois, que é a condição para
+  # adiar em vez de descartar.
+  defp quando_sai(_kind, clinic), do: quando_enviar(clinic)
+
   @doc """
   Quando esta mensagem pode sair: agora, ou no fim da janela de silêncio (§7).
 
-  **Adia, não descarta.** Um lembrete gerado às 23h para uma sessão das 9h ainda é útil às 8h;
-  jogá-lo fora seria perder a mensagem por causa do relógio. Devolve `nil` para "agora" — é o que
-  o Oban entende como imediato.
+  **Adia, não descarta.** Uma confirmação gerada às 23h para uma sessão de sexta ainda é útil às
+  8h; jogá-la fora seria perder a mensagem por causa do relógio. Devolve `nil` para "agora" — é o
+  que o Oban entende como imediato.
+
+  Vale para todo tipo **menos o lembrete**, que sai na hora — ver `quando_sai/2`.
   """
   def quando_enviar(clinic, agora \\ nil) do
     agora = agora || DateTime.utc_now()

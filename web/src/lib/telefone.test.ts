@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatarTelefone, recebeWhatsapp, telefoneValido } from './telefone';
+import { formatarTelefone, linkWhatsapp, recebeWhatsapp, telefoneValido } from './telefone';
 
 describe('formatarTelefone', () => {
 	it('mascara o E.164 que vem do banco', () => {
@@ -71,5 +71,34 @@ describe('telefoneValido', () => {
 	// o que o banco grava — o teste existe para essa escolha não ser desfeita sem querer.
 	it('estrangeiro de 11 dígitos passa, porque o servidor o aceita', () => {
 		expect(telefoneValido('+1 415 555 0000')).toBe(true);
+	});
+});
+
+/**
+ * O link do WhatsApp existe para a tela do paciente (doc 104): quem pediu remarcação precisa de um
+ * caminho de volta na mão, e o canal em que a clínica já fala é o WhatsApp.
+ */
+describe('linkWhatsapp', () => {
+	it('monta o wa.me com o número em E.164 sem o "+"', () => {
+		expect(linkWhatsapp('(61) 99946-6274')).toBe('https://wa.me/5561999466274');
+	});
+
+	it('leva a mensagem já escrita, escapada para a URL', () => {
+		// Quem recebe é a recepção, que atende dezenas de conversas: chegar sabendo de qual sessão
+		// se trata é a diferença entre resolver e perguntar "quem é?".
+		expect(linkWhatsapp('(61) 99946-6274', 'Olá! Preciso remarcar (segunda, 10h).')).toBe(
+			'https://wa.me/5561999466274?text=Ol%C3%A1!%20Preciso%20remarcar%20(segunda%2C%2010h).'
+		);
+	});
+
+	it('fixo devolve null — wa.me de número sem WhatsApp abre o app para dizer que não existe', () => {
+		// É a mesma regra do `recebeWhatsapp`, e é por isso que ela está escrita neste arquivo.
+		expect(linkWhatsapp('(11) 3456-7890')).toBeNull();
+	});
+
+	it('estrangeiro e vazio devolvem null', () => {
+		expect(linkWhatsapp('+1 415 555 0000')).toBeNull();
+		expect(linkWhatsapp(null)).toBeNull();
+		expect(linkWhatsapp('')).toBeNull();
 	});
 });

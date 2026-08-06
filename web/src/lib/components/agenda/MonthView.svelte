@@ -54,7 +54,7 @@
 <div class="flex h-full flex-col gap-1.5 p-4">
 	<div class="grid grid-cols-7 gap-1.5">
 		{#each CABECALHO as dia (dia)}
-			<div class="text-center text-[11px] font-bold text-faint">{dia}</div>
+			<div class="text-center text-meta font-bold text-faint">{dia}</div>
 		{/each}
 	</div>
 
@@ -65,16 +65,16 @@
 				onclick={() => onPick(cell.date)}
 				aria-current={cell.isToday ? 'date' : undefined}
 				aria-label="{cell.date}{cell.totals ? `, ${cell.totals.total} agendamentos` : ''}"
-				class="flex min-h-[74px] flex-col gap-1 rounded-lg border p-1.5 text-left {cell.isSelected
-					? 'border-teal-border bg-teal-subtle'
+				class="flex min-h-[74px] flex-col gap-1 rounded-controle border p-1.5 text-left {cell.isSelected
+					? 'border-accent-border bg-accent-subtle'
 					: cell.inMonth
 						? 'border-edge bg-surface hover:bg-surface-2'
 						: 'border-edge bg-surface-2'}"
 				style={cell.inMonth ? '' : 'opacity:.5'}
 			>
 				<span
-					class="grid size-[26px] place-items-center rounded-full font-mono text-[13px] font-semibold tabular-nums {cell.isToday
-						? 'bg-teal text-on-solid'
+					class="grid size-[26px] place-items-center rounded-full font-mono text-corpo font-semibold tabular-nums {cell.isToday
+						? 'bg-accent text-on-solid'
 						: cell.inMonth
 							? 'text-ink'
 							: 'text-faint'}"
@@ -84,7 +84,7 @@
 
 				{#if cell.totals && cell.totals.total > 0}
 					<div class="mt-auto flex flex-col gap-1">
-						<span class="text-[10.5px] font-semibold text-teal-text">
+						<span class="text-micro font-semibold text-accent-text">
 							{cell.totals.total} agend.
 						</span>
 						<OccupancyBar rate={cell.totals.rate} title="Ocupação de {cell.date}" />
@@ -92,7 +92,7 @@
 				{:else if cell.totals && cell.totals.rate === null}
 					<!-- Dia dentro do mês, mas sem expediente. O travessão do protótipo diria
 					     "nenhum agendamento", que não é a mesma informação. -->
-					<span class="mt-auto text-[10.5px] text-faint">fechado</span>
+					<span class="mt-auto text-micro text-faint">fechado</span>
 				{/if}
 				<!-- Dia aberto e vazio não mostra nada: uma barra sempre em zero e um "agend."
 				     sem número são ruído que não informa, repetido 20 vezes por mês. -->

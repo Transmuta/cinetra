@@ -15,6 +15,10 @@ export const load: PageServerLoad = async (event) => {
 		fetchClinicHours(event)
 	]);
 
+	// 403 antes do 404: desde 2026-08-04 (doc 103) o papel `profissional` não abre ficha nenhuma
+	// — nem a dele. Sem esta linha o erro sairia com a mensagem "não encontrado", que é falsa e
+	// manda a pessoa procurar um id que existe.
+	if (prof.status === 403) error(403, 'Esta tela não está disponível para o seu perfil.');
 	if (!prof.professional) error(prof.status || 404, 'Profissional não encontrado.');
 	if (!hours.data) error(hours.status || 502, 'Não foi possível carregar o horário da clínica.');
 

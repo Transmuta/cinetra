@@ -33,14 +33,14 @@ function bloco(seletor: string): Record<string, string> {
 	return out;
 }
 
-// O primeiro `:root {` traz as semânticas e o teal — o que não muda com o tema.
+// O primeiro `:root {` traz as semânticas e o acento — o que não muda com o tema.
 const COMPARTILHADO = bloco(':root {');
 const CLARO = { ...COMPARTILHADO, ...bloco(":root[data-theme='light']") };
 const ESCURO = { ...COMPARTILHADO, ...bloco(":root[data-theme='dark']") };
 
 /**
- * `rgba(…)` achatado sobre um fundo opaco. Dois tokens do tema escuro (`teal-subtle`,
- * `teal-border`) são translúcidos, e razão de contraste não sabe o que é transparência: sem
+ * `rgba(…)` achatado sobre um fundo opaco. Dois tokens do tema escuro (`accent-subtle`,
+ * `accent-border`) são translúcidos, e razão de contraste não sabe o que é transparência: sem
  * achatar, o teste mediria a cor errada e passaria por sorte.
  */
 function opaco(cor: string, fundo: string): string {
@@ -94,17 +94,18 @@ describe('contraste dos tokens (WCAG 2 AA)', () => {
 			}
 		});
 
-		it('teal_text passa 4,5:1 sobre surface e sobre o próprio chip', () => {
-			for (const bg of ['surface', 'surface2', 'teal_subtle']) {
+		it('accent_text passa 4,5:1 sobre surface e sobre o próprio chip', () => {
+			for (const bg of ['surface', 'surface2', 'accent_subtle']) {
 				const fundo = opaco(T[bg], T.surface);
-				expect(razao(T.teal_text, fundo), `teal_text sobre ${bg} (${fundo})`).toBeGreaterThanOrEqual(
-					4.5
-				);
+				expect(
+					razao(T.accent_text, fundo),
+					`accent_text sobre ${bg} (${fundo})`
+				).toBeGreaterThanOrEqual(4.5);
 			}
 		});
 
 		/**
-		 * A regra de família das cores sólidas (doc 83 §5): **texto escuro** sobre `teal`,
+		 * A regra de família das cores sólidas (doc 83 §5): **texto escuro** sobre `accent`,
 		 * `success`, `warning` e `info` — o precedente é a badge ENCAIXE. `danger` é a exceção:
 		 * escureceu e ficou com texto branco, porque botão destrutivo com texto escuro sobre
 		 * vermelho claro perde a força de aviso.
@@ -113,7 +114,7 @@ describe('contraste dos tokens (WCAG 2 AA)', () => {
 		 * tema, então o texto sobre elas também não pode mudar.
 		 */
 		it('fundo semântico sólido + on-solid passa 4,5:1', () => {
-			for (const cor of ['teal_solid', 'success_solid', 'warning_solid', 'info_solid']) {
+			for (const cor of ['accent_solid', 'success_solid', 'warning_solid', 'info_solid']) {
 				expect(
 					razao(T.on_solid, T[cor]),
 					`--mv-on-solid sobre --mv-${cor} (${T.on_solid} / ${T[cor]})`
@@ -165,14 +166,58 @@ describe('contraste dos tokens (WCAG 2 AA)', () => {
 		);
 
 		/**
-		 * Indicador de foco (1.4.11, piso 3). O anel é **duplo** — teal + um companheiro na cor
+		 * `primary` + `on-primary` — **EXCEÇÃO DE CONTRASTE REGISTRADA** (ADR-020, débito D-17).
+		 *
+		 * Decisão humana explícita de 2026-07-30: o botão primário passou a ser o sage da marca
+		 * (`--mv-sage`, #7fa59a) com texto **branco**, que mede **2,71:1** — abaixo dos 4,5 de
+		 * 1.4.3 e abaixo até dos 3 de 1.4.11. A alternativa que passava (texto escuro, 6,56) foi
+		 * medida e recusada por legibilidade percebida.
+		 *
+		 * Este teste **não afrouxa nada**: ele CRAVA o par fora de conformidade, para que a
+		 * exceção seja um fato medido e versionado em vez de um furo silencioso — que era o
+		 * estado anterior, em que `primary` simplesmente não era medido por ninguém e a troca
+		 * teria passado verde. Qualquer mexida futura passa por aqui e encara o número.
+		 */
+		it('primary é o sage da marca com texto branco (exceção registrada, ADR-020)', () => {
+			expect(T.primary, 'primary deve ser o próprio --mv-sage, sem variante').toBe(T.sage);
+			expect(T.on_primary, 'o texto sobre primary é branco, por decisão').toBe('#ffffff');
+		});
+
+		it('a exceção de primary continua valendo 2,71:1 — e avisa quando deixar de valer', () => {
+			const r = razao(T.on_primary, T.primary);
+			// Faixa estreita de propósito: qualquer ajuste no sage ou no texto cai aqui.
+			expect(r, `branco sobre primary (${T.on_primary} / ${T.primary})`).toBeGreaterThan(2.6);
+			expect(
+				r,
+				`branco sobre primary subiu para ${r.toFixed(2)}. Se passou de 4,5, a exceção do ` +
+					`ADR-020 morreu: apague estes dois testes, restaure o piso de 4,5 e feche o D-17.`
+			).toBeLessThan(4.5);
+		});
+
+		/**
+		 * ADR-021: o acento **é** o sage da marca, nos dois temas. Antes era o teal do protótipo.
+		 *
+		 * Cravar a igualdade (e não o hex) é o ponto: se alguém reintroduzir uma cor própria para o
+		 * acento, este teste cai e a pessoa encara a decisão em vez de descobrir depois que o app
+		 * voltou a ter duas identidades. E, ao contrário do par `primary`/`on-primary` logo acima,
+		 * aqui **não há exceção de contraste**: os papéis do acento são medidos pelos testes
+		 * vizinhos (texto sobre chip, `on-solid` sobre o sólido, anel de foco) e todos passam.
+		 */
+		it('o acento é o sage da marca, nos dois temas (ADR-021)', () => {
+			expect(T.accent_solid, 'accent-solid deve ser o próprio --mv-sage').toBe(T.sage);
+			// O hover escurece a mesma matiz — a convenção que o `primary` cita.
+			expect(razao(T.accent_hover, '#ffffff')).toBeGreaterThan(razao(T.accent_solid, '#ffffff'));
+		});
+
+		/**
+		 * Indicador de foco (1.4.11, piso 3). O anel é **duplo** — o acento + um companheiro na cor
 		 * do texto — porque o app tem superfícies quase brancas *e* o rail escuro nos dois temas:
 		 * nenhuma cor única aparece em todas. O contrato que este teste fixa é o que importa de
 		 * fato: em cada superfície, **pelo menos um** dos dois anéis contrasta.
 		 */
 		it('o anel de foco aparece em toda superfície, inclusive no rail', () => {
 			for (const bg of ['canvas', 'surface', 'surface2', 'rail', 'rail_item']) {
-				const melhor = Math.max(razao(T.teal_solid, T[bg]), razao(T.text, T[bg]));
+				const melhor = Math.max(razao(T.accent_solid, T[bg]), razao(T.text, T[bg]));
 				expect(melhor, `melhor anel sobre --mv-${bg} (${T[bg]})`).toBeGreaterThanOrEqual(3);
 			}
 		});
@@ -186,14 +231,14 @@ describe('contraste dos tokens (WCAG 2 AA)', () => {
 	it('a regra de :focus-visible emite os dois anéis', () => {
 		const i = css.indexOf(':focus-visible');
 		const regra = css.slice(i, css.indexOf('}', i));
-		expect(regra, 'o anel teal').toContain('--mv-teal-solid');
+		expect(regra, 'o anel do acento').toContain('--mv-accent-solid');
 		expect(regra, 'o anel companheiro, na cor do texto do tema').toContain('--mv-text');
 	});
 
 	it('o parser achou os três blocos de token', () => {
 		// Guarda do próprio teste: se o `app.css` for reorganizado e um bloco deixar de casar, os
 		// `expect` acima passariam medindo `undefined` — que é pior que falhar.
-		expect(Object.keys(COMPARTILHADO)).toContain('teal_solid');
+		expect(Object.keys(COMPARTILHADO)).toContain('accent_solid');
 		expect(Object.keys(CLARO)).toContain('faint');
 		expect(Object.keys(ESCURO)).toContain('faint');
 		expect(CLARO.faint).not.toBe(ESCURO.faint);

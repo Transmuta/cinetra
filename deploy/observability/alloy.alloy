@@ -14,7 +14,11 @@
 // ---- Descoberta -------------------------------------------------------------------------------
 
 discovery.docker "containers" {
-	host             = "unix:///var/run/docker.sock"
+	// R-A9 (onda 5 do doc 102): era `unix:///var/run/docker.sock`. O socket agora só é montado no
+	// serviço `docker-proxy`, que deixa passar GET de container e de evento e **recusa POST** — sem
+	// POST não há `create`/`start`/`exec`, e o caminho de "RCE no agente vira root no host" fecha.
+	// O `:ro` do bind anterior não fazia isso: ele é do arquivo, não da API.
+	host             = sys.env("DOCKER_HOST_OBS")
 	refresh_interval = "15s"
 }
 
@@ -54,7 +58,7 @@ discovery.relabel "containers" {
 }
 
 loki.source.docker "containers" {
-	host       = "unix:///var/run/docker.sock"
+	host       = sys.env("DOCKER_HOST_OBS")  // ver o comentário no discovery.docker acima (R-A9)
 	targets    = discovery.relabel.containers.output
 	labels     = {env = sys.env("OBS_ENV")}
 	forward_to = [loki.process.higiene.receiver]
@@ -81,7 +85,51 @@ loki.process "higiene" {
 		drop_counter_reason = "asset"
 	}
 
-	// 3) REDAÇÃO — a terceira camada do doc 05 §2.4, e a única que independe do código da app.
+	// 3) CONTENÇÃO do log do POSTGRES (R-A8, doc 95 · onda 1 do doc 102).
+	//
+	// A allowlist de coleta é por PROJETO do compose, e o serviço `db` está no projeto — então o
+	// log do container do Postgres entra no Loki como o de qualquer outro. O problema é que a
+	// redação abaixo cobre CPF, e-mail e telefone, e **nome próprio não tem regex**. A primeira
+	// camada que o doc 05 §2.4 prescreve (allowlist na origem) não existe para um container que
+	// não é nosso.
+	//
+	// O que o Postgres emite numa violação de unicidade — capturado do container `db` em
+	// 2026-08-04, e é PIOR do que o achado original descrevia:
+	//
+	//   … [33091] ERROR:  duplicate key value violates unique constraint "prova_pii_cpf_key"
+	//   … [33091] DETAIL:  Key (cpf)=(11122233344) already exists.
+	//   … [33091] STATEMENT:
+	//   \tinsert into prova_pii values ('Maria Aparecida da Silva', '11122233344');
+	//
+	// **O `STATEMENT:` é multilinha, e a continuação não repete o rótulo.** Um filtro só por
+	// `STATEMENT:` mataria a linha vazia e deixaria passar exatamente a que tem o nome do
+	// paciente — a mesma armadilha do regex de telefone lá embaixo, onde a redação PARECIA ter
+	// funcionado. Por isso são dois estágios, e o segundo é o que importa.
+	//
+	// O `ERROR:` fica de propósito: ele diz QUE houve violação e em qual constraint, sem dizer de
+	// quem. É o recorte que preserva o diagnóstico e descarta o titular.
+	//
+	// Isto é contenção, não a solução: a allowlist completa para o `db` (ou tirá-lo da coleta e
+	// depender do `audit_events`) é o item 5.x do doc 102.
+	stage.match {
+		// O nome do container: `cinetra-prod-db-1`, `cinetra-hml-db-1`, `cinetra-db-1` em dev. O
+		// seletor do Loki é ancorado, então este regex precisa casar a string inteira.
+		selector = "{service=~\".+-db-[0-9]+\"}"
+
+		stage.drop {
+			expression = "(DETAIL|STATEMENT|CONTEXT|HINT):"
+			drop_counter_reason = "postgres_parametro"
+		}
+
+		// A continuação do STATEMENT multilinha: o Postgres a indenta com TAB e o driver de log
+		// do Docker a entrega como evento separado. É ela que carrega os valores.
+		stage.drop {
+			expression = "^\\s+\\S"
+			drop_counter_reason = "postgres_continuacao"
+		}
+	}
+
+	// 4) REDAÇÃO — a terceira camada do doc 05 §2.4, e a única que independe do código da app.
 	//
 	// A primeira camada (allowlist na origem) é quem deve bastar. Esta existe porque um `dbg/1`
 	// esquecido, uma mensagem de exceção nova ou um provider que muda o texto do erro não passam
@@ -129,7 +177,7 @@ loki.process "higiene" {
 		replace    = "[TELEFONE]"
 	}
 
-	// 4) NÍVEL como rótulo — cardinalidade 3, e é o filtro mais usado numa investigação.
+	// 5) NÍVEL como rótulo — cardinalidade 3, e é o filtro mais usado numa investigação.
 	//
 	// A chave do JSON é `severity` nos dois lados (o `LoggerJSON.Formatters.Basic` do Elixir e o
 	// `$lib/server/log.ts` do BFF). A primeira versão extraía `severity` mas rotulava a partir de
@@ -244,6 +292,55 @@ otelcol.processor.filter "encanamento" {
 		// minúsculas e o `SELECT set_config` em maiúsculas.
 		span = [
 			`IsMatch(attributes["db.statement"], "(?i)^(begin|commit|rollback|savepoint|release|select set_config)")`,
+		]
+	}
+
+	output {
+		traces = [otelcol.processor.transform.poda.input]
+	}
+}
+
+// ---- PODA DE ATRIBUTO QUE CARREGA IDENTIFICADOR OU CREDENCIAL ---------------------------------
+//
+// Deixou de ser exemplo comentado e passou a rodar (doc 96, S-3). O motivo é direto: o
+// `OpentelemetryBandit` grava, em TODO span de servidor, os atributos padrão da biblioteca — e
+// dois deles são veneno neste projeto.
+//
+//   * `url.query` é o PIOR dos dois e nem estava no exemplo original: é onde viaja o token do
+//     magic link (`GET /api/auth/magic-link/callback?token=…`), ou seja, a credencial que assina
+//     a sessão. Exportá-la para o Tempo é vazar sessão para quem lê o Grafana.
+//   * `url.path` carrega o `patient_id` cru (`GET /api/patients/<uuid>`) — o único identificador
+//     que o doc 05 §1.3 proíbe exportar, porque liga o registro a um titular de dado de saúde. O
+//     log já o sanitiza (`ApiWeb.RequestLogger.rota/1`); o trace não sanitizava nada.
+//
+// `http.route` (a rota PARAMETRIZADA, `/api/patients/:id`) permanece: é ela que serve para
+// agrupar, e é justamente a que não tem identificador dentro.
+//
+// Isto roda ANTES do lote, como o comentário abaixo previa. Hoje o exportador está inerte
+// (`OTEL_EXPORTER_OTLP_ENDPOINT` vem vazio no compose), e é exatamente por isso que a poda entra
+// agora: quando alguém ligar a variável, ela já tem de estar de pé.
+otelcol.processor.transform "poda" {
+	error_mode = "ignore"
+
+	trace_statements {
+		context = "span"
+		statements = [
+			// a credencial
+			`delete_key(attributes, "url.query")`,
+			// o caminho com o id do paciente; `http.route` (parametrizada) permanece
+			`delete_key(attributes, "url.path")`,
+			// R-C2 residual (onda 4 do doc 102) — o atributo que tinha ficado de fora, e ele é o
+			// PIOR dos quatro: `url.full` é a URL inteira, ou seja `url.path` E `url.query`
+			// juntos. Podar os dois e deixar este é a redação que PARECE ter funcionado — a mesma
+			// classe de erro do regex de telefone lá em cima.
+			//
+			// Quem o escreve é o SDK de cliente: `@opentelemetry/instrumentation-undici` grava
+			// `ATTR_URL_FULL` em toda chamada de saída do BFF. E a rota `patients/lookup` documenta
+			// `?cpf=&tel=&email=&nome=` na querystring — então `url.full` é o único atributo que
+			// carregaria CPF e nome completo do paciente para o Tempo, com 7 dias de retenção.
+			`delete_key(attributes, "url.full")`,
+			// o SQL do Ecto, que é útil na largada e volumoso depois
+			`delete_key(attributes, "db.statement")`,
 		]
 	}
 

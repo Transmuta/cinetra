@@ -102,8 +102,30 @@ export function agendaTopics(clinicId: string, view: AgendaView, date: string): 
 }
 
 /**
- * Abre o socket autenticado e liga a renovação de token. Os três clientes (agenda, fila e
- * notificações) montavam este mesmo bloco copiado; agora o S2 entra num lugar só.
+ * O socket **compartilhado** da aba, por origem — um só, com N canais (B7, doc 101 §4.5).
+ *
+ * O layout mantém `connectNotifications` de pé em toda tela; a agenda e a fila abrem a conexão
+ * delas por cima. Enquanto cada cliente construía o próprio `Socket`, uma aba de agenda ou de fila
+ * carregava **dois WebSockets** para a mesma clínica e o mesmo usuário — dois processos no
+ * servidor, dois handshakes, e dois `onError` disparando dois `GET /api/realtime/token` em
+ * paralelo a cada reconexão. Multiplexar canais num socket é justamente o que o protocolo do
+ * Phoenix faz; a duplicata era desenho por acidente, não por necessidade.
+ *
+ * `refs` é contagem, não booleano: sair da agenda não pode derrubar o sino do layout, e o layout
+ * saindo não pode derrubar a agenda. Zero referências fecha e **esquece** a entrada, para que o
+ * próximo cliente abra uma conexão nova em vez de reusar um socket já desconectado.
+ */
+interface SocketCompartilhado {
+	socket: Socket;
+	refs: number;
+	token: string;
+}
+
+const compartilhados = new Map<string, SocketCompartilhado>();
+
+/**
+ * Abre (ou reusa) o socket autenticado da origem e liga a renovação de token. Devolve o socket e a
+ * função de soltar a referência.
  *
  * **Por onde o token viaja (S2, Onda 5).** Pelo `authToken`, que o Phoenix 1.8 manda no
  * subprotocolo `Sec-WebSocket-Protocol` — e não mais pelos `params`, que viram query string na
@@ -112,26 +134,77 @@ export function agendaTopics(clinicId: string, view: AgendaView, date: string): 
  * (`websocket: [auth_token: true]` no endpoint.ex): sem ele, isto aqui é ignorado.
  *
  * O token vive 15 minutos e o socket vive enquanto a aba estiver aberta, então `authToken` é uma
- * **função** — o Phoenix a reavalia a cada tentativa, e o `onError` troca o valor por um novo.
+ * **função** — o Phoenix a reavalia a cada tentativa, e o `onError` troca o valor por um novo. Com
+ * o socket compartilhado a renovação também é uma só: quem chega depois entra num socket que já
+ * está autenticado, e o `config.token` dele é descartado de propósito — os dois vêm do mesmo
+ * `/api/realtime/token`, e reescrever o valor a cada canal novo criaria uma corrida com a
+ * renovação em curso.
  */
-function abrirSocket(config: RealtimeConfig, refreshToken: () => Promise<string | null>): Socket {
-	let token = config.token;
+function adquirirSocket(
+	config: RealtimeConfig,
+	refreshToken: () => Promise<string | null>
+): { socket: Socket; soltar: () => void } {
+	const url = socketUrl(config.origin);
+	let entrada = compartilhados.get(url);
 
-	// O cast existe porque `@types/phoenix` (1.6.7) ainda tipa `authToken` como `string`, embora o
-	// runtime aceite função desde a 1.8 (`opts.authToken && closure(opts.authToken)`). Passar a
-	// string congelaria o token da primeira conexão e mataria a renovação que os testes cobrem.
-	const socket = new Socket(socketUrl(config.origin), {
-		authToken: (() => token) as unknown as string
-	});
+	if (!entrada) {
+		const nova: SocketCompartilhado = {
+			socket: null as unknown as Socket,
+			refs: 0,
+			token: config.token
+		};
 
-	socket.onError(() => {
-		void refreshToken().then((novo) => {
-			if (novo) token = novo;
+		// O cast existe porque `@types/phoenix` (1.6.7) ainda tipa `authToken` como `string`, embora
+		// o runtime aceite função desde a 1.8 (`opts.authToken && closure(opts.authToken)`). Passar a
+		// string congelaria o token da primeira conexão e mataria a renovação que os testes cobrem.
+		nova.socket = new Socket(url, {
+			authToken: (() => nova.token) as unknown as string
 		});
-	});
 
-	socket.connect();
-	return socket;
+		nova.socket.onError(() => {
+			void refreshToken().then((novo) => {
+				if (novo) nova.token = novo;
+			});
+		});
+
+		nova.socket.connect();
+		compartilhados.set(url, nova);
+		entrada = nova;
+	}
+
+	const atual = entrada;
+	atual.refs += 1;
+
+	// `solto` torna a função idempotente. Sem ele, um `close()` chamado duas vezes (o `onDestroy`
+	// de um componente que já tinha desligado à mão) derrubaria o socket de OUTRO cliente ao levar
+	// o contador a zero cedo demais — e o sintoma seria o sino parando de tocar sem nada no console.
+	let solto = false;
+
+	return {
+		socket: atual.socket,
+		soltar() {
+			if (solto) return;
+			solto = true;
+			atual.refs -= 1;
+
+			if (atual.refs <= 0) {
+				compartilhados.delete(url);
+				atual.socket.disconnect();
+			}
+		}
+	};
+}
+
+/**
+ * Fecha e esquece todo socket compartilhado. **É costura de teste**: o registro acima é estado de
+ * módulo e sobrevive entre casos, então sem isto um teste que não desliga deixaria o socket de pé
+ * e o caso seguinte o reusaria. Em produção ninguém chama — quem fecha é o `refs` chegando a zero.
+ */
+export function __fecharSocketsCompartilhados(): void {
+	for (const [url, entrada] of compartilhados) {
+		compartilhados.delete(url);
+		entrada.socket.disconnect();
+	}
 }
 
 /** Busca um token novo no BFF. Usado quando o socket cai e o token pode ter vencido. */
@@ -167,7 +240,7 @@ export function connectAgenda(
 	const mode = opts.mode ?? 'block';
 	const meuId = opts.userId ?? null;
 
-	const socket = abrirSocket(config, refreshToken);
+	const { socket, soltar } = adquirirSocket(config, refreshToken);
 
 	// F5 — presença por dia. Um mapa por TÓPICO: a Semana assina vários, e mesmo que o servidor
 	// não rastreie ali, misturar os mapas seria a porta para "vendo o dia 20" vazar no dia 21.
@@ -217,7 +290,7 @@ export function connectAgenda(
 
 	return () => {
 		for (const channel of channels) channel.leave();
-		socket.disconnect();
+		soltar();
 	};
 }
 
@@ -240,7 +313,7 @@ export function connectNotifications(
 ): () => void {
 	const refreshToken = deps.refreshToken ?? buscarToken;
 
-	const socket = abrirSocket(config, refreshToken);
+	const { socket, soltar } = adquirirSocket(config, refreshToken);
 
 	const channel = socket.channel(`notifications:${config.clinic_id}`, {});
 	channel.on('notification_created', () => handlers.onNotification());
@@ -253,7 +326,7 @@ export function connectNotifications(
 
 	return () => {
 		channel.leave();
-		socket.disconnect();
+		soltar();
 	};
 }
 
@@ -358,7 +431,7 @@ export function connectWaitlist(
 	const refreshToken = deps.refreshToken ?? buscarToken;
 	const meuId = deps.userId ?? null;
 
-	const socket = abrirSocket(config, refreshToken);
+	const { socket, soltar } = adquirirSocket(config, refreshToken);
 
 	const channel = socket.channel(`waitlist:${config.clinic_id}`, {});
 	channel.on('waitlist_changed', () => handlers.onChange());
@@ -387,7 +460,7 @@ export function connectWaitlist(
 	return {
 		close() {
 			channel.leave();
-			socket.disconnect();
+			soltar();
 		},
 		offering(entryId: string) {
 			channel.push('offering', { entry_id: entryId });

@@ -35,7 +35,11 @@ defmodule Api.Notifications.SlotOpenedJob do
     max_attempts: 3,
     # O mesmo bloco abrindo a mesma vaga duas vezes em um minuto é um evento repetido, não dois
     # fatos: justificar uma falta logo após marcá-la passa duas vezes pelo rollup.
-    unique: [period: 60, fields: [:worker, :args]]
+    # `keys:` recorta quais chaves do `args` entram na unicidade. Sem ele, `args` inteiro entrava
+    # — inclusive `actor_id` —, e dois usuários tocando o MESMO bloco geravam dois jobs e duas
+    # notificações "vaga livre" do mesmo fato, que é justamente o que este `unique` existe para
+    # impedir (doc 96, P-7).
+    unique: [period: 60, fields: [:worker, :args], keys: [:clinic_id, :appointment_id]]
 
   alias Api.Notifications.Fanout
 
@@ -74,8 +78,9 @@ defmodule Api.Notifications.SlotOpenedJob do
         not_found_error?: false
       )
     end)
+    |> Api.Repo.unwrap()
     |> case do
-      {:ok, {:ok, %{} = appointment}} -> appointment
+      {:ok, %{} = appointment} -> appointment
       _ -> nil
     end
   end

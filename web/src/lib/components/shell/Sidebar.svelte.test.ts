@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import '@testing-library/jest-dom/vitest';
 import { render, cleanup } from '@testing-library/svelte';
 import { page } from '$app/state';
+import type { ClinicIdentity } from '$lib/session';
 import Sidebar from './Sidebar.svelte';
 
 // `page.url` é só-leitura no `$app/state` (é derivado do estado do router). Os filtros que moram
@@ -20,10 +21,48 @@ function restoreUrl() {
 	if (urlOriginal) Object.defineProperty(page, 'url', urlOriginal);
 }
 
+// A identidade da clínica chega como UM objeto (o que `clinicIdentity` devolve), e não como uma
+// prop por campo: com o endereço estruturado seriam dez props para ligar — em dois lugares, já
+// que o cromo é montado no desktop e na gaveta. Foi assim que o CNPJ ficou de fora uma vez.
+//
+// A fábrica existe porque o tipo exige todas as chaves, e a metade dos casos aqui é justamente
+// "clínica que preencheu só uma parte" — escrever oito `null` em cada teste esconderia o que
+// cada um está de fato exercitando.
+function identidade(over: Partial<ClinicIdentity> = {}): ClinicIdentity {
+	return {
+		nome: 'Clínica Vida',
+		cnpj: null,
+		telefone: null,
+		cep: null,
+		endereco: null,
+		numero: null,
+		complemento: null,
+		bairro: null,
+		cidade: null,
+		uf: null,
+		...over
+	};
+}
+
+const completa = identidade({
+	cnpj: '12ABC34501DE35',
+	telefone: '(11) 3456-7890',
+	cep: '01310-100',
+	endereco: 'Av. Paulista',
+	numero: '1000',
+	complemento: 'Sala 42',
+	bairro: 'Bela Vista',
+	cidade: 'São Paulo',
+	uf: 'SP'
+});
+
 describe('Sidebar', () => {
 	it('em Configurações mostra a sub-nav de ajustes e o nome da clínica', () => {
 		const { getByRole, getByText } = render(Sidebar, {
-			props: { pathname: '/configuracoes/equipe', clinicName: 'Clínica Centro' }
+			props: {
+				pathname: '/configuracoes/equipe',
+				clinic: identidade({ nome: 'Clínica Centro' })
+			}
 		});
 		expect(getByText('Clínica Centro')).toBeInTheDocument();
 		expect(getByRole('link', { name: 'Clínica' })).toHaveAttribute('href', '/configuracoes/clinica');
@@ -37,20 +76,40 @@ describe('Sidebar', () => {
 		);
 	});
 
-	it('no topo mostra o nome da clínica (sem a marca Cinetra) com CNPJ mascarado e endereço', () => {
+	// O endereço da clínica deixou de ser uma linha livre e virou sete campos. O topo do sidebar
+	// continuou mostrando só o logradouro: quem preenchia número, bairro, cidade e CEP em
+	// /configuracoes/clinica via "Av. Paulista" e mais nada — o dado estava salvo e invisível.
+	it('no topo mostra a identidade INTEIRA: nome, CNPJ, telefone e o endereço completo', () => {
 		const { getByText, queryByText } = render(Sidebar, {
-			props: {
-				pathname: '/agenda',
-				clinicName: 'Clínica Vida',
-				clinicCnpj: '12ABC34501DE35',
-				clinicEndereco: 'Rua X, 100'
-			}
+			props: { pathname: '/agenda', clinic: completa }
 		});
 		expect(getByText('Clínica Vida')).toBeInTheDocument();
 		expect(getByText('12.ABC.345/01DE-35')).toBeInTheDocument();
-		expect(getByText('Rua X, 100')).toBeInTheDocument();
+		expect(getByText('(11) 3456-7890')).toBeInTheDocument();
+		expect(getByText('Av. Paulista, 1000')).toBeInTheDocument();
+		expect(getByText('Sala 42')).toBeInTheDocument();
+		expect(getByText('Bela Vista · São Paulo/SP · CEP 01310-100')).toBeInTheDocument();
 		// o nome substitui a logomarca: "Cinetra" não aparece no sidebar (vive no rail).
 		expect(queryByText('Cinetra')).toBeNull();
+	});
+
+	// O outro lado do "quando existe": a clínica que só tem nome não pode render um bloco de
+	// contato vazio, nem um pino de mapa apontando para lugar nenhum.
+	it('o que não está preenchido não ocupa espaço', () => {
+		const { container, queryByText } = render(Sidebar, {
+			props: { pathname: '/agenda', clinic: identidade() }
+		});
+		expect(queryByText('12.ABC.345/01DE-35')).toBeNull();
+		expect(container.querySelector('[data-testid="clinic-endereco"]')).toBeNull();
+		expect(container.querySelector('[data-testid="clinic-telefone"]')).toBeNull();
+	});
+
+	it('endereço parcial mostra só o que existe', () => {
+		const { getByText, queryByText } = render(Sidebar, {
+			props: { pathname: '/agenda', clinic: identidade({ cidade: 'Santos', uf: 'SP' }) }
+		});
+		expect(getByText('Santos/SP')).toBeInTheDocument();
+		expect(queryByText(/CEP/)).toBeNull();
 	});
 
 	it('sem nome de clínica, cai na marca Cinetra', () => {

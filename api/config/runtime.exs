@@ -28,7 +28,14 @@ config :api, :google_oauth,
   client_id: System.get_env("GOOGLE_CLIENT_ID"),
   client_secret: System.get_env("GOOGLE_CLIENT_SECRET"),
   # BASE — o AshAuthentication anexa "/user/google/callback".
-  redirect_uri: System.get_env("GOOGLE_REDIRECT_URI") || "http://localhost:5173/auth"
+  #
+  # O default de localhost vale só FORA de produção (doc 96, C-1). Em produção ele era um destino
+  # de redirect de OAuth apontando para a máquina do desenvolvedor: o login por Google
+  # simplesmente não fechava, e nada acusava — o Google recusa o `redirect_uri` e o usuário vê
+  # uma tela de erro do Google, não do sistema.
+  redirect_uri:
+    System.get_env("GOOGLE_REDIRECT_URI") ||
+      if(config_env() == :prod, do: nil, else: "http://localhost:5173/auth")
 
 # Cloudflare R2 (anexos, doc 51). Fora do teste: lá o adaptador é `Api.Storage.Memory` e
 # sobrescrever as chaves aqui apagaria a escolha de `config/test.exs` — `runtime.exs` roda
@@ -117,7 +124,6 @@ config :api, Api.Heartbeat,
   # manteria o check verde com a produção morta. Vazio quando cada ambiente tem projeto próprio.
   slug_prefix: System.get_env("HEARTBEAT_SLUG_PREFIX"),
   slugs: %{
-    "Api.Messaging.ReminderJob" => "reminder",
     "Api.Notifications.DailyDigestJob" => "digest",
     "Api.Notifications.SessionSoonJob" => "session-soon",
     "Api.Housekeeping.PruneTrail" => "prune-trail",
@@ -126,7 +132,6 @@ config :api, Api.Heartbeat,
   },
   urls:
     %{
-      "Api.Messaging.ReminderJob" => System.get_env("HEARTBEAT_URL_REMINDER"),
       "Api.Notifications.DailyDigestJob" => System.get_env("HEARTBEAT_URL_DIGEST"),
       "Api.Notifications.SessionSoonJob" => System.get_env("HEARTBEAT_URL_SESSION_SOON"),
       "Api.Housekeeping.PruneTrail" => System.get_env("HEARTBEAT_URL_PRUNE_TRAIL"),
@@ -182,6 +187,35 @@ if config_env() != :test and otlp_endpoint not in [nil, ""] do
     otlp_endpoint: otlp_endpoint
 end
 
+# ---- Qual header de proxy merece confiança (bate-volta doc 90, H1) -----------------------------
+#
+# `ApiWeb.ClientIp` tem default vazio de propósito: nenhum header de vendor é confiável até que o
+# deploy declare que a edge o **sobrescreve**. Esta é essa declaração.
+#
+# A env vem da MESMA variável do stack que alimenta o `ADDRESS_HEADER` do BFF
+# (`CLIENT_IP_HEADER`, ver compose.dokploy.yml), e isso não é economia de digitação: a pergunta
+# "qual header a edge garante?" é UMA, e enquanto ela teve duas respostas em dois arquivos, elas
+# discordaram — o BFF confiando em `CF-Connecting-IP` e a lista daqui vazia, caindo no
+# `x-forwarded-for`. A simetria está presa por `Api.DeployEnvTest`.
+#
+# **Por que o `x-forwarded-for` não basta atrás do Cloudflare**, mesmo com o firewall da origem já
+# fechado nas faixas dele: o firewall prova que a requisição *passou* pela edge, não que a cadeia
+# é honesta. O Cloudflare **acrescenta** ao XFF que o cliente mandou em vez de descartá-lo, e o
+# `ClientIp` lê o primeiro elemento — que é, portanto, escrito pelo cliente. O `CF-Connecting-IP`
+# é o oposto: sobrescrito a cada requisição.
+#
+# Vazia (o default do compose) = topologia sem edge conhecida, e aí o `x-forwarded-for` é o que o
+# Traefik de fato garante no último hop.
+# `config_env() != :test` pela mesma razão que o bloco de traces algumas linhas acima o exige: sem
+# ele, uma variável solta no shell de quem roda a suíte passaria a decidir a cadeia de confiança, e
+# os testes do default de `ApiWeb.ClientIp` diriam coisas diferentes em máquinas diferentes.
+trusted_ip_header =
+  System.get_env("TRUSTED_CLIENT_IP_HEADER", "") |> String.trim() |> String.downcase()
+
+if config_env() != :test and trusted_ip_header != "" do
+  config :api, trusted_client_ip_headers: [trusted_ip_header]
+end
+
 if config_env() == :prod do
   # The secret key base is used to sign/encrypt cookies and other secrets.
   # A default value is used in config/dev.exs and config/test.exs but you
@@ -195,7 +229,14 @@ if config_env() == :prod do
       You can generate one by calling: mix phx.gen.secret
       """
 
-  host = System.get_env("PHX_HOST") || "example.com"
+  # Fail-fast, como `SECRET_KEY_BASE` logo acima (doc 96, C-1). Com o default `"example.com"` a
+  # aplicação **subia normalmente** em produção e: todo magic link redirecionava para
+  # `https://example.com`, e o `check_origin` do WebSocket virava `["https://example.com"]` —
+  # tempo real morto, com tudo verde no health check. É exatamente o modo de falha que o
+  # comentário do `check_origin` (mais abaixo) descreve, e que ele não protegia.
+  host =
+    System.get_env("PHX_HOST") ||
+      raise "environment variable PHX_HOST is missing (host público da API)."
 
   config :api, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 
@@ -241,7 +282,13 @@ if config_env() == :prod do
         raise("Missing environment variable `TOKEN_SIGNING_SECRET`!")
 
   # Destino do redirect pós-login (BFF SvelteKit). O :google_oauth é setado acima (todos os envs).
-  web_app_url = System.get_env("WEB_APP_URL") || "https://#{host}"
+  # Idem: derivar do `host` é um default silencioso para a variável que decide **para onde o
+  # login volta** e **qual origem o socket aceita**. Errar aqui não levanta nada — só deixa de
+  # funcionar.
+  web_app_url =
+    System.get_env("WEB_APP_URL") ||
+      raise "environment variable WEB_APP_URL is missing (origem do BFF, usada no redirect e no check_origin)."
+
   config :api, :web_app_url, web_app_url
 
   # O WebSocket da agenda (Entrega 3) é aberto pelo browser **do outro host**: o usuário está

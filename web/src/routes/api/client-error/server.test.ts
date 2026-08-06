@@ -149,7 +149,7 @@ describe('POST /api/client-error', () => {
 	});
 });
 
-describe('POST /api/client-error — agrupamento (doc 78 §opção C)', () => {
+describe('POST /api/client-error — agrupamento (doc 98 §opção C)', () => {
 	// Afirma a PRESENÇA antes de devolver. Sem isto, os testes de igualdade abaixo passariam com o
 	// campo ausente — `undefined === undefined` é verde, e quatro deles deram verde antes de a
 	// implementação existir. Um teste que passa sem o código é pior que nenhum.
@@ -223,5 +223,87 @@ describe('POST /api/client-error — agrupamento (doc 78 §opção C)', () => {
 		);
 
 		expect(fingerprintDe(saida[0])).toBe(fingerprintDe(saida[1]));
+	});
+});
+
+// R-B6 e R-M19/R-B9 (onda 5 do doc 102).
+describe('POST /api/client-error — violação de CSP e chave de rate limit', () => {
+	// O ganho concreto que o R-B6 nomeia: hoje, se um build sair sem `R2_ACCOUNT_ID`, o bucket
+	// fica fora do `connect-src`, TODO upload de anexo morre — e o motivo existe só no console do
+	// browser de quem está usando. Com o `report-uri` apontando para cá, vira linha de log.
+	it('entende o formato report-uri e registra a diretiva bloqueada', async () => {
+		const res = await POST(
+			evento({
+				'csp-report': {
+					'document-uri': 'https://cinetra.com.br/pacientes/019f7c5b-1bee-7a32-9fad-c3d6f0a83177',
+					'violated-directive': 'connect-src',
+					'effective-directive': 'connect-src',
+					'blocked-uri': 'https://abc123.r2.cloudflarestorage.com/anexo'
+				}
+			})
+		);
+
+		expect(res.status).toBe(204);
+		const linha = JSON.parse(saida[0]);
+		expect(linha.message).toBe('violação de CSP no browser');
+		expect(linha.directive).toBe('connect-src');
+		expect(linha.blocked_uri).toContain('r2.cloudflarestorage.com');
+	});
+
+	// O sucessor da especificação manda um ARRAY, com as chaves em camelCase. Os browsers estão
+	// nos dois formatos hoje, e suportar só um deixaria metade dos relatórios virando linha de log
+	// com todos os campos vazios — pior que não ter relatório, porque parece que tem.
+	it('entende também o formato novo (Reporting API, array + camelCase)', async () => {
+		await POST(
+			evento([
+				{
+					type: 'csp-violation',
+					body: {
+						documentURL: 'https://cinetra.com.br/agenda',
+						effectiveDirective: 'script-src',
+						blockedURL: 'https://evil.example/x.js'
+					}
+				}
+			])
+		);
+
+		const linha = JSON.parse(saida[0]);
+		expect(linha.message).toBe('violação de CSP no browser');
+		expect(linha.directive).toBe('script-src');
+	});
+
+	// A rota do relatório carrega a URL da página, e ela tem id de paciente. A mesma barreira que
+	// vale para o stack de erro vale aqui — sanitizar um campo e esquecer o outro foi um bug real
+	// deste arquivo (ver o teste "sanitiza UUID DENTRO do stack").
+	it('sanitiza o id de paciente na URL do documento', async () => {
+		await POST(
+			evento({
+				'csp-report': {
+					'document-uri': 'https://cinetra.com.br/pacientes/019f7c5b-1bee-7a32-9fad-c3d6f0a83177',
+					'effective-directive': 'img-src',
+					'blocked-uri': 'https://x/019f7c5b-1bee-7a32-9fad-c3d6f0a83177.jpg'
+				}
+			})
+		);
+
+		expect(saida[0]).not.toContain('019f7c5b-1bee-7a32-9fad-c3d6f0a83177');
+	});
+
+	// Erro de browser comum não pode ser confundido com relatório de CSP.
+	it('um erro comum continua sendo tratado como erro comum', async () => {
+		await POST(evento({ origem: 'browser', message: 'boom' }));
+
+		expect(JSON.parse(saida[0]).message).toBe('erro no browser');
+	});
+
+	// R-M19: `getClientAddress()` levanta quando o header configurado não vem. Nesta rota isso
+	// seria 500 numa rota PÚBLICA — e ela é a única do BFF feita para receber chamada de fora.
+	it('getClientAddress que levanta não vira 500', async () => {
+		const ev = evento({ origem: 'browser', message: 'x' }) as unknown as Record<string, unknown>;
+		ev.getClientAddress = () => {
+			throw new Error('Address header was not set');
+		};
+
+		expect((await POST(ev as never)).status).toBe(204);
 	});
 });

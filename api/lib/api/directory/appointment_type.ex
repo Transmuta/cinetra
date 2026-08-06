@@ -51,6 +51,20 @@ defmodule Api.Directory.AppointmentType do
       reference :clinic, on_delete: :delete
     end
 
+    # **Não há `check_constraint` de "capacidade sse grupo", e isso é decisão** (doc 92, P2-7).
+    #
+    # A auditoria propôs endurecer no banco a coerência que as duas `validate` abaixo já exigem.
+    # Aplicada, ela quebrou a suíte — e o teste que caiu explica por quê: `Api.Scheduling`
+    # mantém um fallback **defensivo** para turma sem teto (`Clinic.cap_turma_padrao`), escrito
+    # exatamente para a linha que veio de fora das ações. Ver o moduledoc de
+    # `Api.Scheduling.Appointment.Validations.GroupCapacity`: *"o fallback é defensivo — vale
+    # para linha escrita fora dessas ações. Tipo individual não tem teto nenhum: a validação sai
+    # calada."*
+    #
+    # Ou seja: `capacidade sse grupo` é regra **da ação**, não invariante **do dado**, e o
+    # sistema foi desenhado para tolerar a linha frouxa em vez de recusá-la. Pôr o `CHECK` aqui
+    # proibiria o único estado para o qual o fallback existe.
+
     # `clinic_id` não é indexado por padrão, e TODA query desta tabela filtra por ele
     # (atributo + RLS). Sem o índice, cada leitura vira seq scan (auditoria doc 13, causa C).
     custom_indexes do

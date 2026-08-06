@@ -69,9 +69,9 @@ defmodule Api.TracingTest do
     # `Config.Reader` avalia o arquivo com o `config_env()` do ambiente pedido, então o teste lê a
     # configuração REAL de produção em vez de uma cópia da lista.
 
-    test "produção: o LoggerJSON emite trace_id" do
+    test "produção: o formatter JSON emite trace_id" do
       config = Config.Reader.read!("config/prod.exs", env: :prod)
-      {LoggerJSON.Formatters.Basic, opts} = config[:logger][:default_handler][:formatter]
+      {Api.LogFormatter, opts} = config[:logger][:default_handler][:formatter]
 
       assert :trace_id in opts[:metadata]
     end

@@ -6,7 +6,7 @@ import { fetchClinic, updateClinicMessaging } from '$lib/server/clinics';
 //
 // Como as demais telas de config: todo membro LÊ, só owner/admin escreve (policy da API + o
 // `canManage` da página). O load reusa `GET /api/clinic` — os campos de comunicação viajam com a
-// identidade, e uma rota só para quatro escalares seria um round-trip a mais.
+// identidade, e uma rota só para três escalares seria um round-trip a mais.
 
 export const load: PageServerLoad = async (event) => {
 	const result = await fetchClinic(event);
@@ -22,20 +22,14 @@ export const actions: Actions = {
 	save: async (event) => {
 		const form = await event.request.formData();
 
-		// Branco = **desligado**, não zero. Tratar em branco como 0 ligaria o lembrete para o
-		// instante da sessão — que é o oposto de "não quero lembrete".
-		const horas = String(form.get('msg_lembrete_horas') ?? '').trim();
-		const lembrete = horas === '' ? null : Number(horas);
-
-		if (lembrete !== null && (!Number.isInteger(lembrete) || lembrete < 1 || lembrete > 168)) {
-			return fail(400, { error: 'O lembrete deve ser entre 1 e 168 horas (ou vazio para desligar).' });
-		}
-
 		const silencio = form.get('silencio') === 'on';
 
 		const res = await updateClinicMessaging(event, {
-			msg_confirmacao_auto: form.get('msg_confirmacao_auto') === 'on',
-			msg_lembrete_horas: lembrete,
+			// Como o `silencio`: o `SwitchToggle` é um `<button role="switch">` e não entra no
+			// FormData, então quem manda o valor é um `<input type="hidden">` na página. Ausente é
+			// `false` — e é isso que torna o interruptor desligável. Ver o doc 98 §6, onde a mesma
+			// armadilha apagou a janela de silêncio em produção.
+			msg_whatsapp_ativo: form.get('whatsapp') === 'on',
 			// Desligar a janela é mandar as duas pontas em `nil` — a API trata "sem janela" e
 			// "janela de largura zero" como a mesma coisa (nada silenciado), e mandar só uma
 			// deixaria um estado meio-configurado que a tela não sabe desenhar.

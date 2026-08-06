@@ -420,25 +420,25 @@ describe('AppointmentDrawer', () => {
 			status: 'entregue',
 			destino: 'joao@example.com',
 			erro: null,
-			erroTexto: null,
+			erro_texto: null,
 			resposta: null,
 			automatico: true,
-			enfileiradoEm: '2026-08-10T12:00:00Z',
-			agendadoPara: null,
-			enviadoEm: '2026-08-10T12:00:05Z',
-			entregueEm: '2026-08-10T12:00:30Z',
-			lidoEm: null,
-			falhouEm: null,
-			descartadaEm: null,
-			descarteMotivo: null,
-			respondidoEm: null,
+			enfileirado_em: '2026-08-10T12:00:00Z',
+			agendado_para: null,
+			enviado_em: '2026-08-10T12:00:05Z',
+			entregue_em: '2026-08-10T12:00:30Z',
+			lido_em: null,
+			falhou_em: null,
+			descartada_em: null,
+			descarte_motivo: null,
+			respondido_em: null,
 			titulo: 'Clínica: sua sessão',
 			...over
 		});
 
-		function timeline(semEnvio: MessageParticipant['semEnvio']): MessageParticipant[] {
+		function timeline(sem_envio: MessageParticipant['sem_envio']): MessageParticipant[] {
 			return [
-				{ attendanceId: 'at1', patientId: 'pac1', paciente: 'João Silva', mensagens: [], semEnvio }
+				{ attendance_id: 'at1', patient_id: 'pac1', paciente: 'João Silva', mensagens: [], sem_envio }
 			];
 		}
 
@@ -464,11 +464,11 @@ describe('AppointmentDrawer', () => {
 					mensagens: [
 						...timeline('sem_contato'),
 						{
-							attendanceId: 'at2',
-							patientId: 'pac2',
+							attendance_id: 'at2',
+							patient_id: 'pac2',
 							paciente: 'Ana Souza',
 							mensagens: [mensagem({ status: 'entregue', resposta: 'confirmou' })],
-							semEnvio: null
+							sem_envio: null
 						}
 					]
 				}
@@ -497,7 +497,7 @@ describe('AppointmentDrawer', () => {
 		// mesmo botão que promete e não cumpre, na forma passiva.
 		function comMensagens(mensagens: Message[]): MessageParticipant[] {
 			return [
-				{ attendanceId: 'at1', patientId: 'pac1', paciente: 'João Silva', mensagens, semEnvio: null }
+				{ attendance_id: 'at1', patient_id: 'pac1', paciente: 'João Silva', mensagens, sem_envio: null }
 			];
 		}
 
@@ -1033,9 +1033,11 @@ describe('AppointmentDrawer', () => {
 			expect(encaixe).toBe('true');
 		});
 
-		// A9/D2: profissional não marca encaixe — e na vaga de falta a conversão é encaixe por
-		// definição, então o botão nem oferece o caminho que o servidor recusaria.
-		it('profissional não agenda na vaga de falta (encaixe é de quem responde pela agenda)', () => {
+		// Antes o botão aparecia DESABILITADO para o profissional: ele agendava, mas a vaga de
+		// falta só entra como encaixe (A9/D2) e encaixe não é dele. Desde 2026-08-04 ele não
+		// agenda em situação nenhuma, então o botão não chega a ser desenhado — quem lê a fila
+		// pelo drawer continua lendo, e o que sai é a caneta. A lista de candidatos, essa, fica.
+		it('profissional não recebe o botão de agendar da fila', () => {
 			render(AppointmentDrawer, {
 				props: {
 					appt: appt({ status: 'faltou' }),
@@ -1044,7 +1046,8 @@ describe('AppointmentDrawer', () => {
 					candidatos: [candidato()]
 				}
 			});
-			expect(screen.getByRole('button', { name: 'Agendar' })).toBeDisabled();
+			expect(screen.queryByRole('button', { name: 'Agendar' })).toBeNull();
+			expect(screen.getByText(candidato().patient.nome)).toBeInTheDocument();
 		});
 
 		// O horário foi tomado no meio-tempo (vaga de cancelamento re-ocupada): o 422 volta com a
@@ -1080,5 +1083,39 @@ describe('AppointmentDrawer', () => {
 
 			expect(capturas).toEqual(['true']);
 		});
+	});
+
+});
+
+describe('cancelar pergunta antes de avisar o paciente', () => {
+	// O disparo deixou de ser automático em 2026-08-01. O que o drawer manda agora é a RESPOSTA da
+	// recepção, e ela precisa atravessar o form escondido — o controle é um `<button role="switch">`
+	// e botão não entra no FormData, e um campo ausente vira o default do servidor sem ninguém
+	// saber. Mesma armadilha do `SwitchToggle` no doc 98 §6, com uma diferença: aqui o efeito de
+	// errar é uma mensagem paga saindo sem ninguém ter pedido.
+	function abrirDialogo(getByRole: (r: string, o: { name: RegExp | string }) => HTMLElement) {
+		return fireEvent.click(getByRole('button', { name: 'Cancelar sessão' }));
+	}
+
+	it('o interruptor nasce ligado e o form manda `avisar_paciente=on`', async () => {
+		const { container, getByRole } = render(AppointmentDrawer, { props: { appt: appt(), ...base } });
+
+		await abrirDialogo(getByRole);
+
+		expect(getByRole('switch', { name: /Avisar o paciente/ })).toBeChecked();
+		expect(
+			container.querySelector<HTMLInputElement>('input[name="avisar_paciente"]')?.value
+		).toBe('on');
+	});
+
+	it('desligado, o hidden vai em BRANCO — a recusa é uma resposta, não uma omissão', async () => {
+		const { container, getByRole } = render(AppointmentDrawer, { props: { appt: appt(), ...base } });
+
+		await abrirDialogo(getByRole);
+		await fireEvent.click(getByRole('switch', { name: /Avisar o paciente/ }));
+
+		expect(
+			container.querySelector<HTMLInputElement>('input[name="avisar_paciente"]')?.value
+		).toBe('');
 	});
 });

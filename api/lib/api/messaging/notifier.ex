@@ -1,7 +1,7 @@
 defmodule Api.Messaging.Notifier do
   @moduledoc """
-  A cola Ash entre a agenda e a comunicação com o paciente (doc 52 §7): quando um agendamento
-  nasce, a confirmação sai sozinha.
+  A cola Ash entre a agenda e a comunicação com o paciente (doc 52 §7): quando o combinado com o
+  paciente **muda**, ele fica sabendo.
 
   ## Por que notifier, e não um `after_action` na ação
 
@@ -15,12 +15,36 @@ defmodule Api.Messaging.Notifier do
 
   | Ação do bloco | Mensagem | Quem recebe |
   | --- | --- | --- |
-  | `:schedule` / `:add_participant` | `:confirmacao` | quem entrou, e só quem ainda não tinha |
   | `:reschedule` | `:remarcacao` | todo participante vivo |
   | `:cancel` | `:cancelamento` | todo participante que o cancelamento acabou de derrubar |
 
-  As duas últimas são o **C7(b)**, que a fase 1 deixou de fora por ser "copy nova, não estrutura
-  nova". Era verdade: entraram sem mexer no `Dispatch`, no `SendJob` nem no transporte.
+  As duas são o **C7(b)**, que a fase 1 deixou de fora por ser "copy nova, não estrutura nova".
+  Era verdade: entraram sem mexer no `Dispatch`, no `SendJob` nem no transporte.
+
+  ## As duas só saem se a recepção pedir (2026-08-01)
+
+  Eram automáticas. Passaram a depender do argumento `avisar_paciente` das ações `:reschedule` e
+  `:cancel` — a pergunta que o modal faz antes de executar o gesto.
+
+  A escolha é **do bloco**, não do participante, e isso não mudou: remarcar move a turma inteira,
+  então a pergunta é uma só e vale para os quatro. O que mudou é que ela é feita.
+
+  O default é `false` (ver o argumento na `Api.Scheduling.Appointment`), então **omitir o campo
+  cala**. É a direção certa do erro: um `true` por omissão faria a tela prometer uma escolha que o
+  servidor atropela quando o campo não chega — e mensagem enviada não volta.
+
+  ## `:schedule` saiu da tabela (2026-07-31, doc 98)
+
+  Criar um agendamento disparava `:confirmacao` na hora. **Não dispara mais.** Por um dia o lugar
+  foi ocupado pelo lembrete por relógio; em 2026-08-01 ele saiu também, e com ele o último disparo
+  automático do sistema. A confirmação continua existindo como **gesto da recepção** — o botão do
+  drawer, via `ApiWeb.MessagesController` —, que é o caso em que alguém decidiu que aquele paciente
+  precisa ser procurado.
+
+  O que a remoção levou junto: a dedupe por presença que existia só por causa do
+  `:add_participant` (entrar numa turma dispara o notifier para o bloco inteiro, e sem ela quem já
+  estava lá era reconfirmado a cada colega novo) e a chave `msg_confirmacao_auto` da clínica, que
+  não governava mais nada.
 
   ## E o que ele **desfaz**: `:cancel` e `:exclude` esvaziam a fila
 
@@ -62,7 +86,6 @@ defmodule Api.Messaging.Notifier do
   """
   use Ash.Notifier
 
-  require Ash.Query
   require Logger
 
   alias Api.Messaging.Dispatch
@@ -99,24 +122,16 @@ defmodule Api.Messaging.Notifier do
   @impl true
   def notify(%Ash.Notifier.Notification{changeset: %{context: %{bulk_pacote: true}}}), do: :ok
 
-  @impl true
-  def notify(%Ash.Notifier.Notification{
-        resource: Api.Scheduling.Appointment,
-        action: %{name: name},
-        data: appointment
-      })
-      when name in [:schedule, :add_participant] do
-    avisar(appointment, :confirmacao)
-  end
-
   # C7(b). `:exclude` **não** entra aqui — ver o moduledoc.
   @impl true
   def notify(%Ash.Notifier.Notification{
         resource: Api.Scheduling.Appointment,
         action: %{name: :reschedule},
-        data: appointment
-      }),
-      do: avisar(appointment, :remarcacao)
+        data: appointment,
+        changeset: changeset
+      }) do
+    if pediu_para_avisar?(changeset), do: avisar(appointment, :remarcacao), else: :ok
+  end
 
   # A ordem das duas linhas é contrato: **descarta antes de avisar**. Invertido, o `:cancelamento`
   # que acabou de entrar na fila seria varrido pelo próprio descarte — `pending_for_appointment`
@@ -125,10 +140,15 @@ defmodule Api.Messaging.Notifier do
   def notify(%Ash.Notifier.Notification{
         resource: Api.Scheduling.Appointment,
         action: %{name: :cancel},
-        data: appointment
+        data: appointment,
+        changeset: changeset
       }) do
+    # O descarte roda **sempre**, mesmo sem avisar: ele não fala com ninguém — faz o contrário,
+    # tira da fila o que não pode mais sair. Condicioná-lo à escolha da recepção deixaria uma
+    # confirmação parada na janela de silêncio anunciando, às 8h, uma sessão cancelada às 22h45.
     descartar_pendentes(appointment, motivo_do_descarte(:cancel))
-    avisar(appointment, :cancelamento)
+
+    if pediu_para_avisar?(changeset), do: avisar(appointment, :cancelamento), else: :ok
   end
 
   # Excluir não avisa (ver o moduledoc) — mas **precisa** desfazer o aviso que já estava na fila.
@@ -145,6 +165,14 @@ defmodule Api.Messaging.Notifier do
 
   @impl true
   def notify(_notification), do: :ok
+
+  # A pergunta do modal, lida do changeset depois do commit.
+  #
+  # `Map.get` com default, e não `Map.fetch!`: uma ação chamada por código que ainda não conhece o
+  # argumento (teste antigo, script, console) cai no silêncio em vez de estourar — e silêncio é o
+  # lado seguro de errar aqui.
+  defp pediu_para_avisar?(%{arguments: %{avisar_paciente: true}}), do: true
+  defp pediu_para_avisar?(_changeset), do: false
 
   # A autoridade única do par ação → motivo. As três cláusulas de descarte passam por aqui: o
   # lote e as duas normais, para que trocar um motivo não deixe a outra porta dizendo o antigo.
@@ -192,12 +220,11 @@ defmodule Api.Messaging.Notifier do
     Api.Repo.with_clinic(appointment.clinic_id, fn ->
       clinic = Api.Accounts.get_clinic!(appointment.clinic_id, authorize?: false)
 
-      # `msg_confirmacao_auto` governa **só** a confirmação — é o que a tela diz que ele faz
-      # ("mandar confirmação quando um agendamento é criado"). Silenciar remarcação e
-      # cancelamento por causa dele seria um controle fazendo três coisas com um rótulo só; e o
-      # freio de mão de verdade continua sendo o consentimento da ficha, que o `Dispatch` checa.
-      if kind != :confirmacao or clinic.msg_confirmacao_auto,
-        do: disparar(clinic, appointment, kind)
+      # Sem chave de configuração aqui, e é de propósito: os dois gatilhos que sobraram anunciam
+      # um FATO que mudou o combinado com o paciente. Uma clínica que não quer avisar remarcação
+      # nem cancelamento não quer a funcionalidade — o freio de mão continua sendo o consentimento
+      # da ficha, que o `Dispatch` checa.
+      disparar(clinic, appointment, kind)
     end)
 
     :ok
@@ -236,25 +263,8 @@ defmodule Api.Messaging.Notifier do
 
   defp filtrar_por_gatilho(attendances, :cancelamento), do: attendances
 
-  # Só presenças **vivas** e, na confirmação, ainda **sem confirmação**. O segundo filtro existe
-  # por causa do `:add_participant`: entrar numa turma dispara o notifier para o bloco inteiro, e
-  # sem ele quem já estava lá receberia a mesma confirmação de novo a cada colega novo. Numa turma
-  # de 4 isso é o paciente recebendo 4 vezes — o defeito mais visível que esta fatia poderia ter.
-  #
-  # Remarcação **não** tem esse filtro, e é de propósito: remarcar duas vezes são dois avisos, e o
-  # segundo é tão necessário quanto o primeiro.
-  defp filtrar_por_gatilho(attendances, kind) do
-    vivas = Enum.filter(attendances, &Api.Scheduling.Attendance.viva?/1)
-
-    if kind == :confirmacao,
-      do: Enum.reject(vivas, &ja_confirmada?/1),
-      else: vivas
-  end
-
-  defp ja_confirmada?(attendance) do
-    Api.Messaging.Message
-    |> Ash.Query.for_read(:read, %{}, tenant: attendance.clinic_id, authorize?: false)
-    |> Ash.Query.filter(attendance_id == ^attendance.id and kind == :confirmacao)
-    |> Ash.exists?(authorize?: false)
-  end
+  # Remarcação: só presenças **vivas**. Sem dedupe, e é de propósito — remarcar duas vezes são
+  # dois avisos, e o segundo é tão necessário quanto o primeiro.
+  defp filtrar_por_gatilho(attendances, _kind),
+    do: Enum.filter(attendances, &Api.Scheduling.Attendance.viva?/1)
 end

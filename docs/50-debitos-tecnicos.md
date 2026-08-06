@@ -170,11 +170,35 @@ leitura é pinado ao tipo **conferido**, então HTML posto ali é servido como `
 executa — não há caminho de XSS.
 
 **O que o paga.** Escrita condicional: assinar o `PUT` com `If-None-Match: *`, que faz o segundo
-`PUT` na mesma chave responder 412. Fecha sem tocar no TTL e sem custo por download. **Não foi
-verificado que o R2 suporta** — não havia bucket na auditoria. Teste de 2 comandos quando houver:
-subir um objeto, tentar subir de novo com o header; `412 Precondition Failed` resolve o débito.
-Se não suportar, a alternativa é reconferir os magic bytes na emissão de cada download (+1 ida ao
-R2 por clique em "abrir", que hoje custa zero).
+`PUT` na mesma chave responder 412. Fecha sem tocar no TTL e sem custo por download.
+
+**Verificado em 2026-08-03, contra o bucket real** (doc 101 §4.4) — a pergunta que segurava este
+débito tem resposta:
+
+| # | o que | resultado |
+| --- | --- | --- |
+| 1 | `PUT` com `If-None-Match: *` numa chave nova | 200 |
+| 2 | `PUT` com `If-None-Match: *` na chave existente | **412** ← o critério deste débito |
+| 3 | `PUT` sem a pré-condição na chave existente | 200 (o furo de hoje) |
+| 4 | header mandado mas **não** assinado | 412 (o R2 aplica mesmo fora da assinatura) |
+| 5 | URL assinada **com** o header, header **omitido** | **403 `SignatureDoesNotMatch`** |
+
+O caso 5 é o que torna o conserto um conserto: como o caso 4 mostrou que o R2 honra a pré-condição
+mesmo sem assinatura, a pergunta virou "e se o atacante omitir o header?". Com ele dentro de
+`X-Amz-SignedHeaders`, omiti-lo invalida a assinatura — **a pré-condição é obrigatória**. A
+alternativa (reconferir magic bytes a cada download) fica descartada.
+
+> **O que ainda bloqueia, e não é código:** o `PUT` sai do browser, então o header novo exige
+> preflight, e a política de CORS do bucket lista **só** `content-type`
+> (`OPTIONS` com `content-type, if-none-match` → **403**, medido). Subir o código antes de mudar a
+> política **quebra o upload em produção**, e a suíte não vê: ela roda contra
+> `Api.Storage.StorageMemory`. Ordem obrigatória: (1) `if-none-match` no `AllowedHeaders` do bucket,
+> no painel da Cloudflare; (2) o header no `headers:` de `R2.presign_put/4` — o componente já
+> repassa ao `XMLHttpRequest` tudo que vem de lá, então não há mudança de cliente.
+>
+> A mesma sonda achou um bug **em produção hoje**: a política do bucket só permite
+> `https://cinetra.com.br`, e o preflight de `https://hml.cinetra.com.br` responde 403 — **o upload
+> de anexo está quebrado em homologação**, independentemente deste débito.
 
 ---
 
@@ -254,6 +278,17 @@ preview). O HML já mitiga o grosso do risco; o preview entra por cima depois, s
 ---
 
 ## D-11 · Retenção de dado: quatro relógios diferentes, e um sem relógio nenhum
+
+> **O mecanismo existe desde 2026-08-03 (onda 3 do [doc 101](101-plano-de-acao-analise-arquitetural.md),
+> item 3.3) — e está DESARMADO de propósito.** `Api.Housekeeping.PruneMessages` separa os dois
+> papéis da linha: a janela curta **anonimiza** (`vars` e `destino` saem, a prova de que se avisou
+> fica) e a longa **apaga**. Sem as duas chaves em config ele registra um aviso e devolve zero, e
+> **não está no crontab**.
+>
+> Isso não paga o débito: o que falta continua sendo o **número**, e ele continua sendo pergunta
+> jurídica. O que mudou é que a decisão agora custa duas linhas de config e uma de cron, em vez de
+> uma fatia de trabalho — e que a régua de ninguém não pode entrar em produção por descuido, porque
+> não existe default embutido.
 
 **O que é.** Não há política de retenção única. Cada tabela que cresce sozinha ganhou o seu número
 no momento em que foi construída, e a comunicação com o paciente ([`52`](52-comunicacao-com-o-paciente.md))
@@ -349,7 +384,27 @@ existir; até lá, é candidata a sair.
 
 ---
 
-## D-14 · O aceite dos documentos não fica registrado em lugar nenhum
+## D-14 · O aceite dos documentos não fica registrado em lugar nenhum — **PAGO em 2026-08-03**
+
+> **Fechado na onda 3 do [doc 101](101-plano-de-acao-analise-arquitetural.md) (item 3.5).**
+> `users.termos_aceitos_em` e `users.termos_versao` existem, e o BFF os carimba **depois da sessão
+> assinada** nos dois callbacks de login (`/auth/callback` e `/auth/user/google/callback`), via
+> `POST /api/auth/terms-acceptance`.
+>
+> Três decisões que valem além do item:
+>
+> * **a versão vem do BFF, não de uma constante do Elixir.** O texto legal mora em
+>   `web/src/lib/legal.ts`; uma cópia do número do outro lado seria o quinto par do A5, e o que
+>   apodreceria em silêncio seria justamente o registro legal — o banco passaria a guardar aceite
+>   de uma versão que ninguém leu;
+> * **idempotente por versão.** Reaceitar a mesma versão não reescreve a data do primeiro aceite;
+>   versão nova carimba de novo. Sem isso, `termos_aceitos_em` viraria "último login";
+> * **não derruba o login.** Falha ao registrar é registro faltando, que o próximo login corrige —
+>   nunca uma pessoa sem acesso.
+>
+> **O que segue aberto é o D-13**: registrar aceite da versão `1.0` só tem valor quando o texto
+> `1.0` for o definitivo, revisado por advogado e com a identificação do controlador preenchida.
+> O mecanismo está pronto e já grava; o que ele grava ainda aponta para um texto com placeholder.
 
 **O que é.** No `/criar-conta`, o aceite dos Termos e da Política é uma **nota** ("ao criar sua
 conta … você concorda com …"), não uma caixa de seleção, e **nada é gravado**: nem data, nem versão
@@ -416,6 +471,34 @@ segue cego para leitura interna. O débito é o *limite do arnês*, não a falta
 é que agora quem escreve teste de RLS é avisado de que precisa mutar a regra para saber se o teste
 vale algo.
 
+**Alcance revisado (2026-08-01, doc 96 E-3 + T-0 + T-1).** Duas coisas mudaram, e as duas apertam a
+descrição acima:
+
+1. **O gate também não pega leitura depois de escrita dentro do mesmo job.** É o caso T-1
+   (`Api.Packages.Sessions.segura/3` lê `appointments` depois do commit do `schedule_appointment`).
+   O cenário foi rodado sob `cinetra_app` e ficou **verde** mesmo sem a GUC — pelo mesmo motivo do
+   parágrafo acima, a GUC da escrita anterior ainda estava pendurada na transação do sandbox. É uma
+   instância **nova** da classe, não um caso do mesmo formato: aqui nem sequer há uma "porta de
+   entrada" anterior no fluxo de leitura, o que engana quem raciocina pelo desenho do gate.
+2. **O modo de falha agora é 0 linhas, não exceção.** Antes do T-0, 15 tabelas levantavam `22P02`
+   sem GUC e 2 devolviam vazio. A migration `20260731120000_rls_fail_closed_uniforme` uniformizou
+   em `nullif` — **toda** tabela por-tenant devolve zero linhas silenciosamente. Isso torna o
+   esquecimento *mais* silencioso, e é o que justifica a contrapartida abaixo.
+
+**Contrapartida que entrou junto:** o `rls_smoke_test.exs` passou a varrer as 17 tabelas com a GUC
+**explicitamente zerada** (`sem_guc()`) exigindo que nenhuma levante. Isso não substitui a mutação
+manual — continua sendo um teste de porta de entrada —, mas fixa o modo de falha uniforme, que é a
+premissa de todo o resto. **Verificado ao vivo em 2026-08-01**, sob `cinetra_app`, fechando a
+verificação pendente do T-1:
+
+```
+sem GUC   : appointments 0 · professionals 0 · messages 0     (nenhuma levanta)
+com a GUC : appointments 30  = mesmo número que o superusuário lê para a mesma clínica
+```
+
+O controle positivo importa tanto quanto o negativo: sem ele, "0 linhas" não distingue *RLS
+funcionando* de *tabela vazia*.
+
 ---
 
 ## D-16 · `x-forwarded-for` é confiado pelo primeiro item, e o proxy anexa
@@ -441,3 +524,371 @@ limit por IP viram controláveis pelo cliente, do mesmo jeito da causa B do
 esquerda o número de proxies confiáveis da topologia (é o que o `XFF_DEPTH` do adapter-node faz do
 lado do BFF), e configurá-la junto com o proxy, como já é a regra para a lista de headers
 confiáveis. Meia hora, mais uma decisão explícita sobre quantos hops confiar.
+
+**PAGO (2026-07-31, doc 96 L-4 → doc 97).** Foi exatamente o remédio acima:
+[`ApiWeb.ClientIp`](../api/lib/api_web/client_ip.ex) conta a partir do fim, e o número de saltos
+confiáveis é configuração explícita (`:trusted_proxy_hops`, default 1 = Traefik sozinho). A nuance
+que o débito não tinha: "último elemento" só vale com **um** salto — com dois, o cliente é o
+penúltimo. Por isso virou número configurável, com teste para os dois casos, e não uma constante.
+
+---
+
+## D-17 · O branco sobre o sage está 2,71:1 — exceção de contraste aceita
+
+**O que é.** Desde a [ADR-020](00-decisoes.md) `--mv-primary` é o sage da marca (`#7fa59a`) com
+`--mv-on-primary: #ffffff`. O par mede **2,71:1**, abaixo do 4,5 de texto (WCAG 1.4.3) e abaixo até
+do 3 de limite de componente (1.4.11). O `:hover` (`#72958b`) mede 3,29.
+
+**Por que virou débito.** Decisão de produto, com o número na mesa: a alternativa conforme era texto
+escuro sobre o mesmo sage (**6,56:1**, que é o que a landing já faz em `+page.svelte:538`), e foi
+recusada por legibilidade percebida. Não é descuido nem furo de medição — é escolha registrada.
+
+**O que custa hoje.** Alcança quase todo clique primário do app: `bg-primary` + `text-on-primary`
+são os botões ([`Button.svelte:33`](../web/src/lib/components/Button.svelte)), o Toast e os chips de
+grade de pacote — 86 usos dos tokens `primary*` no `web/src`. Some-se o colateral que a troca criou
+e que **não foi resolvido**:
+
+| uso | onde | claro | escuro |
+| --- | --- | --- | --- |
+| `text-primary` (link 11,5px) | `PatientHistory.svelte:121`, `PatientUpcoming.svelte:106` | **2,54–2,71** | 6,56–7,18 |
+| `border-primary` | `PackageGradeModal`, `PackageCreateModal`, `pacientes/[id]:399` | **2,54–2,71** | 6,56–7,18 |
+| `accent-primary` (checkbox) | `PackageCreateModal.svelte:453,472` | **2,71** | 7,18 |
+
+Note a inversão do custo: no tema **escuro** esses três usos ficaram melhores do que precisam; quem
+paga a conta é o tema **claro**.
+
+Os três da tabela **não** foram pegos pela varredura axe — são condicionais e não renderizaram no
+cenário que a spec semeia. Ou seja: o número real de nós reprovados em produção é **maior** que os 7
+que o gate mediu. Quem for pagar este débito não deve tomar a lista do axe como completa.
+
+**O que já foi pago junto com a troca**, e não conta como débito: o chip "próxima" da ficha
+(`PatientUpcoming.svelte`) usava `primary` como texto sobre a própria tinta de 14% e caiu para
+**2,26:1** — migrou para o par `teal-text`/`teal-subtle`. E o ícone do Toast, que sumia a 1,06:1,
+passou a `text-on-primary`. Ambos estão descritos na ADR-020.
+
+**O mesmo 2,71 no hover de `bg-accent`** (acrescentado em 2026-07-30, doc 93 §A-2). Dois botões
+trocam para `hover:bg-accent` + `hover:text-white`:
+[`notificacoes/+page.svelte:198`](../web/src/routes/(app)/notificacoes/+page.svelte) ("marcar como
+lida") e [`AppointmentDrawer.svelte:809`](../web/src/lib/components/agenda/AppointmentDrawer.svelte).
+Como `--mv-accent-solid` é o **mesmo** `#7fa59a` do `primary`, o número é o mesmo 2,71 — e a decisão
+é a mesma da ADR-020, então entra aqui em vez de virar débito novo.
+
+O estado **normal** desses dois passa com folga (`text-accent-text` sobre `bg-accent-subtle`,
+5,30:1); é só o hover que reprova. Ele escapava por dois motivos independentes, e nenhum era
+descuido: o axe varre o estado renderizado (ninguém está com o mouse sobre o botão durante a
+varredura) e o filtro de isenção casava só `bg-primary`. Ou seja, o dia em que o axe passasse a
+medir hover, a violação chegaria **sem isenção** e derrubaria o build sem dar à pessoa que caísse
+ali o contexto deste débito. Se a saída 1 abaixo for escolhida, `--mv-accent-solid` precisa
+escurecer junto — senão o hover fica reprovando sozinho.
+
+**A isenção no gate do axe.** `e2e/a11y-interno.spec.ts` tinha 7 nós de `color-contrast` reprovando
+em 5 telas, e o gate exige zero. A função `semExcecaoDoSage` filtra **só** os nós cujo HTML casa
+`bg-primary` ou `bg-accent`; a regra `color-contrast` continua ativa em todo o resto. É a única
+isenção do arquivo e some quando este débito for pago.
+
+**O que o paga.** Duas saídas, e as duas já estão medidas:
+
+1. **Escurecer o sage preservando a matiz** (calculado em OKLab): `#567b70` dá 4,71 com branco e
+   4,58 sobre o canvas claro — conforme, e ainda claramente sage. `#597e73` (4,51) é o limite. Mexe
+   só em `--mv-primary`/`--mv-primary-hover`; `--mv-sage` fica intacto para logo e landing.
+2. **Voltar o texto para escuro** (`#16181c`, 6,56) — conforme e alinhado à landing, mas é
+   exatamente o que a ADR-020 recusou.
+
+Qualquer das duas fecha este débito. Ao fazer, apague o par de testes de exceção em
+`web/src/lib/styles/contraste.test.ts` (eles avisam sozinhos quando o número passa de 4,5) e
+restaure o piso normal na linha do `contraste-tokens.mjs`.
+
+**Não confundir com o D-3**, que é a paleta categórica (avatar/tipo/prioridade) vivendo em duas
+linguagens. Este aqui é um par único de token, e tem conserto de uma linha.
+
+---
+
+## D-18 · A borda do chip do acento está 1,83:1 — abaixo do piso de componente
+
+**O que é.** `--mv-accent-border` mede **1,83:1** sobre `surface` no tema claro e **2,33:1** no
+escuro (achatada sobre a superfície onde de fato pinta). O piso de limite de componente (WCAG
+1.4.11) é **3**.
+
+**Por que virou débito agora.** Não é regressão da [ADR-021](00-decisoes.md) — é o contrário: a
+borda **melhorou** com a troca do teal para sage (era 1,64 no claro). O débito nasce porque a ADR
+mexeu no valor e mediu, e medir o que já estava errado transforma um furo silencioso em item de
+lista. O `contraste-tokens.mjs` já reportava essa linha como REPROVA; ninguém a tinha registrado.
+
+**O que custa hoje.** 13 usos de `border-accent-border`, sempre **acompanhados** de
+`bg-accent-subtle` e de texto em `accent-text`: o chip "Hoje" da navegação
+([`AgendaNav.svelte:70`](../web/src/lib/components/agenda/AgendaNav.svelte)), o dia corrente no Mês e
+na Semana, o botão de ação do drawer, o de marcar-como-lida em `/notificacoes`.
+
+**Por que não é urgente.** A borda **não é o único indicador** desses elementos: o fundo tingido e o
+texto (que mede 5,30 sobre o próprio chip) carregam o estado sozinhos. 1.4.11 fala de limite
+*necessário para identificar* o componente — aqui ele não é. É por isso que isto é débito e não
+correção imediata.
+
+**O que o paga.** `#7fa59a` na matiz do sage precisa cair para cerca de **L 52%** para bater 3:1
+sobre branco — algo como `#6f9a8e`, que é o próprio `accent-solid` escurecido e já mede 3,14. O
+efeito colateral é que a borda passa a ter quase o mesmo tom do sólido, e o chip fica mais pesado
+visualmente; vale checar no browser antes de fechar. Rodar `node scripts/contraste-tokens.mjs` para
+confirmar — a linha `accent_border / surface` sai da lista de reprovas.
+
+---
+
+## D-19 · A faixa 768–1023px não foi medida — sem sidebar E com tabela de desktop
+
+**O que é.** O cromo do app colapsa em `lg:` (`+layout.svelte`: `hidden lg:flex` / `lg:hidden`),
+mas as quatro listas de dados — `/pacientes`, `/profissionais`, `/fila`,
+`/configuracoes/equipe` — trocam de grade para cartão em `md:`. Entre 768px e 1023px, então, a
+tela fica **sem sidebar e com a tabela ainda em modo desktop**.
+
+**Por que virou débito.** Levantado no doc 93 §B-12 e **não medido** na execução (doc 97 §6): a
+distribuição geral é 82 `md:`, 16 `sm:` e 4 `lg:`, ou seja, o `lg:` do shell é a exceção e não a
+regra. Não sei dizer se o resultado quebra — sei que ninguém olhou. É uma sonda de cinco minutos
+no browser em 800px, e ela decide entre "não é nada" e "alinhar o breakpoint do shell com o das
+listas".
+
+**O que o paga.** Abrir as quatro listas em 800px. Se a coluna estourar, a escolha é alinhar o
+shell em `md:` (o cromo some mais cedo) ou as listas em `lg:` (o cartão entra mais cedo) — e a
+segunda é mais provável, porque a tabela é que precisa de largura.
+
+---
+
+## D-20 · Não há tripwire de token órfão
+
+**O que é.** Os três instrumentos que entraram na execução dos docs 93/94 (`cor-crua.test.ts`,
+`camadas.test.ts`, `dimensao.test.ts`) cobrem cor crua, camadas e dimensão. Falta o simétrico:
+**token definido em `@theme` e usado por ninguém**.
+
+**Por que importa.** Foi exatamente essa a classe do achado §M-7, e o caso caro dela é instrutivo:
+`--shadow-card` era a única sombra que respondia ao tema, desenhada de propósito, e **nenhum dos
+133 cartões a aplicava**. A intenção de design evaporou em silêncio e o token continuou ali
+dizendo que ela existia.
+
+**Por que não foi escrito.** Alguns tokens são usados **dinamicamente** e um scanner ingênuo os
+acusaria: `ListView.svelte` monta `var(--color-{row.meta.tone})` em tempo de execução, e o mesmo
+vale para os tons do `PackageList`. O teste precisa de uma lista de isenção com justificativa por
+item — desenho, não varredura — e por isso ficou de fora.
+
+**Cuidado ao escrever.** Um token órfão **nem sempre é para remover**: `--color-accent-hover` e
+`--color-success-solid` não têm uso hoje e **ficaram**, porque são membros de famílias que o
+`contraste.test.ts` mede por inteiro. Removê-los quebrou aquele teste na primeira tentativa. O
+tripwire tem de distinguir "sobra" de "membro de família", ou vai empurrar para remoções erradas.
+
+---
+
+## D-21 · O Dokploy builda na máquina de produção — 90% de CPU, medido só sem carga real — **PAGO no código em 2026-08-05**
+
+> **PAGO (2026-08-05, [doc 105](105-imagem-no-ci-e-webhook-atras-do-access.md)).** Foi exatamente o
+> remédio que este débito previa: as imagens passaram a ser construídas e publicadas pelo **CI**
+> (GHCR), e o `compose.dokploy.yml` só as consome (`image:` + `pull_policy: always`). O que o
+> servidor faz num deploy passou a ser `pull` + trocar container.
+>
+> **Duas ressalvas, para o registro não valer mais do que vale.** (1) É código escrito e **não
+> medido em produção** — o primeiro push que publica e implanta de verdade é a confirmação;
+> enquanto o operador não criar as variáveis, os stacks e o service token (doc 105 §3), o pipeline
+> não implanta. (2) A pergunta de medição que este débito levantou — *o build degradava quem estava
+> sendo servido?* — fica **sem resposta para sempre**, e tudo bem: o build saiu da máquina. O que
+> **não** saiu é o **R-M12** (nenhum container tem limite de CPU), que continua de pé e é outro
+> item.
+
+
+
+**O que é.** O Dokploy clona e builda a imagem **na própria VPS** de produção
+([doc 59 §2](59-deploy-dokploy-oci.md)): `mix release` (compilação Elixir) e `vite build` disputam
+os 2 vCPU do KVM 2 com a BEAM, o Node e o Postgres que estão servindo. Medido em 2026-07-31:
+**≈ 90% de CPU durante o build**.
+
+**Por que virou débito, e não achado.** Porque a pergunta que importa — *o build degrada quem está
+sendo servido?* — **não foi respondida**. O operador relatou não perceber perda de desempenho, e
+isso é sinal válido, mas foi observado **com carga real baixa ou nula**: sem ninguém usando, não há
+com quem o build competir, e 90% de CPU num build é o comportamento esperado, não um sintoma. A
+medição que decide é outra, e agora é possível fazer: **p95 da API e `run_queue` da BEAM na janela
+do deploy**, no Grafana que já está no ar.
+
+É o **R-M12** do [doc 95](95-analise-infraestrutura.md) visto pelo outro lado: lá o achado é que
+**nenhum container tem limite de CPU**, então build e produção competem em pé de igualdade. O
+`mem_limit` que a Faixa 0 pede não contém isso — memória e CPU são recursos diferentes.
+
+**O que custa hoje.** Provavelmente nada, enquanto a carga for baixa. O custo aparece no dia em que
+um deploy coincidir com a clínica trabalhando — e o modo de falha é o mais chato de diagnosticar:
+latência que sobe por alguns minutos, some sozinha, e não deixa erro em log nenhum. Com HML e prod
+no mesmo host, a frequência dobra ([risco #5 do doc 59 §10](59-deploy-dokploy-oci.md)).
+
+**O que o paga — e por que é barato agora.** Não é limitar o build; é **tirá-lo da máquina**. É o
+**item 16 da Faixa 1** do [doc 95 §2](95-analise-infraestrutura.md): construir a imagem no CI e
+fazer o Dokploy consumir por digest. Uma mudança que fecha quatro coisas:
+
+- os 90% de CPU saem do servidor de produção, e com eles o pico de RAM do build;
+- **R-M4** — a guarda de sourcemap de `web/Dockerfile.prod:44-48`, hoje a última fronteira contra o
+  código-fonte ir para produção, **nunca roda antes do merge**; passaria a rodar em PR;
+- **R-M8** — imagem fixada por digest: o que o CI testou é literalmente o que sobe;
+- **R-M5** — o passo de deploy deixa de ser fire-and-forget sobre um build que nem começou.
+
+E ficou **mais barato do que seria no plano original**: a Hostinger é x86_64 igual aos runners do
+GitHub ([ADR-023](00-decisoes.md)), então é build nativo — sem QEMU, sem cross-compile, que é o que
+o A1 ARM teria exigido.
+
+**Enquanto isso não acontece**, se a medição de p95 mostrar degradação: `cpus:` nos serviços de
+longa duração do [`compose.dokploy.yml`](../compose.dokploy.yml), para eles vencerem o builder na
+disputa; e deploy de HML fora do horário de atendimento.
+
+**Item irmão, no mesmo pacote de medição.** Os **3,5 GB** residentes de
+[doc 87 §2.1](87-servidor-hostinger-riscos-e-cuidados.md#21-o-que-a-máquina-de-verdade-mediu-2026-07-31--a-estimativa-acima-estava-errada)
+têm a mesma limitação: são um ponto sob carga baixa, não um teto. A mesma janela de medição responde
+os dois.
+
+---
+
+## D-22 · A capacidade da turma pode estourar em um, sob concorrência
+
+**O que é.** [`GroupCapacity.check/4`](../api/lib/api/scheduling/appointment/validations/group_capacity.ex)
+conta os participantes numa transação própria; o `manage_relationship` grava em **outra**. Dois
+`add_participant` concorrentes numa turma com uma vaga passam os dois, e a turma fecha com
+capacidade + 1. O `identity :one_per_patient_per_appt` impede o **mesmo** paciente duas vezes — não
+o estouro do teto.
+
+**Por que é débito aceito, e não achado a consertar** (decisão de 2026-08-01, sobre o **B-12** do
+[doc 96](96-auditoria-backend.md)). A capacidade é orientação de sala, não invariante de dinheiro
+nem de segurança: um a mais numa turma é algo que a recepção resolve na hora, remanejando. O
+remédio custa um `before_action` com `FOR UPDATE` em **todo** `add_participant` — lock no caminho
+mais clicado da agenda, para evitar um caso raro, visível e reversível.
+
+**A armadilha, para quem reabrir.** O remédio óbvio não funciona: `Ash.Query.lock(:for_update)`
+**a partir da validação** é inócuo — validação do Ash roda *antes* da transação da ação, e o lock
+morreria no commit da transação da contagem, antes da escrita. Chegou a ser aplicado e foi
+revertido por isso. Fechar de verdade exige `before_action` ou constraint no banco, e as duas mexem
+no contrato de erro da ação. A armadilha está escrita **no código**, no ponto exato, porque é lá
+que o próximo leitor vai procurar.
+
+---
+
+## D-23 · Salvar o expediente varre toda a agenda futura, dentro da transação de escrita
+
+**O que é.** [`Api.Scheduling.future_conflicts/2`](../api/lib/api/scheduling.ex) lê **todos** os
+agendamentos abertos daqui para a frente e roda **dentro** do `Api.Repo.transaction` de
+`update_clinic_hours/2` e `update_professional_hours/3`. O `total` é sem teto por decisão de
+produto — a tela promete "quantos conflitos ao todo", e um número truncado seria pior que nenhum
+(só os detalhes são limitados, a `@conflitos_detalhados`).
+
+**Por que é débito aceito.** É o **P-6** do [doc 96](96-auditoria-backend.md), e a análise de lá
+continua valendo: *aceitável hoje, vira problema com anos de agenda*. Salvar expediente é uma ação
+rara (configuração da clínica), feita por owner/admin, fora do caminho quente. A varredura precisa
+mesmo estar na transação: é ela que decide se a escrita prossegue ou aborta — tirá-la de dentro
+reabre a janela entre analisar e escrever, que é o **D-5** deste mesmo documento, num lugar onde
+hoje ela não existe.
+
+**O que custa hoje.** Nada mensurável — o banco de dev não tem volume para medir (é o mesmo limite
+do **P-9**). O custo aparece com anos de histórico: uma transação longa segurando conexão do pool,
+no exato desenho que a poda foi consertada para não ter (**P-3**).
+
+**O que o paga.** Um recorte de horizonte no `agendamentos_futuros/3` (por exemplo, 12 meses) — que
+é **decisão de produto**, não de implementador: muda o que o número na tela significa. Ou medir
+primeiro, com volume real, junto com o **P-9** e o trabalho de carga do
+[doc 98](98-teste-de-carga-em-producao.md).
+
+---
+
+## D-24 · O descadastro do e-mail grava **global**, porque a leitura que o barra é cega à clínica
+
+**O que é.** O link "Não quero mais receber estes avisos" do rodapé
+([`ApiWeb.PatientOptOutController`](../api/lib/api_web/controllers/patient_opt_out_controller.ex))
+registra o opt-out **sem `clinic_id`** — ou seja, global. O token resolve a mensagem e a mensagem
+tem a clínica, então o dado para gravá-lo por-clínica está na mão; o que falta é a outra ponta.
+
+**Por que não dá hoje, medido.** A policy de RLS de `message_opt_outs` é
+`clinic_id IS NULL OR clinic_id = <GUC>`. Quem lê o opt-out na hora de decidir o envio é
+[`Api.Messaging.opted_out?/3`](../api/lib/api/messaging.ex), chamada por `Dispatch` **fora** do
+`in_clinic` — de propósito e documentado lá, porque o outro chamador é o webhook, que não tem GUC
+nenhuma. Sob o role real (`cinetra_app`, 2026-08-03), a mesma linha por-clínica:
+
+```
+com a GUC : 1 linha
+sem a GUC : 0 linhas
+```
+
+Ou seja: gravada por-clínica, ela seria **invisível** para quem decide o envio. O paciente clicaria
+em "parar de receber", a tela diria "pronto", e a próxima mensagem sairia assim mesmo — o dano
+exato que o §10 do doc 52 existe para impedir. **A suíte não pega**: ela roda como `postgres`
+(BYPASSRLS), e todos os testes ficam verdes nos dois desenhos. É a cegueira descrita em
+[`.claude/rules/migrations.md`](../.claude/rules/migrations.md) §3.
+
+**O que custa hoje.** Um paciente atendido por duas clínicas da plataforma que peça para sair de
+uma para de receber das duas. É o mesmo comportamento que o "SAIR" do WhatsApp já tem (C10/C11, o
+número da v1 é único), e desfaz-se no balcão por
+`Api.Messaging.revoke_patient_opt_outs/2`, com nome e hora. O modo de falha do desenho oposto —
+continuar mandando para quem pediu para parar — não tem conserto no balcão.
+
+**O que o paga.** Fazer a leitura rodar com a GUC quando há clínica: `opted_out?/3` passando a
+envolver a consulta em `Api.Repo.with_clinic/2` quando `clinic_id` não é nulo, mantendo o caminho
+sem tenant para o webhook. Depois disso, o controller volta a passar `clinic_id` (o
+`Api.Messaging.opt_out/4` já repassa o `tenant:` correspondente, justamente para esse dia). **A
+prova não é `mix test`** — é o `psql` sob `cinetra_app`, com o controle positivo junto, como acima.
+
+---
+
+## D-25 · Os quatro itens da auditoria de banco que ficaram como decisão, não como tarefa
+
+**O que é.** A [auditoria do banco](92-auditoria-banco-de-dados.md) (doc 92) devolveu 13 itens
+reais. A Onda 1 aplicou quatro; as ondas 2 e 3 são trabalho normal de fila. Este débito registra os
+**quatro que não devem virar tarefa até alguém decidir**, para que "não fizemos" não seja lido como
+"não vimos".
+
+**Por que virou débito, item a item.**
+
+* ~~**P1-3(b) — FK em `memberships.professional_id`.**~~ **Feita em 2026-08-04**, por decisão
+  explícita e contra a recomendação original — que era não fazer, porque a FK é global e fecha só
+  metade do problema. A decisão foi de que meia rede vale mais que nenhuma: órfão passa a ser
+  impossível por qualquer caminho, inclusive `psql`. A outra metade (profissional da clínica
+  errada) segue sendo trabalho da `Validations.ProfessionalInClinic`, e isso está escrito no
+  `references` do recurso para que ninguém leia a FK como garantia que ela não dá.
+* ~~**P2-9 — `UNIQUE` no opt-out vigente.**~~ **Resolvido em 2026-08-04: não era débito.** O índice
+  único parcial já existia (`message_opt_outs_vigente_por_destino_index`, com `NULLS NOT DISTINCT`
+  para cobrir o opt-out global), as três portas de escrita passam por `Dispatch.normalizar/2`, e há
+  teste de regressão dedicado desde a corrida do doc 96 A-5. O item da auditoria citava um índice
+  (`message_opt_outs_vigentes_index`) que não existe no catálogo.
+* ~~**P2-12 — ordenação da fila por expressão.**~~ **Fechado em 2026-08-04: não fazer.** O `ORDER
+  BY` que o Ash emite tem **todos os literais como bind parameters**, e índice de expressão precisa
+  ser imutável — então ele não é frágil, é impossível. O desenho que funcionaria (`prio_rank` como
+  coluna real + índice) é 50× mais rápido **em 20.000 itens de fila**, volume que a identity
+  `one_entry_per_patient` torna irreal (o teto é a base de pacientes). Medição no
+  [doc 92](92-auditoria-banco-de-dados.md), Onda 4.
+* **P2-14 — `timestamptz`.** 43 colunas `timestamp` (µs) e 15 `timestamp(0)` (s); **nenhuma**
+  `timestamptz` no schema. A convenção UTC é sustentada pelos defaults `(now() AT TIME ZONE 'utc')`
+  e por todo mundo lembrar dela. Migrar 58 colunas é caro, arriscado e não resolve problema vivo.
+
+**O que custa hoje.** Nada operacional nos quatro — foi por isso que ficaram de fora. O custo é de
+memória: são exatamente os itens que uma próxima auditoria vai reencontrar e reapresentar como
+achado novo, gastando a rodada de novo, se não estiverem escritos aqui.
+
+**O que os paga.** Depois da Onda 4 sobrou **um**: P2-14, e ele só volta à mesa se houver clínica
+fora de `America/Sao_Paulo` **e** cálculo de horário local no SQL. Dos outros três, um foi feito
+(P1-3(b)) e dois se resolveram medindo — o padrão de como eles "eram" débito e não eram está no
+placar de método do [doc 92](92-auditoria-banco-de-dados.md).
+
+**Este débito está, na prática, quitado**, e fica como registro do ciclo: quatro itens que pareciam
+tarefa, e dos quais só um era.
+
+> Nota de método, do mesmo ciclo: a auditoria também produziu **um item falso** (P1-5, "duas
+> semânticas para a GUC vazia") e **um mal enquadrado** (P2-13), os dois por ler o schema sem ler
+> os contratos estruturais que já vivem em `test/` — `tenant_guc_test.exs` e `on_delete_test.exs`.
+> A errata está no topo do doc 92.
+
+---
+
+## D-26 · O `/descadastrar` ficou com a cara antiga enquanto o `/confirmar` ganhou a da marca
+
+**O que é.** As duas telas de paciente são irmãs: mesmo público (quem não tem login), mesmo tipo de
+link assinado, mesma estrutura de uma pergunta e um botão. Em 2026-08-04 a `/confirmar` passou a
+usar o `CartaoPaciente` — papel/navy da marca, topo com o nome da clínica, tema claro fixo (doc
+[104](104-a-tela-do-paciente.md)). A `/descadastrar` continua no design system do app interno.
+
+**Por que virou débito.** O pedido era sobre a tela de confirmação, e ampliar sozinho para a outra
+seria decidir pelo usuário o tamanho da fatia. O componente já serve as duas sem mudança nenhuma —
+`CartaoPaciente` recebe `clinica`, `telefone`, o conteúdo e a nota, que é exatamente o que a de
+descadastro precisa.
+
+**O que custa hoje.** Duas telas de paciente falando línguas visuais diferentes, e — o que é pior —
+a `/descadastrar` continua seguindo o `prefers-color-scheme` do aparelho: quem lê no escuro abre um
+e-mail em papel creme e cai numa página quase preta. É o mesmo defeito que o doc 104 §1 mediu, ainda
+de pé na outra porta.
+
+**O que o paga.** Trocar a moldura e as classes: ~30 minutos, com o teste da tela seguindo o modelo
+de `confirmar/[token]/page.svelte.test.ts`. Não há decisão pendente — é só trabalho.

@@ -7,10 +7,10 @@
 </script>
 
 <span
-	class="inline-flex items-center gap-1.5 text-[11px] font-semibold {pending
+	class="inline-flex items-center gap-1.5 text-meta font-semibold {pending
 		? 'text-warning'
 		: 'text-muted'}"
 >
-	<span class="size-1.5 rounded-full {pending ? 'bg-warning-solid' : 'bg-teal'}"></span>
+	<span class="size-1.5 rounded-full {pending ? 'bg-warning-solid' : 'bg-accent'}"></span>
 	{pending ? 'Convite pendente' : 'Ativo'}
 </span>

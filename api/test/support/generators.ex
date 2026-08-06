@@ -64,7 +64,12 @@ defmodule Api.Generators do
   """
   def clinica(opts \\ []) do
     owner = usuario!(Keyword.get(opts, :dono, "Dono"))
-    clinic = Accounts.onboard_clinic!("Clínica #{unico()}", %{}, actor: owner)
+
+    clinic =
+      "Clínica #{unico()}"
+      |> Accounts.onboard_clinic!(%{}, actor: owner)
+      |> com_whatsapp_ligado(Keyword.get(opts, :whatsapp, false), owner)
+
     ctx = %{owner: owner, clinic: clinic, scope: escopo(owner, clinic, opts)}
 
     Map.merge(ctx, %{
@@ -72,6 +77,20 @@ defmodule Api.Generators do
       tipo: tipo!(ctx, Keyword.get(opts, :tipo, [])),
       paciente: paciente!(ctx, Keyword.get(opts, :paciente, "Paciente"))
     })
+  end
+
+  # `clinica(whatsapp: true)` — a clínica que ligou o canal.
+  #
+  # São DUAS chaves, e o teste que só liga uma não prova nada: esta é a por-clínica
+  # (`msg_whatsapp_ativo`); a global é o `Transport.disponivel?/1`, que os testes ligam com o
+  # `com_whatsapp/1` deles. O telefone entra junto porque o domínio recusa o par desfeito
+  # (`Validations.WhatsappExigeTelefone`) — e porque ele é posicional obrigatória do template.
+  defp com_whatsapp_ligado(clinic, false, _owner), do: clinic
+
+  defp com_whatsapp_ligado(clinic, true, owner) do
+    clinic
+    |> Accounts.update_clinic_info!(%{telefone: "(11) 3456-7890"}, actor: owner)
+    |> Accounts.update_clinic_messaging!(%{msg_whatsapp_ativo: true}, actor: owner)
   end
 
   @doc "Um usuário novo, com e-mail globalmente único."
@@ -208,7 +227,7 @@ defmodule Api.Generators do
     {:ok, appointment} =
       Api.Scheduling.schedule_appointment(
         %{
-          starts_at: Keyword.get(opts, :quando, amanha_as(ctx, 10)),
+          starts_at: Keyword.get(opts, :quando, proximo_dia_util_as(ctx, 10)),
           professional_id: Keyword.get(opts, :prof, ctx.prof).id,
           appointment_type_id: Keyword.get(opts, :tipo, ctx.tipo).id,
           patient_ids: [paciente.id]
@@ -223,18 +242,43 @@ defmodule Api.Generators do
   end
 
   @doc """
-  Um instante UTC correspondente a `hora` local de amanhã na clínica do `ctx`.
+  Um instante UTC correspondente a `hora` local do **próximo dia útil** na clínica do `ctx`.
 
-  Amanhã e não hoje porque metade das regras da agenda olha para o relógio ("já começou", "abre
-  vaga", "lembrete N horas antes"), e um teste ancorado em "hoje às 10h" muda de significado
-  conforme a hora em que a suíte roda.
+  No futuro e não hoje porque metade das regras da agenda olha para o relógio ("já começou",
+  "abre vaga", "lembrete N horas antes"), e um teste ancorado em "hoje às 10h" muda de
+  significado conforme a hora em que a suíte roda.
+
+  **Dia útil e não literalmente amanhã** — esta era a versão `amanha_as/2`, e ela quebrava a
+  suíte dois dias por semana. O seed do onboard abre **seg–sex**; rodando numa sexta, "amanhã"
+  caía no sábado e toda escrita de agenda era recusada com *"Esse horário está fora do
+  expediente"*. Não era flake de relógio: era o calendário. O CI de sexta e sábado reprovava por
+  motivo que não tinha nada a ver com a regra sob teste (medido no doc 96; 4 testes em 3
+  arquivos).
+
+  Sábado e domingo são pulados porque é o que o seed fecha. Um teste que precise de fim de
+  semana deve montar o horário explicitamente — como o `segunda_passada/1` já faz do outro lado.
   """
-  def amanha_as(ctx, hora) do
-    amanha =
-      Date.add(DateTime.to_date(DateTime.shift_zone!(DateTime.utc_now(), ctx.clinic.timezone)), 1)
+  def proximo_dia_util_as(ctx, hora) do
+    hoje = DateTime.to_date(DateTime.shift_zone!(DateTime.utc_now(), ctx.clinic.timezone))
+    dia = proximo_dia_util(Date.add(hoje, 1))
 
-    {:ok, local} = DateTime.new(amanha, Time.new!(hora, 0, 0), ctx.clinic.timezone)
+    {:ok, local} = DateTime.new(dia, Time.new!(hora, 0, 0), ctx.clinic.timezone)
     DateTime.shift_zone!(local, "Etc/UTC")
+  end
+
+  @doc """
+  A próxima data em que a clínica abre, a partir de `data` (inclusive).
+
+  Pública porque testes precisam dela como **Date**, não só como instante: o de lembretes montava
+  `utc_now |> to_date |> Date.add(1)` inline, em três lugares, e reprovava toda sexta e sábado
+  pelo mesmo motivo que `amanha_as/2` reprovava (doc 96). Helper de teste copiado é helper que
+  diverge — é o que este módulo inteiro existe para evitar.
+  """
+  def proximo_dia_util(data)
+
+  # `day_of_week/1` é 1=segunda … 7=domingo.
+  def proximo_dia_util(data) do
+    if Date.day_of_week(data) >= 6, do: proximo_dia_util(Date.add(data, 1)), else: data
   end
 
   @doc """
@@ -262,6 +306,37 @@ defmodule Api.Generators do
         authorize?: false
       )
     end)
+  end
+
+  @doc """
+  Dispara a confirmação de um bloco **à mão**, como a recepção faz pelo botão do drawer.
+
+  Existe desde 2026-07-31 (doc 98): até então, criar o agendamento produzia essa mensagem sozinho,
+  e meia dúzia de arquivos montava o cenário "existe uma mensagem para este bloco" só chamando
+  `agendamento!/2`. Removido o gatilho, o cenário precisa ser pedido — e pedido em UM lugar, senão
+  a montagem nasce copiada em seis arquivos, que é o defeito que o `paciente_com/2` acima já
+  documenta.
+
+  Relê a clínica do banco de propósito: quem chama costuma ter uma struct montada antes de gravar
+  `zernio_account_id` ou a janela de silêncio, e o `Dispatch` congela na mensagem o que a struct
+  disser. É o que o notifier fazia por dentro.
+  """
+  def confirmacao!(ctx, appt, paciente), do: disparo!(ctx, appt, paciente, :confirmacao)
+
+  @doc "O par de `confirmacao!/3` para o lembrete — o disparo que hoje é o automático (doc 98)."
+  def lembrete!(ctx, appt, paciente), do: disparo!(ctx, appt, paciente, :lembrete)
+
+  defp disparo!(ctx, appt, paciente, kind) do
+    presenca = Enum.find(appt.attendances, &(&1.patient_id == paciente.id))
+
+    clinic =
+      Api.Tenancy.in_clinic(ctx.clinic.id, fn ->
+        Api.Accounts.get_clinic!(ctx.clinic.id, authorize?: false)
+      end)
+
+    {:ok, message} = Api.Messaging.Dispatch.dispatch(clinic, presenca, paciente, kind)
+
+    message
   end
 
   @doc "Relê uma mensagem sob a GUC — o par de `mensagens/2` para asserção de estado."

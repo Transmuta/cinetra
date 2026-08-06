@@ -137,6 +137,31 @@ defmodule Api.Audit.AcessoTest do
       assert [_] = entries
     end
 
+    # Regressão (auditoria doc 96, B-7). A dedup de evento sem `record_id` casa por `label`, e o
+    # label era o **path cru** — com os UUIDs dentro. Ou seja: ela funcionava para a rota fixa
+    # (o teste acima) e nunca casava justamente no caso que o evento existe para detectar, a
+    # varredura por IDOR, em que cada tentativa tem um id diferente.
+    #
+    # O efeito era o inverso do desenhado: uma linha por request na tabela que mais cresce, mais
+    # uma query síncrona de dedup a cada 403. O mecanismo anti-abuso era o amplificador do abuso.
+    test "varredura por IDOR dedupa: cem ids diferentes na MESMA rota é um evento" do
+      ctx = clinica()
+      recep = escopo_de_membro!(ctx, :recepcao)
+
+      for _ <- 1..100 do
+        caminho = "/api/patients/#{Ecto.UUID.generate()}"
+        :ok = Api.Audit.Acesso.acesso_negado(recep, ApiWeb.RequestLogger.rota(caminho), caminho)
+      end
+
+      %{entries: entries} = Audit.list_events(ctx.scope, resource: :seguranca)
+
+      assert [evento] = entries, "#{length(entries)} linhas: a dedup não pegou a varredura"
+      # O label é agrupável…
+      assert evento.label == "/api/patients/:id"
+      # …e o caminho cru continua investigável (qual id foi tentado).
+      assert evento.meta["caminho"] =~ ~r"^/api/patients/[0-9a-f-]{36}$"
+    end
+
     test "a janela do 403 é por CAMINHO — outra rota tentada é outro evento" do
       ctx = clinica()
       recep = escopo_de_membro!(ctx, :recepcao)

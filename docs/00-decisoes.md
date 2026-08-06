@@ -21,7 +21,7 @@ Status possíveis: `Aceita` · `Proposta` · `Substituída por ADR-nn`
 
 ## ADR-002 — Backend em Elixir + Ash, exposto como API REST
 
-**Status:** Aceita
+**Status:** Aceita · **Parcialmente substituída pela [ADR-027](#adr-027--a-api-rest-é-de-controllers-phoenix-nomeados-o-ashjsonapi-fica-fora)** (2026-08-03), quanto ao **como** expor: o AshJsonApi saiu, e a API são controllers Phoenix com ações nomeadas. O resto — Elixir, Ash 3.x, AshPostgres, Phoenix servindo também os Channels — continua valendo.
 
 **Contexto.** O produto é um sistema de gestão de clínica com dado de saúde (LGPD Art. 11), papéis de acesso, agenda colaborativa e agregados pesados (ocupação, faturamento, sessões consumidas). O frontend será SvelteKit, então o backend precisa ser um serviço separado com contrato explícito.
 
@@ -108,7 +108,7 @@ Status possíveis: `Aceita` · `Proposta` · `Substituída por ADR-nn`
 
 ## ADR-008 — Deploy em Fly.io, observabilidade via OpenTelemetry sem vendor lock
 
-**Status:** Aceita
+**Status:** **Substituída por [ADR-023](#adr-023--produção-na-hostinger-kvm-2-o-a1-da-oracle-fica-adiado-não-descartado)** (2026-07-31) — quanto ao **alvo de deploy**. A metade sobre **OpenTelemetry sem vendor lock continua valendo** e, de fato, foi o que permitiu a troca: o stack de observabilidade é self-hosted (Loki/Grafana/Prometheus/Tempo) e nenhum SDK proprietário atou o projeto a provedor. Fly.io nunca chegou a ser provisionado.
 
 **Decisão.** Dois apps Fly (`cinetra-api` em Elixir, `cinetra-web` em Node), Postgres gerenciado, object storage compatível com S3 (Tigris ou Cloudflare R2). Instrumentação com **OpenTelemetry puro**; o backend de telemetria (Grafana Cloud, Honeycomb) é configuração, não código.
 
@@ -257,6 +257,23 @@ Dark mode continua por `data-theme` (`@custom-variant dark`), não por `class` n
 - **profissional:** só a **própria** agenda e seus pacientes (FilterCheck, [06 §6](06-seguranca-e-lgpd.md)).
 - **recepção:** opera a agenda de **todos**, sem configurações sensíveis.
 
+**Emenda de 2026-08-04 — o `profissional` só LÊ a agenda** ([doc 103](103-o-profissional-so-le-a-agenda.md)).
+A fronteira acima dizia "só a própria agenda" sem separar ver de alterar; ele agendava na própria
+coluna, e o A7 na escrita o mantinha fora da coluna do colega. Passou a **não escrever em coluna
+nenhuma**: não lança, não remarca, não cancela, não exclui e não marca presença. Caíram junto a
+fila de espera e a escrita de pacote — não por coerência de papel, mas porque o `Materializer`
+lança as sessões da série com `authorize?: false`, e fechar só a policy do `Appointment` deixaria
+quem não pode lançar um bloco criando uma série de doze. **A leitura da agenda não mudou:** própria
+agenda, próprias presenças, e a clínica inteira em fila, pacotes e ficha do paciente, como antes.
+
+No mesmo dia, a **tela de Profissionais** fechou junto: ele não vê o diretório nem a própria ficha
+(CPF, endereço, dados bancários) — antes via os dois, a listagem recortada a uma linha só. A guarda
+é da superfície HTTP (`ProfessionalsController`) e não da policy de leitura do recurso, porque
+`load_agenda/4` lê `Professional` por dentro para montar a coluna: fechar a policy derrubaria a
+agenda dele com **Forbidden**, desfazendo a decisão de cima. A segunda camada é a `field_policy` de
+`@ficha_contratual`, que devolve `%Ash.ForbiddenField{}` sem derrubar a leitura. Detalhe e medição
+no [doc 103 §7](103-o-profissional-so-le-a-agenda.md).
+
 **Consequências.**
 - O enum `Movimento.Accounts.Role` ([01 §3](01-dominio-ash.md)) passa a `[:owner, :admin, :profissional, :recepcao]`.
 - As policies ([01 §7](01-dominio-ash.md), [06 §6](06-seguranca-e-lgpd.md)) ganham `owner` (bypass acima de `admin`) e derivam o papel do **`Membership` do tenant ativo** ([ADR-014](#adr-014--identidade-global-multi-tenant-modelo-vercel)).
@@ -316,7 +333,7 @@ Dark mode continua por `data-theme` (`@custom-variant dark`), não por `class` n
 - **`--mv-<sem>-solid`** é o **fundo** (badge, chip, botão sólido). Fixo nos dois temas — badge é badge — e o texto sobre ele é `--mv-on-solid`, escuro e também fixo. O precedente é a badge ENCAIXE, consertada assim no AN-08.
 - **`--mv-<sem>`** é **texto/ícone** (`text-danger` e parentes), e muda **por tema**.
 - **Exceção deliberada:** `--mv-danger-solid` escureceu (`#e5484d` → `#d83b40`) para **manter o texto branco**. Botão destrutivo com texto escuro sobre vermelho claro perde a força de aviso.
-- O par espelha o que o teal já era (`--mv-teal-solid` + `--mv-teal-text`): não é padrão novo, é o padrão existente estendido às outras quatro.
+- O par espelha o que o teal já era (`--mv-teal-solid` + `--mv-teal-text`, hoje `--mv-accent-*` pela ADR-021): não é padrão novo, é o padrão existente estendido às outras quatro.
 - **Paleta categórica** (avatar, tipo de atendimento, prioridade) **não** entra nesse modelo: ela vem de lista e é contrato com o `one_of` do servidor (débito **D-3**), então o hex não muda. Ali a cor do texto é **escolhida por cor de fundo** (`textoSobre()` em `web/src/lib/contraste.ts`), porque 5 das 7 cores de avatar reprovam com branco e nenhuma cor única serve às sete.
 
 **Consequências.**
@@ -325,6 +342,106 @@ Dark mode continua por `data-theme` (`@custom-variant dark`), não por `class` n
 - Valor de token novo tem de passar em **duas** famílias de fundo: as superfícies e a **própria tinta** (`bg-<sem>/10..14`), onde o fundo já está tingido da cor do texto. Foi a tinta que empurrou os valores finais além do mínimo óbvio — ver doc 83 §11.2.
 - A trava é `web/src/lib/styles/contraste.test.ts`, que **lê o `app.css`** em vez de repetir os hex: um teste com os valores à mão concorda com o CSS até o dia em que divergem.
 - Mexer nessas cores deixou de ser escolha estética livre. O piso é WCAG AA (4,5 para texto, 3 para indicador de foco), e baixar o gate é decisão humana explícita — a mesma regra do gate de cobertura.
+
+---
+
+## ADR-022 — Dimensão também é token, e o token é nomeado pelo PAPEL
+
+**Status:** Aceita (2026-07-30) · **Motivada por:** [doc 93](93-auditoria-design-system-web.md) (§M-1, §M-2, §M-6) · **Estende:** [ADR-010](#adr-010--tailwind-v4-com-o-design-system-do-protótipo-como-fonte)
+
+**Contexto.** A camada de **cor** já era exemplar: token por papel, trocado por `[data-theme]`, travado por `contraste.test.ts`. A camada de **dimensão** não existia. Medido: **22 tamanhos de fonte em 643 usos** (261 deles em meio-pixel), **13 raios efetivos em 378 usos** (com `rounded-md` e `rounded-lg` valendo o mesmo 8px, e 184 usos escolhendo entre dois nomes idênticos), e quatro `z-index` soltos cuja ordem valia por convenção oral.
+
+Não foi descuido: o design veio de um protótipo HTML com valores em px e a fidelidade foi corretamente priorizada. O custo apareceu depois — `12px` e `12.5px` são indistinguíveis na tela e carregavam papéis diferentes em arquivos diferentes, sem nada dizer qual era qual. Quem escrevia o próximo componente não tinha como acertar: só copiar do vizinho.
+
+E **nenhum dos seis gates do projeto olhava para isso**. Os 1.014 utilitários de valor arbitrário passavam por todos sem tocar em nenhum, porque cada um é sintaticamente válido e individualmente legítimo.
+
+**Decisão.**
+
+- **Fonte:** sete degraus nomeados pelo papel — `micro`, `meta`, `rotulo`, `corpo`, `leitura`, `titulo`, `destaque`. O de 14px chama-se `leitura`, e não `base`, para não haver um nome com dois significados (o `text-base` do Tailwind é 16px).
+- **Raio:** quatro — `micro`, `controle`, `cartao`, `full`. Os nomes de TAMANHO do Tailwind (`sm`/`md`/`lg`/`xl`) deixaram de ser sobrescritos: com a escala por papel, mantê-los redefinidos deixaria dois vocabulários vivos para a mesma coisa.
+- **Camadas:** `z-cobertura` < `z-painel` < `z-toast` < `z-atalho`, por `@utility` — porque **`z-index` não é namespace temável no Tailwind v4** (medido: `--z-index-*` no `@theme` não gera classe nenhuma). Empilhamento local dentro de um componente continua sendo número cru: ali o contexto é outro.
+- **Sem `line-height` nos degraus de fonte**, de propósito: os 643 usos substituídos eram `text-[Npx]`, que não define entrelinha, e acoplar uma moveria o layout do app inteiro por um motivo que não é o desta decisão.
+
+**Consequências.**
+
+- A trava é `web/src/lib/styles/dimensao.test.ts` (valor arbitrário e nome do Tailwind não voltam) e `camadas.test.ts` (a ordem, e que todo `z-<nome>` usado existe). O segundo é obrigatório e não zelo: **utilitário inexistente some em silêncio** — não é erro de build nem de `svelte-check`, o elemento só cai para `z-index: auto`.
+- Junto entrou `cor-crua.test.ts`, que fecha o furo simétrico na camada de cor: o `contraste.test.ts` mede pares de TOKEN, então cor escrita à mão é invisível para ele por construção.
+- A normalização mexeu em pixels: alguns textos mudaram 0,5–1px e alguns cantos 2px. Foi escolha consciente ao adotar a escala — preservar cada valor teria organizado sem resolver a proliferação.
+- A família de marca (landing, telas de entrada) segue isenta: ela é o protótipo em hex, com regras próprias.
+
+---
+
+## ADR-021 — O teal sai do app: o acento de UI é o sage da marca, e a família se chama `accent`
+
+**Status:** Aceita (2026-07-30) · **Completa:** [ADR-020](#adr-020--o-botão-primário-é-o-sage-da-marca-com-texto-branco-abaixo-do-piso-de-contraste) · **Débito que ela cria:** [D-18](50-debitos-tecnicos.md)
+
+**Contexto.** A ADR-020 trocou só o **botão primário** para o sage. O resto do app continuou teal (`#0fb5a6` e derivados) — a faixa do topo, o marcador do "agora", o chip "Hoje", o estado ativo da sidebar, o anel de foco. O app ficou com **duas identidades ao mesmo tempo**, e a pergunta que abriu esta decisão foi exatamente essa: "ainda não mudou em todos os lugares".
+
+**Decisão.** A família inteira do acento passa a ser derivada do sage, **e muda de nome de `teal` para `accent`** — porque um token chamado `teal` valendo um verde-acinzentado é a mentira que o `app.css` existe para não contar. Valores medidos antes de escolher:
+
+| token | era (teal) | é (sage) |
+| --- | --- | --- |
+| `--mv-accent-solid` | `#0fb5a6` | `#7fa59a` |
+| `--mv-accent-hover` | `#0ba294` | `#72958b` |
+| `--mv-accent-text` (claro / escuro) | `#067a6f` / `#3fd6c7` | `#3b6d5f` / `#8ec2b3` |
+| `--mv-accent-subtle` (claro / escuro) | `#e5f7f4` / `rgba(15,181,166,.16)` | `#ebf4f2` / `rgba(127,165,154,.16)` |
+| `--mv-accent-border` (claro / escuro) | `#7fdacd` / `rgba(127,218,205,.45)` | `#9cc9bc` / `rgba(127,165,154,.45)` |
+
+**Por que sage e não outra cor — o anel de foco decidiu.** O acento carrega o anel de `:focus-visible`, e o **rail é escuro nos dois temas**: uma cor escura desaparece ali. Medido: o blue da marca (`#3a5a78`) dá **2,47 sobre o rail** e reprovaria 1.4.11. O sage é claro como o teal era, então o contrato do anel duplo sobrevive **sem remedição** — 6,56 contra os 6,92 do teal. Todos os outros papéis caem dentro de ±0,4 do que o teal media, e o texto sobre o chip até melhorou (4,71 → 5,30).
+
+**O preço, registrado.** O sage tem **saturação 17%** contra os 85% do teal. O acento lê mais discreto — decisão consciente de marca, não descuido. E a matiz do sage (163°) fica a 17° do verde de `success` (146°), contra os 29° que o teal tinha: "Em atendimento" e "Concluído" ficaram cromaticamente mais próximos.
+
+**A paleta de avatar entra; a de tipos de atendimento, não — e as razões são diferentes.**
+
+A **paleta de avatar** (profissional e paciente, `AVATAR_PALETTE`) troca a entrada 1 de `#0FB5A6` para `#7FA59A`. Ela é cor de **dado**, não de marca — o trabalho dela é distinguir pessoas entre si —, então a pergunta que decide é distância perceptual, e ela foi **medida em OKLab** antes da troca:
+
+| paleta | par mais confundível | ΔE_ok |
+| --- | --- | --- |
+| antes (teal) | `#0FB5A6` ↔ `#009E73` | **0,087** |
+| depois (sage) | `#7FA59A` ↔ `#009E73` | **0,111** |
+
+Ou seja: o teal **já era** a cor mais confundível da lista, e o sage afasta o pior par em 28%. Vale registrar o erro que quase barrou esta troca: a primeira análise olhou só a matiz (sage 163°, `#009E73` 164°) e concluiu "duas das sete viraram a mesma". Matiz sozinha não decide — as duas diferem em saturação (17% vs 100%) e luminosidade (57% vs 31%), que é o que o olho usa. **A lição é medir, não supor**, e vale para toda paleta categórica deste app. O contrato de contraste (`textoSobre` devolvendo texto que passa 4,5:1 para as sete cores) continua verde: sage aceita texto escuro a 6,46.
+
+A troca é **frontend puro**: `cor_indice` é um índice 1-based, não um hex — não há cor de avatar no servidor nem migração a fazer.
+
+A **paleta de tipo de atendimento** (`appointment-types.ts` + `@cores`) fica como está. Ali o hex é **persistido** e validado por `one_of` no servidor em **create, update *e destroy*** ([`appointment_type.ex`](../api/lib/api/directory/appointment_type.ex)) — trocar o valor sem migração de dados deixaria toda linha antiga impossível de editar **e de apagar** (422). É trabalho de outra natureza: migração + seed + ~20 arquivos de teste do backend.
+
+**Consequências.**
+
+- **Três tokens valem `#7fa59a` agora**, e a separação é de papel, não de valor: `--mv-sage` (pigmento da marca), `--mv-primary` (botão, ADR-020) e `--mv-accent-solid` (acento, com a família `text`/`subtle`/`border`). Continuam separados de propósito — quem for pagar o D-17 mexe em um sem arrastar os outros.
+- **Os 5 `accent-teal` de checkbox viraram `accent-primary`.** `accent-accent` seria ilegível, e o preenchimento de checkbox é de fato a cor do controle primário.
+- **O tom `'teal'` do domínio virou `'accent'`** em `StatusMeta['tone']` (agenda) e `ChipTone` (pacotes) — e isso **não era cosmético**: meia dúzia de componentes interpola o tom dentro do nome da variável (`var(--color-${tone})`), então o tom `'teal'` apontaria para um token extinto e o ponto do "Em atendimento" e o chip "Ativo" renderizariam **sem cor**, em silêncio. Ver o novo `web/src/lib/tons.test.ts`.
+- **O `contraste-tokens.mjs` foi ressincronizado.** Ele estava medindo `faint`, `teal_text` e as semânticas nos **valores antigos**, e tratava `success`/`warning`/`danger`/`info` como iguais nos dois temas, o que deixou de ser verdade na [ADR-019](#adr-019--cor-semântica-é-dois-tokens-fundo-fixo-e-texto-por-tema). Tabela por tema agora, e as badges medem o `-solid` (o fundo real) em vez do token de texto.
+- **A borda do chip continua abaixo de 1.4.11** — 1,83 sobre `surface`, contra os 1,64 do teal. Melhorou junto, mas não passou; virou o débito **D-18**.
+
+---
+
+## ADR-020 — O botão primário é o sage da marca com texto branco, abaixo do piso de contraste
+
+**Status:** Aceita (2026-07-30) · **Abre exceção a:** [ADR-019](#adr-019--cor-semântica-é-dois-tokens-fundo-fixo-e-texto-por-tema) · **Débito que ela cria:** [D-17](50-debitos-tecnicos.md)
+
+**Contexto.** Até aqui `--mv-primary` era o **tema invertido**: quase-preto (`#16181c`) no claro, quase-branco (`#eceef0`) no escuro, com `--mv-on-primary` invertendo junto. Era o par de maior contraste do app (17,77 e 15,28) e cobria botão primário, Toast e chips de grade de pacote — mas não era o **sage da marca**, e o texto escuro sobre verde foi reportado como difícil de ler.
+
+**Decisão.** `--mv-primary` passa a ser **`#7fa59a`** — o mesmo hex de `--mv-sage` — com **`--mv-on-primary: #ffffff`**, igual nos dois temas. O hover escurece para `#72958b` (mesma matiz, ~90%), seguindo a convenção que o acento já usava.
+
+**A exceção, com o número na mesa.** Branco sobre `#7fa59a` mede **2,71:1**. Isso reprova o 4,5 de texto (1.4.3) e reprova até o 3 de limite de componente (1.4.11). A alternativa conforme existia e foi **medida e recusada**: texto escuro `#16181c` sobre o mesmo sage dá **6,56:1** — passa folgado, e é inclusive o que a própria landing usa (`+page.svelte:538` pinta a seção sage com `color:#16241E`). Foi recusada por legibilidade percebida.
+
+Registrar isso é o ponto do ADR: pela regra de [`.claude/rules/testes.md`](../.claude/rules/testes.md), baixar um piso é decisão humana explícita e justificada, nunca atalho para verde. Esta é a decisão explícita.
+
+**Alternativas descartadas.**
+
+- **Sage escurecido preservando a matiz** — `#567b70` (branco a 4,71) ou `#597e73` (4,51), calculados em OKLab. Conformes e visualmente ainda sage, mas não são o hex da marca.
+- **`#7fa59a` com texto escuro** — conforme (6,56), é o que a marca já faz na landing. Recusada pelo motivo acima.
+
+**Consequências.**
+
+- **`primary` deixou de inverter por tema.** O Toast do tema escuro era uma pill quase-branca; agora é sage nos dois temas.
+- **`--mv-sage` continua existindo com o mesmo hex, e isso é de propósito**: `sage` é o pigmento da marca (logo, landing, gradientes), `primary` é o papel de UI. Quem for pagar o D-17 um dia mexe só em `primary`, sem tocar na marca.
+- **O ícone do Toast perdeu a cor como sinal.** `text-accent` (então ainda `text-teal`) sobre sage media **1,06:1** — o check de sucesso literalmente sumia; `text-danger`, 1,20–2,13. Os dois viraram `text-on-primary`, e a variante passou a se distinguir só pela **forma** (check vs alerta). Não fere 1.4.1 porque a cor nunca foi o único sinal ali, mas o teste que provava a distinção media a tinta e teria passado verde sobre um ícone invisível — ele agora mede `lucide-check` vs `lucide-circle-alert`.
+- **O chip "próxima" da ficha do paciente saiu de `primary`.** Ele usava `primary` como *texto sobre a própria tinta de 14%* — o padrão que o [ADR-019](#adr-019--cor-semântica-é-dois-tokens-fundo-fixo-e-texto-por-tema) já apontava como o pior caso — e com sage caiu para **2,26:1**. Passou para o par `accent-text`/`accent-subtle` (chamado `teal-*` até a ADR-021), que existe no design system exatamente para chip tingido e é fixado em 4,71. Lição que generaliza: **`primary` agora serve de fundo sólido, não de tinta**; quem precisar de chip tingido usa o par do acento.
+- **O gate `e2e/a11y-interno.spec.ts` ganhou uma isenção — a única do arquivo.** Sem ela ficariam 7 nós de `color-contrast` vermelhos para sempre em 5 telas, e gate cronicamente vermelho é gate que ninguém lê. Ela é estreita de propósito: filtra os **nós** cujo HTML casa `bg-primary`, e não desliga a regra `color-contrast` nem usa `.exclude()` (que tiraria aqueles elementos de *todas* as regras). Qualquer outra reprova de contraste na mesma tela continua barrando.
+- **Sobra colateral não resolvida**, listada no D-17: `text-primary` (2 links de 11,5px), `border-primary` e `accent-primary` agora pintam sage **sobre** superfície clara, a 2,54–2,71. No tema escuro esses mesmos usos melhoraram (6,56–7,18). O axe não os pegou porque são condicionais e não renderizaram no cenário da varredura — o que é um lembrete de que a varredura mede o que a spec semeia.
+- A trava é `web/src/lib/styles/contraste.test.ts`, que **crava o 2,71** em vez de fingir que passa — e que avisa para apagar a exceção se o número um dia subir de 4,5. Antes desta ADR o par `primary`/`on-primary` simplesmente **não era medido por ninguém**: a troca teria passado verde em silêncio.
 
 ---
 
@@ -348,6 +465,336 @@ Dark mode continua por `data-theme` (`@custom-variant dark`), não por `class` n
 - O **Gate G1** ([08 §6](08-roadmap.md)) perde a maior parte do peso na v1, mas **não** é eliminado: o que sobra depende das sub-decisões 1–3.
 - A **Fatia 6** do roadmap ([08 §4](08-roadmap.md)) deixa de ser "prontuário completo" e passa a ser "ficha do paciente"; o prontuário migra para v2.
 - Não anula o [ADR-007](#adr-007--dado-de-saúde-é-tratado-como-categoria-especial-da-lgpd): quando o prontuário entrar (v2), o ADR-007 volta a valer integralmente.
+
+---
+
+## ADR-023 — Produção na Hostinger KVM 2; o A1 da Oracle fica adiado, não descartado
+
+**Status:** Aceita · **Data:** 2026-07-31 · **Substitui o [ADR-008](#adr-008--deploy-em-flyio-observabilidade-via-opentelemetry-sem-vendor-lock)**
+
+**Contexto.** O ADR-008 dizia "Deploy em Fly.io" e estava vencido há meses sem ADR que o
+substituísse — o [doc 95, R-B10](95-analise-infraestrutura.md) registrou isso como achado, contra a
+regra da linha 4 deste próprio arquivo (*"uma decisão só muda por um novo ADR"*). No meio do
+caminho o [doc 59](59-deploy-dokploy-oci.md) desenhou o alvo como **Oracle Cloud A1 (ARM, Always
+Free, 4 OCPU / 24 GB, Vinhedo)** e o [doc 87](87-servidor-hostinger-riscos-e-cuidados.md) o moveu
+para uma **VPS Hostinger**, mas nenhum dos dois é um ADR. Este fecha os três.
+
+**O fato novo que decidiu.** Em **15/06/2026 a Oracle cortou o Always Free A1 de 4 OCPU / 24 GB
+para 2 OCPU / 12 GB**, sem anúncio público — só atualizando a documentação; instâncias free acima do
+novo teto foram desligadas até serem redimensionadas. Se PAYG mantém a franquia antiga é **incerto
+por declaração da própria Oracle**: agentes de suporte deram respostas contraditórias e não há
+posição pública. O plano do doc 59 foi desenhado inteiro dentro dos 24 GB — inclusive a decisão de
+co-hospedar a observabilidade ([doc 62 §3](62-plano-de-logs.md)).
+
+**Decisão.** Produção do Cinetra roda numa **VPS Hostinger KVM 2 (2 vCPU / 8 GB / 100 GB, x86_64,
+São Paulo)**, com Dokploy + Traefik e os três stacks (prod, HML, observabilidade) na mesma máquina.
+O A1 da Oracle sai do caminho crítico e vira **opção de reavaliação futura**, não plano ativo.
+
+**Alternativas descartadas, com o motivo:**
+
+| Alternativa | Por que não |
+|---|---|
+| **A1 4/24 apostando que PAYG mantém a franquia** | Depende de uma política que a Oracle não confirma por escrito e que ela já mudou uma vez sem avisar. Custo do erro: ≈ US$ 27/mês surpresa, ou instância desligada |
+| **A1 4/24 pagando o excedente** | ≈ US$ 27/mês ≈ R$ 150. Mais barato que o KVM 4 estimado, mas não que o KVM 2 vigente (R$ 108,99) — e paga-se em dólar, com IOF |
+| **A1 2/12 grátis** | Abaixo do que a estimativa do doc 87 §2 pedia na época. *(A estimativa depois provou-se errada — ver "Nota" abaixo — mas a decisão foi tomada com a informação de então, e o desempate real foi a incerteza de política, não o número)* |
+| **KVM 4 (16 GB)** | O doc 87 §2 o exigia. Medição posterior mostrou que **não era necessário** — R$ 111/mês de diferença por folga que não estava sendo usada |
+
+**Consequências.**
+
+1. **x86_64 em vez de ARM.** O risco nº 3 do [doc 59 §10](59-deploy-dokploy-oci.md) ("build ARM que
+   o CI x86 não vê") **deixa de existir**, e o follow-up "confirmar arm64 cedo" do doc 59 §14 sai da
+   lista. Ganho de tabela que ninguém tinha escrito: como os runners do GitHub também são x86_64,
+   **buildar a imagem no CI passa a ser build nativo** — sem QEMU, sem cross-compile. Isso barateia
+   o item 16 da Faixa 1 do [doc 95 §2](95-analise-infraestrutura.md), que é a correção do
+   [D-21](50-debitos-tecnicos.md).
+2. **Quatro portas root-equivalentes em vez de três** — entra o hPanel, e com ele o restore de
+   backup como caminho de escrita total. MFA na conta Hostinger vira controle de segurança, não
+   higiene ([doc 87 §3.1](87-servidor-hostinger-riscos-e-cuidados.md)).
+3. **Uma camada de firewall gerenciada, com armadilha invertida** — o modelo da Hostinger é
+   drop-all; o erro deixa de ser "esqueci a segunda camada" e passa a ser "apliquei grupo vazio e
+   derrubei tudo" ([doc 87 §3.2](87-servidor-hostinger-riscos-e-cuidados.md)).
+4. **O `compose.dokploy.yml` não muda uma linha.** Toda a mecânica de segurança da Onda 5 — BFF-only,
+   isolamento de rede, dois roles de RLS, HSTS no BFF, CSP por ambiente — é independente de provedor.
+5. **[doc 59](59-deploy-dokploy-oci.md) fica como plano em espera**, não como runbook ativo. Quem
+   provisionar deve ler o 87, não o 59.
+6. **Custo:** piso de **R$ 135,08/mês** ([doc 91 §2](91-custos.md)), contra os ≈ R$ 246 que a
+   hipótese KVM 4 implicava.
+
+**Nota sobre a qualidade da decisão, porque a lição vale mais que ela.** O KVM 4 quase foi
+contratado por causa de uma estimativa que **somava `mem_limit` como se fosse consumo**. Teto de
+container existe para conter o pior caso; usá-lo para prever o caso comum superestimou a memória em
+**~3×** (8,5–12 GB estimados contra **3,5 GB medidos**, com tudo no ar). Custo evitado: R$ 111/mês
+por folga que não seria usada. A regra que fica: **teto declarado não é medição** — e o doc 87 §9
+já dizia que a conta era estimativa, o que salvou a decisão de ser tomada às cegas.
+
+**Gatilho de reavaliação.** Voltar a considerar a Oracle (ou o KVM 4/8) se **qualquer** um ocorrer:
+
+- a medição sob carga real do [D-21](50-debitos-tecnicos.md) mostrar aperto de RAM, CPU ou disco;
+- a Hostinger subir o preço na renovação (§6 do doc 91 prevê +50–100%) a ponto de cruzar a linha do
+  A1 pago;
+- a Oracle publicar posição **oficial e por escrito** sobre a franquia em PAYG;
+- o teto de 32 GB do KVM 8 virar restrição real — caso em que a resposta provavelmente **não** é
+  máquina maior, e sim tirar carga do host: Postgres gerenciado externo
+  ([doc 59 §13](59-deploy-dokploy-oci.md)) ou observabilidade em máquina separada
+  ([doc 87 §2](87-servidor-hostinger-riscos-e-cuidados.md)).
+
+---
+
+## ADR-024 — O log JSON tem os campos na RAIZ, e o formatter é do projeto
+
+**Status:** Aceita · **Data:** 2026-08-01 · **Diagnóstico completo:** [doc 99](99-o-painel-vazio-e-o-formato-do-log.md)
+
+**Contexto.** Todo painel de 4xx do Grafana abria **"No data"** em produção com o log inteiro
+presente no Loki. O `LoggerJSON.Formatters.Basic` aninha o metadata sob a chave `metadata`; o
+`| json` do Loki achata objeto aninhado com `_`; o rótulo real era `metadata_status` e os treze
+dashboards perguntavam por `status`. Consulta certa sobre campo inexistente **não dá erro — devolve
+zero linhas**, e um painel vazio é indistinguível de "não houve nenhum 4xx". Além do 04, estavam
+cegos os painéis de status, latência, rota, clínica e job dos dashboards 01, 02, 03, 05 e 09.
+
+**Decisão.** A linha de log da API sai **achatada**: `time`, `severity` e `message` como estrutura,
+e todo campo do evento na raiz. Quem faz isso é `Api.LogFormatter`, módulo do projeto, e não um
+formatter de prateleira. O BFF já emitia assim — a afirmação do `web/src/lib/server/log.ts` de que
+"o formato acompanha o do lado Elixir" passou a ser verdade.
+
+**Alternativas descartadas, com o motivo:**
+
+| Alternativa | Por que não |
+|---|---|
+| **Mapear `metadata.status` nas consultas dos dashboards** | Conserta os 30 dias já gravados e dispensa redeploy, mas embute o mapeamento numa variável com vírgulas escapadas em 6 arquivos, e todo painel novo precisa lembrar de usar `$parser`. Fica disponível como remendo temporário se a janela antiga importar |
+| **`LoggerJSON.Formatters.Elastic`** | Achata, mas renomeia `severity` para `log.level` — e é de `severity` que o Alloy extrai o rótulo `level`. Consertaria os 4xx apagando o `level` em silêncio, repetindo um defeito que o comentário daquele estágio já conta ter cometido |
+
+**Consequências.** Vale para linha nova: o log anterior ao deploy continua aninhado e invisível
+para os painéis (legível no Explore por `metadata_*`). O contrato dos campos é normativo — mexer em
+`time`/`severity`/`message` quebra o rótulo `level` e a correlação com o Tempo, e há teste guardando
+isso, inclusive um que lê o `config/prod.exs` para pegar formatter certo com configuração errada.
+
+---
+
+## ADR-025 — Payload e resposta entram no log, só em 4xx/5xx e redigidos
+
+**Status:** Aceita · **Data:** 2026-08-01 · **Detalhe:** [doc 99 §8](99-o-painel-vazio-e-o-formato-do-log.md)
+
+**Contexto.** A linha de log dizia *que* uma requisição foi recusada (`status`, `route`, `actor`,
+`clinic`), nunca **por quê**. Num 422 as mensagens de validação iam na resposta e não eram
+registradas em lugar nenhum; a trilha de auditoria não cobre o caso, porque um 422 é recusado
+**antes** de a ação rodar e nada chega ao `audit_events`. O sintoma prático: "a secretária não
+consegue salvar a ficha" só se investigava reproduzindo.
+
+**Decisão.** A linha de uma requisição **recusada** passa a carregar `payload` (o `body_params`),
+`query` (quando há) e `response` (o corpo devolvido, capturado por `ApiWeb.Plugs.CapturarResposta`,
+porque no momento da telemetria `conn.resp_body` já é `nil`). Os três passam por `Api.LogRedacao`,
+que troca por `"***"` o valor de todo campo de uma **blocklist**, em duas camadas: na origem e como
+`redactors:` do formatter.
+
+**As duas escolhas, e o que cada uma custa:**
+
+| Escolha | O que compra | O que custa |
+|---|---|---|
+| **Só 4xx/5xx** (e não toda requisição) | Payload de paciente fica fora do log em ~todo o tráfego; a retenção de 30 dias do doc 62 continua de pé | Não dá para reconstruir uma operação bem-sucedida pelo log |
+| **Blocklist** (e não allowlist) | Investigação legível: `nascimento`, `convenio` e `status` visíveis contam a história de um 422 | **Erra aberto** — campo novo em `Patient` fora da lista vai em claro para o Loki, e nada avisa |
+
+**O risco aceito, explicitamente.** O log vive fora do banco, **sem RLS**, 30 dias, sob uma conta
+de Grafana compartilhada e sem trilha de leitura ([doc 95, R-M17](95-analise-infraestrutura.md)).
+Payload de paciente ali é uma superfície nova, e a redação a reduz sem eliminá-la. Três coisas
+seguram o risco e nenhuma basta sozinha: o teste que cobra a blocklist contra os atributos reais
+dos recursos e contra o `Api.Audit.Sensiveis`; a redação por forma do valor no Alloy; e o escopo
+restrito às requisições recusadas. **Revisar a lista é uma tarefa recorrente, não um evento** —
+campo sensível novo em ficha de paciente ou de profissional precisa entrar nela no mesmo commit.
+
+**Consequência sobre uma decisão anterior.** O [doc 05 §1.3](05-observabilidade-e-producao.md) diz
+que corpo de request/response não sai do processo. Este ADR o emenda para o caso 4xx/5xx redigido;
+o resto da regra continua valendo, inclusive a proibição de `patient_id` em rota.
+
+---
+
+## ADR-026 — A foto de perfil do Google é **copiada** para o nosso bucket, não linkada
+
+**Status:** Aceita · **Data:** 2026-08-01 · **Detalhe:** [doc 100](100-avatar-do-google-no-r2.md)
+
+**Contexto.** O login com Google (ADR-015) já recebia `picture` no `user_info` verificado e o
+descartava. Usar essa URL direto no `<img>` é uma coluna e nenhum job — é o caminho óbvio.
+
+**Decisão.** O `picture` vira **download do servidor** (fila `notifications`, fora do request de
+login), farejado por magic bytes e guardado no bucket privado do R2 sob `user/<user_id>/avatar.<ext>`.
+O `/me` devolve **URL assinada de 15 min**, nunca a chave. Sem foto — ou com sync falhado — a tela
+cai nas iniciais, como sempre foi.
+
+A busca acontece **uma vez por conta, no cadastro**. `register_with_google` é a mesma ação para
+cadastro e login (upsert por e-mail), então o gatilho é o estado da conta, não o ponto de entrada:
+enquanto `avatar_key` e `avatar_origem` forem nulas, ela nunca passou pela busca. Recusa permanente
+carimba `avatar_origem` sem chave — senão a conta cuja foto o farejador rejeita baixaria de novo a
+cada login. **Consequência aceita: trocar a foto no Google não repropaga**; o preço de o login não
+carregar trabalho recorrente.
+
+**Alternativas descartadas, com o motivo:**
+
+| Alternativa | Por que não |
+|---|---|
+| **Guardar a URL do Google e servi-la ao browser** | O `img-src` da CSP teria de abrir `googleusercontent.com`, e o browser de quem usa o app passaria a discar para o Google em toda tela com avatar — telemetria de terceiro em cima de contexto de saúde ([06](06-seguranca-e-lgpd.md)). Além disso o link morre quando a pessoa troca a foto lá, e a regra de acesso a essas URLs é do Google, não nossa |
+| **Baixar dentro do callback OAuth** | Soma a latência de um CDN alheio ao login e faz o login **falhar** quando o download falha. A foto é enfeite; a sessão não é |
+| **Aceitar qualquer URL do `user_info`** | O `picture` é uma string que vira um `GET` do servidor: sem allowlist de host (`*.googleusercontent.com`, só https, `redirect: false`) é SSRF contra a rede interna do compose |
+
+**Consequências.** `Api.Storage` ganhou `put/3` — a primeira operação em que os bytes passam pelo
+BEAM, exceção deliberada ao ADR-008 (§"os bytes não passam pelo BFF"), válida só para conteúdo que
+o **servidor** buscou; o que o usuário sobe continua em `presign_put`. O `img-src` da CSP passou a
+derivar de `R2_ACCOUNT_ID`, sem variável nova. O `PUT` real no bucket **não é coberto pela suíte**
+(nenhuma operação HTTP do R2 é); foi medido à mão contra o bucket de dev — put/head/GET assinado/
+delete, com a saída no doc 100 §4 —, e o que segue sem prova é o encadeamento pelo job com uma
+foto vinda do Google.
+
+---
+
+## ADR-027 — A API REST é de controllers Phoenix nomeados; o AshJsonApi fica fora
+
+**Status:** Aceita · **Data:** 2026-08-03 · **Substitui a parte "expondo AshJsonApi" da [ADR-002](#adr-002--backend-em-elixir--ash-exposto-como-api-rest)**
+
+**Contexto.** A ADR-002 decidiu expor o backend como **AshJsonApi** (JSON:API sobre REST). Não foi
+o que aconteceu. A API real são **23 controllers Phoenix escritos à mão**, com ações nomeadas
+(`POST /api/packages/:id/cancel`, não `PATCH /api/packages/:id` com um `status` no corpo), e o
+AshJsonApi ficou montado sobre um domínio **vazio** — `Api.Meta`, com `routes do end` e
+`resources do end`, desde que a auditoria do doc 13 removeu o recurso de scaffold `Ping`.
+
+O doc 96 (M-2, 2026-08-01) **executou** a remoção: saíram as rotas `/api/json/*`, os módulos
+`Api.Meta` e `ApiWeb.AshJsonApiRouter`, as dependências `ash_json_api` e `open_api_spex`, o
+`AshJsonApi.Plug.Parser` do endpoint e o plug `ApiWeb.Plugs.RequireScope` — que existia só para
+guardar aquele escopo. **Não houve ADR**, e a ADR-002 seguiu anunciando o contrário. Foi o achado
+B1 do [doc 101](101-plano-de-acao-analise-arquitetural.md); esta ADR fecha a lacuna de registro.
+
+**Decisão.** A superfície HTTP do Cinetra são controllers Phoenix com **ações nomeadas por
+operação de negócio**, e não CRUD genérico sobre recursos. Não há JSON:API, não há OpenAPI gerado,
+não há Swagger UI.
+
+**Justificativa.** O que decidiu foi o formato das operações, não a tecnologia. O domínio tem
+ações que **não são CRUD**: cancelar um pacote não é "atualizar `status`" — é uma transação que
+mexe em N sessões da agenda, respeita RN-25 e emite notificação. Expor isso como `PATCH` sobre um
+recurso obrigaria a inventar convenções para cada verbo, que é exatamente o que a ação nomeada já
+resolve. É o mesmo princípio do [`docs/04 §4`](04-arquitetura.md), e o mesmo que faz as code
+interfaces do Ash serem nomeadas em vez de `update/2`.
+
+Somam-se dois efeitos práticos: cada controller tem a própria guarda de escopo (`ApiWeb.TenantScope`)
+— o escopo do AshJsonApi era o **único** sem uma, e precisava de um plug só dele para tapar —, e
+duas rotas públicas, duas dependências e um plug a menos para manter.
+
+**O que se abre mão.** Documentação de API gerada (Swagger) e `include` de relacionamento do
+JSON:API. Nenhuma das duas é sentida: o único cliente é o BFF, que é nosso e mora no mesmo
+repositório, e o que ele precisa carregar cada endpoint já resolve.
+
+**Consequência a vigiar.** Sem esquema gerado, o contrato BFF↔API é mantido à mão dos dois lados —
+o achado **A2** do doc 101. A mitigação é o mesmo caminho da ADR de paridade das regras
+espelhadas: fixtures geradas pelo servidor e consumidas pelos testes do BFF. **Se um dia houver
+JSON:API, ele volta com recurso de verdade, policy e guarda** — que é o que a lição do doc 13
+pedia e uma superfície montada sobre domínio vazio não tinha como cumprir.
+
+---
+
+## ADR-028 — A imagem de produção nasce no CI, no GHCR, e é consumida por **tag móvel + pull sempre**
+
+**Status:** Aceita · **Data:** 2026-08-05 · Fecha o **R-M4** do [doc 95](95-analise-infraestrutura.md) e paga o [D-21](50-debitos-tecnicos.md)
+
+**Contexto.** O Dokploy construía a imagem **na própria VPS** a cada webhook: ~90% dos 2 vCPU da
+máquina que serve os pacientes, exatamente enquanto ela troca de container. E o artefato que os
+gates do CI aprovavam não era o que subia — o servidor construía outro, do mesmo Git mas com outro
+cache e outra rede. A onda 3 do [doc 102](102-plano-de-acao-infraestrutura.md) fez metade (o job
+que constrói como gate) e deixou a outra escrita como decisão pendente: *"publicar num registry
+precisa de credencial e de reconfigurar o Dokploy — decisão que não é minha"*.
+
+**Decisão.** O CI publica duas imagens no **GHCR** (`cinetra-api` e `cinetra-web`),
+`linux/amd64`, com duas tags cada: a **móvel** da branch (`main`/`develop`), que é a consumida, e a
+**imutável** `sha-<12>`, que é o caminho de rollback. O `compose.dokploy.yml` declara `image:` +
+**`pull_policy: always`**, e `IMAGE_TAG` é **obrigatória** no Environment de cada stack. O runbook
+e as pendências de operador estão no [doc 105](105-imagem-no-ci-e-webhook-atras-do-access.md).
+
+**Alternativas descartadas, com o motivo:**
+
+| Alternativa | Por que não |
+|---|---|
+| **Consumir por digest** (o que o item 16 do doc 95 pedia) | Exigiria o CI escrever o digest no Environment do stack pela **API do painel do Dokploy** — outra credencial, e de alcance muito maior que o webhook (o painel é root-equivalente na máquina, [doc 87 §3.1](87-servidor-hostinger-riscos-e-cuidados.md)). A janela que a tag móvel deixa aberta é estreita: o webhook dispara logo depois do push, e a tag `sha-…` fica publicada ao lado para auditoria e rollback |
+| **Docker Hub / registro próprio** | Credencial nova para guardar e rotacionar. O GHCR usa o `GITHUB_TOKEN` do próprio job, com `packages: write` declarado só nele |
+| **Continuar buildando no servidor** | É o D-21, e o custo aparece justamente no dia em que um deploy coincidir com a clínica trabalhando |
+
+**Consequências.**
+
+1. **A imagem do BFF é atada ao ambiente, e o dono das variáveis mudou.** A CSP é assada no build,
+   então `WEB_HOST` e `R2_ACCOUNT_ID` saíram do Environment do Dokploy e viraram configuração **do
+   repositório** (`WEB_HOST_PROD`, `WEB_HOST_HML`, `R2_ACCOUNT_ID`). O job aborta se faltarem —
+   porque o modo de falha delas é browser quebrado com healthcheck verde. *(Nasceram na aba
+   Variables; estão em **Secrets** desde 2026-08-05 — ver a emenda no fim desta ADR.)*
+2. **`pull_policy: always` é parte da decisão, não detalhe.** Com tag móvel, sem ela o servidor
+   reusa a imagem homônima do disco e o deploy fica verde sem ter implantado.
+3. **`IMAGE_TAG` sem default.** Um default faria HML servir a imagem de produção no dia em que
+   alguém esquecesse a variável.
+4. **Volta a ser sensível à arquitetura.** Publicamos só `linux/amd64`, o que casa com o
+   [ADR-023](#adr-023--produção-na-hostinger-kvm-2-o-a1-da-oracle-fica-adiado-não-descartado). Se
+   a máquina voltar a ser ARM, o sintoma é `exec format error` no servidor, e o job `imagem` é o
+   primeiro lugar a mudar.
+
+**Emenda de 2026-08-05 — duas correções no provisionamento.**
+
+- **As três da CSP moram em Secrets, não em Variables.** Tecnicamente elas *pertencem* a Variables:
+  os valores são públicos por construção — o domínio e o id da conta R2 vão na CSP que todo browser
+  recebe. Foram movidas por razão de **operação**: uma aba só para provisionar o repositório, em vez
+  de duas. O preço está pago de propósito e é real — o GitHub mascara secret em log, então a linha
+  de diagnóstico do job `imagem` imprime `host=***`. Se um dia for preciso ler o host, o caminho é
+  o `docker inspect` da imagem publicada. `Api.CiWorkflowTest` prende a escolha para que ninguém a
+  reverta achando que foi engano.
+- **A verificação pós-deploy batia num caminho inexistente.** O passo consultava
+  `${BASE}/api/ready`, e no desenho BFF-only ([doc 59 §3.1](59-deploy-dokploy-oci.md)) o Traefik só
+  encaminha `/socket` e `/webhooks` para a API — o resto do domínio vai para o BFF, que responde
+  **404** ali. O defeito era invisível porque `DEPLOY_URL_*` nunca foi configurado (o passo saía
+  pelo `::warning::`); configurá-lo teria reprovado deploys saudáveis. Corrigido para
+  `${BASE}/ready` — o readiness do BFF, que consulta o `/api/ready` da API pela rede interna e por
+  isso cobre o caminho inteiro numa URL só.
+
+---
+
+## ADR-029 — O backup sai do repositório: quem cobre o dado são os snapshots de painel
+
+**Status:** Aceita · **Data:** 2026-08-05 · **Reverte a §13 do [doc 59](59-deploy-dokploy-oci.md)** e
+esvazia os achados R-M10/R-M11 do [doc 95](95-analise-infraestrutura.md), pagos nas ondas 1 e 2 do
+[doc 102](102-plano-de-acao-infraestrutura.md)
+
+**Contexto.** O backup era código nosso: `deploy/backup/` com `backup.sh` (`pg_dump --format=custom`
+do owner, verificação por `pg_restore -f /dev/null`, preflight de disco, cifra `age` opcional,
+upload por `rclone` para um bucket R2 próprio, retenção 48 h/30 d) e `restore.sh`. Rodava em dois
+gatilhos — uma vez **antes do `migrate`**, fail-closed, e de hora em hora pelo `backup-cron` — com
+heartbeat externo para o cron que morre calado. Custava uma imagem no CI, dois serviços no compose,
+um volume, seis envs, uma entrada no Dependabot e dois arquivos de teste.
+
+Apareceu um caminho que **não passa pelo repositório**: o snapshot da VPS na Hostinger e o snapshot
+de projeto do próprio Dokploy, enviado para o R2. Os dois se configuram em painel, por quem opera a
+máquina, sem deploy e sem código.
+
+**Decisão.** Remover **tudo** que havia de backup e restore no repositório e passar a cobertura de
+dado para esses dois mecanismos. Saem: `deploy/backup/`, o step `Backup — build` do job `imagem`, a
+imagem `cinetra-backup`, os serviços `backup` e `backup-cron`, o volume `backup_tmp`, as âncoras
+`x-imagem-backup`/`x-backup-env`, as envs `BACKUP_*` e `HEARTBEAT_URL_BACKUP`, o diretório
+`/deploy/backup` do Dependabot, `Api.BackupIntegridadeTest` e `Api.SegredoNoWorkingTreeTest` (com a
+regra `*.key`/`*.pem` do `.gitignore`, que existia pela chave `age`).
+
+**Alternativas descartadas, com o motivo:**
+
+| Alternativa | Por que não |
+|---|---|
+| **Manter os dois** (script + painel) | Era o desenho anterior, e a duplicação tem custo real: dois lugares para conferir, duas retenções para casar e um gate que trava deploy quando o R2 pisca. Se o painel cobre, o script vira cerimônia |
+| **Manter só o gate pré-deploy** | O gate depende do script inteiro — é ele que produz o dump que o gate valida. Guardar só a metade que trava o deploy seria pagar todo o custo pela parte menos útil |
+| **Postgres gerenciado externo** | Resolveria melhor (backup e PITR do fornecedor, dado desacoplado da VM), e continua na mesa como evolução — mas é troca de arquitetura e de custo, não a mudança de hoje |
+
+**Consequências.** Três propriedades saíram junto, e nenhuma volta sozinha:
+
+1. **Não há mais gate fail-closed antes do `migrate`.** O `migrate` depende só do `db` saudável.
+   Migration destrutiva perdeu a rede automática; o que resta é o expand-contract do
+   [doc 59 §8](59-deploy-dokploy-oci.md) e disparar o snapshot **na mão** antes do deploy — passo
+   manual, com a taxa de esquecimento que passos manuais têm
+   ([doc 87 §4.4](87-servidor-hostinger-riscos-e-cuidados.md)).
+2. **O RPO deixou de ser verificável por leitura.** Era ≤ 1 h por construção, escrito no compose.
+   Agora é o que estiver agendado nos dois painéis — e enquanto ninguém abrir e anotar, é suposição.
+3. **A cifra `age` acabou.** O dump saía do servidor cifrado por uma chave cuja privada vivia
+   offline. O conteúdo não mudou (CPF, telefone, evolução clínica de todo paciente), então
+   **confirmar a cifra em repouso nos dois destinos é item de LGPD**, não de conveniência.
+
+Os três viraram pendência escrita em [doc 87 §4.5](87-servidor-hostinger-riscos-e-cuidados.md).
+Continua valendo, e agora sem script para ajudar: **backup não testado não é backup** — o ensaio de
+restore é 100% manual, por painel.
 
 ---
 

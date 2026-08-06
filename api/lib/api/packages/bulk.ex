@@ -179,7 +179,6 @@ defmodule Api.Packages.Bulk do
     nome = nome_do_pacote(scope, package_id)
 
     avisa_a_caixa(scope, nome, alvos, plano, kind, afetadas)
-    avisa_o_paciente(scope, package_id, nome, alvos, kind, afetadas)
   end
 
   # A caixa do **profissional** dono da coluna. Vale para as duas massas: até o bate-volta da fase
@@ -200,79 +199,20 @@ defmodule Api.Packages.Bulk do
   defp fanout(:pacote_remarcado), do: &Api.Notifications.Fanout.package_bulk_adjusted/5
   defp fanout(:pacote_cancelado), do: &Api.Notifications.Fanout.package_bulk_canceled/5
 
-  # UMA mensagem ao paciente por massa, pelo mesmo motivo que a caixa recebe uma só (doc 43 §5b) —
-  # e aqui o motivo é mais duro: são 40 mensagens de WhatsApp **pagas**, para o mesmo telefone, em
-  # segundos. É assim que se perde um número por bloqueio (§9.1.1).
+  # **A massa não fala mais com o paciente** (decisão de 2026-08-01).
   #
-  # As por-sessão já estão suprimidas na origem pela marca `bulk_pacote` (`Api.Messaging.Notifier`);
-  # esta as substitui.
+  # Havia uma mensagem por massa aqui — `:pacote_remarcado` / `:pacote_cancelado` —, montada com
+  # `vars_extras` e ancorada na primeira presença viva. Saiu junto com os outros disparos
+  # automáticos: quem avisa o paciente de uma mudança em pacote é a recepção, pelo telefone que
+  # agora vai dentro de toda mensagem.
   #
-  # **Um pacote é de um paciente só** (RN da Fatia 5), então "uma por massa" e "uma por paciente"
-  # são a mesma coisa aqui.
+  # O que **fica** é `avisa_a_caixa/6`: o profissional dono da coluna continua sabendo que 40
+  # sessões dele mudaram. Aquilo é notificação in-app, não custa nada e é sobre a agenda de quem
+  # trabalha — nada a ver com a régua de falar com o paciente.
   #
-  # Tudo dentro de **um** `in_clinic`: cada um custa BEGIN + `set_config` + COMMIT, e a primeira
-  # versão abria quatro (âncora, clínica, pacote, escrita) para fazer o trabalho de um. O teto de
-  # queries da massa (`Api.Packages.BulkQueriesTest`) pegou.
-  #
-  # Roda **depois** do commit da massa: mensagem enviada não volta, e a transação ainda podia
-  # desfazer tudo.
-  defp avisa_o_paciente(scope, package_id, nome, alvos, kind, afetadas) do
-    in_clinic(scope, fn ->
-      with %{} = attendance <- ancora(scope, package_id, alvos),
-           %{} = clinic <- Api.Accounts.get_clinic!(scope.clinic_id, authorize?: false) do
-        Api.Messaging.Dispatch.dispatch(clinic, attendance, attendance.patient, kind,
-          disparado_por_id: scope.user && scope.user.id,
-          vars_extras: %{"quantas" => Api.Texto.sessoes(afetadas), "pacote" => nome}
-        )
-      end
-    end)
-
-    :ok
-  rescue
-    erro ->
-      # Best-effort, como todo o resto da comunicação: a massa já foi aplicada e não pode cair
-      # porque a mensagem não saiu.
-      Logger.warning("aviso de massa (#{kind}) falhou: #{Exception.message(erro)}")
-      :ok
-  end
-
-  # Onde a mensagem da massa se ancora — e é aqui que mora a sutileza que custou um bug.
-  #
-  # `Message` exige uma presença (doc 52 §3) e a FK é `ON DELETE CASCADE`. Só que a massa **mexe
-  # nas presenças**, e de dois jeitos diferentes:
-  #
-  #   * ajustar uma sessão de turma **destaca e reinsere** — a presença antiga é destruída e nasce
-  #     outra, com id novo. Ancorar no id que veio de `targets/3` antes da massa dá "record not
-  #     found" (foi exatamente o que aconteceu na primeira versão);
-  #   * cancelar uma sessão de turma **remove** a presença; a de sessão individual sobrevive (é o
-  #     bloco que fica `:cancelado`).
-  #
-  # Duas queries, na ordem que acerta na primeira no caso comum:
-  #
-  #   1. as presenças **desta massa** que sobreviveram (individual, ajustado ou cancelado);
-  #   2. qualquer presença do pacote (o caso do destaca-e-reinsere, que trocou os ids).
-  #
-  # A ordem é por `session_starts_at`, que a própria presença carrega (doc 43 §4) — ordenar pelo
-  # bloco exigiria um join para escolher onde pendurar uma mensagem.
-  #
-  # Quando **nada** sobrevive — pacote inteiro de turma, cancelado — não há onde ancorar e a
-  # mensagem não sai. Registrado no doc 65 §8 como limitação conhecida, com a saída (tornar a
-  # âncora opcional) e o motivo de ela não ter sido tomada agora.
-  defp ancora(scope, package_id, alvos) do
-    ids = Enum.map(alvos, fn {_appt, att} -> att.id end)
-
-    primeira_presenca(scope, Ash.Query.filter(Attendance, id in ^ids)) ||
-      primeira_presenca(scope, Ash.Query.filter(Attendance, package_id == ^package_id))
-  end
-
-  defp primeira_presenca(scope, query) do
-    query
-    |> Ash.Query.set_tenant(scope.clinic_id)
-    |> Ash.Query.sort(session_starts_at: :asc)
-    |> Ash.Query.limit(1)
-    |> Ash.Query.load(:patient)
-    |> Ash.read_one!(authorize?: false)
-  end
+  # Os templates `pacote_remarcado_v1` e `pacote_cancelado_v1` continuam em
+  # `Api.Messaging.Templates`, sem gatilho: é o que permite renderizar histórico e é o que torna
+  # barato voltar atrás.
 
   defp nome_do_pacote(scope, package_id) do
     case in_clinic(scope, fn ->
@@ -330,20 +270,15 @@ defmodule Api.Packages.Bulk do
          :ok <- pacote_existe(scope, package_id) do
       %{today: today, timezone: tz} = Scheduling.clinic_now(scope)
 
-      by_appointment =
-        scope
-        |> attendances(package_id)
-        |> Enum.filter(&Attendance.viva?/1)
-        |> Map.new(&{&1.appointment_id, &1})
+      # A resolução dos pares é do `Api.Packages.Targets` — o mesmo ponto único que o ciclo de
+      # vida usa (doc 101, B5). Aqui sobra só o predicado desta operação e o escopo pedido.
+      pares =
+        Api.Packages.Targets.pares(scope, package_id, fn {appt, _att} ->
+          futura_nao_resolvida?(appt, today, tz)
+        end)
 
-      sessoes =
-        scope.clinic_id
-        |> Scheduling.list_sessions_including_held(Map.keys(by_appointment), load: [:attendances])
-        |> Enum.filter(&futura_nao_resolvida?(&1, today, tz))
-        |> Enum.sort_by(& &1.starts_at, DateTime)
-
-      with {:ok, escolhidas} <- apply_escopo(sessoes, escopo, get(params, :appointment_id)) do
-        {:ok, Enum.map(escolhidas, &{&1, Map.fetch!(by_appointment, &1.id)}), tz}
+      with {:ok, escolhidos} <- apply_escopo(pares, escopo, get(params, :appointment_id)) do
+        {:ok, escolhidos, tz}
       end
     end
   end
@@ -364,29 +299,30 @@ defmodule Api.Packages.Bulk do
     end
   end
 
-  defp uuid?(value) when is_binary(value), do: match?({:ok, _}, Ecto.UUID.cast(value))
-  defp uuid?(_value), do: false
-
-  defp attendances(scope, package_id),
-    do: Scheduling.list_package_attendances(scope, package_id)
+  defp uuid?(value), do: Api.Params.uuid?(value)
 
   defp futura_nao_resolvida?(appt, today, tz) do
     appt.status in @vivas and
       not Date.before?(LocalTime.to_local_date(appt.starts_at, tz), today)
   end
 
-  defp apply_escopo(sessoes, :todas, _ref), do: {:ok, sessoes}
+  # Opera sobre os **pares** `{appointment, attendance}` que o `Targets` devolve (já ordenados por
+  # `starts_at`, do que o `:a_partir_desta` depende).
+  defp apply_escopo(pares, :todas, _ref), do: {:ok, pares}
 
-  defp apply_escopo(sessoes, escopo, ref_id) do
-    case Enum.find(sessoes, &(&1.id == ref_id)) do
+  defp apply_escopo(pares, escopo, ref_id) do
+    case Enum.find(pares, fn {appt, _att} -> appt.id == ref_id end) do
       nil ->
         {:error, :not_found}
 
-      ref when escopo == :esta ->
-        {:ok, [ref]}
+      par when escopo == :esta ->
+        {:ok, [par]}
 
-      ref ->
-        {:ok, Enum.filter(sessoes, &(DateTime.compare(&1.starts_at, ref.starts_at) != :lt))}
+      {ref, _att} ->
+        {:ok,
+         Enum.filter(pares, fn {appt, _att} ->
+           DateTime.compare(appt.starts_at, ref.starts_at) != :lt
+         end)}
     end
   end
 

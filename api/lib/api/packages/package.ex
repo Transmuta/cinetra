@@ -148,9 +148,38 @@ defmodule Api.Packages.Package do
       authorize_if {Api.Accounts.Checks.HasClinicRole, roles: :any, clinic_from: :tenant}
     end
 
+    # As **transições do ciclo de vida** (pausar/retomar/cancelar/arquivar) são de quem enxerga a
+    # clínica inteira. O papel `profissional` fica de fora — decisão de 2026-08-03, doc 101 §4.1,
+    # e a raiz do achado A3.
+    #
+    # O motivo é que essas quatro operam sobre **o pacote**, e o pacote pode ter sessões em mais de
+    # uma coluna da agenda (`bulk_adjust(aplicar_profissional:)` move; o `+` da ficha agenda onde
+    # quiser). Com o ator recortado pelo A7, o ciclo de vida enxergava só a coluna dele: `cancel`
+    # cancelava 4 de 5 sessões e marcava o pacote `:cancelado` mesmo assim, e `archive` fechava um
+    # pacote com sessão viva na agenda do colega.
+    #
+    # As duas saídas alternativas foram descartadas: recortar as sessões é o bug; escrever a sessão
+    # como cascata interna (`authorize?: false`) reabriria a porta lateral que o bate-volta do
+    # `Api.Packages.Bulk` fechou de propósito (ver a nota em `bulk.ex`, `opts/2`). Sobra tirar o
+    # papel da operação — que também é a única das três que não deixa o mesmo furo aberto de outro
+    # jeito, porque a regra passa a valer para pacote espalhado E para pacote de uma coluna só.
+    policy action([:mark_paused, :mark_active, :mark_cancelled, :mark_completed]) do
+      authorize_if {Api.Accounts.Checks.HasClinicRole,
+                    roles: [:owner, :admin, :recepcao], clinic_from: :tenant}
+    end
+
+    # O resto da escrita (criar a série, `set_total` do `+1`/`−1`, a grade) perdeu o
+    # `profissional` em 2026-08-04 (doc 103), junto com a A8 do `Appointment` — e aqui a razão é
+    # mais forte do que "coerência de papel": **criar pacote é agendar por atacado**. O
+    # `Api.Packages.Materializer` lança as sessões da série com `authorize?: false` (ele
+    # materializa o que a série já decidiu, não reautoriza cada bloco), então fechar só a policy
+    # do `Appointment` deixaria a porta aberta pelo lado: o papel que não pode lançar UM bloco
+    # encheria a própria agenda criando uma série de doze. A lista acima ficou idêntica à do
+    # ciclo de vida; as duas policies continuam separadas porque as decisões são separadas — ver
+    # a nota gêmea na A9 de `Appointment`.
     policy action_type([:create, :update]) do
       authorize_if {Api.Accounts.Checks.HasClinicRole,
-                    roles: [:owner, :admin, :recepcao, :profissional], clinic_from: :tenant}
+                    roles: [:owner, :admin, :recepcao], clinic_from: :tenant}
     end
   end
 

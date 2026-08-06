@@ -110,6 +110,43 @@ defmodule Api.Accounts.MembershipTest do
                )
     end
 
+    # O gêmeo do teste acima, pela OUTRA porta de convite (doc 92, P1-3). `:invite` e
+    # `:invite_by_email` aceitam os mesmos dois campos e escrevem o mesmo vínculo, mas só a
+    # segunda validava a clínica do profissional — paridade que faltava, não regra nova.
+    #
+    # Hoje a rota HTTP usa `invite_member_by_email`, então isto não era buraco vivo; era
+    # armadilha para o próximo chamador, e `Scope.professional_id` é o que propagaria a
+    # referência cross-tenant.
+    test "NÃO vincula profissional de outra clínica — pela porta `:invite` também" do
+      {_owner_a, clinic_a} = owner_and_clinic()
+      {_owner_b, clinic_b} = owner_and_clinic()
+
+      convidado = Api.Generators.usuario!("Convidado")
+
+      {:ok, prof_b} =
+        Api.Directory.create_professional("Prof B", %{tel: Api.Generators.telefone_unico()},
+          tenant: clinic_b.id,
+          authorize?: false
+        )
+
+      assert {:error, %Ash.Error.Invalid{} = erro} =
+               Accounts.invite_member(
+                 %{
+                   papel: :profissional,
+                   professional_id: prof_b.id,
+                   user_id: convidado.id,
+                   clinic_id: clinic_a.id
+                 },
+                 # `authorize?: false` como o único chamador real desta porta
+                 # (`Api.Generators.escopo_de_membro!`): o que está sob teste é a validação da
+                 # ação, não a policy — e com actor a leitura do `User` convidado morre antes,
+                 # em `NotFound`, escondendo justamente o que se quer medir.
+                 authorize?: false
+               )
+
+      assert Enum.any?(erro.errors, &(Map.get(&1, :field) == :professional_id))
+    end
+
     test "vincula profissional da própria clínica" do
       {owner, clinic} = owner_and_clinic()
 

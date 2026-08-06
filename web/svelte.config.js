@@ -1,5 +1,5 @@
 import adapter from '@sveltejs/adapter-node';
-import { connectSrc } from './src/lib/csp.js';
+import { connectSrc, imgSrc } from './src/lib/csp.js';
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
@@ -21,7 +21,10 @@ const config = {
 				'default-src': ['self'],
 				'script-src': ['self'],
 				'style-src': ['self', 'unsafe-inline'],
-				'img-src': ['self', 'data:'],
+				// A foto de perfil (Google → nosso bucket) é servida por URL assinada do R2, então
+				// o `<img>` do avatar aponta para fora do BFF — mesma razão do `connect-src` abaixo,
+				// e a mesma variável de build (`R2_ACCOUNT_ID`).
+				'img-src': imgSrc(process.env.R2_ACCOUNT_ID),
 				'font-src': ['self'],
 				// O WebSocket da agenda (Entrega 3) é a única conexão do browser que NÃO passa pelo
 				// BFF: ele vai direto ao Phoenix (ADR-004/005), então `self` não basta.
@@ -38,7 +41,24 @@ const config = {
 				'base-uri': ['self'],
 				'form-action': ['self'],
 				'frame-ancestors': ['none'],
-				'object-src': ['none']
+				'object-src': ['none'],
+				// R-B6 (onda 5) — para onde vai a violação de CSP.
+				//
+				// Sem isto, a CSP bloqueia e **só o console do browser do usuário sabe**. O caso
+				// concreto que o doc 95 nomeia: se um build sair sem `R2_ACCOUNT_ID`, o bucket não
+				// entra no `connect-src`, TODO upload de anexo morre — e o servidor não registra
+				// nada, porque a requisição nunca chega a sair. A recepcionista vê "não consegui
+				// anexar" e ninguém mais vê nada.
+				//
+				// A tubulação já existia inteira: `/api/client-error` tem rate limit, teto de corpo
+				// e sanitização de PII, e é o mesmo lugar onde o erro de browser já cai. Faltava
+				// apontar a CSP para ela.
+				//
+				// `report-uri` está **obsoleto** e é o que os browsers ainda implementam de fato;
+				// `report-to` é o sucessor e depende do header `Reporting-Endpoints`. Os dois
+				// juntos é o que a prática recomenda hoje — quem entende o novo ignora o velho.
+				'report-uri': ['/api/client-error?csp=1'],
+				'report-to': ['csp']
 			}
 		}
 	}

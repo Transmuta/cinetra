@@ -53,7 +53,7 @@
 
 	const avisoDaVolta = $derived(AVISOS[page.url.searchParams.get('erro') ?? ''] ?? '');
 
-	// Estilos do protótipo (Cinetra Landing.dc.html) — paleta papel/navy, fora do teal do app.
+	// Estilos do protótipo (Cinetra Landing.dc.html) — paleta papel/navy, fora do acento do app.
 	const labelStyle = 'display:block;font-size:13px;font-weight:600;color:#3D454F;margin-bottom:7px';
 	const inputStyle =
 		'width:100%;padding:12px 14px;border:1px solid #D9D4C7;border-radius:11px;font-size:15px;background:#fff;color:#212A37';

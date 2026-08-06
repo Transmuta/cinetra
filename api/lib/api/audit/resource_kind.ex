@@ -25,6 +25,7 @@ defmodule Api.Audit.ResourceKind do
       :schedule_exception,
       :package,
       :waitlist_entry,
+      :availability_rule,
       :attachment,
       :seguranca
     ]

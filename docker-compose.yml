@@ -66,7 +66,20 @@ services:
       RESEND_WEBHOOK_SECRET: ${RESEND_WEBHOOK_SECRET:-}
       MAIL_FROM: ${MAIL_FROM:-}
       MAIL_FROM_NAME: ${MAIL_FROM_NAME:-Cinetra}
+      # WhatsApp (doc 65, fase 2). São **duas** chaves em série, e as duas precisam chegar aqui:
+      # a flag diz que DEVE falar WhatsApp, as credenciais dizem que PODE
+      # (`Api.Messaging.Transport.disponivel?/1` exige as duas).
+      #
+      # As quatro da Zernio faltavam neste arquivo — só a flag era repassada. O efeito era o pior
+      # tipo de silêncio: `WHATSAPP_HABILITADO=true` no `.env`, o container recriado, e toda
+      # mensagem continuando a sair por e-mail sem erro nenhum, porque o adapter sem credencial
+      # deixa o canal indisponível e o `Dispatch` cai para a reserva — exatamente como deve.
+      # `compose.dokploy.yml` já as repassava; o dev ficou para trás quando a fase 2 entrou.
       WHATSAPP_HABILITADO: ${WHATSAPP_HABILITADO:-false}
+      ZERNIO_API_KEY: ${ZERNIO_API_KEY:-}
+      ZERNIO_ACCOUNT_ID: ${ZERNIO_ACCOUNT_ID:-}
+      ZERNIO_BASE_URL: ${ZERNIO_BASE_URL:-}
+      ZERNIO_WEBHOOK_SECRET: ${ZERNIO_WEBHOOK_SECRET:-}
       # ---- Traces (doc 76) --------------------------------------------------------------------
       #
       # VAZIO por padrão: sem endpoint o exportador é `:none` e os spans morrem em memória — dev
@@ -95,6 +108,15 @@ services:
       # desenvolve. É um DIRETÓRIO de propósito: bind mount de arquivo único no WSL congela um
       # snapshot, e o teste passaria a ler uma versão velha do compose sem avisar.
       - ./:/repo:ro
+      # `contratos/` de novo, agora **gravável** — é o único lugar do repositório fora de `api/`
+      # em que a suíte escreve, e ele é deliberado: `ApiWeb.ContratoBffTest` grava em
+      # `contratos/bff/` o corpo que a API de verdade responde, e os `.test.ts` do BFF leem de lá
+      # em vez de inventar o JSON no próprio teste (doc 101, A2).
+      #
+      # O caminho é `/contratos` e não `/repo/contratos` por um motivo prático: a suíte roda com
+      # cwd `/app`, e `/app/../contratos` é este ponto de montagem — o **mesmo** `../contratos`
+      # que o CI enxerga com o checkout inteiro ao lado. Um caminho só nos dois ambientes.
+      - ./contratos:/contratos
     stdin_open: true
     tty: true
 
@@ -138,6 +160,11 @@ services:
     volumes:
       - ./web:/app
       - web_node_modules:/app/node_modules
+      # Raiz do repositório, SÓ LEITURA — pelo mesmo motivo do serviço `api` acima, e agora
+      # também para `contratos/`: os casos das regras que existem nos dois lados (CPF, CNPJ,
+      # telefone, e-mail, períodos) moram na raiz porque não são de nenhum dos dois, e os dois
+      # testes de paridade os leem de lá. No CI o checkout inteiro está em `../`.
+      - ./:/repo:ro
     stdin_open: true
     tty: true
 

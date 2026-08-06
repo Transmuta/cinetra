@@ -6,7 +6,7 @@ import StatusBadge from './StatusBadge.svelte';
 
 describe('RoleBadge', () => {
 	it.each([
-		['owner', 'Dona'],
+		['owner', 'Dono(a)'],
 		['admin', 'Administrador'],
 		['profissional', 'Profissional'],
 		['recepcao', 'Recepção']

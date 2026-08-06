@@ -10,15 +10,12 @@
 	// ficha já faz seis em paralelo no `load`.
 	import Loader from '@lucide/svelte/icons/loader-circle';
 	import Modal from '$lib/components/Modal.svelte';
-	import { appointmentHref, zonedParts, m2t } from '$lib/agenda';
-	import type { Package as Pkg } from '$lib/packages';
-
-	type Sessao = {
-		attendance_id: string;
-		appointment_id: string;
-		starts_at: string;
-		estado: 'concluida' | 'falta' | 'segurada' | 'proxima' | 'agendada';
-	};
+	import { appointmentHref, zonedParts } from '$lib/agenda';
+	import { quandoCurto } from '$lib/data-hora';
+	// O tipo da resposta vem do MESMO módulo que o `+server.ts` usa para respondê-la. Estava
+	// redeclarado aqui, campo por campo (doc 94 §4.5) — e um valor novo em `estado` compilaria dos
+	// dois lados enquanto o `switch` caía no default calado.
+	import type { Package as Pkg, PackageSession, PackageSessionsResponse } from '$lib/packages';
 
 	let {
 		pkg,
@@ -35,7 +32,7 @@
 		onClose: () => void;
 	} = $props();
 
-	let sessoes = $state<Sessao[] | null>(null);
+	let sessoes = $state<PackageSession[] | null>(null);
 	let erro = $state(false);
 
 	$effect(() => {
@@ -44,7 +41,7 @@
 			`/pacientes/${encodeURIComponent(patientId)}/pacotes/${encodeURIComponent(pkg.id)}/sessoes`
 		)
 			.then((r) => (r.ok ? r.json() : Promise.reject(new Error('falhou'))))
-			.then((d: { sessions: Sessao[] }) => {
+			.then((d: PackageSessionsResponse) => {
 				if (alive) sessoes = d.sessions;
 			})
 			.catch(() => {
@@ -74,36 +71,30 @@
 		falta: { label: 'Falta', classe: 'border-transparent bg-danger-solid', estilo: '' }
 	};
 
-	const DOW = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
-	function quando(iso: string): string {
-		const { date, minutes } = zonedParts(iso, timezone);
-		const [, mes, dia] = date.split('-');
-		const dow = DOW[new Date(`${date}T12:00:00Z`).getUTCDay()];
-		return `${dow} ${dia}/${mes} · ${m2t(minutes)}`;
-	}
+	const quando = (iso: string) => quandoCurto(iso, timezone);
 </script>
 
 <Modal title="Sessões do pacote" {onClose} maxWidth="max-w-[480px]">
-	<div class="mb-3 flex items-center gap-2.5 rounded-[11px] border border-edge bg-surface2 px-3 py-2.5">
-		<span class="inline-block size-2.5 shrink-0 rounded-[3px]" style="background:{pkg.cor}"></span>
+	<div class="mb-3 flex items-center gap-2.5 rounded-cartao border border-edge bg-surface2 px-3 py-2.5">
+		<span class="inline-block size-2.5 shrink-0 rounded-micro" style="background:{pkg.cor}"></span>
 		<div class="min-w-0 flex-1">
-			<div class="truncate text-[13.5px] font-bold">{titulo}</div>
+			<div class="truncate text-corpo font-bold">{titulo}</div>
 		</div>
-		<span class="shrink-0 font-mono text-[13px] font-bold">
+		<span class="shrink-0 font-mono text-corpo font-bold">
 			{pkg.usadas ?? 0}/{pkg.total}
 		</span>
 	</div>
 
 	{#if erro}
-		<p class="py-6 text-center text-[12.5px] text-danger">
+		<p class="py-6 text-center text-rotulo text-danger">
 			Não foi possível carregar as sessões deste pacote.
 		</p>
 	{:else if sessoes === null}
-		<p class="flex items-center justify-center gap-2 py-6 text-[12.5px] text-faint">
+		<p class="flex items-center justify-center gap-2 py-6 text-rotulo text-faint">
 			<Loader size={15} class="animate-spin" /> Carregando…
 		</p>
 	{:else if sessoes.length === 0}
-		<p class="py-6 text-center text-[12.5px] text-faint">
+		<p class="py-6 text-center text-rotulo text-faint">
 			Nenhuma sessão materializada ainda — o agendamento roda em segundo plano.
 		</p>
 	{:else}
@@ -124,15 +115,15 @@
 					     que esta ficou segurada / faltou?" nasce, e a resposta está no drawer. -->
 					<a
 						href={appointmentHref(s.appointment_id, zonedParts(s.starts_at, timezone).date)}
-						class="flex items-center gap-2.5 rounded-md py-2 hover:bg-surface-2"
+						class="flex items-center gap-2.5 rounded-controle py-2 hover:bg-surface-2"
 					>
-						<span class="w-5 shrink-0 text-right font-mono text-[10px] text-faint">{i + 1}</span>
+						<span class="w-5 shrink-0 text-right font-mono text-micro text-faint">{i + 1}</span>
 						<span
 							class="box-border size-3.5 shrink-0 rounded-full border-2 {ESTADO[s.estado].classe}"
 							style={ESTADO[s.estado].estilo}
 						></span>
-						<span class="min-w-0 flex-1 text-[12.5px] font-medium">{quando(s.starts_at)}</span>
-						<span class="shrink-0 text-[11.5px] font-semibold text-muted">
+						<span class="min-w-0 flex-1 text-rotulo font-medium">{quando(s.starts_at)}</span>
+						<span class="shrink-0 text-meta font-semibold text-muted">
 							{ESTADO[s.estado].label}
 						</span>
 					</a>
@@ -145,7 +136,7 @@
 		<button
 			type="button"
 			onclick={onClose}
-			class="rounded-lg border border-edge px-3.5 py-2 text-[13px] font-semibold hover:bg-surface-2"
+			class="rounded-controle border border-edge px-3.5 py-2 text-corpo font-semibold hover:bg-surface-2"
 		>
 			Fechar
 		</button>

@@ -22,16 +22,16 @@
 </script>
 
 <div class="mb-1.5 flex items-center justify-between gap-3">
-	<div class="text-[14px] font-semibold">Horário de atendimento da clínica</div>
+	<div class="text-leitura font-semibold">Horário de atendimento da clínica</div>
 	<button
 		type="button"
 		onclick={() => onchange(mirrorWeekdays(hours))}
-		class="flex shrink-0 items-center gap-1.5 rounded-[7px] border border-edge bg-surface px-[11px] py-1.5 text-[12px] font-semibold text-teal-text hover:bg-surface-2"
+		class="flex shrink-0 items-center gap-1.5 rounded-controle border border-edge bg-surface px-[11px] py-1.5 text-rotulo font-semibold text-accent-text hover:bg-surface-2"
 	>
 		<Copy size={13} /> Espelhar Seg → Seg–Sex
 	</button>
 </div>
-<p class="mb-1.5 text-[12px] text-muted">
+<p class="mb-1.5 text-rotulo text-muted">
 	Cada dia pode ter mais de um período (ex.: manhã e tarde, com intervalo de almoço).
 </p>
 
@@ -39,17 +39,17 @@
 	{@const periods = hours[String(dow)] ?? []}
 	{@const open = periods.length > 0}
 	<div class="flex items-start gap-3 border-t border-edge py-[11px]">
-		<span class="w-[90px] pt-1.5 text-[13px] font-medium">{label}</span>
+		<span class="w-[90px] pt-1.5 text-corpo font-medium">{label}</span>
 
 		<div class="min-w-0 flex-1">
 			{#if open}
 				<PeriodEditor {periods} onchange={(p) => setDay(dow, p)} />
 			{:else}
-				<span class="text-[12.5px] leading-[30px] text-faint">Fechado</span>
+				<span class="text-rotulo leading-[30px] text-faint">Fechado</span>
 			{/if}
 		</div>
 
-		<div class="flex items-center gap-2 pt-1.5 text-[12px] text-muted">
+		<div class="flex items-center gap-2 pt-1.5 text-rotulo text-muted">
 			<SwitchToggle
 				checked={open}
 				label={label}

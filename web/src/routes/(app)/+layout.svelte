@@ -8,8 +8,9 @@
 	import Toast from '$lib/components/Toast.svelte';
 	import { aprisionarTab } from '$lib/dialogo';
 	import { criarAnunciante } from '$lib/anuncio.svelte';
-	import { activeMembership } from '$lib/session';
-	import { connectNotifications, type RealtimeConfig } from '$lib/realtime';
+	import { activeMembership, clinicIdentity } from '$lib/session';
+	import { connectNotifications } from '$lib/realtime';
+	import { usarTokenRealtime } from '$lib/realtime-token.svelte';
 	import type { LayoutData } from './$types';
 
 	let { data, children }: { data: LayoutData; children: import('svelte').Snippet } = $props();
@@ -20,9 +21,9 @@
 	// O papel na clínica ativa. O rail o usa para esconder a Auditoria de quem levaria 403 —
 	// e precisa chegar nas DUAS instâncias do rail (desktop e gaveta mobile).
 	const papel = $derived(me.papel ?? null);
-	const clinicName = $derived(membership?.clinic_nome ?? null);
-	const clinicCnpj = $derived(membership?.clinic_cnpj ?? null);
-	const clinicEndereco = $derived(membership?.clinic_endereco ?? null);
+	// A identidade da clínica ativa (nome, CNPJ, telefone e o endereço estruturado) num objeto
+	// só — ver `clinicIdentity`. Reage à troca de tenant como o resto do `me`.
+	const clinic = $derived(clinicIdentity(membership));
 	const pathname = $derived(page.url.pathname);
 	const theme = $derived((page.data.theme as string | null) ?? null);
 
@@ -49,23 +50,10 @@
 	// Uma conexão só para toda a sessão (o layout monta uma vez). Ao chegar `notification_created`,
 	// revalida a contagem do badge e — se a tela `/notificacoes` estiver aberta — a lista dela.
 	// O token vem do BFF; sem ele o badge ainda funciona por navegação (o load recarrega).
-	let realtime = $state<RealtimeConfig | null>(null);
-
-	$effect(() => {
-		let vivo = true;
-		fetch('/api/realtime/token')
-			.then((r) => (r.ok ? r.json() : null))
-			.then((cfg) => {
-				if (vivo && cfg?.token) realtime = cfg as RealtimeConfig;
-			})
-			// Falha aqui mata o TEMPO REAL de todo o app (o sino de notificações inclusive), e antes
-			// era invisível: sem token o socket nunca abre e não há console, log nem aviso em lugar
-			// nenhum — só um badge que nunca mais muda (doc 62 §7.2).
-			.catch((e) => reportar('realtime:token', e));
-		return () => {
-			vivo = false;
-		};
-	});
+	// Falha aqui mata o TEMPO REAL de todo o app, o sino inclusive — o `usarTokenRealtime` reporta
+	// em vez de engolir, que era o furo (doc 62 §7.2).
+	const token = usarTokenRealtime();
+	const realtime = $derived(token.cfg);
 
 	// ACC-06 (doc 83): a notificação chegava e mudava só o badge do sino — nada era anunciado, e
 	// para quem não vê a tela o app parecia estático. `criarAnunciante` cuida das duas armadilhas
@@ -103,7 +91,7 @@
 -->
 {#snippet cromo()}
 	<Rail {pathname} {theme} {unread} {papel} />
-	<Sidebar {pathname} {clinicName} {clinicCnpj} {clinicEndereco} />
+	<Sidebar {pathname} {clinic} />
 {/snippet}
 
 <!--
@@ -121,7 +109,7 @@
 -->
 <a
 	href="#conteudo"
-	class="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-70 focus:rounded-md focus:bg-surface focus:px-3 focus:py-2 focus:text-[13px] focus:font-semibold focus:text-ink focus:shadow-pop"
+	class="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-atalho focus:rounded-controle focus:bg-surface focus:px-3 focus:py-2 focus:text-corpo focus:font-semibold focus:text-ink focus:shadow-pop"
 >
 	Pular para o conteúdo
 </a>
@@ -175,11 +163,11 @@
 
 <!-- Mobile (<lg): gaveta com rail + sidebar sobre um backdrop. -->
 {#if drawerOpen}
-	<div class="fixed inset-0 z-40 flex lg:hidden">
+	<div class="fixed inset-0 z-cobertura flex lg:hidden">
 		<button
 			type="button"
 			aria-label="Fechar menu"
-			class="absolute inset-0 bg-black/40"
+			class="absolute inset-0 bg-overlay"
 			onclick={() => (drawerOpen = false)}
 		></button>
 		<!-- `role="dialog"` + `aria-modal` como nos shells `Modal`/`Drawer`: é a mesma coisa que

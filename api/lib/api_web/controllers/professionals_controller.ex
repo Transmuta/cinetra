@@ -23,10 +23,26 @@ defmodule ApiWeb.ProfessionalsController do
   alias Api.Directory
   alias Api.Scheduling
 
+  # Quem alcança a TELA de Profissionais (2026-08-04, doc 103). O papel `profissional` saiu: a
+  # tela não é dele — nem o diretório, nem a própria ficha, que é onde moram CPF, endereço e
+  # dados bancários. Antes ele via uma listagem de uma linha só (a dele), recortada pela
+  # preparation `OwnProfessionalOnly`, e abria a própria ficha completa.
+  #
+  # **A guarda é aqui, e não na policy de leitura do recurso**, e a diferença não é de estilo:
+  # `Api.Scheduling.load_agenda/4` chama `list_professionals!(scope: scope)` por dentro para
+  # montar a coluna da agenda. Como a policy de leitura é `SimpleCheck` (nega, não filtra),
+  # fechá-la faria a agenda dele **estourar Forbidden** — o oposto de "pode visualizar a sua
+  # agenda". Este controller é a superfície da tela; `load_agenda` não passa por ele.
+  #
+  # A segunda metade do fechamento mora na `field_policy` de `@ficha_contratual` em
+  # `Api.Directory.Professional`, que deixou de ter cláusula para o papel. As duas juntas: ele
+  # não chega à tela, e o dado sensível não viaja nem se um caminho novo o alcançasse.
+  @papeis_do_diretorio [:owner, :admin, :recepcao]
+
   # GET /api/professionals — ativos E arquivados (a tela filtra). Vai junto o expediente da
   # clínica (`clinic_hours`), que a coluna "Atendimento" usa para resolver os dias `:herda`.
   def index(conn, _params) do
-    with_member_scope(conn, fn scope ->
+    with_roles_scope(conn, @papeis_do_diretorio, fn scope ->
       json(conn, %{
         professionals: Enum.map(Directory.list_clinic_professionals(scope), &prof_json/1),
         clinic_hours: Enum.map(Scheduling.list_clinic_hours(scope), &hours_row_json/1)
@@ -36,7 +52,7 @@ defmodule ApiWeb.ProfessionalsController do
 
   # GET /api/professionals/:id — a ficha completa, com a grade e as exceções.
   def show(conn, %{"id" => id}) do
-    with_member_scope(conn, fn scope ->
+    with_roles_scope(conn, @papeis_do_diretorio, fn scope ->
       case Directory.fetch_clinic_professional(scope, id, load: [:weekly_hours, :exceptions]) do
         {:ok, %{} = prof} -> json(conn, %{professional: prof_json(prof, exceptions: true)})
         {:ok, nil} -> not_found(conn)
@@ -160,6 +176,15 @@ defmodule ApiWeb.ProfessionalsController do
 
   # `clinic_id` NÃO sai: é o tenant, já implícito na sessão. `weekly_hours`/`exceptions` só saem
   # quando carregados (lista traz a grade; a ficha traz também as exceções).
+  #
+  # O bloco contratual (CPF, RG, CNPJ, banco/agência/conta/PIX, endereço, emergência) é recortado
+  # por `field_policies` no recurso (doc 96, S-1). Quem não pode lê-lo recebe `%Ash.ForbiddenField{}`
+  # no lugar do valor, e o campo simplesmente **não entra no JSON** — a chave some, em vez de sair
+  # `null` (que o cliente leria como "não preenchido") ou de vazar o struct.
+  #
+  # A regra de papel NÃO é repetida aqui de propósito: duplicá-la na fronteira criaria duas
+  # verdades que envelhecem em ritmos diferentes — foi assim que o vazamento nasceu. A fronteira
+  # só omite o que o domínio recusou.
   defp prof_json(p, opts \\ []) do
     base = %{
       id: p.id,
@@ -200,6 +225,7 @@ defmodule ApiWeb.ProfessionalsController do
     }
 
     base
+    |> Map.reject(fn {_campo, valor} -> match?(%Ash.ForbiddenField{}, valor) end)
     |> maybe_put_loaded(:weekly_hours, p.weekly_hours, &hours_row_json/1)
     |> then(fn map ->
       if Keyword.get(opts, :exceptions, false),

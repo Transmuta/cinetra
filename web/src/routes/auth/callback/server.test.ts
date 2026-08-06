@@ -4,6 +4,7 @@ vi.mock('$env/dynamic/private', () => ({ env: {} }));
 
 import { GET } from './+server';
 import { SESSION_COOKIE } from '$lib/server/api';
+import { VERSAO } from '$lib/legal';
 
 // redirect() do SvelteKit lança um objeto {status, location}; capturamos para inspecionar.
 async function caught(fn: () => Promise<unknown>) {
@@ -56,5 +57,54 @@ describe('GET /auth/callback (magic link cai no BFF)', () => {
 		expect(set).not.toHaveBeenCalled();
 		expect(r.status).toBe(303);
 		expect(r.location).toBe('/entrar?erro=link');
+	});
+});
+
+// `[D-14]` / doc 101 A4 — o aceite dos documentos legais é registrado depois da sessão assinada.
+describe('o aceite dos documentos legais', () => {
+	it('registra a versão exibida, DEPOIS de a sessão existir', async () => {
+		const { event, fetch } = fakeEvent({
+			token: 'tok123',
+			setCookie: `${SESSION_COOKIE}=assinado; Path=/; HttpOnly`
+		});
+		await caught(() => GET(event));
+
+		const aceite = fetch.mock.calls.find((c) => String(c[0]).includes('/api/auth/terms-acceptance'));
+
+		expect(aceite).toBeTruthy();
+		expect(aceite![1].method).toBe('POST');
+		expect(JSON.parse(aceite![1].body)).toEqual({ versao: VERSAO });
+
+		// Ordem importa: sem sessão a API não sabe QUEM aceitou, e o registro seria de ninguém.
+		const iSessao = fetch.mock.calls.findIndex((c) => String(c[0]).includes('magic-link/callback'));
+		const iAceite = fetch.mock.calls.findIndex((c) => String(c[0]).includes('terms-acceptance'));
+		expect(iAceite).toBeGreaterThan(iSessao);
+	});
+
+	// Trocar um registro faltando por uma pessoa sem acesso seria péssimo negócio — e o próximo
+	// login corrige, porque a gravação é idempotente por versão do lado da API.
+	it('falha ao registrar NÃO derruba o login', async () => {
+		const { event, fetch } = fakeEvent({
+			token: 'tok123',
+			setCookie: `${SESSION_COOKIE}=assinado; Path=/; HttpOnly`
+		});
+		fetch.mockResolvedValueOnce(
+			new Response('', { headers: { 'set-cookie': `${SESSION_COOKIE}=assinado; Path=/` } })
+		);
+		fetch.mockRejectedValueOnce(new Error('API fora'));
+
+		const r = await caught(() => GET(event));
+
+		expect(r.status).toBe(303);
+		expect(r.location).toBe('/');
+	});
+
+	it('login recusado nem tenta registrar aceite (não há quem aceitou)', async () => {
+		const { event, fetch } = fakeEvent({ token: 'ruim' });
+		await caught(() => GET(event));
+
+		expect(
+			fetch.mock.calls.some((c) => String(c[0]).includes('terms-acceptance'))
+		).toBe(false);
 	});
 });

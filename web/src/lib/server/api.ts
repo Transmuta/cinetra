@@ -37,21 +37,65 @@ export function apiPublicOrigin(): string {
 // um `x-forwarded-for` com "undefined" viraria uma chave de rate limit compartilhada por todo
 // mundo, e um `x-request-id` fora da faixa 20..200 seria descartado pelo Plug — trocando ausência
 // (perceptível) por correlação errada (não perceptível).
+/**
+ * O IP do cliente, ou `undefined` — **sem nunca levantar** (R-M19, onda 5 do doc 102).
+ *
+ * `getClientAddress()` do adapter-node **lança** quando o header configurado em `ADDRESS_HEADER`
+ * não vem na requisição (`files/handler.js`), e isso vale para QUALQUER header configurado — não
+ * só para os "exóticos". O comentário do `compose.dokploy.yml` afirmava que o `x-forwarded-for` do
+ * default *"não tem esse risco"*; ele tem, e comentário que mente sobre segurança é pior que
+ * comentário ausente, porque alguém decide com base nele.
+ *
+ * Quem chega sem passar pelo Traefik: outro serviço na rede `app`, um `curl` de diagnóstico de
+ * dentro da `dokploy-network`, um probe futuro. Sem esta guarda, cada um deles virava **500 em toda
+ * página que fale com a API** — e o `?.` que existia protegia contra a função ser `undefined`, não
+ * contra ela levantar.
+ *
+ * String vazia vira `undefined` de propósito (R-B9): com o XFF presente e vazio, o adapter devolve
+ * `''`, e `''` como chave de rate limit joga **todo mundo no mesmo balde**. Ausência é um estado
+ * honesto; chave vazia compartilhada é um teto global disfarçado de por-IP.
+ */
+export function ipDoCliente(event: RequestEvent): string | undefined {
+	try {
+		const ip = event.getClientAddress?.();
+		return ip ? ip : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
 export function headersDeContexto(event: RequestEvent, init: HeadersInit = {}): Headers {
 	const headers = new Headers(init);
-	const clientIp = event.getClientAddress?.();
+	const clientIp = ipDoCliente(event);
 	if (clientIp) headers.set('x-forwarded-for', clientIp);
 	const requestId = event.locals?.requestId;
 	if (requestId) headers.set('x-request-id', requestId);
 	return headers;
 }
 
+// Teto de espera de TODA chamada do BFF à API (doc 101, M4).
+//
+// Antes não havia nenhum: só o readiness (`/ready`) passava `AbortSignal`, e as demais ficavam nos
+// defaults do undici. O modo de falha que isso deixa aberto não é a API **caída** — essa o
+// `try/catch` do `mutate` já converte em erro de tela. É a API **lenta**: o worker do SSR fica
+// pendurado, e como o health check do Traefik aponta para `/api/ready` da API (não do BFF), o BFF
+// continua recebendo tráfego enquanto trava. A diferença é entre degradar e cair.
+//
+// Dez segundos porque o caminho mais lento do produto é a criação de série (uma escrita + o job) e
+// ele responde em menos de um; o número existe para pegar o pendurado, não para apertar o lento.
+// Quem precisar de outro passa `signal` no `init` — a linha abaixo só preenche a ausência.
+const API_TIMEOUT_MS = 10_000;
+
 // Fetch para a API repassando o cookie de sessão do request atual (BFF).
 export function apiFetch(event: RequestEvent, path: string, init: RequestInit = {}): Promise<Response> {
 	const headers = headersDeContexto(event, init.headers);
 	const session = event.cookies.get(SESSION_COOKIE);
 	if (session) headers.set('cookie', `${SESSION_COOKIE}=${session}`);
-	return event.fetch(`${apiBase()}${path}`, { ...init, headers });
+	return event.fetch(`${apiBase()}${path}`, {
+		...init,
+		headers,
+		signal: init.signal ?? AbortSignal.timeout(API_TIMEOUT_MS)
+	});
 }
 
 // Re-emite o cookie de sessão da API (`_api_key`) no domínio do WEB, a partir do Set-Cookie

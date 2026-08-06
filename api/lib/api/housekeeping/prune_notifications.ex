@@ -26,6 +26,30 @@ defmodule Api.Housekeeping.PruneNotifications do
   `Api.Repo.with_clinic/2`. O mecanismo (lote, `ctid`, GUC) está em `Api.Housekeeping.Poda` —
   esta é a segunda poda do projeto, e ter duas cópias da mesma sutileza é como uma delas
   envelhece errado.
+
+  ## O `AND inserted_at < $4` é redundante de propósito (doc 92, P1-1)
+
+  Logicamente ele não muda nada: quem casa em qualquer um dos dois ramos do `OR` já é mais velho
+  que o mais frouxo dos dois cortes. Para o **planejador**, ele é tudo. Sem esse conjunto, o `OR`
+  entre dois cortes de `inserted_at` diferentes impede derivar um limite único para a coluna, o
+  `Index Cond` fica só com `clinic_id` e a poda varre a caixa inteira da clínica — na tabela que
+  este job existe para conter.
+
+  Medido em 40.001 linhas (38.000 recentes + cauda de 2.000 velhas; alvo de 1.466):
+
+      hoje                          Seq Scan      618 buffers   11,55 ms
+      com o corte frouxo            Bitmap Scan    73 buffers    2,88 ms
+
+  ## Por que NÃO há índice novo
+
+  O item original propunha, junto, um `(clinic_id, inserted_at)`. Medido no mesmo cenário, ele
+  leva de 73 para 37 buffers e de 2,88 para 2,26 ms — **um ganho marginal sobre a reescrita**, em
+  troca de um índice a mais para manter em toda escrita de `notifications`, que é a tabela de
+  fan-out do projeto (uma linha por destinatário, a cada evento). A poda roda uma vez por dia; a
+  escrita, o dia inteiro. O índice existente (`notifications_inbox_index`) já atende.
+
+  Se um dia a poda voltar a doer, o índice está medido e é uma migration de duas linhas — mas
+  entra com número novo em mãos, não por suposição (a lição D-A do doc 35).
   """
   use Oban.Worker, queue: :housekeeping, max_attempts: 3
 
@@ -44,14 +68,9 @@ defmodule Api.Housekeeping.PruneNotifications do
       Poda.por_clinica(fn clinic_id ->
         Poda.em_lote(
           @tabela,
-          """
-          clinic_id = $1
-          AND (
-            (read_at IS NOT NULL AND inserted_at < $2)
-            OR (read_at IS NULL AND inserted_at < $3)
-          )
-          """,
-          [Ecto.UUID.dump!(clinic_id), corte_lidas, corte_geral]
+          condicao(),
+          [Ecto.UUID.dump!(clinic_id), corte_lidas, corte_geral, corte_frouxo(args)],
+          clinic_id
         )
       end)
 
@@ -66,6 +85,24 @@ defmodule Api.Housekeeping.PruneNotifications do
     {:ok, %{apagadas: apagadas}}
   end
 
+  @doc """
+  O `WHERE` da poda (`$1` = clínica, `$2` = corte das lidas, `$3` = corte geral).
+
+  Exposto pelo mesmo motivo dos cortes abaixo — diagnóstico —, e porque o teste de plano precisa
+  medir **este** SQL, não uma cópia dele que envelheceria sozinha.
+  """
+  @spec condicao() :: String.t()
+  def condicao do
+    """
+    clinic_id = $1
+    AND inserted_at < $4
+    AND (
+      (read_at IS NOT NULL AND inserted_at < $2)
+      OR (read_at IS NULL AND inserted_at < $3)
+    )
+    """
+  end
+
   @doc "O corte das lidas que o job usaria agora — exposto para o doc e para diagnóstico."
   def corte_lidas(args \\ %{}),
     do:
@@ -78,4 +115,17 @@ defmodule Api.Housekeeping.PruneNotifications do
   @doc "O corte das não-lidas (o teto absoluto da caixa)."
   def corte_geral(args \\ %{}),
     do: Poda.corte(args, "reter_dias", modulo: __MODULE__, chave: :reter_dias, padrao: 365)
+
+  @doc """
+  O corte **frouxo** — o mais recente dos dois —, que existe só para o planejador.
+
+  É `max/2` e não `corte_lidas/1` de propósito. Com a config invertida (reter lida por mais tempo
+  que não-lida — esquisito, mas aceito hoje), o corte das lidas passa a ser o mais **antigo** dos
+  dois, e fixá-lo aqui excluiria do `DELETE` as não-lidas da faixa entre um corte e outro: a poda
+  deixaria de apagar linha que devia apagar, sem erro nenhum. Há teste para esse caso.
+  """
+  @spec corte_frouxo(map()) :: NaiveDateTime.t()
+  def corte_frouxo(args \\ %{}) do
+    Enum.max([corte_lidas(args), corte_geral(args)], NaiveDateTime)
+  end
 end

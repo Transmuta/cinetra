@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { contrato, exigirCampos, primeiro } from '$lib/testing/contrato';
+import type { AgendaData } from './appointments';
+import type { Appointment, AgendaPatient } from '$lib/agenda';
 
 const m = vi.hoisted(() => ({ apiFetch: vi.fn() }));
 vi.mock('./api', () => m);
@@ -30,14 +33,9 @@ function res(status: number, body?: unknown): Response {
 
 const event = {} as never;
 
-const payload = {
-	appointments: [{ id: 'a1' }],
-	professionals: [{ id: 'p1' }],
-	appointment_types: [{ id: 't1' }],
-	patients: [{ id: 'pat1', nome: 'Maria Silva', tel: '11999990000', ativo: true }],
-	agora: '2026-07-20T14:00:00Z',
-	timezone: 'America/Sao_Paulo'
-};
+// O corpo vem de `contratos/bff/agenda.json`, gravado pela API de verdade (doc 101, A2). Era um
+// literal escrito aqui — que é o mock validando o BFF contra o BFF.
+const payload = contrato<AgendaData>('agenda', 'janela');
 
 beforeEach(() => m.apiFetch.mockReset());
 
@@ -101,17 +99,15 @@ describe('fetchAgenda', () => {
 		m.apiFetch.mockResolvedValueOnce(res(200, payload));
 		const r = await fetchAgenda(event, { from: '2026-07-20' });
 		expect(r.status).toBe(200);
-		expect(r.data?.agora).toBe('2026-07-20T14:00:00Z');
+		expect(r.data?.agora).toBe(payload.agora);
 		expect(r.data?.timezone).toBe('America/Sao_Paulo');
-		expect(r.data?.appointments).toHaveLength(1);
+		expect(r.data?.appointments).toHaveLength(payload.appointments.length);
 	});
 
 	it('traz o sidecar `patients` — os citados na janela, ao lado de professionals/types', async () => {
 		m.apiFetch.mockResolvedValueOnce(res(200, payload));
 		const r = await fetchAgenda(event, { from: '2026-07-20' });
-		expect(r.data?.patients).toEqual([
-			{ id: 'pat1', nome: 'Maria Silva', tel: '11999990000', ativo: true }
-		]);
+		expect(r.data?.patients).toEqual(payload.patients);
 	});
 
 	it('erro da API → data nula com o status preservado', async () => {
@@ -225,18 +221,17 @@ describe('fetchCounts', () => {
 // A leitura que resolve o link do drawer: quem recebe `/agenda?agendamento=<id>` não sabe o dia,
 // e é o par (`starts_at`, `timezone`) desta resposta que diz qual agenda carregar.
 describe('fetchAppointment', () => {
-	const um = {
-		appointment: { id: 'a1', starts_at: '2026-07-21T01:30:00Z' },
-		patients: [{ id: 'pat1', nome: 'Maria Silva', tel: null, ativo: true }],
-		timezone: 'America/Sao_Paulo'
-	};
+	const um = contrato<{ appointment: Appointment; patients: AgendaPatient[]; timezone: string }>(
+		'agenda',
+		'bloco'
+	);
 
 	it('pede o bloco por id e devolve o fuso junto', async () => {
 		m.apiFetch.mockResolvedValueOnce(res(200, um));
 		const r = await fetchAppointment(event, 'a1');
 
 		expect(m.apiFetch.mock.calls[0][1]).toBe('/api/appointments/a1');
-		expect(r.data?.appointment.starts_at).toBe('2026-07-21T01:30:00Z');
+		expect(r.data?.appointment.starts_at).toBe(um.appointment.starts_at);
 		expect(r.data?.timezone).toBe('America/Sao_Paulo');
 	});
 
@@ -324,6 +319,7 @@ describe('ciclo de vida (Entrega 4)', () => {
 			starts_at: '2026-07-20T12:00:00Z',
 			professional_id: 'p2',
 			encaixe: true,
+			avisar_paciente: false,
 			expected_version: 3
 		});
 		expect(r.ok).toBe(true);
@@ -339,7 +335,7 @@ describe('ciclo de vida (Entrega 4)', () => {
 		m.apiFetch.mockResolvedValueOnce(
 			res(409, { error: 'conflict', code: 'version_conflict', details: [{ field: null, message: 'Recarregue.' }] })
 		);
-		const r = await cancelAppointment(event, 'a1', { expected_version: 1 });
+		const r = await cancelAppointment(event, 'a1', { avisar_paciente: false, expected_version: 1 });
 		expect(r.ok).toBe(false);
 		expect(r.status).toBe(409);
 		expect(r.code).toBe('version_conflict');
@@ -359,5 +355,75 @@ describe('ciclo de vida (Entrega 4)', () => {
 			expect(JSON.parse(call[2].body).expected_version).toBe(7);
 		}
 	});
+});
 
+// O contrato com a API (doc 101, A2). O bloco é o objeto mais atravessado do sistema — sai por
+// quatro portas (o GET da janela, o GET por id, o POST que cria e o push do canal) e é o único
+// serializado por um módulo próprio (`ApiWeb.AgendaJSON`) justamente para as quatro concordarem.
+describe('contrato com a API', () => {
+	it('o bloco traz os campos que a grade e o drawer leem', () => {
+		exigirCampos(
+			primeiro(payload.appointments, 'agenda/janela → appointments'),
+			[
+				'id',
+				'starts_at',
+				'ends_at',
+				'status',
+				'encaixe',
+				'obs',
+				'cancel_reason',
+				'reschedule_reason',
+				'veio_da_fila',
+				'dias_na_fila',
+				'professional_id',
+				'appointment_type_id',
+				'version',
+				'created_by_id',
+				'patient_ids',
+				'participants'
+			],
+			'agenda/janela → appointments[0]'
+		);
+	});
+
+	// A presença por participante (A2, doc 41): numa turma, um pode ter concluído e outro faltado.
+	it('a presença traz o que a linha do participante marca', () => {
+		const bloco = primeiro(payload.appointments, 'agenda/janela → appointments');
+
+		exigirCampos(
+			primeiro(bloco.participants, 'agenda/janela → participants'),
+			['patient_id', 'status', 'falta_justificada', 'motivo', 'package_id', 'package', 'resposta'],
+			'agenda/janela → appointments[0].participants[0]'
+		);
+	});
+
+	it('os três sidecars trazem o que o cartão e a sidebar leem', () => {
+		exigirCampos(
+			primeiro(payload.patients, 'agenda/janela → patients'),
+			['id', 'nome', 'tel', 'ativo'],
+			'agenda/janela → patients[0]'
+		);
+
+		exigirCampos(
+			primeiro(payload.professionals, 'agenda/janela → professionals'),
+			['id', 'nome', 'nome_exibicao', 'crefito', 'cor_indice', 'segue_horario_clinica'],
+			'agenda/janela → professionals[0]'
+		);
+
+		exigirCampos(
+			primeiro(payload.appointment_types, 'agenda/janela → appointment_types'),
+			['id', 'nome', 'duracao_minutos', 'cor', 'icon', 'grupo', 'capacidade'],
+			'agenda/janela → appointment_types[0]'
+		);
+	});
+
+	// `agora` e `timezone` não são enfeite: a linha do agora e o `needsAction` saem do relógio do
+	// SERVIDOR, nunca do browser (ADR-009 / GAP-01). Sem eles a tela erra em silêncio.
+	it('a janela traz o relógio do servidor e o fuso', () => {
+		exigirCampos(
+			payload,
+			['appointments', 'professionals', 'appointment_types', 'patients', 'agora', 'timezone'],
+			'agenda/janela'
+		);
+	});
 });

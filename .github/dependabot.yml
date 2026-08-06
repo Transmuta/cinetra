@@ -1,0 +1,87 @@
+# R-M7 (doc 95, onda 3 do doc 102) — a outra metade do R-M6.
+#
+# Fixar action por SHA (que a onda 3 fez) troca um problema por outro se ficar sozinho: sai
+# "atualiza sozinho e sem revisão" e entra "nunca atualiza", que é pior para CVE. O Dependabot é o
+# que devolve a atualização — só que como **PR revisável**, e não como uma tag que se moveu por
+# baixo do runner que guarda o webhook de deploy de produção.
+#
+# Antes disto o repositório não tinha varredura nenhuma: `.github/` só continha `workflows/ci.yml`,
+# sem CodeQL e sem este arquivo. CVE conhecida em dependência direta entrava e permanecia sem
+# nenhum sinal.
+#
+# Cadência semanal, não diária, e agrupada: o custo real de segurança de dependência não é
+# descobrir — é a fadiga de PR que faz a equipe parar de ler. Atualização de segurança do próprio
+# GitHub continua chegando fora deste agrupamento, como deve.
+version: 2
+
+updates:
+  # As actions do CI. É a superfície que a onda 3 acabou de fixar por SHA — e é aqui que ela volta
+  # a andar. O Dependabot entende `uses: org/acao@<sha> # v1.2.3` e atualiza os dois juntos.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "ci"
+
+  # Hex. Complementa o `mix deps.audit` do CI: o audit acusa o que JÁ está lá, este propõe a saída.
+  - package-ecosystem: mix
+    directory: /api
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      # Ash é um ecossistema com versões acopladas (`ash`, `ash_postgres`, `ash_phoenix`,
+      # `ash_authentication`…). Atualizar um por PR produz build quebrado e revisão inútil.
+      ash:
+        patterns: ["ash", "ash_*"]
+      phoenix:
+        patterns: ["phoenix", "phoenix_*", "plug*"]
+    commit-message:
+      prefix: "deps"
+
+  - package-ecosystem: npm
+    directory: /web
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      svelte:
+        patterns: ["svelte", "@sveltejs/*", "vite", "vitest", "@vitest/*"]
+      # devDependency não vai para a imagem final (`npm prune --omit=dev`), então o risco é de
+      # cadeia de build, não de runtime. Agrupar reduz ruído sem esconder nada.
+      dev:
+        dependency-type: development
+    commit-message:
+      prefix: "deps"
+
+  # As imagens base, que a onda 3 fixou por DIGEST. Sem esta entrada, o pin vira congelamento: a
+  # `debian:bookworm-slim` deixaria de receber patch de segurança do sistema operacional e ninguém
+  # notaria — que é exatamente a troca ruim descrita no topo, aplicada ao pior lugar possível.
+  - package-ecosystem: docker
+    directories:
+      - /api
+      - /web
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: "deps"
+
+  # Os composes também trazem imagem por digest (`postgres:16@sha256:…` em compose.dokploy.yml, e
+  # os 7 serviços do stack de observabilidade).
+  - package-ecosystem: docker-compose
+    directories:
+      - /
+      - /deploy/observability
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: "deps"

@@ -53,8 +53,6 @@ defmodule Api.Messaging.Message do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
-  alias Api.Messaging.MessageStatus
-
   postgres do
     table "messages"
     repo Api.Repo
@@ -85,7 +83,17 @@ defmodule Api.Messaging.Message do
       # O webhook (§10.2/§7): casar o evento do provider com a linha. Sem tenant na primeira
       # coluna de propósito — o evento chega **sem** `clinic_id`, e é justamente esta busca que
       # o resolve. Por isso `all_tenants?: true`.
-      index [:provider_message_id], all_tenants?: true, name: "messages_provider_id_index"
+      #
+      # **`unique`** (doc 92, P2-8): a leitura `:by_provider_id` é `get? true`, e sob índice
+      # não-único uma duplicata — um *retry* do provedor, que é o caso normal de acontecer —
+      # derruba o webhook com erro obscuro em vez de casar a linha. O parcial em `IS NOT NULL`
+      # não é obrigatório (`NULL` não conflita com `NULL` em índice único), mas deixa a intenção
+      # legível e o índice do tamanho das mensagens que já saíram, não da tabela inteira.
+      index [:provider_message_id],
+        all_tenants?: true,
+        unique: true,
+        where: "provider_message_id IS NOT NULL",
+        name: "messages_provider_id_index"
 
       # Apoio ao cascade das FKs sem índice próprio sob ADR-017 (mesma razão de `slot_holds`).
       #
@@ -366,20 +374,5 @@ defmodule Api.Messaging.Message do
 
     # Nulo = automático (criação do bloco ou cron). Preenchido = alguém clicou.
     belongs_to :disparado_por, Api.Accounts.User
-  end
-
-  @doc """
-  A mensagem chegou ao destino? Usada pela timeline e pelo "reenviar": `:pendente`/`:enviado` são
-  estados em trânsito, e só `:falhou` é motivo para o botão pedir atenção.
-
-  O `case` é deliberado: `MessageStatus.ordem/1` devolve `nil` em `:falhou`, e uma comparação
-  direta (`ordem(status) >= ordem(:entregue)`) diria **true** para mensagem falhada — no
-  ordenamento de termos do Elixir todo átomo é maior que todo número.
-  """
-  def entregue?(%{status: status}) do
-    case MessageStatus.ordem(status) do
-      nil -> false
-      n -> n >= MessageStatus.ordem(:entregue)
-    end
   end
 end

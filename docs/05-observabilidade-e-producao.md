@@ -317,6 +317,17 @@ deve receber tráfego.
 
 ## 5. Deploy no Fly.io
 
+### ⚠️ Esta seção é HISTÓRICA
+
+O deploy no Fly.io foi substituído pela [ADR-023](00-decisoes.md) — Dokploy sobre VPS Hostinger,
+domínio único, topologia BFF-only. Clustering por DNS interno (`.internal`), backup por snapshot do
+Fly e a divisão em dois apps **não descrevem mais nada em operação**.
+
+O que vale hoje: [doc 59](59-deploy-dokploy-oci.md) (runbook), [doc 87](87-servidor-hostinger-riscos-e-cuidados.md)
+(a máquina) e `compose.dokploy.yml` (a verdade executável). O restante desta seção fica como
+registro do raciocínio, não como instrução. (R-B10, onda 5 do doc 102.)
+
+
 ### 5.1 Dois apps, uma região
 
 Conforme ADR-008: dois apps Fly separados, ambos na região **`gru` (São Paulo)** —
@@ -566,6 +577,14 @@ não travar escrita — importante para a tabela de agendamentos, que é a mais 
 ---
 
 ## 7. Backup, restore e DR
+
+> **Superado quanto ao MECANISMO (2026-08-05).** Esta seção foi escrita para a Fly (snapshot do
+> Fly Postgres, PITR por WAL) e a infra é outra desde então. O estado atual está em
+> [`59 §13`](59-deploy-dokploy-oci.md): não há backup nosso no repositório — o dado é coberto pelo
+> snapshot da VPS na Hostinger e pelo snapshot de projeto do Dokploy para o R2, os dois operados
+> por painel. O que continua valendo aqui é o **raciocínio**: restore não testado é hipótese, a
+> chave do `AshCloak` tem custódia própria, e o restore de UMA clínica (7.2) segue sendo o
+> problema difícil, sem mecanismo pronto.
 
 ### 7.1 Backup
 

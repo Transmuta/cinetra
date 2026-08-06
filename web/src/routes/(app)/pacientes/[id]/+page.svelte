@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import SubmitButton from '$lib/components/SubmitButton.svelte';
-	import { envio } from '$lib/forms.svelte';
+	import { envio, reagirAoForm } from '$lib/forms.svelte';
 	import { invalidateAll } from '$app/navigation';
 	import ChevronLeft from '@lucide/svelte/icons/chevron-left';
 	import Pencil from '@lucide/svelte/icons/pencil';
@@ -21,6 +21,7 @@
 	import { avatarStyle } from '$lib/avatar';
 	import { toast } from '$lib/toast.svelte';
 	import { patientColor, convLabel, idade, prefNomes, canManagePatients } from '$lib/patients';
+	import { professionalNameMap } from '$lib/professionals';
 	import { canManageAttachments } from '$lib/attachments';
 	import PackageList from '$lib/components/patients/PackageList.svelte';
 
@@ -50,21 +51,25 @@
 	let vendoSessoes = $state<Pkg | null>(null);
 
 	// A grade fecha no sucesso; o erro mantém o modal aberto, com a mensagem do servidor.
-	$effect(() => {
-		if (form?.ok) ajustandoGrade = null;
-	});
-
-	// Falha de action vira toast — MENOS a da grade, que tem modal aberto e mostra a mensagem lá
-	// dentro (repetir seria a mesma frase duas vezes, uma delas por cima do que a pessoa digitou).
 	//
+	// O toast de erro vale para tudo MENOS a grade, que tem modal aberto e mostra a mensagem lá
+	// dentro (repetir seria a mesma frase duas vezes, uma delas por cima do que a pessoa digitou).
 	// Este era o buraco: `form.error` só estava ligado ao modal da grade, e ele só existe enquanto
 	// está aberto. Arquivar o paciente sem permissão, ou o 422 do arquivar-pacote ("ainda há sessão
 	// futura" — que o próprio servidor documenta como "o erro vai para a tela"), paravam o giro do
 	// botão e não diziam mais nada.
-	$effect(() => {
-		if (!form || form.ok || form.action === 'grade') return;
-		toast(form.error ?? 'Não foi possível concluir a ação.', 'error');
-	});
+	//
+	// Eram DOIS efeitos separados, e nenhum tinha guarda de identidade — agora é um só.
+	reagirAoForm(
+		() => form,
+		{
+			sucesso: () => (ajustandoGrade = null),
+			erro: (f) => {
+				if (f.action === 'grade') return;
+				toast(f.error ?? 'Não foi possível concluir a ação.', 'error');
+			}
+		}
+	);
 
 	// O título do modal da trilha é o do TIPO — a mesma identidade que o cartão usa.
 	const tituloDoPacote = $derived((pkg: Pkg) =>
@@ -76,9 +81,7 @@
 	// Anexos têm recorte PRÓPRIO de papel (owner·admin·recepção, doc 51): o `profissional` não vê
 	// a seção. É a única parte da ficha que não segue o "todo membro visualiza" do D16.
 	const canAttach = $derived(canManageAttachments(data.me.papel));
-	const nomePorId = $derived(
-		Object.fromEntries(data.professionals.map((x) => [x.id, x.nome])) as Record<string, string>
-	);
+	const nomePorId = $derived(professionalNameMap(data.professionals));
 	const prefs = $derived(prefNomes(p, nomePorId));
 	const idadeVal = $derived(idade(p.nascimento));
 	const endereco = $derived(
@@ -192,18 +195,18 @@
 
 {#snippet cabecalho(icon: typeof User, title: string)}
 	{@const Icon = icon}
-	<span class="grid size-[30px] shrink-0 place-items-center rounded-lg bg-teal-subtle text-teal-text">
+	<span class="grid size-[30px] shrink-0 place-items-center rounded-controle bg-accent-subtle text-accent-text">
 		<Icon size={15} />
 	</span>
-	<div class="text-[14px] font-bold">{title}</div>
+	<div class="text-leitura font-bold">{title}</div>
 {/snippet}
 
 {#snippet campos(lista: Campo[])}
 	<div class="grid grid-cols-2 gap-x-[18px] gap-y-3.5">
 		{#each lista as c (c.l)}
 			<div class="min-w-0 {c.wide ? 'col-span-2' : ''}">
-				<div class="mb-0.5 text-[11px] text-faint">{c.l}</div>
-				<div class="break-words text-[13.5px] font-medium text-ink {c.mono ? 'font-mono' : ''}">
+				<div class="mb-0.5 text-meta text-faint">{c.l}</div>
+				<div class="break-words text-corpo font-medium text-ink {c.mono ? 'font-mono' : ''}">
 					{c.v}
 				</div>
 			</div>
@@ -223,7 +226,7 @@
 -->
 {#snippet card(icon: typeof User, title: string, lista: Campo[], recolhido = false)}
 	{#if recolhido}
-		<details class="group rounded-[14px] border border-edge bg-surface p-5">
+		<details class="group rounded-cartao border border-edge bg-surface p-5">
 			<summary class="flex cursor-pointer list-none items-center gap-2.5">
 				{@render cabecalho(icon, title)}
 				<ChevronDown
@@ -234,7 +237,7 @@
 			<div class="mt-4">{@render campos(lista)}</div>
 		</details>
 	{:else}
-		<div class="rounded-[14px] border border-edge bg-surface p-5">
+		<div class="rounded-cartao border border-edge bg-surface p-5">
 			<div class="mb-4 flex items-center gap-2.5">{@render cabecalho(icon, title)}</div>
 			{@render campos(lista)}
 		</div>
@@ -242,14 +245,14 @@
 {/snippet}
 
 <div class="mx-auto max-w-[1180px] px-4 py-4 md:px-[22px] md:py-[18px]">
-	<a href="/pacientes" class="mb-3.5 inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-ink">
+	<a href="/pacientes" class="mb-3.5 inline-flex items-center gap-1.5 text-corpo text-muted hover:text-ink">
 		<ChevronLeft size={16} /> Pacientes
 	</a>
 
 	{#if !p.ativo}
-		<div class="mb-4 flex flex-wrap items-center gap-3 rounded-[14px] border border-warning/30 bg-warning/10 px-4 py-3">
+		<div class="mb-4 flex flex-wrap items-center gap-3 rounded-cartao border border-warning/30 bg-warning/10 px-4 py-3">
 			<Archive size={17} class="text-warning" />
-			<span class="flex-1 text-[13px] text-ink">
+			<span class="flex-1 text-corpo text-ink">
 				<b>Paciente arquivado</b> — não aparece na lista de ativos.
 			</span>
 			{#if canManage}
@@ -257,7 +260,7 @@
 					<SubmitButton
 						emVoo={situacao.emVoo}
 						size={15}
-						class="inline-flex items-center gap-1.5 rounded-lg border border-edge bg-surface px-3.5 py-2 text-[13px] font-semibold text-ink hover:bg-surface-2 disabled:opacity-60"
+						class="inline-flex items-center gap-1.5 rounded-controle border border-edge bg-surface px-3.5 py-2 text-corpo font-semibold text-ink hover:bg-surface-2 disabled:opacity-60"
 					>
 						<ArchiveRestore size={15} /> Reativar
 					</SubmitButton>
@@ -267,20 +270,20 @@
 	{/if}
 
 	<!-- Cabeçalho -->
-	<div class="mb-4 rounded-2xl border border-edge bg-surface p-5 md:px-6 md:py-[22px]">
+	<div class="mb-4 rounded-cartao border border-edge bg-surface p-5 md:px-6 md:py-[22px]">
 		<div class="flex flex-wrap items-start gap-4">
 			<span
-				class="grid size-[54px] shrink-0 place-items-center rounded-full text-[20px] font-bold md:size-16"
+				class="grid size-[54px] shrink-0 place-items-center rounded-full text-destaque font-bold md:size-16"
 				style={avatarStyle(p.cor_indice)}
 			>
 				{initials(p.nome)}
 			</span>
 			<div class="min-w-0 flex-1 basis-60">
-				<div class="text-[20px] font-bold leading-tight md:text-[24px]">{p.nome}</div>
-				{#if p.nome_social}<div class="mt-0.5 text-[13px] text-muted">“{p.nome_social}”</div>{/if}
-				<div class="mt-1.5 flex flex-wrap items-center gap-2.5 text-[12.5px] text-muted">
+				<div class="text-destaque font-bold leading-tight md:text-destaque">{p.nome}</div>
+				{#if p.nome_social}<div class="mt-0.5 text-corpo text-muted">“{p.nome_social}”</div>{/if}
+				<div class="mt-1.5 flex flex-wrap items-center gap-2.5 text-rotulo text-muted">
 					<span class="font-mono">{maskCpf(p.cpf ?? '') || 'CPF não informado'}</span>
-					<span class="inline-flex items-center gap-1.5 rounded-full bg-teal-subtle px-2.5 py-0.5 text-[11.5px] font-semibold text-teal-text">
+					<span class="inline-flex items-center gap-1.5 rounded-full bg-accent-subtle px-2.5 py-0.5 text-meta font-semibold text-accent-text">
 						<CreditCard size={12} /> {convLabel(p)}
 					</span>
 					<!-- O que o cartão "Consentimentos" acrescentava a este selo era a COBERTURA de
@@ -289,11 +292,11 @@
 					{#if p.comunicacao}
 						<span
 							title="WhatsApp, ligação e e-mail — lembretes e campanhas"
-							class="inline-flex items-center gap-1.5 text-[11.5px] text-success"><BellRing size={13} /> Contato autorizado</span>
+							class="inline-flex items-center gap-1.5 text-meta text-success"><BellRing size={13} /> Contato autorizado</span>
 					{:else}
 						<span
 							title="WhatsApp, ligação e e-mail — lembretes e campanhas"
-							class="inline-flex items-center gap-1.5 text-[11.5px] text-faint"><BellOff size={13} /> Sem autorização de contato</span>
+							class="inline-flex items-center gap-1.5 text-meta text-faint"><BellOff size={13} /> Sem autorização de contato</span>
 					{/if}
 				</div>
 			</div>
@@ -304,7 +307,7 @@
 				{#if p.ativo}
 					<a
 						href="/agenda?paciente={p.id}"
-						class="flex items-center gap-1.5 rounded-[9px] border border-edge bg-surface px-3.5 py-2 text-[13px] font-semibold text-ink hover:bg-surface-2"
+						class="flex items-center gap-1.5 rounded-controle border border-edge bg-surface px-3.5 py-2 text-corpo font-semibold text-ink hover:bg-surface-2"
 					>
 						<CalendarPlus size={15} /> Agendar
 					</a>
@@ -316,7 +319,7 @@
 								emVoo={situacao.emVoo}
 								title="Arquivar paciente"
 								size={15}
-								class="flex items-center gap-1.5 rounded-[9px] border border-edge bg-surface px-3.5 py-2 text-[13px] font-semibold text-muted hover:bg-surface-2 disabled:opacity-60"
+								class="flex items-center gap-1.5 rounded-controle border border-edge bg-surface px-3.5 py-2 text-corpo font-semibold text-muted hover:bg-surface-2 disabled:opacity-60"
 							>
 								<Archive size={15} /> Arquivar
 							</SubmitButton>
@@ -324,7 +327,7 @@
 					{/if}
 					<a
 						href="/pacientes/{p.id}/editar"
-						class="flex items-center gap-1.5 rounded-[9px] bg-primary px-3.5 py-2 text-[13px] font-semibold text-on-primary hover:bg-primary-hover"
+						class="flex items-center gap-1.5 rounded-controle bg-primary px-3.5 py-2 text-corpo font-semibold text-on-primary hover:bg-primary-hover"
 					>
 						<Pencil size={14} /> Editar dados
 					</a>
@@ -335,16 +338,16 @@
 		{#if p.tags.length}
 			<div class="mt-3.5 flex flex-wrap gap-1.5">
 				{#each p.tags as t (t)}
-					<span class="rounded-full border border-edge bg-surface-2 px-2.5 py-0.5 text-[12px] text-muted">{t}</span>
+					<span class="rounded-full border border-edge bg-surface-2 px-2.5 py-0.5 text-rotulo text-muted">{t}</span>
 				{/each}
 			</div>
 		{/if}
 
 		<div class="mt-4 grid grid-cols-2 gap-2.5 md:grid-cols-3">
 			{#snippet stat(l: string, v: string, accent: string, hint = '')}
-				<div class="rounded-[11px] border border-edge bg-surface-2 px-3.5 py-3" title={hint}>
-					<div class="mb-1 text-[10.5px] uppercase tracking-[.04em] text-faint">{l}</div>
-					<div class="font-mono text-[16px] font-bold {accent}">{v}</div>
+				<div class="rounded-cartao border border-edge bg-surface-2 px-3.5 py-3" title={hint}>
+					<div class="mb-1 text-micro uppercase tracking-[.04em] text-faint">{l}</div>
+					<div class="font-mono text-titulo font-bold {accent}">{v}</div>
 				</div>
 			{/snippet}
 			{@render stat('Idade', idadeVal !== null ? `${idadeVal} anos` : '—', 'text-ink')}
@@ -396,7 +399,7 @@
 		{#if naoPreenchidos > 0 && canManage}
 			<a
 				href="/pacientes/{p.id}/editar"
-				class="rounded-[14px] border border-dashed border-edge px-4 py-3 text-[12.5px] text-muted hover:border-primary hover:text-ink"
+				class="rounded-cartao border border-dashed border-edge px-4 py-3 text-rotulo text-muted hover:border-primary hover:text-ink"
 			>
 				{naoPreenchidos}
 				{naoPreenchidos === 1 ? 'campo não preenchido' : 'campos não preenchidos'} · Completar

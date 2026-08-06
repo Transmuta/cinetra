@@ -44,6 +44,25 @@ export function r2Origin(accountId) {
 }
 
 /**
+ * `img-src` da CSP: `self`, `data:` e — quando configurado — o bucket.
+ *
+ * O bucket entra porque a **foto de perfil** (copiada do Google para o R2, ver
+ * `Api.Accounts.AvatarSyncJob`) é servida por URL assinada do próprio bucket: o `<img>` do avatar
+ * aponta para fora do BFF, como o `PUT` do anexo. Sem esta entrada a foto é bloqueada e o motivo
+ * fica só no console do browser de quem logou com Google.
+ *
+ * Deriva do mesmo `r2Origin` que o `connect-src` — uma fonte para o endereço do bucket, não duas.
+ *
+ * @param {string} [r2AccountId]  omitido/vazio = sem bucket no `img-src`
+ * @returns {string[]}
+ */
+export function imgSrc(r2AccountId) {
+	const bucket = r2Origin(r2AccountId);
+
+	return ['self', 'data:', ...(bucket ? [bucket] : [])];
+}
+
+/**
  * `connect-src` da CSP: `self`, o par http(s)/ws(s) da API e — quando configurado — o bucket.
  *
  * Duas conexões do browser NÃO passam pelo BFF (ADR-004/005), e por isso `self` não basta:

@@ -78,6 +78,24 @@ defmodule Api.Accounts.User do
       accept [:nome]
     end
 
+    @doc """
+    Registra que esta pessoa passou pelos documentos legais **naquela versão** (`[D-14]`).
+
+    Idempotente por versão: reaceitar a mesma versão **não** reescreve o instante da primeira —
+    "quando aceitou a 1.0" é a pergunta, e sobrescrevê-la a cada login trocaria a resposta por
+    "quando entrou pela última vez", que é outro dado e não serve de prova de nada. Versão nova
+    carimba de novo, e é assim que se descobre quem ainda não viu o texto novo.
+    """
+    update :accept_terms do
+      description "Carimba o aceite dos Termos/Privacidade na versão informada."
+
+      accept []
+      argument :versao, :string, allow_nil?: false, constraints: [max_length: 20]
+      require_atomic? false
+
+      change Api.Accounts.User.Changes.StampTermsAcceptance
+    end
+
     read :get_by_subject do
       description "Get a user by the subject claim in a JWT"
       argument :subject, :string, allow_nil?: false
@@ -128,16 +146,37 @@ defmodule Api.Accounts.User do
       end
     end
 
+    # A foto de perfil, depois de baixada do Google e guardada no bucket (`AvatarSyncJob`).
+    # Ação separada de `update_profile` porque quem a chama é o job, não a pessoa: nenhum dos
+    # dois campos é editável na tela, e misturá-los abriria `avatar_key` (o endereço de um
+    # objeto no R2) a um PATCH de request.
+    update :set_avatar do
+      accept []
+
+      argument :avatar_key, :string, allow_nil?: true
+      argument :avatar_origem, :string, allow_nil?: true
+
+      change set_attribute(:avatar_key, arg(:avatar_key))
+      change set_attribute(:avatar_origem, arg(:avatar_origem))
+    end
+
     create :register_with_google do
       description "Registra ou identifica um usuário via Google OAuth (upsert por e-mail)."
       upsert? true
       upsert_identity :unique_email
+
+      # `avatar_key`/`avatar_origem` NÃO entram: o login não sabe nada sobre a foto ainda (ela é
+      # baixada depois, fora do request). Fora do `upsert_fields`, o que já está gravado
+      # sobrevive ao próximo login — que é o comportamento desejado.
       upsert_fields [:email, :nome]
 
       argument :user_info, :map, allow_nil?: false
       argument :oauth_tokens, :map, allow_nil?: false
 
       change Api.Accounts.User.Changes.SetFromGoogleUserInfo
+      # Enfileira a busca da foto (fora do request) quando o Google mandou uma que ainda não
+      # temos. Antes da IdentityChange/GenerateTokenChange não faz diferença — é `after_action`.
+      change Api.Accounts.User.Changes.SyncGoogleAvatar
       # Faz o upsert da UserIdentity (strategy + uid) e a liga ao usuário.
       change AshAuthentication.Strategy.OAuth2.IdentityChange
       change AshAuthentication.GenerateTokenChange
@@ -177,6 +216,13 @@ defmodule Api.Accounts.User do
 
     # "Meu perfil": a pessoa só edita a si mesma (filter check sobre o registro).
     policy action(:update_profile) do
+      authorize_if expr(id == ^actor(:id))
+    end
+
+    # O aceite é sobre a própria conta e mais ninguém — mesmo filtro do perfil. Registrar aceite
+    # em nome de terceiro é forjar prova, e é por isso que esta linha existe mesmo sendo a
+    # fronteira de autenticação (que já tem o usuário da sessão em mãos) a única a chamar.
+    policy action(:accept_terms) do
       authorize_if expr(id == ^actor(:id))
     end
 
@@ -222,6 +268,38 @@ defmodule Api.Accounts.User do
       allow_nil?: false,
       public?: true,
       constraints: [casing: :lower]
+
+    # A foto de perfil vive no bucket privado (R2), como todo byte do projeto — nunca no Postgres
+    # e nunca como link para o Google. Guardar a URL do Google pareceria mais simples e traria
+    # três problemas: o browser do usuário passaria a discar para o `googleusercontent.com` em
+    # toda tela (a CSP teria de abrir esse destino, e o Google veria quem está usando o app e
+    # quando), o link morre quando a pessoa troca a foto lá, e o app perde o dado se o Google
+    # tirar o acesso. Ver `Api.Accounts.AvatarSyncJob`.
+    #
+    # `avatar_key` é o endereço no bucket (derivado do id, `Api.Accounts.User.Avatar.chave/2`);
+    # nulo = sem foto, e a tela cai nas iniciais.
+    attribute :avatar_key, :string, public?: false
+
+    # A URL da foto **no Google**, do jeito que veio no `user_info` quando o job a processou —
+    # tendo ele guardado a foto **ou recusado**. Não é para exibir: junto com `avatar_key` nula,
+    # ela é a resposta a "esta conta já passou pela busca de foto?", que é o gatilho de
+    # `Api.Accounts.User.Changes.SyncGoogleAvatar`. Sem ela, uma conta cuja foto foi recusada
+    # tentaria de novo a cada login — e a pessoa loga todo dia.
+    attribute :avatar_origem, :string, public?: false
+
+    # O aceite dos Termos e da Política de Privacidade (`[D-14]`, doc 101 A4).
+    #
+    # Antes disto o aceite era **presumido**: `/criar-conta` traz a nota "ao criar sua conta você
+    # concorda com…", e nada era gravado. Em disputa, dava para mostrar que o texto estava na tela
+    # naquela versão do código — não que *aquela pessoa* passou por ele em *determinada data*.
+    #
+    # `public? false` porque não é campo de formulário: quem os escreve é `:accept_terms`, com a
+    # versão vinda de quem **exibiu** o texto (o BFF, de `web/src/lib/legal.ts`). A API não guarda
+    # uma cópia do número da versão de propósito — seria o quinto espelho do A5, e o que
+    # apodreceria em silêncio seria justamente o registro legal.
+    attribute :termos_aceitos_em, :utc_datetime, public?: false
+
+    attribute :termos_versao, :string, public?: false, constraints: [max_length: 20]
 
     timestamps()
   end

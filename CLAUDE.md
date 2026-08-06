@@ -98,13 +98,21 @@ Fora dos domínios: `repo.ex`, `scope.ex` (actor+tenant), `release.ex` (migratio
   bate-volta. `00-decisoes.md` e `50-debitos-tecnicos.md` são os acumuladores.
 - `.claude/rules/` — `ash*.md`, `usage_rules_*.md` vêm dos pacotes; `migrations.md` e `testes.md` são
   **regras próprias do projeto** (leia antes de mexer em migration ou de abrir PR).
-- `deploy/` — `observability/` (Alloy/Grafana), `backup/`, `bff-test/`. `compose.dokploy.yml` é prod/HML.
+- `deploy/` — `observability/` (Alloy/Grafana), `backup/`, `carga/`, `bff-test/`. Os composes ficam na
+  **raiz**, não em `deploy/`: `compose.dokploy.yml` é prod/HML, `compose.prod.yml` e
+  `compose.bff-test.yml` são os auxiliares, `docker-compose.yml` é o de dev.
 - `interface/` — protótipo HTML da marca; **é regenerado por ferramenta, não edite à mão**.
 - migrations: `api/priv/repo/migrations/` (geradas por `mix ash.codegen`, nunca escritas à mão).
 
 ## Comandos
 
 Tudo roda em container; do host use `docker.exe compose exec` (serviços `api`, `web`, `db`).
+
+> **O container do `api` roda com `MIX_ENV=dev`, então passe `-e MIX_ENV=test` para toda tarefa de
+> teste** — `docker.exe compose exec -T -e MIX_ENV=test api mix test`. Sem isso o `mix test` sobe a
+> aplicação em dev e morre em `:eaddrinuse`: o servidor de métricas do PromEx já está com a 4021, e
+> em `test` ele é desligado (`config/test.exs`). O erro não menciona teste nem ambiente, então
+> custa caro descobrir. (Para um `mix run` avulso em dev, o equivalente é `-e METRICS_PORT=4099`.)
 
 ```bash
 # backend (dentro de api/)

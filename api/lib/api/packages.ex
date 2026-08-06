@@ -29,7 +29,6 @@ defmodule Api.Packages do
     end
 
     resource Api.Packages.PackageSchedule do
-      define :get_package_schedule, action: :read, get_by: [:id]
       define :list_package_schedules, action: :read
       define :update_package_schedule, action: :update
     end
@@ -169,12 +168,17 @@ defmodule Api.Packages do
     clinic_id = scope.clinic_id
     %{today: today} = Api.Scheduling.clinic_now(scope)
 
-    result =
-      in_clinic(scope, fn ->
-        Api.Repo.transaction(fn ->
-          pkg = get_package!(package_id, scope: scope)
-          held = held_targets(scope, package_id)
+    transacao_com_notificacoes(scope, fn ->
+      pkg = get_package!(package_id, scope: scope)
+      held = held_targets(scope, package_id)
 
+      # **A transição vem primeiro**, pela mesma razão de `lifecycle/5` (doc 101 §4.1): desde que
+      # `:profissional` saiu do ciclo de vida, `mark_package_active` pode recusar, e com o
+      # `{:ok, _, _} =` que havia aqui a recusa virava `MatchError` — 500 no botão Retomar. Esta é
+      # a única das quatro transições que não passa por `lifecycle/5`, e foi por isso que ela
+      # escapou da primeira leva.
+      case mark_package_active(pkg, scope: scope, return_notifications?: true) do
+        {:ok, ativo, mark_notes} ->
           # Cancelar pela MESMA decisão por-presença da massa: numa turma compartilhada, a sessão
           # que volta para a fila de reprojeção é a **dele** — o colega fica. Antes daqui a
           # retomada cancelava o bloco, o que arrastaria a turma junto (a irmã do achado de
@@ -187,21 +191,12 @@ defmodule Api.Packages do
 
           enqueue_reproject(pkg, clinic_id, today, length(held))
 
-          {:ok, ativo, mark_notes} =
-            mark_package_active(pkg, scope: scope, return_notifications?: true)
+          {ativo, mark_notes ++ cancel_notes}
 
-          {ativo, cancel_notes ++ mark_notes}
-        end)
-      end)
-
-    case result do
-      {:ok, {pkg, notifications}} ->
-        Ash.Notifier.notify(notifications)
-        {:ok, pkg}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
+        {:error, erro} ->
+          {:error, erro}
+      end
+    end)
   end
 
   defp enqueue_reproject(_pkg, _clinic_id, _today, 0), do: :ok
@@ -227,17 +222,9 @@ defmodule Api.Packages do
   # `resume_package` estourar com "transição indisponível a partir de cancelado" — 500 no botão
   # Retomar que a ficha oferece (bate-volta da Onda 3).
   defp held_targets(scope, package_id) do
-    por_bloco =
-      list_attendances_for_package(scope, package_id)
-      |> Enum.filter(&Api.Scheduling.Attendance.viva?/1)
-      |> Map.new(&{&1.appointment_id, &1})
-
-    Api.Scheduling.list_sessions_including_held(scope.clinic_id, Map.keys(por_bloco),
-      load: [:attendances]
-    )
-    |> Enum.reject(&(&1.status == :cancelado))
-    |> Enum.map(&{&1, Map.fetch!(por_bloco, &1.id)})
-    |> Enum.filter(fn {appt, att} -> appt.pkg_hold or att.pkg_hold end)
+    Api.Packages.Targets.pares(scope, package_id, fn {appt, att} ->
+      appt.status != :cancelado and (appt.pkg_hold or att.pkg_hold)
+    end)
   end
 
   # Roda `fun` sobre cada sessão futura não-resolvida do pacote e vira o status do pacote, **tudo
@@ -245,30 +232,61 @@ defmodule Api.Packages do
   # notificações das escritas são coletadas e emitidas **fora** da transação: o Ash não as despacha
   # de dentro de uma transação que ele não abriu (senão avisa "missed notifications").
   defp lifecycle(scope, package_id, statuses, mark, fun) do
-    result =
-      in_clinic(scope, fn ->
-        Api.Repo.transaction(fn ->
+    transacao_com_notificacoes(scope, fn ->
+      # **A transição vem primeiro**, e a ordem é a que deixa a recusa sair como valor. Desde
+      # que o papel `:profissional` saiu do ciclo de vida (doc 101 §4.1), `apply_mark/3` pode
+      # devolver `%Ash.Error.Forbidden{}` — e com o `{:ok, _, _} =` que havia aqui isso virava
+      # `MatchError`, ou seja, 500 no botão em vez do 403 que o caso é.
+      #
+      # Sair pelo `Api.Repo.rollback/1` não serve: esta transação é **aninhada** na que
+      # `in_clinic/2` abre, e no Ecto a de dentro não abre savepoint — o rollback derruba a de
+      # fora e o motivo chega como `{:error, :rollback}`, perdendo qual foi. É a mesma nota que
+      # `archive_package/2` carrega (ver `notificar/1`), e é por isso que a saída aqui é um
+      # valor de retorno, não um rollback.
+      #
+      # Marcar antes de mexer nas sessões é seguro: é tudo uma transação só, nenhum dos dois
+      # `fun` (segurar/cancelar sessão) lê o status do pacote, e as notificações são coletadas
+      # e emitidas depois do commit.
+      case apply_mark(get_package!(package_id, scope: scope), mark, scope) do
+        {:ok, pkg, pkg_notes} ->
           notes =
             scope
             |> future_sessions(package_id, statuses)
             |> Enum.flat_map(fun)
 
-          {:ok, pkg, pkg_notes} =
-            get_package!(package_id, scope: scope)
-            |> apply_mark(mark, scope)
+          {pkg, pkg_notes ++ notes}
 
-          {pkg, notes ++ pkg_notes}
-        end)
-      end)
+        {:error, erro} ->
+          {:error, erro}
+      end
+    end)
+  end
 
-    case result do
-      {:ok, {pkg, notifications}} ->
-        Ash.Notifier.notify(notifications)
-        {:ok, pkg}
-
-      {:error, reason} ->
-        {:error, reason}
+  # `in_clinic` + transação + as notificações emitidas **fora** dela — o molde que `lifecycle/5` e
+  # `resume_package/2` repetiam inteiro (doc 101, B6).
+  #
+  # `fun` devolve `{registro, notificações}` no caminho feliz, ou `{:error, motivo}` para recusar
+  # **sem escrever**. A recusa é um valor de retorno e não um `Api.Repo.rollback/1`: esta transação
+  # é aninhada na que o `in_clinic/2` abre, e no Ecto a de dentro não abre savepoint — o rollback
+  # derrubaria a de fora e o motivo chegaria como `{:error, :rollback}`, perdendo qual foi. Por
+  # isso `Api.Repo.transaction` devolve `{:ok, {:error, motivo}}` e é esse o primeiro caso abaixo.
+  #
+  # O Ash não despacha notificação de dentro de uma transação que ele não abriu (avisa "missed
+  # notifications"), então elas são coletadas por `return_notifications?: true` e emitidas aqui,
+  # depois do commit.
+  defp transacao_com_notificacoes(scope, fun) when is_function(fun, 0) do
+    scope
+    |> in_clinic(fn -> Api.Repo.transaction(fun) end)
+    |> case do
+      {:ok, {:error, motivo}} -> {:error, motivo}
+      {:ok, {registro, notificacoes}} -> notificar_e_devolver(registro, notificacoes)
+      {:error, motivo} -> {:error, motivo}
     end
+  end
+
+  defp notificar_e_devolver(registro, notificacoes) do
+    Ash.Notifier.notify(notificacoes)
+    {:ok, registro}
   end
 
   defp apply_mark(pkg, :mark_paused, scope),
@@ -290,23 +308,11 @@ defmodule Api.Packages do
   defp future_sessions(scope, package_id, statuses) do
     %{today: today, timezone: tz} = Api.Scheduling.clinic_now(scope)
 
-    por_bloco =
-      list_attendances_for_package(scope, package_id)
-      |> Enum.filter(&Api.Scheduling.Attendance.viva?/1)
-      |> Map.new(&{&1.appointment_id, &1})
-
-    Api.Scheduling.list_sessions_including_held(scope.clinic_id, Map.keys(por_bloco),
-      load: [:attendances]
-    )
-    |> Enum.filter(fn appt ->
+    Api.Packages.Targets.pares(scope, package_id, fn {appt, _att} ->
       appt.status in statuses and
         not Date.before?(Api.Scheduling.LocalTime.to_local_date(appt.starts_at, tz), today)
     end)
-    |> Enum.map(&{&1, Map.fetch!(por_bloco, &1.id)})
   end
-
-  defp list_attendances_for_package(scope, package_id),
-    do: Api.Scheduling.list_package_attendances(scope, package_id, load: [:appointment])
 
   @doc """
   **Arquiva** o pacote: marca `:concluido` e o tira da vista da ficha (o histórico da seção).
@@ -327,26 +333,58 @@ defmodule Api.Packages do
       pacote fechado; o caminho é cancelar (ou concluir) o que sobrou antes.
   """
   def archive_package(%Api.Scope{} = scope, package_id) do
-    {pkg, futuras} =
-      in_clinic(scope, fn ->
-        pkg = get_package!(package_id, scope: scope)
-        {pkg, future_sessions(scope, package_id, [:agendado, :confirmado])}
-      end)
+    # **A checagem e a escrita na MESMA transação** (doc 96, B-13). Antes a leitura das futuras
+    # acontecia numa transação e o `mark_completed` em outra, com a decisão tomada no meio: uma
+    # sessão agendada entre as duas era arquivada junto, e o pacote fechava com sessão viva na
+    # agenda — que é exatamente o estado que a recusa `:sessoes_futuras` existe para impedir.
+    #
+    # O que sobra de janela é a do **D-5** (sob `READ COMMITTED`, um `COMMIT` alheio entre o
+    # `SELECT` e o nosso `COMMIT` não é visto). É uma janela de frações de segundo, contra a
+    # anterior, que era do tamanho de duas transações separadas — e fechá-la de vez custaria
+    # `SERIALIZABLE` ou lock na agenda futura, que é o que o D-5 registra como não valer a pena.
+    #
+    # As notificações voltam por `return_notifications?` e saem **fora** da transação, no molde de
+    # `lifecycle/5`: o Ash não as despacha de dentro de uma transação que ele não abriu.
+    scope.clinic_id
+    |> Api.Repo.with_clinic(fn ->
+      pkg = get_package!(package_id, scope: scope)
 
-    cond do
-      pkg.status in [:cancelado, :concluido] ->
-        {:error, :status_invalido}
+      cond do
+        pkg.status in [:cancelado, :concluido] ->
+          Api.Repo.rollback(:status_invalido)
 
-      futuras != [] ->
-        {:error, :sessoes_futuras}
+        future_sessions(scope, package_id, [:agendado, :confirmado]) != [] ->
+          Api.Repo.rollback(:sessoes_futuras)
 
-      true ->
-        # A escrita fica **fora** do `in_clinic`: a ação seta a própria GUC (`SetTenantGuc`), e
-        # assim o Ash despacha as notificações na transação dele — sem o "missed notifications"
-        # que aparece ao escrever dentro de uma transação que ele não abriu (ver `lifecycle/5`).
-        mark_package_completed(pkg, scope: scope)
-    end
+        true ->
+          # `case` e não `{:ok, _, _} =`: desde que `:profissional` saiu do ciclo de vida (doc 101
+          # §4.1) esta ação pode recusar, e o match cru virava `MatchError` — 500 no lugar do 403.
+          # Aqui o `rollback` **funciona** (diferente de `lifecycle/5`), porque quem abriu a
+          # transação foi o `with_clinic/2` cru logo acima, sem `in_clinic/2` por fora.
+          case mark_package_completed(pkg, scope: scope, return_notifications?: true) do
+            {:ok, concluido, notes} -> {concluido, notes}
+            {:error, erro} -> Api.Repo.rollback(erro)
+          end
+      end
+    end)
+    |> notificar()
   end
+
+  # O desembrulho de `Api.Repo.with_clinic/2` quando a transação devolve `{registro, notificações}`:
+  # emite o que as ações devolveram e entrega o registro. É o mesmo formato de `resume_package/2` e
+  # `lifecycle/5`.
+  #
+  # **`with_clinic/2` cru, e não `in_clinic/2`**, nos dois chamadores: `in_clinic/2` casa `{:ok, _}`
+  # e portanto explode em cima de um `Repo.rollback`, que aqui é saída normal (é como `:status_invalido`
+  # e `:sem_sessao_futura` voltam sem escrever nada). Aninhar `Repo.transaction` dentro de
+  # `in_clinic/2` também não serve: no Ecto a transação de dentro **não** abre savepoint, então o
+  # rollback derruba a de fora e o motivo chega como `{:error, :rollback}`, perdendo qual foi.
+  defp notificar({:ok, {registro, notifications}}) do
+    Ash.Notifier.notify(notifications)
+    {:ok, registro}
+  end
+
+  defp notificar({:error, motivo}), do: {:error, motivo}
 
   @doc """
   **Soma uma sessão** ao pacote (ADR-011 / contrato 09:444). O `total` sobe 1 e a sessão nova é
@@ -437,26 +475,40 @@ defmodule Api.Packages do
   consumido já aconteceu.
   """
   def remove_session(%Api.Scope{} = scope, package_id) do
-    pkg =
-      in_clinic(scope, fn -> get_package!(package_id, scope: scope, load: [:usadas]) end)
+    # **As duas escritas numa transação só** (doc 96, B-13). Antes elas eram independentes: a
+    # sessão era cancelada e só então o total baixava. Quando o segundo passo falhava, o primeiro
+    # ficava — e falhar não é hipótese remota: `total` tem `min: 1` no recurso, então um pacote de
+    # UMA sessão sempre caía nisso. Sobrava o pior estado do domínio, o mesmo que `somar_sessao/3`
+    # descreve no comentário dela: **pacote vendido com N, zero na agenda**, sem erro na tela.
+    scope.clinic_id
+    |> Api.Repo.with_clinic(fn ->
+      pkg = get_package!(package_id, scope: scope, load: [:usadas])
 
-    # `alvos/3` é a MESMA resolução de "futuras ainda não resolvidas" da massa e do ciclo de vida
-    # (por presença, fuso da clínica) — a regra do recorte existe uma vez só.
-    case Api.Packages.Bulk.alvos(scope, package_id, %{escopo: :todas}) do
-      {:ok, [], _tz} ->
-        {:error, :sem_sessao_futura}
+      # `alvos/3` é a MESMA resolução de "futuras ainda não resolvidas" da massa e do ciclo de
+      # vida (por presença, fuso da clínica) — a regra do recorte existe uma vez só.
+      case Api.Packages.Bulk.alvos(scope, package_id, %{escopo: :todas}) do
+        {:ok, [], _tz} -> Api.Repo.rollback(:sem_sessao_futura)
+        {:ok, alvos, _tz} -> tirar_ultima(scope, pkg, alvos)
+        {:error, motivo} -> Api.Repo.rollback(motivo)
+      end
+    end)
+    |> notificar()
+  end
 
-      {:ok, alvos, _tz} ->
-        if pkg.total - 1 < pkg.usadas do
-          {:error, :abaixo_do_consumido}
-        else
-          {_appt, _att} = ultimo = Enum.max_by(alvos, fn {appt, _att} -> appt.starts_at end)
-          {:ok, _notes} = Api.Packages.Bulk.cancelar_sessao(scope, ultimo)
-          set_package_total(pkg, %{total: pkg.total - 1}, scope: scope)
-        end
+  defp tirar_ultima(scope, pkg, alvos) do
+    if pkg.total - 1 < pkg.usadas do
+      Api.Repo.rollback(:abaixo_do_consumido)
+    else
+      ultimo = Enum.max_by(alvos, fn {appt, _att} -> appt.starts_at end)
+      {:ok, notes} = Api.Packages.Bulk.cancelar_sessao(scope, ultimo)
 
-      erro ->
-        erro
+      case set_package_total(pkg, %{total: pkg.total - 1},
+             scope: scope,
+             return_notifications?: true
+           ) do
+        {:ok, menor, total_notes} -> {menor, notes ++ total_notes}
+        {:error, motivo} -> Api.Repo.rollback(motivo)
+      end
     end
   end
 
@@ -497,15 +549,31 @@ defmodule Api.Packages do
         # código anterior — a recusa chegava tarde: as futuras já estavam canceladas e a
         # re-materialização morria em silêncio no job, deixando o pacote vendido com N sessões e
         # zero na agenda. Ver `Api.Packages.LifecycleTest`, "recusa profissional …".
+        # A reordenação acima fechou a recusa **previsível**; a atomicidade continuava aberta. Sem
+        # transação, uma falha no meio do `Enum.each` (o `{:ok, _} =` levanta) deixava parte das
+        # sessões canceladas, a grade já reescrita e **nenhum job enfileirado** — exatamente o
+        # estado "pacote vendido com N, zero na agenda" que o comentário acima diz ter consertado
+        # (doc 96, B-6). O irmão `resume_package/2` já usa este desenho.
+        #
+        # `enqueue_from` fica DENTRO: se a transação abortar, o job não deve existir — do
+        # contrário ele materializaria sobre uma grade que voltou atrás.
         with {:ok, atrs} <- grade_params(grade),
-             :ok <- checar_profissional(scope, profissional_efetivo(atrs, pkg.schedule)),
-             {:ok, _grade} <- update_package_schedule(pkg.schedule, atrs, scope: scope) do
-          Enum.each(futuras, fn alvo ->
-            {:ok, _notes} = Api.Packages.Bulk.cancelar_sessao(scope, alvo)
-          end)
+             :ok <- checar_profissional(scope, profissional_efetivo(atrs, pkg.schedule)) do
+          in_clinic(scope, fn ->
+            Api.Repo.transaction(fn ->
+              {:ok, _grade} = update_package_schedule(pkg.schedule, atrs, scope: scope)
 
-          enqueue_from(pkg, scope, today, length(futuras))
-          {:ok, get_patient_package!(scope, package_id)}
+              Enum.each(futuras, fn alvo ->
+                {:ok, _notes} = Api.Packages.Bulk.cancelar_sessao(scope, alvo)
+              end)
+
+              enqueue_from(pkg, scope, today, length(futuras))
+            end)
+          end)
+          |> case do
+            {:ok, _} -> {:ok, get_patient_package!(scope, package_id)}
+            {:error, motivo} -> {:error, motivo}
+          end
         end
     end
   end
@@ -631,12 +699,21 @@ defmodule Api.Packages do
   pacote de seis — o desenho discordando do contador ao lado. Mesmo filtro do protótipo
   ([`:387`](../../../interface/Movimento.dc.html#L387)).
   """
-  def list_sessions(%Api.Scope{} = scope, package_id) do
-    pkg = in_clinic(scope, fn -> get_package!(package_id, scope: scope) end)
-
+  # Aceita o **pacote já lido**, além do id (doc 96, P-8). Quem chama pela fronteira acabou de
+  # resolvê-lo para decidir o 404 (`fetch_patient_package/3`), e reler aqui era a mesma linha do
+  # banco duas vezes por request. Os testes e o resto do domínio seguem passando o id.
+  # A leitura é a **sem recorte A7** (doc 101 §4.1): a trilha é do pacote, e o contador `usadas` ao
+  # lado dela é um agregado que sempre contou o pacote inteiro. Recortada, ela desenhava quatro
+  # bolinhas ao lado de um contador dizendo cinco — o mesmo defeito que o filtro de canceladas
+  # abaixo existe para evitar.
+  def list_sessions(%Api.Scope{} = scope, %Api.Packages.Package{} = pkg) do
     scope
-    |> Api.Scheduling.list_package_attendances(package_id)
+    |> Api.Scheduling.list_package_attendances(pkg.id)
     |> trilha(scope.now, pkg.status == :pausado)
+  end
+
+  def list_sessions(%Api.Scope{} = scope, package_id) when is_binary(package_id) do
+    list_sessions(scope, in_clinic(scope, fn -> get_package!(package_id, scope: scope) end))
   end
 
   @doc """
@@ -776,5 +853,29 @@ defmodule Api.Packages do
         load: Keyword.get(opts, :load, [:usadas, :restantes, :acabando, :schedule])
       )
     end)
+  end
+
+  @doc """
+  A versão que **não levanta**: `{:ok, pacote}` ou `{:ok, nil}`.
+
+  Molde de `Api.Records.fetch_clinic_patient/3`. Existe porque a fronteira precisa devolver 404 com
+  o corpo do projeto (`{"error":"not_found"}`), e o bang produzia um `Ash.Error` que o
+  `ash_phoenix` traduz em `{"errors":{"detail":"Not Found"}}` — outro formato, mais um crash no
+  log, e **400** em vez de 404 quando o id nem é UUID (doc 96, H-4).
+  """
+  def fetch_patient_package(%Api.Scope{} = scope, id, opts \\ []) when is_binary(id) do
+    case Ecto.UUID.cast(id) do
+      {:ok, id} ->
+        in_clinic(scope, fn ->
+          get_package(id,
+            scope: scope,
+            not_found_error?: false,
+            load: Keyword.get(opts, :load, [:usadas, :restantes, :acabando, :schedule])
+          )
+        end)
+
+      :error ->
+        {:ok, nil}
+    end
   end
 end

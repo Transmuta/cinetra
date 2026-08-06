@@ -98,10 +98,13 @@ defmodule Api.Audit.AuditLogTest do
       # **Sem total** (D-Aud1, reafirmado pelo bate-volta): o `COUNT(*)` custava 265× a própria
       # página e era ~99% do tempo de banco da tela. O `more` continua exato — o Ash busca
       # `limit + 1` — e é ele que habilita a seta.
-      refute Map.has_key?(page, :total)
+      # O `page` do DOMÍNIO é o `Ash.Page.Offset` cru: a forma do wire é da fronteira (doc 96,
+      # H-8). O que este teste continua provando é a decisão de custo — a leitura da trilha é
+      # `count: false`, então não há total a contar.
+      assert page.count == nil
       assert page.offset == 0
       assert page.limit == 50
-      assert page.more == false
+      assert page.more? == false
     end
 
     test "pagina: limit/offset recortam e `more` sinaliza continuação" do
@@ -110,7 +113,7 @@ defmodule Api.Audit.AuditLogTest do
 
       %{entries: primeira, page: p1} = Audit.list_events(ctx.scope, limit: 2, offset: 0)
       assert length(primeira) == 2
-      assert p1.more == true
+      assert p1.more? == true
 
       %{entries: segunda, page: p2} = Audit.list_events(ctx.scope, limit: 2, offset: 2)
       assert p2.offset == 2
@@ -361,10 +364,10 @@ defmodule Api.Audit.AuditLogTest do
       for hora <- ["10:00", "11:00", "14:00"], do: schedule(ctx, %{starts_at: at(hora)})
 
       %{page: sem_filtro} = Audit.list_events(ctx.scope, limit: 6)
-      assert sem_filtro.more == true
+      assert sem_filtro.more? == true
 
       %{page: com_filtro} = Audit.list_events(ctx.scope, record_id: alvo.id, limit: 6)
-      assert com_filtro.more == false
+      assert com_filtro.more? == false
     end
 
     test "por autor: a admin que remarca aparece separada do owner" do

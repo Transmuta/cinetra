@@ -219,6 +219,64 @@ defmodule ApiWeb.Plugs.RateLimitGlobalTest do
     end
   end
 
+  # Doc 96, L-2. O estágio de borda existia para "cortar a enxurrada antes do trabalho", e cortava
+  # antes do BANCO (o teste acima prova isso) — mas não antes do **corpo**: `Plug.Parsers` é plug do
+  # endpoint e rodava antes do router, então mesmo a requisição que ia levar 429 já tinha lido,
+  # alocado e decodificado até 8 MB.
+  #
+  # O jeito de provar a ORDEM sem medir memória é mandar um corpo que o parser recusa: se ele roda
+  # primeiro, a resposta é o 400 dele; se o limitador roda primeiro, é 429. Nenhum dos dois é
+  # opinião — é qual plug respondeu.
+  describe "a borda roda antes do Plug.Parsers (L-2)" do
+    defp post_json_quebrado(ip) do
+      build_conn()
+      |> put_req_header("x-forwarded-for", ip)
+      |> put_req_header("content-type", "application/json")
+      |> post(~p"/api/patients", "{isto não é json")
+    end
+
+    test "passado o teto, o 429 vem ANTES do erro de parse" do
+      Application.put_env(:api, :rate_limit_global, edge_limit: 1)
+      ip = "192.0.2.10"
+
+      # A primeira consome o balde. Ela morre no parser mesmo — é o comportamento esperado de
+      # corpo inválido, e o que interessa é o que acontece com a SEGUNDA.
+      assert_raise Plug.Parsers.ParseError, fn -> post_json_quebrado(ip) end
+
+      assert post_json_quebrado(ip).status == 429,
+             "o parser respondeu antes do limitador — o corpo foi lido e decodificado à toa"
+    end
+
+    test "webhook segue isento mesmo com a borda no endpoint" do
+      # A isenção do `/webhooks` era do ROUTER (o escopo simplesmente não passava pelo estágio).
+      # Movendo o estágio para o endpoint, ela precisa ser explícita — senão a mudança reintroduz
+      # exatamente o que `router.ex` decidiu evitar: a rajada legítima de uma campanha virando 429.
+      Application.put_env(:api, :rate_limit_global, edge_limit: 1)
+
+      for _ <- 1..3 do
+        resp =
+          build_conn()
+          |> put_req_header("x-forwarded-for", "192.0.2.20")
+          |> post(~p"/webhooks/resend", %{})
+
+        assert resp.status == 401
+      end
+    end
+
+    test "health check segue isento mesmo com a borda no endpoint" do
+      Application.put_env(:api, :rate_limit_global, edge_limit: 1)
+
+      for _ <- 1..3 do
+        resp =
+          build_conn()
+          |> put_req_header("x-forwarded-for", "192.0.2.30")
+          |> get(~p"/api/health")
+
+        assert resp.status == 200
+      end
+    end
+  end
+
   test "o retry-after vai em SEGUNDOS (RFC 7231), não em milissegundos" do
     # `>= 1` aceitava 60000 tão bem quanto 60 — e 60000 mandaria o cliente esperar 16 horas.
     # A janela é de 1 minuto, então qualquer valor acima de 60 é erro de unidade por construção.
@@ -230,5 +288,43 @@ defmodule ApiWeb.Plugs.RateLimitGlobalTest do
 
     assert [retry_after] = get_resp_header(barrado, "retry-after")
     assert String.to_integer(retry_after) in 1..60
+  end
+
+  # R-B1 (doc 95, onda 5 do doc 102) — a deriva entre a prosa e a constante.
+  #
+  # O achado era `router.ex` dizendo "teto folgado (400/min)" contra `@edge_limit 2_000` aqui: 5x
+  # de diferenca, e quem dimensionasse capacidade lendo o comentario erraria por isso. Verificado
+  # em 2026-08-04: **ja estava fechado** — o texto foi corrigido quando o estagio de borda migrou
+  # para o `Endpoint` (doc 96, L-2).
+  #
+  # Esta guarda existe porque fechar nao impede voltar: o numero vive em DOIS lugares do mesmo
+  # arquivo (o `@moduledoc` e o `@edge_limit`) e nada os ligava. Comentario que mente sobre um teto
+  # de seguranca e pior que comentario ausente — foi assim que o R-M19 quase decidiu errado, no
+  # outro arquivo.
+  #
+  # Le a FONTE, e nao o modulo compilado: `@edge_limit` nao e persistido em `__info__(:attributes)`,
+  # e persisti-lo so para o teste seria mudar producao para acomodar a guarda.
+  test "o teto documentado no moduledoc e o teto que o codigo aplica" do
+    fonte = File.read!("lib/api_web/plugs/rate_limit_global.ex")
+
+    documentado =
+      case Regex.run(~r/\(([\d.]+)\/min\)/, fonte) do
+        [_todo, n] -> n |> String.replace(".", "") |> String.to_integer()
+        nil -> flunk("o moduledoc nao declara mais um teto no formato `(N/min)`")
+      end
+
+    aplicado =
+      case Regex.run(~r/@edge_limit\s+([\d_]+)/, fonte) do
+        [_todo, n] -> n |> String.replace("_", "") |> String.to_integer()
+        nil -> flunk("`@edge_limit` sumiu do modulo — esta guarda ficou cega")
+      end
+
+    assert documentado == aplicado,
+           """
+           O moduledoc diz #{documentado}/min e o codigo aplica #{aplicado}/min.
+
+           Quem dimensionar capacidade pelo comentario erra pelo fator da diferenca. Atualize os
+           dois juntos.
+           """
   end
 end

@@ -25,7 +25,7 @@ defmodule Api.Messaging.DispatchTest do
       ctx = clinica()
       paciente = paciente_com(ctx, comunicacao: false, email: "quem@example.com")
 
-      assert {:skip, :sem_consentimento} = Dispatch.avaliar(paciente, clinic_id: ctx.clinic.id)
+      assert {:skip, :sem_consentimento} = Dispatch.avaliar(paciente, clinic: ctx.clinic)
     end
 
     test "consentimento sem contato nenhum é :sem_contato, não erro" do
@@ -35,7 +35,7 @@ defmodule Api.Messaging.DispatchTest do
       ctx = clinica()
       paciente = paciente_legado_sem_tel!(ctx, comunicacao: true, email: nil)
 
-      assert {:skip, :sem_contato} = Dispatch.avaliar(paciente, clinic_id: ctx.clinic.id)
+      assert {:skip, :sem_contato} = Dispatch.avaliar(paciente, clinic: ctx.clinic)
     end
 
     test "com e-mail e consentimento, sai por e-mail" do
@@ -43,7 +43,7 @@ defmodule Api.Messaging.DispatchTest do
       paciente = paciente_com(ctx, comunicacao: true, email: "Maria@Example.COM ")
 
       assert {:ok, :email, "maria@example.com"} =
-               Dispatch.avaliar(paciente, clinic_id: ctx.clinic.id)
+               Dispatch.avaliar(paciente, clinic: ctx.clinic)
     end
 
     test "o consentimento é perguntado ANTES do contato" do
@@ -52,7 +52,7 @@ defmodule Api.Messaging.DispatchTest do
       ctx = clinica()
       paciente = paciente_legado_sem_tel!(ctx, comunicacao: false, email: nil)
 
-      assert {:skip, :sem_consentimento} = Dispatch.avaliar(paciente, clinic_id: ctx.clinic.id)
+      assert {:skip, :sem_consentimento} = Dispatch.avaliar(paciente, clinic: ctx.clinic)
     end
   end
 
@@ -62,7 +62,7 @@ defmodule Api.Messaging.DispatchTest do
       paciente = paciente_com(ctx, comunicacao: true, email: "parou@example.com")
       Messaging.opt_out(:email, "parou@example.com", "link")
 
-      assert {:skip, :opt_out} = Dispatch.avaliar(paciente, clinic_id: ctx.clinic.id)
+      assert {:skip, :opt_out} = Dispatch.avaliar(paciente, clinic: ctx.clinic)
     end
 
     test "o opt-out GLOBAL (clinic_id nulo) vale para qualquer clínica" do
@@ -72,7 +72,7 @@ defmodule Api.Messaging.DispatchTest do
       paciente = paciente_com(outra, comunicacao: true, email: "global@example.com")
       Messaging.opt_out(:email, "global@example.com", "spam")
 
-      assert {:skip, :opt_out} = Dispatch.avaliar(paciente, clinic_id: outra.clinic.id)
+      assert {:skip, :opt_out} = Dispatch.avaliar(paciente, clinic: outra.clinic)
     end
 
     test "opt-out de OUTRA clínica não bloqueia esta" do
@@ -81,7 +81,7 @@ defmodule Api.Messaging.DispatchTest do
       paciente = paciente_com(b, comunicacao: true, email: "so-na-a@example.com")
       Messaging.opt_out(:email, "so-na-a@example.com", "link", clinic_id: a.clinic.id)
 
-      assert {:ok, :email, _} = Dispatch.avaliar(paciente, clinic_id: b.clinic.id)
+      assert {:ok, :email, _} = Dispatch.avaliar(paciente, clinic: b.clinic)
     end
 
     test "revogar devolve o destino ao envio" do
@@ -90,7 +90,7 @@ defmodule Api.Messaging.DispatchTest do
       Messaging.opt_out(:email, "voltou@example.com", "link")
       Messaging.revoke_opt_out(ctx.scope, :email, "voltou@example.com")
 
-      assert {:ok, :email, _} = Dispatch.avaliar(paciente, clinic_id: ctx.clinic.id)
+      assert {:ok, :email, _} = Dispatch.avaliar(paciente, clinic: ctx.clinic)
     end
 
     test "registrar duas vezes não duplica" do
@@ -102,6 +102,51 @@ defmodule Api.Messaging.DispatchTest do
                Messaging.list_opt_outs!(:email, "repetido@example.com", ctx.clinic.id,
                  authorize?: false
                )
+    end
+
+    # Regressão da corrida do doc 96, A-5. O teste acima passa pelo guard de leitura do
+    # `opt_out/4`; este vai **direto na escrita**, que é exatamente o que duas entregas
+    # concorrentes fazem — a Zernio reentrega o mesmo evento até 7× em 24 h, e o Resend
+    # reentrega o `complained` se o webhook demorar.
+    #
+    # Este caso é *mais fraco* que a corrida real (aqui as escritas são sequenciais) e por isso
+    # é a prova certa: se nem sequencialmente a segunda gravação é barrada, concorrente também
+    # não é. E o que barra as duas é a mesma coisa — a unicidade no banco, que só o índice dá.
+    test "duas gravações do mesmo destino não produzem duas linhas vigentes" do
+      ctx = clinica()
+      attrs = %{canal: :email, destino: "corrida@example.com", origem: "spam"}
+
+      Messaging.register_opt_out!(attrs, authorize?: false)
+      Messaging.register_opt_out!(attrs, authorize?: false)
+
+      assert [_uma] =
+               Messaging.list_opt_outs!(:email, "corrida@example.com", ctx.clinic.id,
+                 authorize?: false
+               )
+    end
+
+    # O par do teste acima: a unicidade é dos **vigentes**, não do destino para sempre. Sem este
+    # recorte, um índice único simples proibiria o ciclo legítimo "parar → voltar → parar de
+    # novo", e a segunda parada ou estouraria ou sobrescreveria a revogação — apagando o
+    # histórico que este recurso existe para guardar (ele não tem AshPaperTrail justamente
+    # porque a linha *é* o histórico).
+    test "depois de revogar, o mesmo destino pode pedir para parar de novo" do
+      ctx = clinica()
+      attrs = %{canal: :email, destino: "ciclo@example.com", origem: "link"}
+
+      Messaging.register_opt_out!(attrs, authorize?: false)
+      :ok = Messaging.revoke_opt_out(ctx.scope, :email, "ciclo@example.com")
+      Messaging.register_opt_out!(attrs, authorize?: false)
+
+      assert [_vigente] =
+               Messaging.list_opt_outs!(:email, "ciclo@example.com", ctx.clinic.id,
+                 authorize?: false
+               )
+
+      assert 2 =
+               Api.Messaging.OptOut
+               |> Ash.read!(authorize?: false)
+               |> Enum.count(&(&1.destino == "ciclo@example.com"))
     end
   end
 
@@ -133,7 +178,7 @@ defmodule Api.Messaging.DispatchTest do
       ctx = clinica()
       paciente = paciente_com(ctx, comunicacao: true, tel: "11987654321", email: "b@example.com")
 
-      assert {:ok, :email, "b@example.com"} = Dispatch.avaliar(paciente, clinic_id: ctx.clinic.id)
+      assert {:ok, :email, "b@example.com"} = Dispatch.avaliar(paciente, clinic: ctx.clinic)
     end
 
     test "só telefone, com o canal desligado, é :canal_indisponivel — NÃO :sem_contato" do
@@ -144,49 +189,49 @@ defmodule Api.Messaging.DispatchTest do
       ctx = clinica()
       paciente = paciente_com(ctx, comunicacao: true, tel: "11987654321", email: nil)
 
-      assert {:skip, :canal_indisponivel} = Dispatch.avaliar(paciente, clinic_id: ctx.clinic.id)
+      assert {:skip, :canal_indisponivel} = Dispatch.avaliar(paciente, clinic: ctx.clinic)
     end
 
     test "ficha vazia continua :sem_contato mesmo com o WhatsApp ligado" do
       # O par do teste acima: com transporte de pé, o silêncio volta a ser culpa da ficha — e é
       # aí que "abra a ficha e preencha" é a instrução certa.
       com_whatsapp(fn ->
-        ctx = clinica()
+        ctx = clinica(whatsapp: true)
         paciente = paciente_legado_sem_tel!(ctx, comunicacao: true, email: nil)
 
-        assert {:skip, :sem_contato} = Dispatch.avaliar(paciente, clinic_id: ctx.clinic.id)
+        assert {:skip, :sem_contato} = Dispatch.avaliar(paciente, clinic: ctx.clinic)
       end)
     end
 
     test "só telefone, com o canal ligado, sai por WhatsApp" do
       com_whatsapp(fn ->
-        ctx = clinica()
+        ctx = clinica(whatsapp: true)
         paciente = paciente_com(ctx, comunicacao: true, tel: "11987654321", email: nil)
 
         assert {:ok, :whatsapp, "+5511987654321"} =
-                 Dispatch.avaliar(paciente, clinic_id: ctx.clinic.id)
+                 Dispatch.avaliar(paciente, clinic: ctx.clinic)
       end)
     end
 
     test "com WhatsApp ligado, ele é o padrão" do
       com_whatsapp(fn ->
-        ctx = clinica()
+        ctx = clinica(whatsapp: true)
 
         paciente =
           paciente_com(ctx, comunicacao: true, tel: "11987654321", email: "b@example.com")
 
         assert {:ok, :whatsapp, "+5511987654321"} =
-                 Dispatch.avaliar(paciente, clinic_id: ctx.clinic.id)
+                 Dispatch.avaliar(paciente, clinic: ctx.clinic)
       end)
     end
 
     test "sem telefone, cai para o e-mail" do
       com_whatsapp(fn ->
-        ctx = clinica()
+        ctx = clinica(whatsapp: true)
         paciente = paciente_legado_sem_tel!(ctx, comunicacao: true, email: "b@example.com")
 
         assert {:ok, :email, "b@example.com"} =
-                 Dispatch.avaliar(paciente, clinic_id: ctx.clinic.id)
+                 Dispatch.avaliar(paciente, clinic: ctx.clinic)
       end)
     end
 
@@ -195,14 +240,49 @@ defmodule Api.Messaging.DispatchTest do
       # souber que ele não serve para WhatsApp. Sem isto, a mensagem sairia para um número que
       # nunca vai entregar e a falha só apareceria no webhook, horas depois.
       com_whatsapp(fn ->
-        ctx = clinica()
+        ctx = clinica(whatsapp: true)
 
         paciente =
           paciente_com(ctx, comunicacao: true, tel: "(11) 3456-7890", email: "b@example.com")
 
         assert {:ok, :email, "b@example.com"} =
-                 Dispatch.avaliar(paciente, clinic_id: ctx.clinic.id)
+                 Dispatch.avaliar(paciente, clinic: ctx.clinic)
       end)
+    end
+
+    test "clínica com o WhatsApp DESLIGADO cai para o e-mail, mesmo com transporte de pé" do
+      # São duas chaves em série. Esta prova a de baixo: a instalação fala WhatsApp
+      # (`com_whatsapp`), mas a clínica não quis o canal — e cair para a reserva é o
+      # comportamento certo, porque quem escolheu outro canal foi a clínica, não o paciente.
+      com_whatsapp(fn ->
+        ctx = clinica()
+
+        paciente =
+          paciente_com(ctx, comunicacao: true, tel: "11987654321", email: "b@example.com")
+
+        assert {:ok, :email, "b@example.com"} = Dispatch.avaliar(paciente, clinic: ctx.clinic)
+      end)
+    end
+
+    test "só telefone e o canal desligado NA CLÍNICA é :whatsapp_desligado, não :canal_indisponivel" do
+      # A distinção existe porque o conserto tem dono diferente: aqui é um interruptor em
+      # /configuracoes/comunicacao, e dizer "indisponível" mandaria a clínica abrir chamado para
+      # uma coisa que ela resolve sozinha.
+      com_whatsapp(fn ->
+        ctx = clinica()
+        paciente = paciente_com(ctx, comunicacao: true, tel: "11987654321", email: nil)
+
+        assert {:skip, :whatsapp_desligado} = Dispatch.avaliar(paciente, clinic: ctx.clinic)
+      end)
+    end
+
+    test "sem transporte, o motivo continua :canal_indisponivel — o dono do conserto é outro" do
+      # O par do teste acima, e o que impede o motivo novo de engolir o antigo: com a instalação
+      # sem WhatsApp, ligar o interruptor da clínica não resolveria nada.
+      ctx = clinica()
+      paciente = paciente_com(ctx, comunicacao: true, tel: "11987654321", email: nil)
+
+      assert {:skip, :canal_indisponivel} = Dispatch.avaliar(paciente, clinic: ctx.clinic)
     end
 
     test "OPT-OUT do WhatsApp **não** cai para o e-mail — é o §10.4" do
@@ -210,14 +290,14 @@ defmodule Api.Messaging.DispatchTest do
       # mesma mensagem chega por e-mail dez segundos depois: tecnicamente correto e, do lado de
       # lá, deboche.
       com_whatsapp(fn ->
-        ctx = clinica()
+        ctx = clinica(whatsapp: true)
 
         paciente =
           paciente_com(ctx, comunicacao: true, tel: "11987654321", email: "b@example.com")
 
         Messaging.opt_out(:whatsapp, "+5511987654321", "palavra_chave")
 
-        assert {:skip, :opt_out} = Dispatch.avaliar(paciente, clinic_id: ctx.clinic.id)
+        assert {:skip, :opt_out} = Dispatch.avaliar(paciente, clinic: ctx.clinic)
       end)
     end
   end
@@ -272,7 +352,6 @@ defmodule Api.Messaging.DispatchTest do
   describe "dispatch/5" do
     test "grava a mensagem ancorada na PRESENÇA e enfileira o envio" do
       ctx = clinica()
-      sem_confirmacao_automatica(ctx)
       paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
       appt = agendamento!(ctx, paciente: paciente)
       [presenca] = appt.attendances
@@ -296,7 +375,6 @@ defmodule Api.Messaging.DispatchTest do
       # e quem lê conclui que falhou — foi o que aconteceu no teste ao vivo de 2026-07-28. O
       # `scheduled_at` do Oban sabia a resposta, mas ele é podado em 7 dias e não é fonte da UI.
       ctx = clinica()
-      sem_confirmacao_automatica(ctx)
       clinic = com_janela(ctx.clinic, :agora_dentro)
       paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
       appt = agendamento!(ctx, paciente: paciente)
@@ -311,7 +389,6 @@ defmodule Api.Messaging.DispatchTest do
 
     test "fora do silêncio, não há nada a prometer" do
       ctx = clinica()
-      sem_confirmacao_automatica(ctx)
       clinic = com_janela(ctx.clinic, :agora_fora)
       paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
       appt = agendamento!(ctx, paciente: paciente)
@@ -323,12 +400,30 @@ defmodule Api.Messaging.DispatchTest do
       assert message.agendado_para == nil
     end
 
+    test "o lembrete perdeu a exceção junto com o gatilho — hoje TUDO é adiado" do
+      # Houve uma exceção aqui: o lembrete saía na hora mesmo dentro do silêncio, porque adiar um
+      # aviso de 2 h produzia mensagem falsa (doc 98 §3 — gerado às 5h30 para uma sessão das 7h30,
+      # sairia às 8h anunciando como futuro algo que já passou).
+      #
+      # O gatilho automático saiu em 2026-08-01 e a exceção foi junto. O que sobrou nasce de um
+      # clique da recepção e continua verdadeiro horas depois, que é a condição para adiar. Este
+      # teste existe para que reintroduzir a exceção sem reintroduzir o motivo dela seja vermelho.
+      ctx = clinica()
+      clinic = com_janela(ctx.clinic, :agora_dentro)
+      paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
+      appt = agendamento!(ctx, paciente: paciente)
+      [presenca] = appt.attendances
+
+      assert {:ok, message} = Dispatch.dispatch(clinic, presenca, paciente, :lembrete)
+
+      refute message.agendado_para == nil
+    end
+
     test "não enfileira a segunda enquanto a primeira espera" do
       # A trava contra duplicata. Sem ela, o segundo clique dentro da janela de silêncio empilha
       # outra mensagem para o mesmo paciente — e ele recebe as duas de manhã. Medido no dev de
       # 2026-07-28: quatro linhas idênticas, porque quem clica não vê nada acontecer.
       ctx = clinica()
-      sem_confirmacao_automatica(ctx)
       clinic = com_janela(ctx.clinic, :agora_dentro)
       paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
       appt = agendamento!(ctx, paciente: paciente)
@@ -342,7 +437,6 @@ defmodule Api.Messaging.DispatchTest do
       # São mensagens diferentes para a mesma sessão; barrar uma pela outra seria calar comunicação
       # que o paciente precisa receber.
       ctx = clinica()
-      sem_confirmacao_automatica(ctx)
       clinic = com_janela(ctx.clinic, :agora_dentro)
       paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
       appt = agendamento!(ctx, paciente: paciente)
@@ -356,7 +450,6 @@ defmodule Api.Messaging.DispatchTest do
       # A mesma lição que a A2 cobrou com a falta: numa turma, o que vale para um não vale para os
       # outros três. Travar por bloco deixaria os demais sem confirmação nenhuma.
       ctx = clinica()
-      sem_confirmacao_automatica(ctx)
       clinic = com_janela(ctx.clinic, :agora_dentro)
       turma = Api.Generators.tipo!(ctx, grupo: true, capacidade: 4)
       ana = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
@@ -364,7 +457,7 @@ defmodule Api.Messaging.DispatchTest do
 
       # Duas chamadas no MESMO horário e tipo de grupo caem no mesmo bloco — é como a turma se
       # forma no resto da suíte.
-      quando = amanha_as(ctx, 10)
+      quando = proximo_dia_util_as(ctx, 10)
       appt = agendamento!(ctx, paciente: ana, tipo: turma, quando: quando)
       _ = agendamento!(ctx, paciente: joao, tipo: turma, quando: quando)
 
@@ -381,7 +474,6 @@ defmodule Api.Messaging.DispatchTest do
       # Ele já respondeu que vem: mandar de novo é pedir a mesma coisa duas vezes a quem já
       # respondeu, e no WhatsApp é spam pago.
       ctx = clinica()
-      sem_confirmacao_automatica(ctx)
       paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
       appt = agendamento!(ctx, paciente: paciente)
       [presenca] = appt.attendances
@@ -398,7 +490,6 @@ defmodule Api.Messaging.DispatchTest do
       # respondendo ao lembrete. Se a trava olhasse só as mensagens de confirmação, quem confirmou
       # pelo lembrete continuaria recebendo pedidos de confirmação.
       ctx = clinica()
-      sem_confirmacao_automatica(ctx)
       paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
       appt = agendamento!(ctx, paciente: paciente)
       [presenca] = appt.attendances
@@ -415,7 +506,6 @@ defmodule Api.Messaging.DispatchTest do
       # confirmação nova é justamente o que fecha o assunto. Barrar aqui deixaria o pedido sem
       # resposta possível pelo canal que o originou.
       ctx = clinica()
-      sem_confirmacao_automatica(ctx)
       paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
       appt = agendamento!(ctx, paciente: paciente)
       [presenca] = appt.attendances
@@ -432,7 +522,6 @@ defmodule Api.Messaging.DispatchTest do
       # a insistência legítima da recepção; a terceira é o paciente sendo cobrado três vezes pela
       # mesma sessão.
       ctx = clinica()
-      sem_confirmacao_automatica(ctx)
       paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
       appt = agendamento!(ctx, paciente: paciente)
       [presenca] = appt.attendances
@@ -451,7 +540,6 @@ defmodule Api.Messaging.DispatchTest do
       # Mensagem que falhou não chegou a ninguém, então não é spam. Contá-la travaria exatamente
       # quem mais precisa reenviar: quem corrigiu o e-mail errado na ficha.
       ctx = clinica()
-      sem_confirmacao_automatica(ctx)
       paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
       appt = agendamento!(ctx, paciente: paciente)
       [presenca] = appt.attendances
@@ -466,12 +554,11 @@ defmodule Api.Messaging.DispatchTest do
 
     test "o teto é por PRESENÇA — a turma não trava por causa de um participante" do
       ctx = clinica()
-      sem_confirmacao_automatica(ctx)
       turma = Api.Generators.tipo!(ctx, grupo: true, capacidade: 4)
       ana = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
       joao = paciente_com(ctx, comunicacao: true, email: "joao@example.com")
 
-      quando = amanha_as(ctx, 10)
+      quando = proximo_dia_util_as(ctx, 10)
       appt = agendamento!(ctx, paciente: ana, tipo: turma, quando: quando)
       _ = agendamento!(ctx, paciente: joao, tipo: turma, quando: quando)
 
@@ -493,7 +580,6 @@ defmodule Api.Messaging.DispatchTest do
       # cancelamento trazem informação que a confirmação não tinha. Um teto de confirmação que
       # calasse os três seria um controle fazendo quatro coisas com um nome só.
       ctx = clinica()
-      sem_confirmacao_automatica(ctx)
       paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
       appt = agendamento!(ctx, paciente: paciente)
       [presenca] = appt.attendances
@@ -510,7 +596,6 @@ defmodule Api.Messaging.DispatchTest do
 
     test "não levanta quando o paciente não pode receber — devolve o motivo" do
       ctx = clinica()
-      sem_confirmacao_automatica(ctx)
       paciente = paciente_com(ctx, comunicacao: false)
       appt = agendamento!(ctx, paciente: paciente)
       [presenca] = appt.attendances
@@ -538,15 +623,6 @@ defmodule Api.Messaging.DispatchTest do
 
     on_exit(fn -> Application.put_env(:api, Api.Messaging.Transport, anterior) end)
     fun.()
-  end
-
-  # Desliga a confirmação automática da criação do bloco. Estes testes disparam à mão, e com ela
-  # ligada o primeiro `dispatch/5` já esbarraria na trava contra duplicata — que é o comportamento
-  # certo (tem teste próprio, e é o caso que o balcão vive), mas aqui o assunto é outro.
-  defp sem_confirmacao_automatica(ctx) do
-    Api.Accounts.update_clinic_messaging!(ctx.clinic, %{msg_confirmacao_auto: false},
-      authorize?: false
-    )
   end
 
   # ---- os três estados que as travas de confirmação leem ----
@@ -612,5 +688,64 @@ defmodule Api.Messaging.DispatchTest do
   defp as_utc(date, hora, tz) do
     {:ok, local} = DateTime.new(date, Time.new!(hora, 0, 0), tz)
     DateTime.shift_zone!(local, "Etc/UTC")
+  end
+
+  # Regressão (auditoria doc 96, B-8). `barreira/3` lê numa transação e a escrita acontece em
+  # outra: dois pedidos simultâneos para a mesma `(attendance_id, kind)` passam os dois pela
+  # leitura. Quem fecha isso é o índice único parcial `messages_uma_pendente_por_presenca`.
+  #
+  # A corrida real não é reproduzível de forma determinística na suíte (precisaria de duas
+  # conexões cruzando no instante certo). O que se prova aqui é o que importa para quem opera:
+  # quando o banco recusa, a resposta é `{:skip, :ja_na_fila}` — a mesma que a barreira daria —
+  # e **não** uma exceção subindo até virar 500 no balcão.
+  describe "a corrida da barreira é fechada pelo banco (B-8)" do
+    test "colisão de pendente vira {:skip, :ja_na_fila}, não exceção" do
+      ctx = clinica()
+      paciente = paciente_com(ctx, comunicacao: true, email: "colisao@example.com")
+      appt = agendamento!(ctx, paciente: paciente)
+      [presenca] = appt.attendances
+
+      assert {:ok, _} = Dispatch.dispatch(ctx.clinic, presenca, paciente, :confirmacao)
+
+      # Simula o perdedor da corrida: a barreira já foi consultada e não viu a linha, então a
+      # escrita vai direto ao banco — que a recusa pelo índice.
+      assert {:skip, :ja_na_fila} =
+               Dispatch.dispatch(ctx.clinic, presenca, paciente, :confirmacao)
+
+      pendentes =
+        presenca.id
+        |> Api.Messaging.list_attendance_messages!(authorize?: false)
+        |> Enum.filter(&(&1.status == :pendente and &1.kind == :confirmacao))
+
+      assert length(pendentes) == 1, "nasceu mensagem duplicada — no WhatsApp isso é pago"
+    end
+  end
+
+  # Regressão (auditoria doc 96, M-4). `revoke_opt_out/3` existia no domínio, sem rota e sem tela:
+  # um paciente que respondeu "SAIR" e depois pediu no balcão para voltar a receber só era
+  # desbloqueado por `psql`. Revogar consentimento tem de ser tão simples quanto dá-lo (LGPD,
+  # art. 8º §5).
+  describe "opt-in por paciente (M-4)" do
+    test "revoga o pare de TODOS os contatos da ficha e o envio volta a sair" do
+      ctx = clinica()
+
+      paciente =
+        paciente_com(ctx, comunicacao: true, email: "volta@example.com", tel: telefone_unico())
+
+      appt = agendamento!(ctx, paciente: paciente)
+      [presenca] = appt.attendances
+
+      # O paciente pede para parar — nos dois canais que a ficha tem.
+      for {canal, destino} <- Dispatch.destinos(paciente) do
+        :ok = Api.Messaging.opt_out(canal, destino, :resposta, clinic_id: ctx.clinic.id)
+      end
+
+      assert {:skip, :opt_out} = Dispatch.dispatch(ctx.clinic, presenca, paciente, :confirmacao)
+
+      # No balcão, ele volta atrás.
+      :ok = Api.Messaging.revoke_patient_opt_outs(ctx.scope, paciente)
+
+      assert {:ok, _} = Dispatch.dispatch(ctx.clinic, presenca, paciente, :confirmacao)
+    end
   end
 end

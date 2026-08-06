@@ -197,6 +197,20 @@ que não gera linha em `Message` (não há mensagem; há a **ausência** dela, d
 ficha na hora da leitura). Os motivos possíveis estão no §10.3 — são quatro, e cada um existe
 porque leva a uma ação diferente.
 
+> **Atualização (2026-07-30).** A implementação tinha ganhado um botão a mais que este mock nunca
+> pediu: um **"Enviar agora"** por participante, exibido quando nada havia saído para aquela
+> pessoa. Ele foi **removido**. A timeline é histórico, e o único botão que ela oferece agora é o
+> `[Reenviar]` de uma tentativa que **falhou** (C5) — a primeira mensagem sai pelo "Enviar
+> confirmação" do rodapé, que dispara para o bloco inteiro. Dois botões para o mesmo disparo davam
+> duas respostas à mesma pergunta.
+>
+> No lugar dele entrou uma **linha**, porque a regra desta seção é sobre a tela e não sobre o dado:
+> quem não recebeu nada e **não tem motivo** barrando passa a ler *"Nenhuma comunicação enviada até
+> agora"* (`SEM_COMUNICACAO` em `web/src/lib/messages.ts`). Sem ela, esse participante ficaria com o
+> nome e o vazio abaixo — e vazio lê-se como "já resolvido", que é exatamente a suposição que o
+> parágrafo acima proíbe. Quando **há** motivo, continua valendo o "Nada enviado · <motivo>" do
+> §10.3: o texto genérico não pode engolir a informação que diz o que fazer.
+
 E o botão do rodapé **não some**: vira **"Reenviar agora"**, com o estado ao lado. Sem ele a
 recepção fica sem saída em três casos comuns do balcão — agendamento criado 3h antes (a janela do
 lembrete já passou), contato corrigido depois da falha, e "não recebi nada".
@@ -216,6 +230,13 @@ janela de silêncio (nada às 22h) e o texto do template. Por profissional vira 
 mantém.
 
 Automático é o **padrão ligado**; o manual continua existindo como reenvio (§6).
+
+> **Revisado em 2026-07-31 — ver [doc 98](98-lembrete-de-2h-e-a-saida-da-confirmacao.md).** O
+> gatilho **na criação** saiu, e com ele o controle `msg_confirmacao_auto`: marcar uma sessão
+> voltou a ser gesto interno, e a confirmação virou clique da recepção (§6). O que sobrou na tela
+> são **dois** controles — quantas horas antes lembrar (padrão **2 h**, e não mais desligado) e a
+> janela de silêncio. E o lembrete passou a **ignorar** essa janela: com 2 h de antecedência,
+> adiar significa entregar depois da sessão.
 
 ---
 
@@ -559,7 +580,7 @@ por ausência de objeção — mexer nessas é barato, mexer nas primeiras é re
 | **C4** | Rastreio de leitura no e-mail | (a) sem pixel; (b) com pixel | **(a)** — desproporcional; `opened`/`clicked` do Resend ficam desligados |
 | **C5** | Reenvio manual | (a) botão vira "Reenviar agora"; (b) só automático | **(a)** — §6 |
 | **C6** | E-mail obrigatório no paciente? | (a) não — envia só a quem tem; (b) sim | ✅ **(a) decidido (2026-07-27)** — com o `:sem_canal` visível na timeline (§6) |
-| **C7** | Gatilhos da fase 1 | (a) criação + lembrete; (b) + remarcação/cancelamento | **(a)** — (b) é copy nova, não estrutura nova; entra fácil depois |
+| **C7** | Gatilhos da fase 1 | (a) criação + lembrete; (b) + remarcação/cancelamento | **(a)**, depois **(b)** — e em 2026-07-31 a **criação saiu** ([doc 98](98-lembrete-de-2h-e-a-saida-da-confirmacao.md)): restam lembrete, remarcação e cancelamento |
 | **C8** | Paciente com e-mail **e** WhatsApp: qual canal? | (a) WhatsApp, com e-mail de reserva; (b) os dois sempre; (c) preferência na ficha | ✅ **(a) decidido (2026-07-27)** — **WhatsApp é o padrão**; e-mail é reserva, com a ressalva do §10.4 |
 | **C9** | O `comunicacao: false` (§11) | (a) padrão passa a **autorizado**; (b) manter `false` + marcação em massa; (c) manter `false` e marcar uma a uma | ✅ **(a) decidido (2026-07-27)** — não há produção, então não há base a corrigir; e a base legal do operacional é execução de contrato, não consentimento (§11.1). **Depende da copy de aviso** (§11.1) e dos **três lugares** do §11.2 |
 | **C10** | Alcance do opt-out (§10.1) | (a) por clínica; (b) global; (c) coluna `clinic_id` anulável | **(c)** — nulo = número compartilhado, preenchido = número próprio; segue o C11 sem migração |

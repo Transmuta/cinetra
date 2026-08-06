@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import SubmitButton from '$lib/components/SubmitButton.svelte';
-	import { envioPorItem } from '$lib/forms.svelte';
+	import { envioPorItem, reagirAoForm } from '$lib/forms.svelte';
 	import Plus from '@lucide/svelte/icons/plus';
 	import Pencil from '@lucide/svelte/icons/pencil';
 	import Archive from '@lucide/svelte/icons/archive';
@@ -41,12 +41,15 @@
 	// Resultado de ação vira toast (protótipo :1030): sucesso sempre; erro só nas ações
 	// disparadas fora de modal (arquivar/restaurar) — erro de salvamento aparece dentro do
 	// próprio modal (modalError acima).
-	$effect(() => {
-		if (!form) return;
-		if (form.ok) toast(toastText(form.action));
-		else if (form.error && (form.action === 'archive' || form.action === 'restore'))
-			toast(form.error, 'error');
-	});
+	reagirAoForm(
+		() => form,
+		{
+			sucesso: (f) => toast(toastText(f.action)),
+			erro: (f) => {
+				if (f.error && (f.action === 'archive' || f.action === 'restore')) toast(f.error, 'error');
+			}
+		}
+	);
 
 	function toastText(action?: string): string {
 		// "Tipo de atendimento salvo" é verbatim do protótipo (:1210). Arquivar/restaurar não
@@ -70,24 +73,24 @@
 			: ''}"
 	>
 		<span
-			class="grid size-7.5 shrink-0 place-items-center rounded-[7px]"
+			class="grid size-7.5 shrink-0 place-items-center rounded-controle"
 			style="background:{tint(t.cor, 0.14)}"
 		>
 			<Icon size={16} color={t.cor} />
 		</span>
 
 		<div class="flex min-w-0 flex-1 flex-wrap items-center gap-x-1.5 gap-y-1">
-			<span class="truncate text-[13.5px] font-semibold">{t.nome}</span>
+			<span class="truncate text-corpo font-semibold">{t.nome}</span>
 			{#if t.grupo}
 				<span
-					class="shrink-0 rounded-[4px] bg-info-solid px-1.5 py-px text-[10.5px] font-bold text-on-solid"
+					class="shrink-0 rounded-micro bg-info-solid px-1.5 py-px text-micro font-bold text-on-solid"
 				>
 					grupo · cap {t.capacidade}
 				</span>
 			{/if}
 		</div>
 
-		<span class="shrink-0 font-mono text-[11.5px] text-muted">{t.duracao_minutos}min</span>
+		<span class="shrink-0 font-mono text-meta text-muted">{t.duracao_minutos}min</span>
 
 		{#if canManage}
 			{#if arquivado}
@@ -95,7 +98,7 @@
 					<input type="hidden" name="id" value={t.id} />
 					<SubmitButton
 						emVoo={linha.emVoo(t.id)}
-						class="flex shrink-0 items-center gap-1.5 rounded-md border border-edge bg-surface px-2.5 py-1.5 text-[12px] font-semibold text-teal-text hover:bg-surface-2 disabled:opacity-60"
+						class="flex shrink-0 items-center gap-1.5 rounded-controle border border-edge bg-surface px-2.5 py-1.5 text-rotulo font-semibold text-accent-text hover:bg-surface-2 disabled:opacity-60"
 					>
 						<RotateCcw size={13} /> Restaurar
 					</SubmitButton>
@@ -105,7 +108,7 @@
 					type="button"
 					title="Editar"
 					onclick={() => (modal = { type: t })}
-					class="grid size-7.5 shrink-0 place-items-center rounded-[7px] border border-edge bg-surface text-muted hover:bg-surface-2"
+					class="grid size-7.5 shrink-0 place-items-center rounded-controle border border-edge bg-surface text-muted hover:bg-surface-2"
 				>
 					<Pencil size={14} />
 				</button>
@@ -119,7 +122,7 @@
 						emVoo={linha.emVoo(t.id)}
 						trocaConteudo
 						title="Arquivar"
-						class="grid size-7.5 shrink-0 place-items-center rounded-[7px] border border-edge bg-surface text-muted hover:bg-surface-2 disabled:opacity-60"
+						class="grid size-7.5 shrink-0 place-items-center rounded-controle border border-edge bg-surface text-muted hover:bg-surface-2 disabled:opacity-60"
 					>
 						<Archive size={14} />
 					</SubmitButton>
@@ -130,14 +133,14 @@
 {/snippet}
 
 <div class="mx-auto max-w-[760px] px-4 py-4 md:px-6">
-	<section class="mb-3 rounded-[10px] border border-edge bg-surface p-4">
+	<section class="mb-3 rounded-cartao border border-edge bg-surface p-4">
 		<div class="mb-3 flex items-center justify-between gap-3">
-			<h2 class="text-[14px] font-semibold">Tipos de atendimento</h2>
+			<h2 class="text-leitura font-semibold">Tipos de atendimento</h2>
 			{#if canManage}
 				<button
 					type="button"
 					onclick={() => (modal = { type: null })}
-					class="flex shrink-0 items-center gap-[5px] rounded-[7px] border border-edge bg-surface px-[11px] py-1.5 text-[12.5px] font-semibold text-ink hover:bg-surface-2"
+					class="flex shrink-0 items-center gap-[5px] rounded-controle border border-edge bg-surface px-[11px] py-1.5 text-rotulo font-semibold text-ink hover:bg-surface-2"
 				>
 					<Plus size={14} /> Novo tipo
 				</button>
@@ -150,7 +153,7 @@
 
 		{#if !split.ativos.length}
 			<!-- Só acontece se arquivarem todos: a clínica nasce com os 5 do seed (T3). -->
-			<p class="border-t border-edge py-3 text-[12.5px] text-muted">
+			<p class="border-t border-edge py-3 text-rotulo text-muted">
 				Nenhum tipo ativo — sem tipo não se agenda.
 				{#if canManage}
 					Crie um novo{split.arquivados.length ? ' ou restaure um arquivado abaixo' : ''}.
@@ -163,7 +166,7 @@
 			     com $state — nasce acessível e teclável sem JS nenhum. -->
 			<details class="group mt-3 border-t border-edge pt-3">
 				<summary
-					class="flex cursor-pointer list-none items-center gap-1.5 text-[12.5px] font-semibold text-muted [&::-webkit-details-marker]:hidden"
+					class="flex cursor-pointer list-none items-center gap-1.5 text-rotulo font-semibold text-muted [&::-webkit-details-marker]:hidden"
 				>
 					<ChevronDown size={14} class="transition-transform group-open:rotate-180" />
 					Arquivados ({split.arquivados.length})

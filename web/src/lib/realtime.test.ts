@@ -95,6 +95,7 @@ import {
 	connectWaitlist,
 	connectNotifications,
 	viewerNames,
+	__fecharSocketsCompartilhados,
 	type AgendaHandlers
 } from './realtime';
 
@@ -128,6 +129,10 @@ function handlers(): AgendaHandlers & {
 }
 
 beforeEach(() => {
+	// O socket é COMPARTILHADO e mora em estado de módulo, que sobrevive entre casos: sem esta
+	// limpeza um teste que não desliga deixaria o socket dele de pé, o caso seguinte o reusaria e
+	// `FakeSocket.last` continuaria apontando para a conexão do anterior.
+	__fecharSocketsCompartilhados();
 	fake.FakeSocket.last = null;
 });
 
@@ -455,6 +460,73 @@ describe('connectNotifications', () => {
 
 		expect(socket.channels[0].left).toBe(true);
 		expect(socket.disconnected).toBe(true);
+	});
+});
+
+// B7 (doc 101 §4.2) — o layout mantém as notificações abertas em TODA tela; a agenda e a fila
+// abrem a delas por cima. Eram dois WebSockets por aba para a mesma clínica e o mesmo usuário.
+describe('um socket por aba, N canais', () => {
+	it('agenda e notificações dividem o mesmo socket', () => {
+		connectNotifications(config, { onNotification() {} });
+		const socket = fake.FakeSocket.last!;
+
+		connectAgenda(config, ['clinic:c1:agenda:2026-07-20'], handlers());
+
+		// Nenhum socket novo foi construído — o fake registra `last` no construtor.
+		expect(fake.FakeSocket.last).toBe(socket);
+		expect(socket.channels.map((c) => c.topic)).toEqual([
+			'notifications:c1',
+			'clinic:c1:agenda:2026-07-20'
+		]);
+	});
+
+	it('a fila também entra no socket do layout', () => {
+		connectNotifications(config, { onNotification() {} });
+		const socket = fake.FakeSocket.last!;
+
+		connectWaitlist(config, { onChange() {} });
+
+		expect(fake.FakeSocket.last).toBe(socket);
+		expect(socket.channels.length).toBe(2);
+	});
+
+	// A parte que um refcount errado quebra em silêncio: sair da agenda derrubaria o sino.
+	it('fechar um cliente sai do canal dele e NÃO derruba o socket do outro', () => {
+		const desligarNotif = connectNotifications(config, { onNotification() {} });
+		const socket = fake.FakeSocket.last!;
+		const desligarAgenda = connectAgenda(config, ['clinic:c1:agenda:2026-07-20'], handlers());
+
+		desligarAgenda();
+
+		expect(socket.channels[1].left).toBe(true);
+		expect(socket.channels[0].left).toBe(false);
+		expect(socket.disconnected).toBe(false);
+
+		desligarNotif();
+
+		expect(socket.disconnected).toBe(true);
+	});
+
+	it('desligar duas vezes não derruba o socket de quem ficou', () => {
+		const desligarAgenda = connectAgenda(config, ['t1'], handlers());
+		const socket = fake.FakeSocket.last!;
+		connectNotifications(config, { onNotification() {} });
+
+		desligarAgenda();
+		desligarAgenda();
+
+		expect(socket.disconnected).toBe(false);
+	});
+
+	it('depois que o último sai, o próximo cliente abre um socket NOVO', () => {
+		const desligar = connectAgenda(config, ['t1'], handlers());
+		const primeiro = fake.FakeSocket.last!;
+
+		desligar();
+		connectNotifications(config, { onNotification() {} });
+
+		expect(fake.FakeSocket.last).not.toBe(primeiro);
+		expect(fake.FakeSocket.last!.disconnected).toBe(false);
 	});
 });
 

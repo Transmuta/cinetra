@@ -9,6 +9,28 @@ defmodule Api.Accounts.Token do
   postgres do
     table "tokens"
     repo Api.Repo
+
+    custom_indexes do
+      # `revoke_all_stored_for_subject` — o "sair de todas as sessões" — filtra por `subject`, e a
+      # tabela só tinha o PK sobre `jti`. Medido em 200.000 tokens de 5.000 usuários (doc 92,
+      # P1-4):
+      #
+      #     sem índice   Seq Scan       2.131 buffers   13,116 ms
+      #     com índice   Bitmap Index      42 buffers    0,118 ms
+      #
+      # Vale mesmo com volume pequeno hoje (947 linhas): `tokens` é uma das poucas tabelas cujo
+      # crescimento é proporcional a **logins**, não a pacientes, e este é o caminho de revogação
+      # — o que se quer rápido é justamente ele.
+      #
+      # `concurrently` porque a tabela recebe INSERT em todo login/magic link e as migrations
+      # rodam no `release_command` do deploy: `CREATE INDEX` comum tomaria `ShareLock` e filaria a
+      # autenticação enquanto constrói (`.claude/rules/migrations.md` §2).
+      #
+      # **Não há índice irmão para `expires_at`**: medido, ele não seria usado. O Ash emite
+      # `expires_at::timestamp < $1` e a coluna é `timestamp(0)` — o cast desanexa um btree comum,
+      # pelo mesmo mecanismo do índice parcial de `notifications`. Ver `Api.PlanosDeQueryTest`.
+      index [:subject], concurrently: true
+    end
   end
 
   actions do

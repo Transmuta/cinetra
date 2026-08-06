@@ -51,7 +51,7 @@
 <svelte:window onkeydown={aoTeclar} />
 
 <div
-	class="fixed inset-0 z-40 bg-[rgba(8,10,12,0.42)]"
+	class="fixed inset-0 z-cobertura bg-overlay"
 	role="presentation"
 	onclick={(e) => e.target === e.currentTarget && onClose()}
 >
@@ -72,7 +72,7 @@
 				type="button"
 				onclick={onClose}
 				aria-label="Fechar"
-				class="ml-auto grid size-7.5 shrink-0 place-items-center rounded-md text-muted hover:bg-surface-2"
+				class="ml-auto grid size-7.5 shrink-0 place-items-center rounded-controle text-muted hover:bg-surface-2"
 			>
 				<X size={17} />
 			</button>

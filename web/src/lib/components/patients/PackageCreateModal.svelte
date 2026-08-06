@@ -29,12 +29,13 @@
 	import Loader from '@lucide/svelte/icons/loader-circle';
 	import Modal from '$lib/components/Modal.svelte';
 	import Field, { CONTROL_CLASS, CONTROL_PX } from '$lib/components/Field.svelte';
+	import { DOW_LABELS, diaMes, diaSemana } from '$lib/data-hora';
 	import {
-		DOW_LABELS,
 		NEW_PACKAGE_DEFAULTS,
 		PACKAGE_MAX_TOTAL,
 		issueLabel,
 		hasHardBlock,
+		type PackagePreviewResponse,
 		type PreviewResult,
 		type PreviewOccurrence
 	} from '$lib/packages';
@@ -182,7 +183,7 @@
 				body: payload
 			})
 				.then((r) => (r.ok ? r.json() : { preview: null }))
-				.then((d: { preview: PreviewResult | null }) => {
+				.then((d: PackagePreviewResponse) => {
 					if (!alive) return;
 					preview = d.preview;
 					previewErro = d.preview === null;
@@ -268,16 +269,8 @@
 		}
 	}
 
-	// "27/07" — o chip da prévia. UTC no parse para não recuar um dia a oeste.
-	function curto(data: string): string {
-		const [, mes, dia] = data.split('-');
-		return `${dia}/${mes}`;
-	}
-
-	const DOW_UTC = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
-	function diaSemana(data: string): string {
-		return DOW_UTC[new Date(`${data}T12:00:00Z`).getUTCDay()];
-	}
+	// "27/07" — o chip da prévia.
+	const curto = diaMes;
 
 	// O chip diz a data; o resto (dia da semana, hora, problema) vai no `title` — repetir o mesmo
 	// "08:00" em vinte linhas era ruído, não informação.
@@ -291,7 +284,7 @@
 		if (o.issue === 'fora_expediente' || o.issue === 'conflito' || o.issue === 'cheia')
 			return 'border-danger/45 bg-danger/8 text-danger';
 		if (o.feriado) return 'border-edge bg-surface text-faint line-through';
-		if (o.issue === 'join') return 'border-teal-border bg-teal-subtle text-teal-text';
+		if (o.issue === 'join') return 'border-accent-border bg-accent-subtle text-accent-text';
 		return 'border-edge bg-surface text-muted';
 	}
 
@@ -301,13 +294,13 @@
 {#snippet secao(numero: string, titulo: string, aviso?: string)}
 	<div class="mb-1.5 mt-3 flex items-center gap-2 first:mt-0">
 		<span
-			class="grid size-[18px] shrink-0 place-items-center rounded-full bg-surface2 font-mono text-[10px] font-bold text-faint"
+			class="grid size-[18px] shrink-0 place-items-center rounded-full bg-surface2 font-mono text-micro font-bold text-faint"
 		>
 			{numero}
 		</span>
-		<span class="text-[11px] font-bold uppercase tracking-[.06em] text-faint">{titulo}</span>
+		<span class="text-meta font-bold uppercase tracking-[.06em] text-faint">{titulo}</span>
 		{#if aviso}
-			<span class="ml-auto inline-flex items-center gap-1 text-[10.5px] font-semibold text-warning">
+			<span class="ml-auto inline-flex items-center gap-1 text-micro font-semibold text-warning">
 				<Lock size={11} /> {aviso}
 			</span>
 		{/if}
@@ -342,7 +335,7 @@
 	<div class="grid gap-x-3 md:grid-cols-2">
 		<!-- stepper: mexer de 1 em 1 é o gesto real (o teclado continua valendo) -->
 		<div class="mb-3">
-			<label for="pkg-total" class="mb-[5px] block text-[12px] font-semibold text-muted">
+			<label for="pkg-total" class="mb-[5px] block text-rotulo font-semibold text-muted">
 				Sessões
 			</label>
 			<div class="flex items-center gap-1.5">
@@ -351,7 +344,7 @@
 					aria-label="Uma sessão a menos"
 					onclick={() => stepTotal(-1)}
 					disabled={total <= 1}
-					class="grid size-[38px] shrink-0 place-items-center rounded-md border border-edge bg-surface hover:bg-surface-2 disabled:opacity-40"
+					class="grid size-[38px] shrink-0 place-items-center rounded-controle border border-edge bg-surface hover:bg-surface-2 disabled:opacity-40"
 				>
 					<Minus size={15} />
 				</button>
@@ -369,7 +362,7 @@
 					aria-label="Mais uma sessão"
 					onclick={() => stepTotal(1)}
 					disabled={total >= PACKAGE_MAX_TOTAL}
-					class="grid size-[38px] shrink-0 place-items-center rounded-md border border-edge bg-surface hover:bg-surface-2 disabled:opacity-40"
+					class="grid size-[38px] shrink-0 place-items-center rounded-controle border border-edge bg-surface hover:bg-surface-2 disabled:opacity-40"
 				>
 					<Plus size={15} />
 				</button>
@@ -389,7 +382,7 @@
 					type="button"
 					onclick={() => toggleDow(d)}
 					aria-pressed={dows.includes(d)}
-					class="rounded-[8px] border px-2.5 py-1.5 text-[12.5px] font-semibold transition-colors {dows.includes(
+					class="rounded-controle border px-2.5 py-1.5 text-rotulo font-semibold transition-colors {dows.includes(
 						d
 					)
 						? 'border-primary bg-primary text-on-primary'
@@ -401,16 +394,16 @@
 		</div>
 
 		{#if dows.length}
-			<div class="mt-2.5 rounded-[10px] border border-edge bg-surface2 p-2.5">
+			<div class="mt-2.5 rounded-cartao border border-edge bg-surface2 p-2.5">
 				<div class="mb-1.5 flex items-center justify-between">
-					<span class="text-[11px] font-bold uppercase tracking-[.04em] text-faint">
+					<span class="text-meta font-bold uppercase tracking-[.04em] text-faint">
 						Horário de cada dia
 					</span>
 					{#if dows.length > 1}
 						<button
 							type="button"
 							onclick={igualarHorarios}
-							class="text-[11.5px] font-semibold text-teal-text hover:underline"
+							class="text-meta font-semibold text-accent-text hover:underline"
 						>
 							Igualar horários
 						</button>
@@ -419,7 +412,7 @@
 				<div class="flex flex-col gap-1.5">
 					{#each dows as d (d)}
 						<div class="flex items-center gap-2.5">
-							<span class="w-9 shrink-0 text-[12.5px] font-semibold text-muted">{DOW_LABELS[d]}</span>
+							<span class="w-9 shrink-0 text-rotulo font-semibold text-muted">{DOW_LABELS[d]}</span>
 							<input
 								type="time"
 								step="900"
@@ -433,13 +426,13 @@
 				</div>
 			</div>
 		{:else}
-			<p class="mt-2 text-[12px] text-faint">Marque os dias em que a sessão se repete.</p>
+			<p class="mt-2 text-rotulo text-faint">Marque os dias em que a sessão se repete.</p>
 		{/if}
 	</div>
 
 	<!-- 3 · A REGRA DA FALTA: combinada com o paciente na venda, e imutável depois -->
 	{@render secao('3', 'Regra da falta', 'não muda depois')}
-	<div class="mb-3 overflow-hidden rounded-[10px] border border-edge">
+	<div class="mb-3 overflow-hidden rounded-cartao border border-edge">
 		<label
 			class="flex cursor-pointer items-start gap-2.5 border-b border-edge px-3 py-2.5 {faltaPunitiva
 				? 'bg-surface2'
@@ -453,8 +446,8 @@
 				class="mt-0.5 size-4 accent-primary"
 			/>
 			<span>
-				<span class="block text-[13px] font-semibold">Falta desconta uma sessão</span>
-				<span class="block text-[11.5px] text-muted">
+				<span class="block text-corpo font-semibold">Falta desconta uma sessão</span>
+				<span class="block text-meta text-muted">
 					Falta não justificada consome 1 das {total} sessões.
 				</span>
 			</span>
@@ -472,8 +465,8 @@
 				class="mt-0.5 size-4 accent-primary"
 			/>
 			<span>
-				<span class="block text-[13px] font-semibold">Falta não desconta</span>
-				<span class="block text-[11.5px] text-muted">
+				<span class="block text-corpo font-semibold">Falta não desconta</span>
+				<span class="block text-meta text-muted">
 					A sessão é reposta; o pacote só anda com o que foi atendido.
 				</span>
 			</span>
@@ -481,32 +474,32 @@
 	</div>
 
 	<!-- Prévia ao vivo: resumo primeiro, chips depois, problemas em lista própria -->
-	<div class="mt-1 rounded-[11px] border border-edge bg-surface2 p-3">
+	<div class="mt-1 rounded-cartao border border-edge bg-surface2 p-3">
 		<div class="mb-2 flex items-center gap-2">
 			<CalendarPlus size={15} class="text-faint" />
-			<span class="text-[11px] font-bold uppercase tracking-[.06em] text-faint">Prévia da série</span>
+			<span class="text-meta font-bold uppercase tracking-[.06em] text-faint">Prévia da série</span>
 			{#if previewing}
 				<Loader size={14} class="animate-spin text-faint" />
 			{/if}
 		</div>
 
 		{#if !completo}
-			<p class="py-3 text-center text-[12.5px] text-faint">
+			<p class="py-3 text-center text-rotulo text-faint">
 				Complete o tipo, o profissional e a grade para ver a série.
 			</p>
 		{:else if previewErro}
-			<p class="py-3 text-center text-[12.5px] text-danger">
+			<p class="py-3 text-center text-rotulo text-danger">
 				Não foi possível calcular a prévia. Revise os dados e tente de novo.
 			</p>
 		{:else if preview}
 			<!-- a frase que decide -->
-			<p class="mb-2 text-[12.5px] font-semibold">{resumo}</p>
+			<p class="mb-2 text-rotulo font-semibold">{resumo}</p>
 
 			<ul class="flex flex-wrap gap-1" aria-label="Datas da série">
 				{#each preview.ocorrencias as o, i (i)}
 					<li
 						title={chipTitle(o)}
-						class="rounded-[6px] border px-1.5 py-0.5 font-mono text-[10.5px] {chipTom(o)}"
+						class="rounded-controle border px-1.5 py-0.5 font-mono text-micro {chipTom(o)}"
 					>
 						{curto(o.data)}
 					</li>
@@ -515,7 +508,7 @@
 
 			{#if problemas.length}
 				<div class="mt-2.5 border-t border-edge pt-2.5">
-					<div class="mb-1.5 flex items-center gap-1.5 text-[12.5px] font-bold text-danger">
+					<div class="mb-1.5 flex items-center gap-1.5 text-rotulo font-bold text-danger">
 						<TriangleAlert size={14} />
 						{problemas.length}
 						{problemas.length === 1 ? 'horário com conflito' : 'horários com conflito'}
@@ -525,7 +518,7 @@
 						aria-label="Horários com conflito"
 					>
 						{#each problemas as o, i (i)}
-							<li class="flex items-baseline gap-2 text-[11.5px]">
+							<li class="flex items-baseline gap-2 text-meta">
 								<span class="shrink-0 font-mono font-semibold">
 									{curto(o.data)}
 									{diaSemana(o.data)}
@@ -535,7 +528,7 @@
 							</li>
 						{/each}
 					</ul>
-					<p class="mt-2 text-[11.5px] text-muted">
+					<p class="mt-2 text-meta text-muted">
 						{#if bloqueioDuro}
 							Há sessões <strong>fora do expediente</strong> — ajuste os horários (encaixe não libera).
 						{:else}
@@ -551,15 +544,15 @@
 		<!-- o motivo e o erro vivem no rodapé, ao lado do botão: no fim do scroll ninguém os via -->
 		<div class="mr-auto min-w-0 text-left">
 			{#if saveErro}
-				<p class="text-[12px] font-semibold text-danger">{saveErro}</p>
+				<p class="text-rotulo font-semibold text-danger">{saveErro}</p>
 			{:else if motivoBloqueio}
-				<p class="text-[12px] text-muted">{motivoBloqueio}</p>
+				<p class="text-rotulo text-muted">{motivoBloqueio}</p>
 			{/if}
 		</div>
 		<button
 			type="button"
 			onclick={onClose}
-			class="rounded-md border border-edge-strong bg-surface px-3.5 py-2 text-[13px] font-semibold hover:bg-surface-2"
+			class="rounded-controle border border-edge-strong bg-surface px-3.5 py-2 text-corpo font-semibold hover:bg-surface-2"
 		>
 			Cancelar
 		</button>
@@ -567,7 +560,7 @@
 			type="button"
 			onclick={salvar}
 			disabled={!podeSalvar}
-			class="inline-flex items-center gap-1.5 rounded-md px-3.5 py-2 text-[13px] font-semibold disabled:cursor-not-allowed disabled:opacity-60 {forcarSave
+			class="inline-flex items-center gap-1.5 rounded-controle px-3.5 py-2 text-corpo font-semibold disabled:cursor-not-allowed disabled:opacity-60 {forcarSave
 				? 'bg-warning-solid text-on-solid'
 				: 'bg-primary text-on-primary'}"
 		>

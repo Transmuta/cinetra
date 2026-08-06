@@ -40,14 +40,38 @@ defmodule Api.Messaging.Templates do
   código de erro para esse defeito; o sintoma é um paciente confuso.
 
   Por isso o corpo aprovado (`:corpo`) e a ordem (`:vars`) ficam lado a lado na mesma definição, e
-  a mix task que submete à Meta lê daqui. Uma fonte, não duas que se parecem.
+  `hsm_payload/2` monta a submissão a partir daqui. Uma fonte, não duas que se parecem.
 
   ## Por que o texto do WhatsApp não é igual ao do e-mail
 
   A Meta recusa template que **comece ou termine** com variável, e recusa duas variáveis coladas.
   O texto do e-mail é livre disso. Escrever os dois a partir de um só produziria ou um e-mail
   torto ou um template reprovado — e a reprovação tem lead time de dias para descobrir.
+
+  ## O telefone da clínica é variável do CORPO; o aviso de automática é footer
+
+  As duas coisas parecem a mesma (“o rodapé da mensagem”) e não são, porque o **footer da Meta
+  não aceita parâmetro** — é texto estático, teto de 60 caracteres, igual para todas as clínicas.
+  Então o telefone, que muda por clínica, não cabe nele: vai no corpo, como posicional.
+
+  Ele existe porque este canal **não tem para onde responder**. O botão é URL: abre o navegador e
+  não trafega nada pelo WhatsApp. Uma resposta em texto livre chega ao número compartilhado, que
+  `Api.Messaging.Zernio` diz explicitamente que ninguém lê. Sem um telefone no corpo, "preciso
+  falar com alguém agora" não tem saída nenhuma — e o footer é o que evita que a pessoa tente
+  pela via que não funciona.
+
+  No e-mail a linha do telefone **some** quando a clínica não tem um. É a diferença que o canal
+  permite: no HSM a contagem de posicionais é fixa e um travessão é o mal menor, mas em texto
+  livre "Ligue para —" seria um defeito escrito por nós. Na prática o WhatsApp nunca chega lá —
+  `Clinic.msg_whatsapp_ativo` só liga com telefone preenchido.
   """
+
+  alias Api.EmailLayout
+
+  # O footer, e ele é um só para todas as clínicas — a Meta não aceita variável aqui. Sem
+  # travessão de propósito: `nome/2` usa "—" para variável ausente, e um travessão fixo no rodapé
+  # tornaria o teste que caça o fallback incapaz de distinguir os dois.
+  @footer "Mensagem automática. Não responda por aqui."
 
   # A definição única de cada template: o `kind` que o origina, o texto do e-mail (que é livre) e
   # o HSM do WhatsApp (que é o que a Meta aprovou, com a ordem das posicionais).
@@ -56,29 +80,39 @@ defmodule Api.Messaging.Templates do
   # com ele, **mais um valor no fim de `templateParams`**. Template sem pergunta a fazer
   # (cancelamento, massa de pacote) não tem botão: um "confirmar" numa sessão que não existe mais
   # é convite a clique inútil.
+  #
+  # **Três destes não têm mais gatilho** (2026-08-01): `lembrete_v1`, `pacote_remarcado_v1` e
+  # `pacote_cancelado_v1`. Ficam pelo mesmo motivo que um `_v1` sobrevive a um `_v2` — a timeline
+  # renderiza a partir do template gravado, e sem a definição a linha antiga não tem como ser
+  # exibida. Os que ainda nascem são confirmação, remarcação e cancelamento, todos por gesto da
+  # recepção.
   @definicoes %{
     "confirmacao_v1" => %{
       kind: :confirmacao,
       idioma: "pt_BR",
-      vars: ["paciente", "clinica", "data", "hora"],
+      vars: ["paciente", "clinica", "data", "hora", "telefone"],
       botao?: true,
       corpo: """
       Olá, {{1}}! Aqui é da {{2}}.
 
       Sua sessão está agendada para {{3}} às {{4}}.
 
-      Se precisar confirmar ou remarcar, é só tocar no botão abaixo.\
+      Precisa falar com a gente? Ligue para {{5}}.
+
+      Para confirmar ou remarcar, é só tocar no botão abaixo.\
       """
     },
     "lembrete_v1" => %{
       kind: :lembrete,
       idioma: "pt_BR",
-      vars: ["paciente", "clinica", "data", "hora"],
+      vars: ["paciente", "clinica", "data", "hora", "telefone"],
       botao?: true,
       corpo: """
       Olá, {{1}}! Lembrete da {{2}}.
 
       Sua sessão é {{3}} às {{4}}.
+
+      Precisa falar com a gente? Ligue para {{5}}.
 
       Se não puder vir, avise pelo botão abaixo.\
       """
@@ -86,12 +120,14 @@ defmodule Api.Messaging.Templates do
     "remarcacao_v1" => %{
       kind: :remarcacao,
       idioma: "pt_BR",
-      vars: ["paciente", "clinica", "data", "hora"],
+      vars: ["paciente", "clinica", "data", "hora", "telefone"],
       botao?: true,
       corpo: """
       Olá, {{1}}! Sua sessão na {{2}} mudou de horário.
 
       Agora é {{3}} às {{4}}.
+
+      Precisa falar com a gente? Ligue para {{5}}.
 
       Se o novo horário não servir, avise pelo botão abaixo.\
       """
@@ -99,34 +135,34 @@ defmodule Api.Messaging.Templates do
     "cancelamento_v1" => %{
       kind: :cancelamento,
       idioma: "pt_BR",
-      vars: ["paciente", "clinica", "data", "hora"],
+      vars: ["paciente", "clinica", "data", "hora", "telefone"],
       botao?: false,
       corpo: """
       Olá, {{1}}! Sua sessão na {{2}}, em {{3}} às {{4}}, foi cancelada.
 
-      Para remarcar, fale com a recepção da clínica.\
+      Para remarcar, ligue para {{5}} e a recepção reserva um novo horário.\
       """
     },
     "pacote_remarcado_v1" => %{
       kind: :pacote_remarcado,
       idioma: "pt_BR",
-      vars: ["paciente", "clinica", "quantas", "pacote"],
+      vars: ["paciente", "clinica", "quantas", "pacote", "telefone"],
       botao?: false,
       corpo: """
       Olá, {{1}}! Na {{2}}, {{3}} do seu pacote {{4}} mudaram de horário.
 
-      A recepção entra em contato com os novos horários.\
+      A recepção entra em contato. Se preferir, ligue para {{5}} e já resolvemos.\
       """
     },
     "pacote_cancelado_v1" => %{
       kind: :pacote_cancelado,
       idioma: "pt_BR",
-      vars: ["paciente", "clinica", "quantas", "pacote"],
+      vars: ["paciente", "clinica", "quantas", "pacote", "telefone"],
       botao?: false,
       corpo: """
       Olá, {{1}}! Na {{2}}, {{3}} do seu pacote {{4}} foram canceladas.
 
-      Para remarcar, fale com a recepção da clínica.\
+      Para remarcar, ligue para {{5}} e a recepção monta os novos horários.\
       """
     }
   }
@@ -148,8 +184,8 @@ defmodule Api.Messaging.Templates do
   def conhecidos, do: Map.keys(@definicoes)
 
   @doc """
-  A definição HSM de um template — o que a mix task submete à Meta e o que `render_whatsapp/2`
-  usa para ordenar as posicionais. `nil` para template desconhecido.
+  A definição HSM de um template — o corpo aprovado e a ordem das posicionais que
+  `render_whatsapp/2` usa. `nil` para template desconhecido.
   """
   def hsm(template), do: Map.get(@definicoes, template)
 
@@ -162,14 +198,22 @@ defmodule Api.Messaging.Templates do
     "data" => "28/07/2026",
     "hora" => "14:00",
     "quantas" => "3 sessões",
-    "pacote" => "Pilates 10"
+    "pacote" => "Pilates 10",
+    "telefone" => "(11) 3456-7890"
   }
 
   @doc """
-  O payload de submissão do template à Meta, via Zernio (doc 65 §3).
+  O payload de submissão do template à Meta — hoje a **especificação do cadastro manual**.
 
-  Mora aqui, e não na mix task, por dois motivos: é a **mesma** definição que `render_whatsapp/2`
-  usa (uma fonte, não duas que se parecem), e assim a montagem é testável sem rodar a task.
+  Houve uma mix task que submetia isto pela API da Zernio; ela saiu quando o cadastro passou a ser
+  feito à mão no painel. A função ficou, e não por inércia: é ela que os testes usam para prender
+  as regras da Meta que não têm código de erro barato — footer sem variável e dentro de 60
+  caracteres, componentes na ordem `BODY → FOOTER → BUTTONS`, categoria `UTILITY`, um exemplo por
+  posicional. Reprovação por qualquer uma dessas custa dias de fila para descobrir, e é mais
+  barato descobrir na suíte.
+
+  Ou seja: o que se registra no painel é o que sai daqui. Divergir é possível — ninguém programa o
+  painel —, e é por isso que o texto do corpo vive em `@definicoes` e não numa planilha.
 
   `base_url` é o domínio do botão de resposta — congelado no template aprovado, então trocá-lo
   depois exige `_v2`.
@@ -189,13 +233,16 @@ defmodule Api.Messaging.Templates do
            # aprovação — e um template operacional aprovado como marketing fica sujeito ao
            # opt-out de marketing, que é outro consentimento.
            category: "UTILITY",
+           # A ordem dos componentes é a que a Meta espera, e ela não é negociável:
+           # `BODY` → `FOOTER` → `BUTTONS`.
            components:
              [
                %{
                  type: "BODY",
                  text: corpo,
                  example: %{body_text: [Enum.map(nomes, &Map.fetch!(@exemplos, &1))]}
-               }
+               },
+               %{type: "FOOTER", text: @footer}
              ] ++ botao(botao?, base_url)
          }}
     end
@@ -220,100 +267,206 @@ defmodule Api.Messaging.Templates do
   end
 
   @doc """
-  Renderiza um template para e-mail: `%{assunto: ..., texto: ...}`.
+  Renderiza um template para e-mail: `%{assunto: ..., texto: ..., html: ...}`.
 
   Variáveis esperadas em `vars` (chaves string, porque vêm de um `:map` do banco): `"clinica"`,
-  `"paciente"`, `"data"`, `"hora"` e, quando há resposta a pedir, `"link"`.
+  `"paciente"`, `"data"`, `"hora"`, `"telefone"` e, quando há resposta a pedir, `"link"`. O
+  `"descadastro"` é acrescentado no envio (`Api.Messaging.SendJob`), como o `"link"`: os dois
+  dependem do id da mensagem, que só existe depois da gravação.
+
+  **As duas partes saem sempre.** O texto não é o HTML raspado — é a mesma mensagem escrita para
+  quem lê e-mail sem HTML, e é o que o filtro de spam encontra quando desconfia de uma mensagem
+  que só existe em HTML. As duas nascem da mesma definição (`conteudo/2`), que é o que impede o
+  assunto de dizer uma coisa e o corpo outra depois da primeira correção de copy.
 
   Template desconhecido devolve `:error` em vez de levantar: a timeline renderiza linhas antigas,
   e um template removido do código não pode derrubar a leitura da tela inteira.
   """
-  def render_email(template, vars)
+  def render_email(template, vars) do
+    case conteudo(template, vars) do
+      :error ->
+        :error
 
-  def render_email("confirmacao_v1", v) do
-    {:ok,
-     %{
-       assunto: "#{nome(v, "clinica")}: sua sessão de #{v["data"]} às #{v["hora"]}",
-       texto: """
-       Olá, #{primeiro_nome(v)}!
-
-       Sua sessão na #{nome(v, "clinica")} está agendada para #{v["data"]} às #{v["hora"]}.
-       #{confirme(v)}
-       """
-     }}
+      c ->
+        {:ok, %{assunto: c.assunto, texto: c.texto, html: html(template, c, vars)}}
+    end
   end
 
-  def render_email("lembrete_v1", v) do
-    {:ok,
-     %{
-       assunto: "#{nome(v, "clinica")}: lembrete da sua sessão de #{v["data"]}",
-       texto: """
-       Olá, #{primeiro_nome(v)}!
+  @doc """
+  Só o assunto, sem montar corpo nenhum.
 
-       Passando para lembrar da sua sessão na #{nome(v, "clinica")}: #{v["data"]} às #{v["hora"]}.
-       #{confirme(v)}
-       """
-     }}
+  Existe porque a timeline da recepção (`ApiWeb.MessagesController`) usa o assunto como **título**
+  de cada linha do histórico, e nada mais. Chamar `render_email/2` ali montaria o HTML inteiro de
+  cada mensagem da lista para jogar tudo fora menos uma string.
+  """
+  def assunto(template, vars) do
+    case conteudo(template, vars) do
+      :error -> :error
+      %{assunto: assunto} -> {:ok, assunto}
+    end
   end
 
-  def render_email("remarcacao_v1", v) do
-    {:ok,
-     %{
-       assunto: "#{nome(v, "clinica")}: sua sessão mudou para #{v["data"]}",
-       texto: """
-       Olá, #{primeiro_nome(v)}!
+  # A definição de cada e-mail num lugar só: o que o assunto diz, o que o título diz, o parágrafo
+  # (em HTML, porque é ele que ganha o negrito) e o texto puro. `detalhes` é o cartão de dados da
+  # sessão — só o que viaja nas `vars`, ver `Api.EmailLayout.cabecalho_clinica/2`.
+  defp conteudo(template, vars)
 
-       Sua sessão na #{nome(v, "clinica")} passou para #{v["data"]} às #{v["hora"]}.
-       #{confirme(v)}
-       """
-     }}
+  defp conteudo("confirmacao_v1", v) do
+    %{
+      assunto: "#{nome(v, "clinica")}: sua sessão de #{v["data"]} às #{v["hora"]}",
+      titulo: "Sua sessão está agendada",
+      preheader: "#{nome(v, "data")} às #{nome(v, "hora")} na #{nome(v, "clinica")}.",
+      paragrafo:
+        "Olá, #{e_primeiro_nome(v)}. Reservamos o seu horário na #{forte(v, "clinica")} e a equipe já está avisada.",
+      detalhes: [{"Data e hora", "#{nome(v, "data")} às #{nome(v, "hora")}"}],
+      texto: """
+      Olá, #{primeiro_nome(v)}!
+
+      Sua sessão na #{nome(v, "clinica")} está agendada para #{v["data"]} às #{v["hora"]}.
+      #{confirme(v)}
+      #{rodape(v)}
+      """
+    }
   end
 
-  def render_email("cancelamento_v1", v) do
-    {:ok,
-     %{
-       assunto: "#{nome(v, "clinica")}: sua sessão de #{v["data"]} foi cancelada",
-       texto: """
-       Olá, #{primeiro_nome(v)}!
+  defp conteudo("lembrete_v1", v) do
+    %{
+      assunto: "#{nome(v, "clinica")}: lembrete da sua sessão de #{v["data"]}",
+      titulo: "Lembrete da sua sessão",
+      preheader: "#{nome(v, "data")} às #{nome(v, "hora")} na #{nome(v, "clinica")}.",
+      paragrafo:
+        "Olá, #{e_primeiro_nome(v)}. Passando para lembrar da sua sessão na #{forte(v, "clinica")}.",
+      detalhes: [{"Data e hora", "#{nome(v, "data")} às #{nome(v, "hora")}"}],
+      texto: """
+      Olá, #{primeiro_nome(v)}!
 
-       Sua sessão na #{nome(v, "clinica")} em #{v["data"]} às #{v["hora"]} foi cancelada.
-
-       Para remarcar, é só responder a quem te atende na clínica.
-       """
-     }}
+      Passando para lembrar da sua sessão na #{nome(v, "clinica")}: #{v["data"]} às #{v["hora"]}.
+      #{confirme(v)}
+      #{rodape(v)}
+      """
+    }
   end
 
-  def render_email("pacote_remarcado_v1", v) do
-    {:ok,
-     %{
-       assunto: "#{nome(v, "clinica")}: #{v["quantas"]} do seu pacote mudaram de horário",
-       texto: """
-       Olá, #{primeiro_nome(v)}!
+  defp conteudo("remarcacao_v1", v) do
+    %{
+      # A hora entra no assunto porque numa remarcação ela é, quase sempre, a única coisa que
+      # mudou: sem ela o assunto repete a data que o paciente já tinha e não avisa nada.
+      assunto: "#{nome(v, "clinica")}: sua sessão mudou para #{v["data"]} às #{v["hora"]}",
+      titulo: "Sua sessão mudou de horário",
+      preheader: "Agora é #{nome(v, "data")} às #{nome(v, "hora")}.",
+      paragrafo:
+        "Olá, #{e_primeiro_nome(v)}. Sua sessão na #{forte(v, "clinica")} passou para um novo horário.",
+      detalhes: [{"Novo horário", "#{nome(v, "data")} às #{nome(v, "hora")}"}],
+      texto: """
+      Olá, #{primeiro_nome(v)}!
 
-       Na #{nome(v, "clinica")}, #{v["quantas"]} do seu pacote #{nome(v, "pacote")} mudaram de
-       horário.
-
-       A recepção entra em contato com os novos horários.
-       """
-     }}
+      Sua sessão na #{nome(v, "clinica")} passou para #{v["data"]} às #{v["hora"]}.
+      #{confirme(v)}
+      #{rodape(v)}
+      """
+    }
   end
 
-  def render_email("pacote_cancelado_v1", v) do
-    {:ok,
-     %{
-       assunto: "#{nome(v, "clinica")}: #{v["quantas"]} do seu pacote foram canceladas",
-       texto: """
-       Olá, #{primeiro_nome(v)}!
+  defp conteudo("cancelamento_v1", v) do
+    %{
+      # A hora entra aqui pelo mesmo motivo da remarcação, com um agravante: quem faz pacote
+      # costuma ter duas sessões no mesmo dia, e a data sozinha não diz qual delas caiu.
+      assunto: "#{nome(v, "clinica")}: sua sessão de #{v["data"]} às #{v["hora"]} foi cancelada",
+      titulo: "Sua sessão foi cancelada",
+      preheader: "#{nome(v, "data")} às #{nome(v, "hora")}, na #{nome(v, "clinica")}.",
+      paragrafo:
+        "Olá, #{e_primeiro_nome(v)}. Sua sessão na #{forte(v, "clinica")} foi cancelada. Para remarcar, fale com a clínica.",
+      detalhes: [{"Sessão cancelada", "#{nome(v, "data")} às #{nome(v, "hora")}"}],
+      texto: """
+      Olá, #{primeiro_nome(v)}!
 
-       Na #{nome(v, "clinica")}, #{v["quantas"]} do seu pacote #{nome(v, "pacote")} foram
-       canceladas.
+      Sua sessão na #{nome(v, "clinica")} em #{v["data"]} às #{v["hora"]} foi cancelada.
 
-       Para remarcar, é só responder a quem te atende na clínica.
-       """
-     }}
+      Para remarcar, fale com a clínica.
+
+      #{rodape(v)}
+      """
+    }
   end
 
-  def render_email(_desconhecido, _vars), do: :error
+  defp conteudo("pacote_remarcado_v1", v) do
+    %{
+      assunto: "#{nome(v, "clinica")}: #{v["quantas"]} do seu pacote mudaram de horário",
+      titulo: "Sessões do seu pacote mudaram",
+      preheader: "#{nome(v, "quantas")} do pacote #{nome(v, "pacote")} mudaram de horário.",
+      paragrafo:
+        "Olá, #{e_primeiro_nome(v)}. Na #{forte(v, "clinica")}, #{e(v, "quantas")} do seu pacote mudaram de horário. A recepção entra em contato com os novos horários.",
+      detalhes: [{"Pacote", nome(v, "pacote")}],
+      texto: """
+      Olá, #{primeiro_nome(v)}!
+
+      Na #{nome(v, "clinica")}, #{v["quantas"]} do seu pacote #{nome(v, "pacote")} mudaram de
+      horário.
+
+      A recepção entra em contato com os novos horários.
+
+      #{rodape(v)}
+      """
+    }
+  end
+
+  defp conteudo("pacote_cancelado_v1", v) do
+    %{
+      assunto: "#{nome(v, "clinica")}: #{v["quantas"]} do seu pacote foram canceladas",
+      titulo: "Sessões do seu pacote foram canceladas",
+      preheader: "#{nome(v, "quantas")} do pacote #{nome(v, "pacote")} foram canceladas.",
+      paragrafo:
+        "Olá, #{e_primeiro_nome(v)}. Na #{forte(v, "clinica")}, #{e(v, "quantas")} do seu pacote foram canceladas. Para remarcar, fale com a clínica.",
+      detalhes: [{"Pacote", nome(v, "pacote")}],
+      texto: """
+      Olá, #{primeiro_nome(v)}!
+
+      Na #{nome(v, "clinica")}, #{v["quantas"]} do seu pacote #{nome(v, "pacote")} foram
+      canceladas.
+
+      Para remarcar, fale com a clínica.
+
+      #{rodape(v)}
+      """
+    }
+  end
+
+  defp conteudo(_desconhecido, _vars), do: :error
+
+  # A montagem do HTML, uma só para os seis: o que muda entre eles é a definição acima, não a
+  # moldura. O cabeçalho é o nome da **clínica** (§9.1.4) e a Cinetra só aparece no rodapé — ver
+  # `Api.EmailLayout`.
+  defp html(template, c, v) do
+    clinica = nome(v, "clinica")
+
+    EmailLayout.documento(
+      titulo: c.assunto,
+      preheader: c.preheader,
+      blocos: [
+        EmailLayout.cabecalho_clinica(clinica, v["telefone"]),
+        EmailLayout.abertura(c.titulo, c.paragrafo),
+        EmailLayout.detalhes(c.detalhes),
+        botao_do_email(template, v),
+        EmailLayout.assinatura(clinica, v["telefone"]),
+        EmailLayout.rodape_paciente(clinica, v["descadastro"])
+      ]
+    )
+  end
+
+  # Quem tem botão é quem tem pergunta a fazer — e a autoridade disso é a **mesma** `botao?` da
+  # definição HSM, não uma segunda lista aqui. Sem isto, um `_v2` que ganhasse botão no WhatsApp
+  # sairia sem botão no e-mail, e ninguém veria a diferença até um paciente reclamar.
+  defp botao_do_email(template, v) do
+    link = v["link"]
+
+    case hsm(template) do
+      %{botao?: true} when is_binary(link) and link != "" ->
+        EmailLayout.botao(link, "Confirmar ou remarcar")
+
+      _sem_pergunta ->
+        ""
+    end
+  end
 
   @doc """
   Renderiza um template para WhatsApp: `%{nome: ..., idioma: ..., params: [...]}`.
@@ -354,6 +507,45 @@ defmodule Api.Messaging.Templates do
   end
 
   defp confirme(_vars), do: ""
+
+  # O texto do footer no e-mail é o do WhatsApp com o canal trocado — "por aqui" não quer dizer
+  # nada numa caixa de entrada, e o teto de 60 caracteres da Meta não vale aqui.
+  @footer_email "Mensagem automática. Não responda a este e-mail."
+
+  # O fecho de todo e-mail, **num lugar só**: para onde ligar, como sair da lista e o aviso de que
+  # ninguém lê a resposta. Seis cópias divergiriam na primeira correção de texto — e a divergência
+  # entre dois e-mails que dizem a mesma coisa de jeitos diferentes é invisível em teste e visível
+  # ao paciente.
+  defp rodape(vars) do
+    [ligue(vars), descadastro(vars), @footer_email]
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.join("\n\n")
+  end
+
+  # O descadastro também na parte de texto, e não só no rodapé do HTML: quem lê o e-mail sem HTML
+  # é justamente quem não tem como clicar num link estilizado. Ausente quando o corpo é renderizado
+  # fora do envio (a timeline não tem token) — ver `Api.EmailLayout.rodape_paciente/2`.
+  defp descadastro(%{"descadastro" => url}) when is_binary(url) and url != "",
+    do: "Não quer mais receber estes avisos? #{url}"
+
+  defp descadastro(_vars), do: ""
+
+  # Sem telefone a linha inteira some. Aqui, ao contrário do HSM, isso é possível: o e-mail é
+  # texto livre, e "Ligue para —" seria um defeito escrito por nós.
+  defp ligue(%{"telefone" => tel}) when is_binary(tel) and tel != "",
+    do: "Precisa falar com a gente? Ligue para #{tel}."
+
+  defp ligue(_vars), do: ""
+
+  # Os três atalhos do lado HTML. **Todo valor interpolado no parágrafo passa por um deles**: o
+  # parágrafo é a única parte do e-mail que carrega marcação nossa, então é a única onde um
+  # "Silva & Filhos" vindo da ficha produziria HTML quebrado — ou pior, onde um `<` colado de
+  # algum lugar viraria tag.
+  defp e(vars, chave), do: EmailLayout.escapar(nome(vars, chave))
+
+  defp e_primeiro_nome(vars), do: EmailLayout.escapar(primeiro_nome(vars))
+
+  defp forte(vars, chave), do: ~s(<strong style="color:#212A37;">#{e(vars, chave)}</strong>)
 
   # "Olá, Maria!" e não "Olá, Maria Aparecida da Silva Santos!". O primeiro nome é como se fala
   # com alguém; o nome completo num cumprimento soa a cobrança.

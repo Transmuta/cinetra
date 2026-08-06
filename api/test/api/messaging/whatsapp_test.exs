@@ -67,14 +67,13 @@ defmodule Api.Messaging.WhatsAppTest do
 
   describe "o envio, do agendamento ao transporte" do
     test "a confirmação sai pelo WhatsApp, com template e parâmetros na ordem" do
-      ctx = clinica()
+      ctx = clinica(whatsapp: true)
 
       paciente =
         paciente_com(ctx, nome: "Ana Maria Souza", comunicacao: true, tel: "(11) 98765-4321")
 
-      appt = agendamento!(ctx, paciente: paciente)
+      message = confirmacao!(ctx, paciente)
 
-      [message] = mensagens(ctx, appt)
       assert message.canal == :whatsapp
       assert message.destino == "+5511987654321"
 
@@ -85,10 +84,15 @@ defmodule Api.Messaging.WhatsAppTest do
       assert envio.template == "confirmacao_v1"
       assert envio.idioma == "pt_BR"
 
-      # [primeiro nome, clínica, data, hora, token do botão]
-      assert [nome, clinica, _data, _hora, token] = envio.params
+      # [primeiro nome, clínica, data, hora, telefone da clínica, token do botão]
+      assert [nome, clinica, _data, _hora, telefone, token] = envio.params
       assert nome == "Ana"
       assert clinica == ctx.clinic.nome
+
+      # O telefone atravessa a fronteira inteira: coluna da clínica → `vars` da mensagem →
+      # posicional do template. É a única saída de voz que o canal oferece — o botão é URL e não
+      # trafega nada de volta pelo WhatsApp.
+      assert telefone == ctx.clinic.telefone
 
       # O token é o SUFIXO da URL, não a URL: o domínio está congelado no botão aprovado.
       refute token =~ "http"
@@ -103,10 +107,9 @@ defmodule Api.Messaging.WhatsAppTest do
       # `mix test` roda sem sandbox de transação por processo aqui (`async: false`), então
       # `in_transaction?` só é verdadeiro se **alguém acima** abriu uma: exatamente o que a
       # correção proíbe.
-      ctx = clinica()
+      ctx = clinica(whatsapp: true)
       paciente = paciente_com(ctx, comunicacao: true, tel: "11987654321")
-      appt = agendamento!(ctx, paciente: paciente)
-      [message] = mensagens(ctx, appt)
+      message = confirmacao!(ctx, paciente)
 
       SendJob.perform(job(message))
 
@@ -114,10 +117,9 @@ defmodule Api.Messaging.WhatsAppTest do
     end
 
     test "o id do provider é gravado — é a chave que o webhook usa depois" do
-      ctx = clinica()
+      ctx = clinica(whatsapp: true)
       paciente = paciente_com(ctx, comunicacao: true, tel: "11987654321")
-      appt = agendamento!(ctx, paciente: paciente)
-      [message] = mensagens(ctx, appt)
+      message = confirmacao!(ctx, paciente)
 
       SendJob.perform(job(message))
 
@@ -132,10 +134,9 @@ defmodule Api.Messaging.WhatsAppTest do
       # erro de rede, que o transporte levanta.
       WhatsAppMemory.falhar_com("400 131021: Recipient is not a valid WhatsApp user")
 
-      ctx = clinica()
+      ctx = clinica(whatsapp: true)
       paciente = paciente_com(ctx, comunicacao: true, tel: "11987654321")
-      appt = agendamento!(ctx, paciente: paciente)
-      [message] = mensagens(ctx, appt)
+      message = confirmacao!(ctx, paciente)
 
       assert :ok = SendJob.perform(job(message))
 
@@ -149,7 +150,7 @@ defmodule Api.Messaging.WhatsAppTest do
     test "a conta pela qual a clínica fala viaja na mensagem" do
       # §9.1.4: o número é configuração por clínica desde já, para "a clínica nº 2 quer o número
       # dela" ser um UPDATE. E é histórico: "mandamos deste número" não pode mudar depois.
-      ctx = clinica()
+      ctx = clinica(whatsapp: true)
 
       Api.Tenancy.in_clinic(ctx.clinic.id, fn ->
         ctx.clinic
@@ -159,13 +160,32 @@ defmodule Api.Messaging.WhatsAppTest do
       end)
 
       paciente = paciente_com(ctx, comunicacao: true, tel: "11987654321")
-      appt = agendamento!(ctx, paciente: paciente)
-      [message] = mensagens(ctx, appt)
+      message = confirmacao!(ctx, paciente)
 
       SendJob.perform(job(message))
 
       assert [%{conta: "conta-da-clinica"}] = WhatsAppMemory.enviadas()
     end
+  end
+
+  # Marca a sessão e dispara a confirmação **à mão**, como a recepção faz pelo botão do drawer.
+  # Era a criação do bloco que produzia esta mensagem sozinha; desde 2026-07-31 (doc 98) ela não
+  # produz mais, e o que este arquivo mede — canal, template, transporte — não mudou.
+  # A clínica é **relida** do banco, e não reaproveitada do `ctx`: o teste da conta de WhatsApp
+  # grava `zernio_account_id` depois de montar o contexto, e a struct antiga não o traz — o
+  # `Dispatch` congelaria a mensagem sem a conta. É o que o notifier já fazia por dentro.
+  defp confirmacao!(ctx, paciente) do
+    appt = agendamento!(ctx, paciente: paciente)
+    [presenca] = appt.attendances
+
+    clinic =
+      Api.Tenancy.in_clinic(ctx.clinic.id, fn ->
+        Api.Accounts.get_clinic!(ctx.clinic.id, authorize?: false)
+      end)
+
+    {:ok, message} = Messaging.Dispatch.dispatch(clinic, presenca, paciente, :confirmacao)
+
+    message
   end
 
   defp job(message),

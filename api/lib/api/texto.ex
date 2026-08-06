@@ -33,4 +33,16 @@ defmodule Api.Texto do
   """
   def foram(1), do: "foi"
   def foram(n) when is_integer(n) and n != 1, do: "foram"
+
+  @doc """
+  Só os dígitos de um texto — `"(11) 98765-4321"` vira `"11987654321"`.
+
+  Estava escrito quatro vezes (doc 96, R-3): `Api.Cpf`, a preparation de busca de paciente, o
+  `Dispatch` e a `Zernio`. É higiene de string, não regra de nenhum domínio.
+
+  **Não** serve para CNPJ: desde 2026 ele é alfanumérico, e `Api.Cnpj.normalize/1` usa uma régua
+  própria (`~r/[^0-9A-Z]/`) de propósito.
+  """
+  def somente_digitos(nil), do: nil
+  def somente_digitos(valor) when is_binary(valor), do: String.replace(valor, ~r/\D/, "")
 end

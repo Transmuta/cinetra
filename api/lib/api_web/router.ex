@@ -29,38 +29,36 @@ defmodule ApiWeb.Router do
 
   # Rate limit do tráfego geral, em DOIS estágios (doc 68, causa C).
   #
-  # `:rate_limited_edge` vem ANTES do `:authenticated` e corta enxurrada por IP com teto folgado
-  # (400/min). Sem ele, cada requisição barrada ainda pagava as 5 queries da stack de sessão —
-  # medido: 42× de amplificação, 27 s de banco por minuto descartados.
+  # **O estágio de borda não está mais aqui** (doc 96, L-2): ele virou plug do
+  # [`ApiWeb.Endpoint`](endpoint.ex), acima do `Plug.Parsers`. Como pipeline do router ele corria
+  # depois do parser, e a requisição que ia levar 429 já tinha decodificado o corpo inteiro. Lá
+  # também estão as isenções que antes eram feitas aqui, escolhendo pipelines scope a scope
+  # (webhooks e health checks).
   #
-  # `:rate_limited_global` vem DEPOIS, quando já existe escopo, e aplica o limite fino de 200/min
-  # por ator. Fora dos dois: os endpoints de auth (limite próprio), os health checks (liveness não
-  # pode depender do rate limiter, doc 62 §7.1) e os webhooks (rajada legítima de campanha; a
-  # guarda deles é a assinatura). No-op fora de produção.
-  pipeline :rate_limited_edge do
-    plug ApiWeb.Plugs.RateLimitGlobal, stage: :edge
-  end
-
+  # `:rate_limited_global` continua sendo do router porque depende do `LoadScope`: quando já existe
+  # escopo, aplica o limite fino de 200/min **por ator**. Fora dele: os endpoints de auth, que têm
+  # o `RateLimitAuth` próprio e mais apertado. No-op fora de produção.
   pipeline :rate_limited_global do
     plug ApiWeb.Plugs.RateLimitGlobal, stage: :actor
   end
 
-  # AshJsonApi (recursos do domínio) — sob :authenticated, então cada request já chega
-  # com actor e `clinic_id` (tenant) resolvidos do escopo, nunca do corpo/URL (09 §8).
-  scope "/api/json" do
-    pipe_through [:api, :rate_limited_edge, :authenticated, :rate_limited_global]
-
-    forward "/swaggerui", OpenApiSpex.Plug.SwaggerUI,
-      path: "/api/json/open_api",
-      default_model_expand_depth: 4
-
-    forward "/", ApiWeb.AshJsonApiRouter
-  end
+  # **`/api/json` não existe mais** (doc 96, M-2 — decisão de 2026-08-01: não vamos expor
+  # Swagger). Aqui moravam o `forward` do `AshJsonApi` e o `SwaggerUI`, servindo o domínio
+  # `Api.Meta`, que estava **vazio** (`routes do end`, `resources do end`) desde que a auditoria do
+  # doc 13 removeu o recurso de scaffold `Ping`.
+  #
+  # O que saiu junto: os módulos `Api.Meta` e `ApiWeb.AshJsonApiRouter`, as deps `ash_json_api` e
+  # `open_api_spex`, o `AshJsonApi.Plug.Parser` do endpoint e o plug `ApiWeb.Plugs.RequireScope` —
+  # que existia **só** para tapar este escopo (era o único sem guarda de controller, doc 96 S-4).
+  #
+  # Duas rotas públicas a menos, duas dependências a menos e um plug a menos para manter. Se um dia
+  # houver JSON:API, ele volta com recurso de verdade, policy e guarda — que é o que a lição do doc
+  # 13 pedia e uma superfície montada sobre domínio vazio não tinha como cumprir.
 
   # Endpoints de auth com rate limit (auditoria doc 13, causa A): os que geram e-mail/token
   # ou trocam de tenant. No-op fora de produção.
   scope "/api", ApiWeb do
-    pipe_through [:api, :rate_limited_edge, :authenticated, :rate_limited]
+    pipe_through [:api, :authenticated, :rate_limited]
 
     # Autenticação sem senha (ADR-015, contrato 09 §8).
     post "/auth/magic-link", AuthController, :request_magic_link
@@ -79,7 +77,7 @@ defmodule ApiWeb.Router do
   end
 
   scope "/api", ApiWeb do
-    pipe_through [:api, :rate_limited_edge, :authenticated, :rate_limited_global]
+    pipe_through [:api, :authenticated, :rate_limited_global]
 
     # Onboarding do primeiro acesso: cria a clínica + owner (ADR-016). clinic_id nasce aqui.
     post "/clinics", ClinicController, :onboard
@@ -89,6 +87,10 @@ defmodule ApiWeb.Router do
     # Tela "Meu perfil" (identidade global, sem tenant): editar o próprio nome e sair de todos
     # os dispositivos. `PATCH /auth/me` espelha o `GET /auth/me`; o alvo é sempre o próprio ator.
     patch "/auth/me", AuthController, :update_profile
+    # O aceite dos documentos legais (`[D-14]`), carimbado pelo BFF logo depois do login — nos
+    # dois caminhos, porque os dois passam por lá. A versão viaja no corpo: quem exibiu o texto
+    # é quem sabe qual era.
+    post "/auth/terms-acceptance", AuthController, :terms_acceptance
     delete "/auth/sign-out", AuthController, :sign_out
     post "/auth/sign-out-everywhere", AuthController, :sign_out_everywhere
 
@@ -158,6 +160,9 @@ defmodule ApiWeb.Router do
     patch "/patients/:id", PatientsController, :update
     post "/patients/:id/deactivate", PatientsController, :deactivate
     post "/patients/:id/reactivate", PatientsController, :reactivate
+    # Opt-in: o paciente que pediu "SAIR" voltou a aceitar. Contrapartida obrigatória do opt-out
+    # (LGPD art. 8º §5) — antes só existia por `psql` (doc 96, M-4).
+    post "/patients/:id/opt-in", PatientsController, :opt_in
 
     # Pacotes (Fatia 3, doc 09). `preview` classifica a série sem escrever (save-gate); `create`
     # decide server-side e enfileira a materialização. Pausar/cancelar operam sobre a série. A
@@ -293,18 +298,24 @@ defmodule ApiWeb.Router do
   end
 
   scope "/", ApiWeb do
-    pipe_through [:api, :rate_limited_edge, :rate_limited_global]
+    pipe_through [:api, :rate_limited_global]
 
     # A resposta do paciente (§5). O token identifica UMA mensagem e não abre sessão nenhuma —
     # e por ser pública e sem sessão, é exatamente o tipo de rota que o limite global protege.
     get "/api/reply/:token", PatientReplyController, :show
     post "/api/reply/:token", PatientReplyController, :create
+
+    # O descadastro pelo rodapé do e-mail (§10). Mesmo desenho: token no lugar de sessão, e o
+    # efeito só no POST — o GET existe para a página perguntar antes, porque scanner de e-mail
+    # abre link sozinho.
+    get "/api/opt-out/:token", PatientOptOutController, :show
+    post "/api/opt-out/:token", PatientOptOutController, :create
   end
 
   # Máquina OAuth do AshAuthentication (Assent): request + callback do Google. Chama
   # `ApiWeb.AuthStrategyController.success/4` / `failure/3`.
   scope "/" do
-    pipe_through [:oauth, :rate_limited_edge, :rate_limited_global]
+    pipe_through [:oauth, :rate_limited_global]
     auth_routes(ApiWeb.AuthStrategyController, Api.Accounts.User, path: "/api/auth/strategy")
   end
 

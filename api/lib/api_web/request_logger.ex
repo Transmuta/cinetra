@@ -78,15 +78,48 @@ defmodule ApiWeb.RequestLogger do
   defp registrar(conn, duracao) do
     ms = System.convert_time_unit(duracao, :native, :microsecond) / 1000
 
-    metadata = [
-      method: conn.method,
-      route: rota(conn.request_path),
-      status: conn.status,
-      duration_ms: Float.round(ms, 1)
-    ]
+    # `client_ip` é o que responde "quem está batendo na porta". Sem ele, um 401 ou 429 **anônimo**
+    # — o caso de brute-force no magic link e o do webhook sem assinatura — não deixava nenhum
+    # identificador de origem na linha: `actor_id` e `clinic_id` são nulos justamente aí (doc 96,
+    # O-1). O IP já era resolvido corretamente pelo `ClientIp`, só que servia apenas de chave de
+    # rate limit e nunca chegava ao log.
+    #
+    # Cardinalidade alta não é problema aqui: no Loki isto é **campo** do JSON, não label — não
+    # entra no índice e não multiplica séries.
+    metadata =
+      [
+        method: conn.method,
+        route: rota(conn.request_path),
+        status: conn.status,
+        duration_ms: Float.round(ms, 1),
+        client_ip: ApiWeb.ClientIp.get(conn)
+      ] ++ recusa(conn)
 
     Logger.log(nivel(conn.status), "requisição", metadata)
   end
+
+  # O que foi enviado e o que foi devolvido — **só quando a requisição falhou** (ADR-025).
+  #
+  # É o que responde "por que não salvou" sem depender de reproduzir o caso: um 422 sozinho diz
+  # que houve recusa, não qual campo nem com que forma de valor. Tudo passa por
+  # `Api.LogRedacao`, que troca por `"***"` o valor de todo campo da blocklist ANTES de o dado
+  # entrar no `Logger` — ver o moduledoc de lá para o que essa camada cobre e o que não cobre.
+  #
+  # Restringir a 4xx/5xx não é economia: é o que mantém payload de paciente **fora** do log em
+  # ~toda operação bem-sucedida, que é a esmagadora maioria do tráfego.
+  defp recusa(%{status: status} = conn) when is_integer(status) and status >= 400 do
+    [
+      payload: Api.LogRedacao.redigir(Map.get(conn, :body_params)),
+      # Num GET a query É o payload — e é por ela que viajam as duas credenciais de entrada do
+      # sistema: o `token` do magic link e o `code` do callback do Google. O contexto `:query`
+      # existe para redigir o segundo sem apagar o `code` do erro de validação numa resposta.
+      query: Api.LogRedacao.redigir(Map.get(conn, :query_params), :query),
+      response: Api.LogRedacao.resposta(ApiWeb.Plugs.CapturarResposta.corpo(conn))
+    ]
+    |> Enum.reject(fn {_chave, valor} -> is_nil(valor) end)
+  end
+
+  defp recusa(_conn), do: []
 
   # **Só 5xx é `:error`.** O nível codifica *acionabilidade*, não gravidade HTTP: 401 de sessão
   # expirada, 404 de robô e 422 de formulário são rotina, e marcá-los como `warning` treina a
@@ -97,19 +130,28 @@ defmodule ApiWeb.RequestLogger do
   defp nivel(_status), do: :info
 
   @doc """
-  Troca por `:id` todo segmento de path que é identificador.
+  Troca por `:id` todo segmento de path que é identificador, e por `:token` todo segmento opaco.
 
   Pega UUID (com ou sem hífen — o projeto usa UUIDv7) e número. É a barreira que impede
   `patient_id` de sair do processo, e o que mantém a rota agrupável.
+
+  O segundo corte é o do **segmento opaco**: qualquer coisa longa demais para ser nome de rota.
+  Ele existe porque reconhecer só UUID e número deixava passar o token de `/api/reply/:token` —
+  um `Phoenix.Token` base64, que saía inteiro na linha (doc 96, S-2). Como ele vale 30 dias e o
+  Loki retém 30 dias, era credencial viva no log: dava para responder pelo paciente a partir do
+  Grafana. Reconhecer *formatos* de credencial é lista que envelhece; medir comprimento não.
   """
   def rota(path) when not is_binary(path), do: "desconhecida"
 
   def rota(path) do
     path
     |> String.split("/")
-    |> Enum.map_join("/", fn
-      segmento ->
-        if identificador?(segmento), do: ":id", else: segmento
+    |> Enum.map_join("/", fn segmento ->
+      cond do
+        identificador?(segmento) -> ":id"
+        opaco?(segmento) -> ":token"
+        true -> segmento
+      end
     end)
   end
 
@@ -121,4 +163,10 @@ defmodule ApiWeb.RequestLogger do
       String.match?(segmento, ~r/^[0-9a-fA-F]{32}$/) or
       String.match?(segmento, ~r/^\d+$/)
   end
+
+  # 32 fica acima do maior segmento literal do router (`sign-out-everywhere`, 19) e abaixo de
+  # qualquer token que o projeto emita. O UUID (36 com hífen, 32 sem) nunca chega aqui: o
+  # `identificador?/1` casa antes e devolve `:id`, que é o rótulo mais útil dos dois.
+  @max_segmento 32
+  defp opaco?(segmento), do: String.length(segmento) > @max_segmento
 end

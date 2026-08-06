@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Button from '$lib/components/Button.svelte';
 	// "Ajustar grade do pacote" (contrato 09:441, `modalAjustarGrade` do protótipo
 	// [`:664`](../../../../interface/Movimento.dc.html#L664)).
 	//
@@ -14,7 +15,6 @@
 	import SlidersHorizontal from '@lucide/svelte/icons/sliders-horizontal';
 	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 	import Modal from '$lib/components/Modal.svelte';
-	import SubmitButton from '$lib/components/SubmitButton.svelte';
 	import Field, { CONTROL_CLASS, CONTROL_PX } from '$lib/components/Field.svelte';
 	import { envio as criarEnvio } from '$lib/forms.svelte';
 	import { DOW_LABELS, type Package as Pkg } from '$lib/packages';
@@ -77,7 +77,7 @@
 		<input type="hidden" name="dows" value={dowsPlano} />
 		<input type="hidden" name="horarios" value={horariosPlano} />
 
-		<div class="mb-3.5 flex items-start gap-2 rounded-[10px] bg-teal-subtle px-3 py-2.5 text-[12px] text-teal-text">
+		<div class="mb-3.5 flex items-start gap-2 rounded-cartao bg-accent-subtle px-3 py-2.5 text-rotulo text-accent-text">
 			<Info size={15} class="mt-0.5 shrink-0" />
 			<span>
 				Vale para as <strong>próximas</strong> sessões deste pacote. As já concluídas não mudam.
@@ -100,14 +100,14 @@
 		</Field>
 
 		<div class="mb-3" role="group" aria-label="Dias da semana">
-			<span class="mb-[5px] block text-[12px] font-semibold text-muted">Dias da semana</span>
+			<span class="mb-[5px] block text-rotulo font-semibold text-muted">Dias da semana</span>
 			<div class="flex flex-wrap gap-1.5">
 				{#each DOW_LABELS as label, d (d)}
 					<button
 						type="button"
 						onclick={() => toggleDow(d)}
 						aria-pressed={dows.includes(d)}
-						class="rounded-[8px] border px-2.5 py-1.5 text-[12.5px] font-semibold {dows.includes(d)
+						class="rounded-controle border px-2.5 py-1.5 text-rotulo font-semibold {dows.includes(d)
 							? 'border-primary bg-primary text-on-primary'
 							: 'border-edge bg-surface text-muted hover:bg-surface-2'}"
 					>
@@ -118,14 +118,14 @@
 		</div>
 
 		{#if dows.length}
-			<div class="rounded-[10px] border border-edge bg-surface2 p-2.5">
-				<div class="mb-1.5 text-[11px] font-bold uppercase tracking-[.04em] text-faint">
+			<div class="rounded-cartao border border-edge bg-surface2 p-2.5">
+				<div class="mb-1.5 text-meta font-bold uppercase tracking-[.04em] text-faint">
 					Horário de cada dia
 				</div>
 				<div class="flex flex-col gap-1.5">
 					{#each dows as d (d)}
 						<div class="flex items-center gap-2.5">
-							<span class="w-9 shrink-0 text-[12.5px] font-semibold text-muted">{DOW_LABELS[d]}</span>
+							<span class="w-9 shrink-0 text-rotulo font-semibold text-muted">{DOW_LABELS[d]}</span>
 							<input
 								type="time"
 								step="900"
@@ -139,11 +139,11 @@
 				</div>
 			</div>
 		{:else}
-			<p class="text-center text-[12px] text-faint">Selecione ao menos um dia.</p>
+			<p class="text-center text-rotulo text-faint">Selecione ao menos um dia.</p>
 		{/if}
 
 		{#if erro}
-			<div class="mt-3 flex items-start gap-2 rounded-lg bg-danger/10 px-3 py-2.5 text-[12.5px] text-danger">
+			<div class="mt-3 flex items-start gap-2 rounded-controle bg-danger/10 px-3 py-2.5 text-rotulo text-danger">
 				<TriangleAlert size={16} class="mt-0.5 shrink-0" />
 				<span>{erro}</span>
 			</div>
@@ -154,17 +154,16 @@
 		<button
 			type="button"
 			onclick={onClose}
-			class="rounded-lg border border-edge px-3.5 py-2 text-[13px] font-semibold hover:bg-surface-2"
+			class="rounded-controle border border-edge px-3.5 py-2 text-corpo font-semibold hover:bg-surface-2"
 		>
 			Cancelar
 		</button>
-		<SubmitButton
+		<Button type="submit"
 			emVoo={envio.emVoo}
 			form="grade-form"
 			disabled={!podeSalvar}
-			class="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-[13px] font-semibold text-on-primary disabled:cursor-not-allowed disabled:opacity-50"
 		>
 			<SlidersHorizontal size={15} /> Salvar grade
-		</SubmitButton>
+		</Button>
 	{/snippet}
 </Modal>

@@ -1,6 +1,7 @@
 import { error, fail, redirect, type RequestEvent } from '@sveltejs/kit';
 import { apiFetch, SESSION_COOKIE } from './api';
 import { cabecalhoPublico } from '$lib/seo';
+import { VERSAO } from '$lib/legal';
 import type { Me } from '$lib/session';
 
 // Carrega a sessão (`/api/auth/me`) pelo BFF. Retorna `null` quando não há sessão válida.
@@ -104,4 +105,38 @@ export async function requestMagicLink(event: RequestEvent, register = false) {
 	}
 
 	return { sent: true, email };
+}
+
+// ---------------------------------------------------------------------------------------------
+// O registro do aceite dos documentos legais (`[D-14]`, doc 101 A4).
+//
+// Até aqui o aceite era **presumido**: `/criar-conta` traz a nota "ao criar sua conta … você
+// concorda com os Termos e a Política", e nada era gravado. Dava para provar que o texto estava
+// na tela naquela versão do código — não que *aquela pessoa* passou por ele em *determinada data*.
+//
+// Por que aqui, no BFF, e não numa `change` da ação de login: a **versão** é propriedade do texto,
+// e o texto mora em `$lib/legal`. Uma constante espelhada do lado Elixir seria o quinto par do A5,
+// e o que apodreceria em silêncio no dia em que o texto mudasse seria justamente o registro legal
+// — o banco passaria a guardar aceite de uma versão que ninguém leu. Aqui, o número sai de onde
+// ele é verdade.
+//
+// Por que nos DOIS callbacks e não num só: magic link e Google são fluxos diferentes que só se
+// encontram depois da sessão assinada. Este é o primeiro ponto comum em que o usuário já é
+// identificável.
+//
+// **Nunca derruba o login.** A gravação é idempotente por versão do lado da API, e uma falha aqui
+// significa "aceite não registrado nesta passada" — que o próximo login corrige. Bloquear a
+// entrada por causa dela trocaria um registro faltando por uma pessoa sem acesso.
+export async function registrarAceite(event: RequestEvent): Promise<boolean> {
+	try {
+		const res = await apiFetch(event, '/api/auth/terms-acceptance', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ versao: VERSAO })
+		});
+
+		return res.ok;
+	} catch {
+		return false;
+	}
 }

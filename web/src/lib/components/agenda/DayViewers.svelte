@@ -35,7 +35,7 @@
 	<div class="flex items-center" title={rotulo} aria-label={rotulo}>
 		{#each visiveis as nome (nome)}
 			<span
-				class="-ml-1.5 grid size-[22px] place-items-center rounded-full border-2 border-surface text-[9.5px] font-bold first:ml-0"
+				class="-ml-1.5 grid size-[22px] place-items-center rounded-full border-2 border-surface text-micro font-bold first:ml-0"
 				style={avatarStyle(corDoNome(nome))}
 			>
 				{initials(nome)}
@@ -44,7 +44,7 @@
 
 		{#if excedente}
 			<span
-				class="-ml-1.5 grid size-[22px] place-items-center rounded-full border-2 border-surface bg-surface-2 text-[9.5px] font-bold text-muted"
+				class="-ml-1.5 grid size-[22px] place-items-center rounded-full border-2 border-surface bg-surface-2 text-micro font-bold text-muted"
 			>
 				+{excedente}
 			</span>

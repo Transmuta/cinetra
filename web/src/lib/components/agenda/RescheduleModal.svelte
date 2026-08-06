@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Button from '$lib/components/Button.svelte';
 	// "Remarcar sessão" (protótipo `modalRemarcar` :2266), Entrega 4. Move UMA sessão: data,
 	// hora e coluna (profissional). Não redimensiona — a duração é preservada no servidor
 	// (`ShiftEndsAt`). GAP-03 corrigido: o servidor valida expediente igual ao "Novo
@@ -6,11 +7,11 @@
 	import { untrack } from 'svelte';
 	import { enhance } from '$app/forms';
 	import Modal from '$lib/components/Modal.svelte';
-	import SubmitButton from '$lib/components/SubmitButton.svelte';
 	import { envio as criarEnvio } from '$lib/forms.svelte';
 	import Field, { CONTROL_CLASS, CONTROL_PX } from '$lib/components/Field.svelte';
 	import ConflictErrorBox from './ConflictErrorBox.svelte';
 	import EncaixeCheckbox from './EncaixeCheckbox.svelte';
+	import SwitchToggle from '$lib/components/scheduling/SwitchToggle.svelte';
 	import {
 		canCreateEncaixe,
 		toUtcIso,
@@ -94,6 +95,8 @@
 	const envio = criarEnvio({ reset: false });
 
 	const mudou = $derived(startsAt !== appt.starts_at || profId !== appt.professional_id || encaixe);
+
+	let avisar = $state(true);
 </script>
 
 <Modal title="Remarcar sessão" {onClose} maxWidth="max-w-[460px]">
@@ -140,6 +143,28 @@
 
 		<EncaixeCheckbox bind:checked={encaixe} {podeEncaixe} />
 
+		<!-- A pergunta que remarcar passou a fazer (2026-08-01): o disparo deixou de ser automático.
+		     Nasce marcada — quem remarca de propósito quase sempre quer avisar —, ao contrário do
+		     default do servidor, que cala por omissão porque omissão ali é falha, não escolha.
+
+		     A escolha é do BLOCO: numa turma de quatro, remarcar move os quatro, então a pergunta é
+		     uma só e vale para todos. -->
+		<div class="mt-3 flex items-start gap-2">
+			<SwitchToggle
+				checked={avisar}
+				label="Avisar o paciente"
+				onchange={() => (avisar = !avisar)}
+			/>
+			<span class="text-corpo">
+				Avisar o paciente
+				<span class="mt-0.5 block text-rotulo text-muted">
+					Sai uma mensagem com o horário novo. Só recebe quem tem consentimento e contato na ficha.
+				</span>
+			</span>
+		</div>
+		<!-- Checkbox desmarcado não entra no FormData; o hidden é quem sempre manda a resposta. -->
+		<input type="hidden" name="avisar_paciente" value={avisar ? 'on' : ''} />
+
 		<ConflictErrorBox {erro} {ofereceEncaixe} onEncaixe={() => (encaixe = true)} />
 	</form>
 
@@ -147,17 +172,16 @@
 		<button
 			type="button"
 			onclick={onClose}
-			class="rounded-md border border-edge-strong bg-surface px-3.5 py-2 text-[13px] font-semibold hover:bg-surface-2"
+			class="rounded-controle border border-edge-strong bg-surface px-3.5 py-2 text-corpo font-semibold hover:bg-surface-2"
 		>
 			Cancelar
 		</button>
-		<SubmitButton
+		<Button type="submit"
 			emVoo={envio.emVoo}
 			form="remarcar"
 			disabled={!mudou}
-			class="inline-flex items-center gap-1.5 rounded-md bg-primary px-3.5 py-2 text-[13px] font-semibold text-on-primary disabled:cursor-not-allowed disabled:opacity-60"
 		>
 			Remarcar
-		</SubmitButton>
+		</Button>
 	{/snippet}
 </Modal>

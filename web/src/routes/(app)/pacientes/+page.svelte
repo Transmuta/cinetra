@@ -6,8 +6,7 @@
 	import UserPlus from '@lucide/svelte/icons/user-plus';
 	import Phone from '@lucide/svelte/icons/phone';
 	import Stethoscope from '@lucide/svelte/icons/stethoscope';
-	import ChevronLeft from '@lucide/svelte/icons/chevron-left';
-	import ChevronRight from '@lucide/svelte/icons/chevron-right';
+	import Paginacao from '$lib/components/Paginacao.svelte';
 	import { initials } from '$lib/format';
 	import { avatarStyle } from '$lib/avatar';
 	import { formatarTelefone } from '$lib/telefone';
@@ -21,6 +20,7 @@
 		pageLabel,
 		type Patient
 	} from '$lib/patients';
+	import { professionalNameMap } from '$lib/professionals';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -73,9 +73,7 @@
 		navigate({ page: n > 1 ? String(n) : null });
 	}
 
-	const nomePorId = $derived(
-		Object.fromEntries(data.professionals.map((p) => [p.id, p.nome])) as Record<string, string>
-	);
+	const nomePorId = $derived(professionalNameMap(data.professionals));
 
 	// Nome do profissional preferido para a coluna (1º + "+N"), sem o "Dr./Dra.".
 	function prefLabel(p: Patient): string {
@@ -86,9 +84,7 @@
 	}
 
 	const COLS = 'md:grid-cols-[2.1fr_1.2fr_1.3fr_1fr]';
-	const tagPill = 'rounded bg-surface-2 px-[7px] py-px text-[10.5px] text-muted border border-edge';
-	const navBtn =
-		'inline-flex items-center gap-1 rounded-lg border border-edge bg-surface px-2.5 py-1.5 text-[12.5px] font-semibold text-ink hover:bg-surface-2 disabled:opacity-40 disabled:hover:bg-surface';
+	const tagPill = 'rounded-micro bg-surface-2 px-[7px] py-px text-micro text-muted border border-edge';
 </script>
 
 <svelte:head><title>Pacientes · Cinetra</title></svelte:head>
@@ -103,7 +99,7 @@
 				oninput={(e) => onSearch(e.currentTarget.value)}
 				placeholder="Buscar por nome, CPF ou telefone"
 				aria-label="Buscar paciente"
-				class="h-9 w-full rounded-lg border border-edge bg-surface pr-3 pl-8 text-[13px] text-ink"
+				class="h-9 w-full rounded-controle border border-edge bg-surface pr-3 pl-8 text-corpo text-ink"
 			/>
 		</div>
 		{#if canManage}
@@ -111,17 +107,17 @@
 				href="/pacientes/novo"
 				title="Novo paciente"
 				aria-label="Novo paciente"
-				class="grid size-9 shrink-0 place-items-center rounded-lg bg-ink text-canvas hover:opacity-90 md:hidden"
+				class="grid size-9 shrink-0 place-items-center rounded-controle bg-ink text-canvas hover:opacity-90 md:hidden"
 			>
 				<UserPlus size={17} />
 			</a>
 		{/if}
 	</div>
 
-	<div class="overflow-hidden rounded-[10px] border border-edge bg-surface">
+	<div class="overflow-hidden rounded-cartao border border-edge bg-surface">
 		<!-- Cabeçalho (desktop) -->
 		<div
-			class="hidden gap-2 border-b border-edge px-3.5 pb-2.5 pt-3 text-[12px] font-medium text-faint md:grid {COLS}"
+			class="hidden gap-2 border-b border-edge px-3.5 pb-2.5 pt-3 text-rotulo font-medium text-faint md:grid {COLS}"
 		>
 			<span>Paciente</span><span>Telefone</span><span>Preferência</span><span>Tags</span>
 		</div>
@@ -136,26 +132,26 @@
 			>
 				<span class="flex min-w-0 items-center gap-2.5">
 					<span
-						class="grid size-7 shrink-0 place-items-center rounded-full text-[10px] font-bold"
+						class="grid size-7 shrink-0 place-items-center rounded-full text-micro font-bold"
 						style={avatarStyle(p.cor_indice)}
 					>
 						{initials(p.nome)}
 					</span>
 					<span class="min-w-0">
-						<span class="block truncate text-[13px] font-semibold">
-							{p.nome}{#if !p.ativo}<span class="ml-1 text-[10px] font-medium text-faint">(inativo)</span>{/if}
+						<span class="block truncate text-corpo font-semibold">
+							{p.nome}{#if !p.ativo}<span class="ml-1 text-micro font-medium text-faint">(inativo)</span>{/if}
 						</span>
-						<span class="block font-mono text-[10px] text-faint">{maskCpf(p.cpf ?? '') || '—'}</span>
+						<span class="block font-mono text-micro text-faint">{maskCpf(p.cpf ?? '') || '—'}</span>
 					</span>
 				</span>
-				<span class="truncate font-mono text-[11px] text-muted">{formatarTelefone(p.tel) ?? '—'}</span>
-				<span class="truncate text-[12.5px] text-muted">{prefLabel(p)}</span>
+				<span class="truncate font-mono text-meta text-muted">{formatarTelefone(p.tel) ?? '—'}</span>
+				<span class="truncate text-rotulo text-muted">{prefLabel(p)}</span>
 				<span class="flex flex-wrap gap-1">
 					{#if p.tags.length}
 						<span class={tagPill}>{p.tags[0]}</span>
-						{#if p.tags.length > 1}<span class="text-[10.5px] text-faint">+{p.tags.length - 1}</span>{/if}
+						{#if p.tags.length > 1}<span class="text-micro text-faint">+{p.tags.length - 1}</span>{/if}
 					{:else}
-						<span class="text-[11px] text-faint">—</span>
+						<span class="text-meta text-faint">—</span>
 					{/if}
 				</span>
 			</a>
@@ -169,33 +165,33 @@
 			>
 				<div class="flex items-center gap-2.5">
 					<span
-						class="grid size-8.5 shrink-0 place-items-center rounded-full text-[11px] font-bold"
+						class="grid size-8.5 shrink-0 place-items-center rounded-full text-meta font-bold"
 						style={avatarStyle(p.cor_indice)}
 					>
 						{initials(p.nome)}
 					</span>
 					<div class="min-w-0 flex-1">
-						<div class="truncate text-[14px] font-semibold">
-							{p.nome}{#if !p.ativo}<span class="ml-1 text-[10px] font-medium text-faint">(inativo)</span>{/if}
+						<div class="truncate text-leitura font-semibold">
+							{p.nome}{#if !p.ativo}<span class="ml-1 text-micro font-medium text-faint">(inativo)</span>{/if}
 						</div>
-						<div class="font-mono text-[10.5px] text-faint">{maskCpf(p.cpf ?? '') || '—'}</div>
+						<div class="font-mono text-micro text-faint">{maskCpf(p.cpf ?? '') || '—'}</div>
 					</div>
 				</div>
-				<div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-muted">
+				<div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-rotulo text-muted">
 					{#if p.tel}<span class="inline-flex items-center gap-1.5 font-mono"><Phone size={12} /> {formatarTelefone(p.tel)}</span>{/if}
 					{#if prefLabel(p) !== '—'}<span class="inline-flex min-w-0 items-center gap-1.5"><Stethoscope size={12} /> <span class="truncate">{prefLabel(p)}</span></span>{/if}
 				</div>
 				{#if p.tags.length}
 					<div class="flex flex-wrap gap-1">
 						{#each p.tags.slice(0, 3) as t (t)}<span class={tagPill}>{t}</span>{/each}
-						{#if p.tags.length > 3}<span class="self-center text-[10.5px] text-faint">+{p.tags.length - 3}</span>{/if}
+						{#if p.tags.length > 3}<span class="self-center text-micro text-faint">+{p.tags.length - 3}</span>{/if}
 					</div>
 				{/if}
 			</a>
 		{/each}
 
 		{#if !data.patients.length}
-			<div class="px-7 py-7 text-center text-[13px] text-faint">
+			<div class="px-7 py-7 text-center text-corpo text-faint">
 				{#if data.q}
 					Nenhum paciente encontrado para “{data.q}”.
 				{:else if data.filter === 'inativos'}
@@ -209,19 +205,10 @@
 		{/if}
 	</div>
 
-	<!-- Rodapé de paginação: só aparece quando há mais de uma página. -->
-	{#if data.pageInfo.more || data.current > 1}
-		<div class="mt-3 flex items-center gap-3">
-			<span class="font-mono text-[11.5px] text-faint">
-				{pageLabel(data.pageInfo, data.patients.length)}
-			</span>
-			<div class="flex-1"></div>
-			<button type="button" class={navBtn} disabled={data.current === 1} onclick={() => goPage(data.current - 1)}>
-				<ChevronLeft size={14} /> Anterior
-			</button>
-			<button type="button" class={navBtn} disabled={!data.pageInfo.more} onclick={() => goPage(data.current + 1)}>
-				Próxima <ChevronRight size={14} />
-			</button>
-		</div>
-	{/if}
+	<Paginacao
+		current={data.current}
+		pageInfo={data.pageInfo}
+		onPage={goPage}
+		rotulo={pageLabel(data.pageInfo, data.patients.length)}
+	/>
 </div>

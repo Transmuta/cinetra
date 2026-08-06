@@ -1,7 +1,7 @@
 <script lang="ts">
+	import Button from '$lib/components/Button.svelte';
 	import { untrack } from 'svelte';
 	import { enhance } from '$app/forms';
-	import SubmitButton from '$lib/components/SubmitButton.svelte';
 	import { envio } from '$lib/forms.svelte';
 	import Circle from '@lucide/svelte/icons/circle';
 	import WeeklyHoursEditor from '$lib/components/scheduling/WeeklyHoursEditor.svelte';
@@ -75,13 +75,13 @@
 <svelte:head><title>Horário · Cinetra</title></svelte:head>
 
 <div class="mx-auto max-w-[760px] px-4 py-4 md:px-6">
-	<section class="mb-3 rounded-[10px] border border-edge bg-surface p-4">
+	<section class="mb-3 rounded-cartao border border-edge bg-surface p-4">
 		{#if canManage}
 			<WeeklyHoursEditor hours={draft} onchange={(next) => (draft = next)} />
 
 			<div class="mt-4 flex items-center gap-2.5 border-t border-edge pt-3.5">
 				<div
-					class="flex flex-1 items-center gap-1.5 text-[12px] {hasErrors
+					class="flex flex-1 items-center gap-1.5 text-rotulo {hasErrors
 						? 'font-semibold text-danger'
 						: dirty
 							? 'font-semibold text-warning'
@@ -100,7 +100,7 @@
 					<button
 						type="button"
 						onclick={discard}
-						class="rounded-lg border border-edge bg-surface px-3.5 py-2 text-[13px] font-semibold text-muted hover:bg-surface-2"
+						class="rounded-controle border border-edge bg-surface px-3.5 py-2 text-corpo font-semibold text-muted hover:bg-surface-2"
 					>
 						Descartar
 					</button>
@@ -108,22 +108,21 @@
 
 				<form method="POST" action="?/save" use:enhance={save.submit}>
 					<input type="hidden" name="clinic_hours" value={JSON.stringify(draft)} />
-					<SubmitButton
+					<Button type="submit"
 						emVoo={save.emVoo}
 						disabled={!dirty || hasErrors}
-						class="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-[13px] font-semibold text-on-primary hover:bg-primary-hover disabled:opacity-60"
 					>
 						Salvar
-					</SubmitButton>
+					</Button>
 				</form>
 			</div>
 		{:else}
 			<!-- Leitura para não-gestores: o expediente sem os controles de edição. -->
-			<h2 class="mb-2 text-[14px] font-semibold">Horário de atendimento da clínica</h2>
+			<h2 class="mb-2 text-leitura font-semibold">Horário de atendimento da clínica</h2>
 			{#each WEEKDAYS as { dow, label } (dow)}
 				<div class="flex items-center gap-3 border-t border-edge py-2.5">
-					<span class="w-[90px] text-[13px] font-medium">{label}</span>
-					<span class="font-mono text-[12px] text-muted">
+					<span class="w-[90px] text-corpo font-medium">{label}</span>
+					<span class="font-mono text-rotulo text-muted">
 						{formatPeriods(data.clinicHours[String(dow)] ?? [])}
 					</span>
 				</div>

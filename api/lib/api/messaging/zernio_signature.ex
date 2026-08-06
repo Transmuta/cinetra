@@ -16,16 +16,21 @@ defmodule Api.Messaging.ZernioSignature do
   material assinado, então **um payload capturado continua válido para sempre**. Quem tiver um
   corpo assinado legítimo pode reentregá-lo quando quiser.
 
-  O que sobra de proteção é o efeito ser idempotente por construção:
+  **Quem fecha isso é `Api.Messaging.WebhookEvent`** — a tabela de corpos já vistos, consultada
+  pelo `ApiWeb.ZernioWebhookController` antes de processar. Ela é a metade que faltava da
+  autenticação deste endpoint: a assinatura diz *quem* mandou, e ela diz *se já aconteceu*.
 
-    * o avanço de estado é monotônico (`Api.Messaging.MessageStatus.avanca?/2`) — reaplicar
-      `delivered` numa mensagem entregue não faz nada;
-    * o opt-out é verificado antes de gravar.
+  ### Por que a idempotência dos efeitos não bastava (doc 96, S-7)
 
-  Ou seja: replay não muda o banco. **Não** é o mesmo que dizer que é seguro — se um dia um evento
-  da Zernio passar a ter efeito não-idempotente (criar linha, disparar mensagem), este módulo
-  precisa de uma tabela de `id` de evento já visto **antes** daquele evento entrar. Está no doc 65
-  §6 como o item que a primeira mudança de escopo do webhook cobra.
+  Este texto já dizia que replay não muda o banco, porque o avanço de estado é monotônico
+  (`Api.Messaging.MessageStatus.avanca?/2`) e o opt-out era verificado antes de gravar. O
+  argumento estava incompleto, e o furo não era um evento novo — era uma ação **do outro lado**:
+  `Api.Messaging.revoke_opt_out/3` desfaz um opt-out. Entre o `SAIR` original e o replay cabe uma
+  revogação, e o replay a desfaz, ressilenciando quem tinha pedido para voltar a receber.
+
+  A condição que este módulo punha como gatilho para a tabela ("se um dia um evento passar a ter
+  efeito não-idempotente") estava, portanto, satisfeita havia tempo — só não pelo caminho que o
+  texto vigiava.
 
   ## Comparação em tempo constante
 

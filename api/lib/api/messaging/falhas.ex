@@ -18,7 +18,7 @@ defmodule Api.Messaging.Falhas do
 
   ## O texto cru não some
 
-  Fica na coluna `erro`, e a fronteira devolve os dois (`erro` e `erroTexto`). A tradução é
+  Fica na coluna `erro`, e a fronteira devolve os dois (`erro` e `erro_texto`). A tradução é
   **apresentação**, decidida na leitura — como o corpo da mensagem, que é renderizado do template
   em vez de gravado. Assim o suporte continua tendo a mensagem original para investigar, e o
   vocabulário do provider pode mudar sem reescrever histórico.
@@ -30,13 +30,10 @@ defmodule Api.Messaging.Falhas do
   melhor do que ver `%Swoosh.Error{reason: :nxdomain}`.
   """
 
-  # Casado por trecho, em minúsculas, e não por código de erro: cada provider tem o seu conjunto
+  # Casado por **frase**, em minúsculas, e não por código de erro: cada provider tem o seu conjunto
   # (o Resend hoje, a Gupshup na fase 2), mas o vocabulário de bounce de e-mail é padronizado o
   # bastante para estes trechos aparecerem em todos. A ordem importa — o primeiro que casar vence,
   # e os mais específicos vêm antes.
-  # Casado por **frase**, em minúsculas, e não por código de erro: cada provider tem o seu conjunto
-  # (o Resend hoje, a Gupshup na fase 2), mas o vocabulário de bounce de e-mail é padronizado o
-  # bastante para estes trechos aparecerem em todos.
   #
   # São listas de strings, e **não `~w`**: `~w(does not exist)` vira `["does", "not", "exist"]`, e
   # aí um `"not"` solto casa com quase qualquer mensagem de erro do mundo. Foi assim que a primeira

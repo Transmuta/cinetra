@@ -46,6 +46,17 @@ defmodule Api.OnDeleteTest do
     {"professionals", "clinic_id"} => "CASCADE",
     {"memberships", "clinic_id"} => "CASCADE",
     {"memberships", "user_id"} => "CASCADE",
+
+    # Doc 92, P1-3(b): esta também não tinha FK **nenhuma** — o `professional_id` era um "UUID
+    # mole", pelo mesmo raciocínio que criou o `attendances.package_id` do H64 abaixo.
+    #
+    # `SET NULL` porque o vínculo com a coluna da agenda é **informativo**: a pessoa continua na
+    # equipe se o `Professional` sumir (a eliminação da LGPD, D-1) — só deixa de ter agenda
+    # própria. `CASCADE` aqui apagaria acesso por um motivo que não é sobre acesso.
+    #
+    # A FK é global e por isso garante só **existência**; que o profissional seja **desta
+    # clínica** continua sendo trabalho da `Validations.ProfessionalInClinic`.
+    {"memberships", "professional_id"} => "SET NULL",
     {"user_identities", "user_id"} => "CASCADE",
     {"appointment_types", "clinic_id"} => "CASCADE",
     {"schedule_exceptions", "clinic_id"} => "CASCADE",

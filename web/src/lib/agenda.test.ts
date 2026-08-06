@@ -88,7 +88,7 @@ describe('STATUS_META', () => {
 	// já os separava (`statusMeta` :810: `muted` para agendado, `faint` para cancelado).
 	it('cada status tem cor própria — nenhuma repetida', () => {
 		const tons = STATUS_ORDER.map((s) => STATUS_META[s].tone);
-		expect(tons).toEqual(['muted', 'info', 'teal', 'success', 'danger', 'faint']);
+		expect(tons).toEqual(['muted', 'info', 'accent', 'success', 'danger', 'faint']);
 		expect(new Set(tons).size).toBe(STATUS_ORDER.length);
 	});
 
@@ -278,10 +278,13 @@ describe('conflictIds — o conflito é EXIBIDO mesmo quando não bloqueia (A-D2
 });
 
 describe('permissões (espelho de UX; a autoridade é a policy da API)', () => {
-	it('os quatro papéis criam agendamento (A8)', () => {
-		for (const p of ['owner', 'admin', 'recepcao', 'profissional'] as const) {
+	it('agendar é do balcão (A8) — o profissional não', () => {
+		for (const p of ['owner', 'admin', 'recepcao'] as const) {
 			expect(canCreateAppointment(p)).toBe(true);
 		}
+		// 2026-08-04: o profissional passou a só VER a própria agenda. Espelho da policy do
+		// `Appointment` — a autoridade continua sendo o 403 da API, isto só some com o botão.
+		expect(canCreateAppointment('profissional')).toBe(false);
 		expect(canCreateAppointment(null)).toBe(false);
 	});
 
@@ -571,9 +574,12 @@ describe('ciclo de vida (Entrega 4)', () => {
 		expect(isTerminal('cancelado')).toBe(true);
 	});
 
-	it('canMutateAppointment = quem agenda (inclui profissional)', () => {
+	// Mexer no ciclo de vida (remarcar, status, presença) é a mesma lista de quem agenda — e por
+	// isso o profissional também saiu daqui em 2026-08-04. É o predicado que fecha o rodapé
+	// inteiro do drawer, não só o botão de criar.
+	it('canMutateAppointment = quem agenda, e o profissional não agenda', () => {
 		expect(canMutateAppointment('recepcao')).toBe(true);
-		expect(canMutateAppointment('profissional')).toBe(true);
+		expect(canMutateAppointment('profissional')).toBe(false);
 		expect(canMutateAppointment(null)).toBe(false);
 	});
 

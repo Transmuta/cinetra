@@ -12,6 +12,8 @@ defmodule ApiWeb.RateLimit do
 
   import Plug.Conn
 
+  require Logger
+
   @doc """
   Identidade do cliente para fins de limite: o **ator** quando a requisição já chegou autenticada,
   o **IP** quando não.
@@ -35,6 +37,17 @@ defmodule ApiWeb.RateLimit do
   """
   @spec deny(Plug.Conn.t(), non_neg_integer()) :: Plug.Conn.t()
   def deny(conn, retry_after_ms) do
+    # A negação precisa deixar rastro. Sem esta linha, o `RequestLogger` registrava `status=429`
+    # sem IP, sem a chave que estourou e sem o limite: num incidente de brute-force no magic link,
+    # o log respondia "houve 429" e não respondia "de quem" (doc 96, L-5). Uma defesa que funciona
+    # e não pode ser auditada é indistinguível, para quem investiga, de uma que não existe.
+    Logger.warning("rate limit: requisição recusada",
+      client_ip: ApiWeb.ClientIp.get(conn),
+      rota: ApiWeb.RequestLogger.rota(conn.request_path),
+      metodo: conn.method,
+      retry_after_s: max(1, ceil(retry_after_ms / 1000))
+    )
+
     conn
     |> put_resp_header("retry-after", Integer.to_string(max(1, ceil(retry_after_ms / 1000))))
     |> put_resp_content_type("application/json")

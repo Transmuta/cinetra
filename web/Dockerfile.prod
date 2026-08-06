@@ -2,7 +2,7 @@
 # Difere do Dockerfile.dev: `vite build` (não `vite dev`), sem devDeps no runtime, não-root.
 
 # ---- build ----
-FROM node:22 AS build
+FROM node:22@sha256:7725a5c2c83eed1d36258c66efae14b1ceccd021db9ed1d9559d3335ed3d68ed AS build
 
 WORKDIR /app
 
@@ -51,7 +51,7 @@ RUN if find build/client -name '*.map' | grep -q .; then \
 RUN npm prune --omit=dev
 
 # ---- runtime ----
-FROM node:22-slim AS app
+FROM node:22-slim@sha256:f32b81066cde10a75dbac96646099533316d94bac4150c55da1636e1f0ffdc46 AS app
 
 ENV NODE_ENV=production \
     PORT=3000

@@ -81,6 +81,39 @@ defmodule Api.Storage.R2 do
   end
 
   @impl true
+  def put(key, content_type, body) when is_binary(body) do
+    with {:ok, config} <- config() do
+      # Mesma assinatura do `presign_put` — inclusive o `content-length` assinado, que aqui é
+      # trivialmente verdadeiro (os bytes estão na mão) mas mantém a URL com a forma única que o
+      # `SigV4` sabe produzir. TTL curto: esta URL nasce e morre dentro desta função.
+      url =
+        Api.Storage.SigV4.presigned_url(config, "PUT", key,
+          expires_in: 60,
+          headers: %{
+            "content-type" => content_type,
+            "content-length" => Integer.to_string(byte_size(body))
+          }
+        )
+
+      resposta =
+        Req.request(
+          method: :put,
+          url: url,
+          headers: [{"content-type", content_type}],
+          body: body,
+          decode_body: false,
+          retry: false,
+          receive_timeout: @timeout
+        )
+
+      case resposta do
+        {:ok, %{status: status}} when status in 200..299 -> :ok
+        outro -> erro(outro, "PUT")
+      end
+    end
+  end
+
+  @impl true
   def head(key) do
     case request(:head, key) do
       {:ok, %{status: 200, headers: headers}} -> {:ok, %{bytes: content_length(headers)}}

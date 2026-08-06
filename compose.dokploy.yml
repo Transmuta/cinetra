@@ -24,10 +24,34 @@
 #   - `app`  : web <-> api (http://api:4000).
 #   - `dokploy-network` (externa): Traefik -> api (só /socket e /webhooks) e web.
 #
-# ORDEM: db (healthy) -> backup (pré-deploy) -> migrate -> api + web.
+# ORDEM: db (healthy) -> migrate -> api + web.
 #
-# BACKUP (docs/59 §13, deploy/backup/): `backup` roda 1x ANTES do migrate (fail-closed);
-# `backup-cron` a cada 1h. Bucket R2 PRÓPRIO, separado do de anexos; cifra age opcional.
+# BACKUP: não é mais responsabilidade deste stack (docs/59 §13). O dado é coberto pelo snapshot da
+# VPS na Hostinger e pelo snapshot de projeto do próprio Dokploy, que sobe para o R2 — os dois
+# operados FORA do compose. Aqui não há mais `pg_dump`, imagem de backup nem gate pré-deploy.
+
+# AS IMAGENS NASCEM NO CI (R-M4, docs/95 e 102). O job `imagem` do `.github/workflows/ci.yml`
+# constrói e publica no GHCR a cada push em `main`/`develop`; aqui só se CONSUME. Antes disto o
+# Dokploy buildava no servidor a cada webhook — ~90% dos 2 vCPU da máquina que serve os pacientes
+# (D-21) — e o artefato implantado não era o que o CI aprovou.
+#
+#   IMAGE_TAG       `main` no stack de prod, `develop` no de HML. É a tag MÓVEL: o CI reescreve a
+#                   cada push, e `pull_policy: always` (em cada serviço) é o que faz o servidor
+#                   baixar de fato — sem ela o Docker acha o mesmo NOME no disco e não baixa nada,
+#                   deixando o deploy "verde" com o código anterior. Para ROLLBACK, ponha a tag
+#                   imutável (`sha-<12 primeiros do commit>`) e redeploy — mas lembre de devolvê-la
+#                   a `main`/`develop` depois, senão os deploys seguintes não mudam mais nada.
+#   IMAGE_REGISTRY  só para apontar para outro registro (mirror, registro privado). O default é o
+#                   do repositório.
+#
+# **Sem default para `IMAGE_TAG`, de propósito.** Um default faria o stack de HML subir com a tag
+# de produção quando alguém esquecesse a variável — e a imagem do BFF é ATADA AO AMBIENTE (a CSP é
+# assada no build). O `:?` faz o compose recusar com a mensagem, que é o modo de falha certo.
+#
+# A ordem também mudou: o webhook do CI só dispara DEPOIS de o job `imagem` publicar (`needs:`),
+# então a tag já existe quando o Dokploy vai buscá-la.
+x-imagem-api: &imagem-api ${IMAGE_REGISTRY:-ghcr.io/transmuta}/cinetra-api:${IMAGE_TAG:?defina IMAGE_TAG no Environment do stack (main em prod, develop em HML)}
+x-imagem-web: &imagem-web ${IMAGE_REGISTRY:-ghcr.io/transmuta}/cinetra-web:${IMAGE_TAG:?defina IMAGE_TAG no Environment do stack (main em prod, develop em HML)}
 
 # Rotação do log local (docs/62 §7.4). O default do Docker é `json-file` **sem limite**: o arquivo
 # cresce até o disco acabar, e no A1 do docs/59 disco é o recurso escasso (risco #5 de lá).
@@ -41,36 +65,26 @@ x-logging: &logging
     max-size: "20m"
     max-file: "3"
 
-# Env compartilhada dos serviços de backup (âncora YAML).
-x-backup-env: &backup-env
-  PGHOST: db
-  PGUSER: postgres
-  PGPASSWORD: ${POSTGRES_PASSWORD}
-  PGDATABASE: ${POSTGRES_DB}
-  STACK: ${STACK}
-  BACKUP_BUCKET: ${BACKUP_BUCKET}
-  HOURLY_RETENTION: ${BACKUP_HOURLY_RETENTION:-48h}
-  DAILY_RETENTION: ${BACKUP_DAILY_RETENTION:-30d}
-  BACKUP_AGE_RECIPIENT: ${BACKUP_AGE_RECIPIENT:-}
-  # Heartbeat do backup (docs/62 §9). O monitor EXTERNO reclama quando o sinal não chega — é o que
-  # fecha o buraco que o docs/59 §13 nomeou: o cron de 1h morre com `set -e` e código != 0 sem que
-  # ninguém saiba. `HEARTBEAT_BASE_URL` é a MESMA raiz que a API usa (uma por ambiente); o slug
-  # `backup` é acrescentado pelo script. Vazio = desligado.
-  HEARTBEAT_BASE_URL: ${HEARTBEAT_BASE_URL:-}
-  HEARTBEAT_SLUG_PREFIX: ${HEARTBEAT_SLUG_PREFIX:-}
-  HEARTBEAT_URL_BACKUP: ${HEARTBEAT_URL_BACKUP:-}
-  RCLONE_CONFIG_R2_TYPE: s3
-  RCLONE_CONFIG_R2_PROVIDER: Cloudflare
-  RCLONE_CONFIG_R2_ENDPOINT: https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com
-  RCLONE_CONFIG_R2_ACCESS_KEY_ID: ${BACKUP_R2_ACCESS_KEY_ID}
-  RCLONE_CONFIG_R2_SECRET_ACCESS_KEY: ${BACKUP_R2_SECRET_ACCESS_KEY}
-  RCLONE_CONFIG_R2_NO_CHECK_BUCKET: "true"
-
 services:
   db:
-    image: postgres:16
+    image: postgres:16@sha256:33f923b05f64ca54ac4401c01126a6b92afe839a0aa0a52bc5aeb5cc958e5f20
     restart: unless-stopped
     logging: *logging
+    # R-A4 (onda 2). Teto NÃO é previsão de consumo — é o limite do pior caso, e confundir os dois
+    # foi o erro que o doc 87 §2.1 mediu (a estimativa somou `mem_limit` como se fosse uso e errou
+    # por ~3×). Medido no dev ocioso: o Postgres residente em **199 MiB**. 1g dá folga para
+    # `shared_buffers` + `work_mem` × 16 conexões do pool e ainda contém o pior caso.
+    #
+    # Sem teto, quem escolhe a vítima de um vazamento é o `oom_score` do kernel, que privilegia o
+    # processo MAIOR — que aqui tende a ser justamente este. Um vazamento no BFF derrubava o banco.
+    # E o container sem teto ficava fora do alerta `cinetra-container-no-teto` por construção: ele
+    # filtra por `container_spec_memory_limit_bytes > 0`.
+    mem_limit: ${DB_MEM_LIMIT:-1g}
+    # R-M2 (onda 2). Sem isto, `/dev/shm` fica no default de **64 MB** do Docker. Uma query com
+    # plano paralelo — os agregados das views `metrics_*` e os relatórios são os candidatos —
+    # morre com `could not resize shared memory segment […] No space left on device`: um sintoma
+    # que não parece disco e não parece memória, e por isso custa horas para diagnosticar.
+    shm_size: 256m
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -84,29 +98,17 @@ services:
       timeout: 5s
       retries: 10
 
-  backup:
-    build:
-      context: ./deploy/backup
-    restart: "no"
-    logging: *logging
-    depends_on:
-      db:
-        condition: service_healthy
-    networks: [data]
-    environment: *backup-env
-
   migrate:
-    build:
-      context: ./api
-      dockerfile: Dockerfile.prod
+    # A MESMA âncora do serviço `api`, e é estrutural: rodar a migration de uma versão e servir
+    # outra é o modo de falha que o expand-contract do docs/59 §8 pressupõe impossível.
+    image: *imagem-api
+    pull_policy: always
     command: ["bin/api", "eval", "Api.Release.setup()"]
     restart: "no"
     logging: *logging
     depends_on:
       db:
         condition: service_healthy
-      backup:
-        condition: service_completed_successfully
     networks: [data]
     environment:
       DATABASE_ADMIN_URL: "ecto://postgres:${POSTGRES_PASSWORD}@db/${POSTGRES_DB}"
@@ -119,14 +121,57 @@ services:
       DATABASE_METRICS_PASSWORD: ${DATABASE_METRICS_PASSWORD:-}
       SECRET_KEY_BASE: ${SECRET_KEY_BASE}
       TOKEN_SIGNING_SECRET: ${TOKEN_SIGNING_SECRET}
+      # `PHX_SERVER: "false"` não dispensa as envs de web, e supor o contrário derrubou o primeiro
+      # deploy real de HML (2026-08-06, `exit 1`). O `bin/api eval` carrega o `config/runtime.exs`
+      # EXATAMENTE como o `start` — o bloco `config_env() == :prod` levanta sem `PHX_HOST` e sem
+      # `WEB_APP_URL`, então o container morria antes de abrir conexão com o banco. O log não
+      # mencionava banco nem migration, o que mandava quem investigava para o lugar errado.
+      #
+      # Os valores não são usados aqui (não há endpoint escutando, não há redirect de login) — eles
+      # existem para o release conseguir BOOTAR. Preso por `Api.DeployEnvsTest`, que deriva a lista
+      # do próprio `runtime.exs`: um `|| raise` novo lá deixa o teste vermelho até este bloco
+      # acompanhar.
+      PHX_HOST: ${WEB_HOST}
+      WEB_APP_URL: "https://${WEB_HOST}"
       PHX_SERVER: "false"
 
   api:
-    build:
-      context: ./api
-      dockerfile: Dockerfile.prod
+    image: *imagem-api
+    pull_policy: always
     restart: unless-stopped
+    # 25s porque o drain do Oban é 15s (`Oban.Config`, `shutdown_grace_period`) e o default do
+    # Docker é 10s — ou seja, SEM esta linha o SIGKILL cortava garantidamente o drain que o Oban
+    # planejou, e todo job em voo virava linha `executing` órfã para sempre: o Pruner não a
+    # alcança, não há exceção, não há log, e o alerta `cinetra-job-falhando` conta um evento que
+    # nunca existe. Os 10s de folga sobre os 15 são para o endpoint Phoenix drenar depois das
+    # filas. A outra metade do conserto é o `Oban.Plugins.Lifeline` em `api/config/config.exs`:
+    # este grace reduz a chance, o Lifeline resgata o que ficou (num OOM kill não há SIGTERM
+    # nenhum a respeitar). `Api.DeployCicloDeVidaTest` prende as duas.
+    stop_grace_period: 25s
     logging: *logging
+    # Medido no dev ocioso: a BEAM residente em **232 MiB**. 768m é ~3× isso — folga para as 16
+    # conexões do pool, as duas filas do Oban e o pico de compactação, sem deixar um vazamento
+    # comer a máquina. Ver a nota sobre teto ≠ consumo no serviço `db`.
+    mem_limit: ${API_MEM_LIMIT:-768m}
+    # R-A7 (onda 2). Os labels do Traefik que este serviço tem decidem **roteamento**; este
+    # healthcheck decide **reinício**. Com o processo travado sem morrer — pool esgotado, BEAM em
+    # `run_queue` — o Traefik tirava da rotação e o Docker seguia reportando `Up`, então o
+    # `restart: unless-stopped` nunca disparava e o container ficava zumbi indefinidamente.
+    #
+    # Aponta para `/api/health` (liveness, sem I/O) e NÃO para `/api/ready`: reiniciar a API
+    # porque o banco piscou troca uma indisponibilidade curta por uma longa. Quem precisa saber se
+    # o produto está usável é o monitor externo, e esse bate em `/ready` (doc 62 §9.4).
+    #
+    # `curl` foi acrescentado ao `Dockerfile.prod` para isto: a imagem é `debian:bookworm-slim` com
+    # 4 pacotes e não tinha NENHUM cliente HTTP. A alternativa sem mexer na imagem seria
+    # `bin/api rpc`, que sobe uma BEAM inteira a cada 30s — caro numa máquina de 2 vCPU onde o
+    # build já mede 90% (D-21).
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-m", "5", "http://127.0.0.1:4000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -155,6 +200,13 @@ services:
       R2_BUCKET: ${R2_BUCKET}
       R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID}
       R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY}
+      # O header de proxy em que as chaves de rate limit por IP confiam (doc 90, H1).
+      #
+      # MESMA variável do `ADDRESS_HEADER` do web, algumas dezenas de linhas abaixo — a pergunta
+      # "qual header a edge garante?" é uma só, e enquanto ela teve duas respostas em dois lugares
+      # elas discordaram. Vazia = sem edge declarada, e aí os dois lados caem no `x-forwarded-for`,
+      # que é o que o Traefik garante sozinho. `Api.DeployEnvTest` prende a simetria.
+      TRUSTED_CLIENT_IP_HEADER: ${CLIENT_IP_HEADER:-}
       # Comunicação com o paciente (doc 52 / doc 65). Faltavam AQUI enquanto o cabeçalho deste
       # arquivo já roteava `/webhooks` para a API — e as duas ausências são silenciosas:
       #
@@ -186,9 +238,9 @@ services:
       ZERNIO_ACCOUNT_ID: ${ZERNIO_ACCOUNT_ID:-}
       ZERNIO_BASE_URL: ${ZERNIO_BASE_URL:-}
       ZERNIO_WEBHOOK_SECRET: ${ZERNIO_WEBHOOK_SECRET:-}
-      # Heartbeat dos crons do Oban (docs/62 §9). Roda AQUI, no container da API — não no do
-      # backup, que tem o seu próprio. Mesma raiz, um slug por job (ver runtime.exs). Vazio =
-      # desligado; faltar a env aqui faria os seis checks alarmarem "não rodou" para sempre.
+      # Heartbeat dos crons do Oban (docs/62 §9). Roda AQUI, no container da API — é o único lugar
+      # do stack que sinaliza. Mesma raiz, um slug por job (ver runtime.exs). Vazio = desligado;
+      # faltar a env aqui faria os seis checks alarmarem "não rodou" para sempre.
       HEARTBEAT_BASE_URL: ${HEARTBEAT_BASE_URL:-}
       HEARTBEAT_SLUG_PREFIX: ${HEARTBEAT_SLUG_PREFIX:-}
       # Traces (doc 76). VAZIO = exportador `:none`: os spans nascem, medem e morrem em memória,
@@ -231,16 +283,42 @@ services:
       - traefik.http.services.cinetra-api-${STACK}.loadbalancer.healthcheck.interval=10s
 
   web:
-    build:
-      context: ./web
-      dockerfile: Dockerfile.prod
-      args:
-        # CSP build-time (kit.csp). Agora o socket é wss://${WEB_HOST}/socket — a origem pública
-        # da API colapsou no domínio único. Guarda de boot derruba o container se runtime divergir.
-        API_PUBLIC_ORIGIN: "https://${WEB_HOST}"
-        R2_ACCOUNT_ID: ${R2_ACCOUNT_ID}
+    # ATADA AO AMBIENTE. A CSP é assada no build (`kit.csp`), então `API_PUBLIC_ORIGIN`
+    # (`https://${WEB_HOST}`) e `R2_ACCOUNT_ID` entram como `ARG` — e desde o R-M4 quem os fornece
+    # é o job `imagem` do CI, a partir das variáveis `WEB_HOST_PROD`/`WEB_HOST_HML`/`R2_ACCOUNT_ID`
+    # do repositório. Consequência prática: `cinetra-web:main` **não serve** no stack de HML.
+    #
+    # Isso é fail-closed e não silencioso: a guarda de boot (`web/src/lib/server/boot.ts` +
+    # `conferirOrigem` do `csp.js`) derruba o container quando a CSP assada diverge do
+    # `API_PUBLIC_ORIGIN` de runtime — que aqui continua vindo do `environment:` abaixo.
+    image: *imagem-web
+    pull_policy: always
     restart: unless-stopped
+    # 35s porque o `SHUTDOWN_TIMEOUT` do adapter-node é 30s e o default do Docker é 10s. Aqui o
+    # corte no meio é VISÍVEL para o usuário: o HTML do SSR é streamed (`lib/server/compress.ts`,
+    # `pipeThrough(CompressionStream)`), então requisição morta a meio caminho entrega **gzip
+    # truncado** — página quebrada, e não um erro que dê para tentar de novo.
+    stop_grace_period: 35s
     logging: *logging
+    mem_limit: ${WEB_MEM_LIMIT:-512m}
+    # Mesma distinção do serviço `api`: o label do Traefik decide roteamento, este decide
+    # reinício. E aqui o modo de falha é o clássico do Node — event loop bloqueado, processo vivo
+    # e mudo.
+    #
+    # `node -e` em vez de curl porque a imagem é `node:22-slim` e o `fetch` global já existe: não
+    # há pacote a acrescentar. Aponta para `/health` (liveness) pelo mesmo motivo do label do
+    # Traefik, que `compose.dokploy.yml` já explica alguns comentários abaixo — tirar o BFF do ar
+    # quando a API pisca faz o site deixar de servir até a página de erro.
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
     depends_on:
       - api
     networks: [app, dokploy-network]
@@ -248,7 +326,30 @@ services:
       API_URL: "http://api-${STACK}:4000"       # BFF -> API do PRÓPRIO stack (alias único; `api` puro colide na dokploy-network entre stacks)
       API_PUBLIC_ORIGIN: "https://${WEB_HOST}"  # socket wss no mesmo domínio
       ORIGIN: "https://${WEB_HOST}"             # CSRF, URLs absolutas, decide o HSTS
-      ADDRESS_HEADER: "CF-Connecting-IP"        # atrás do Cloudflare: IP real do cliente (docs/59 §5.1)
+      # IP real do cliente, para as chaves de rate limit da API (o BFF o repassa em
+      # `x-forwarded-for`). MESMA variável do `TRUSTED_CLIENT_IP_HEADER` do serviço `api` acima —
+      # ver o comentário de lá, e `Api.DeployEnvTest`, que prende a simetria.
+      #
+      # Atrás do Cloudflare: `CLIENT_IP_HEADER=CF-Connecting-IP` (docs/59 §5.1). O default NÃO é
+      # esse, e a razão é que o `getClientAddress()` do adapter-node **levanta** quando o header
+      # configurado falta na requisição — com um vendor hardcoded, qualquer requisição que chegue
+      # à origem fora daquela edge vira 500 em toda página que fale com a API. O
+      # `x-forwarded-for` do default **tem o mesmo risco** — corrigido em 2026-08-04 (R-M19, onda 5
+      # do doc 102). O comentário anterior afirmava que não tinha, e estava errado: o
+      # `getClientAddress()` levanta para QUALQUER header configurado que falte na requisição, não
+      # só para os de vendor. Quem chega sem passar pelo Traefik — outro serviço na rede `app`, um
+      # `curl` de diagnóstico de dentro da `dokploy-network`, um probe futuro — batia em 500.
+      #
+      # Quem fecha isso agora é o `ipDoCliente()` de `web/src/lib/server/api.ts`, que trata a
+      # exceção e a string vazia. **Comentário que mente sobre segurança é pior que comentário
+      # ausente**, porque alguém decide com base nele — e este quase decidiu.
+      #
+      # O que continua verdade: o `x-forwarded-for` do default não é forjável aqui, porque o
+      # adapter conta da DIREITA (`XFF_DEPTH=1`) e quem escreve a última posição é o Traefik.
+      #
+      # Se um dia mexer no `XFF_DEPTH`: ele levanta quando a profundidade pedida é maior que a
+      # cadeia recebida. O 1 é o certo aqui.
+      ADDRESS_HEADER: ${CLIENT_IP_HEADER:-X-Forwarded-For}
       # Traces (doc 76). Vazio = o `otel.mjs` não constrói o SDK e o processo fica idêntico.
       # Porta 4318 (OTLP/HTTP) contra 4317 (gRPC) da API: cada SDK usa o protocolo batido na sua
       # comunidade, e o Alloy escuta os dois. O `--import ./otel.mjs` já está no Dockerfile.prod.
@@ -256,6 +357,14 @@ services:
       OTEL_SERVICE_NAME: cinetra-web
       OTEL_RESOURCE_ATTRIBUTES: deployment.environment=${STACK}
       PORT: "3000"
+      # Em SEGUNDOS (o adapter-node multiplica por 1000). O `keepAliveTimeout` do Node é 5s por
+      # default e o pool de saída do Traefik segura conexão ociosa por 90s
+      # (`forwardingTimeouts.idleConnTimeout`): com o Node fechando primeiro, o proxy reaproveita
+      # uma conexão no instante em que ela está sendo fechada e o cliente leva **502**. Não há log
+      # na aplicação — a requisição nunca chegou nela. Vira "flakiness inexplicável", e aparece
+      # justamente em BAIXA carga, que é quando a conexão fica ociosa tempo bastante.
+      # A regra é o Node segurar por mais tempo que o proxy, nunca o contrário.
+      KEEP_ALIVE_TIMEOUT: "95"
     labels:
       - traefik.enable=true
       - traefik.docker.network=dokploy-network
@@ -272,19 +381,6 @@ services:
       # (doc 62 §9.4) — mesmos dois endpoints, consumidores e semânticas diferentes.
       - traefik.http.services.cinetra-web-${STACK}.loadbalancer.healthcheck.path=/health
       - traefik.http.services.cinetra-web-${STACK}.loadbalancer.healthcheck.interval=10s
-
-  # Backup AGENDADO 1/1h (o pré-deploy cobre t=0).
-  backup-cron:
-    build:
-      context: ./deploy/backup
-    restart: unless-stopped
-    logging: *logging
-    command: ["sh", "-c", "while true; do sleep 3600; /backup.sh || echo '[backup-cron] falhou'; done"]
-    depends_on:
-      db:
-        condition: service_healthy
-    networks: [data]
-    environment: *backup-env
 
 volumes:
   pgdata:

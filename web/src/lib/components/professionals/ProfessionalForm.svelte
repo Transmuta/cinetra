@@ -1,4 +1,6 @@
 <script lang="ts">
+	import FichaShell from '$lib/components/FichaShell.svelte';
+	import { CONTROL_CLASS, CONTROL_PX, CONTROL_H } from '$lib/components/Field.svelte';
 	// Ficha do profissional, fiel a `renderProfForm` (:2955): painel de altura cheia com
 	// cabeçalho (avatar + barra de progresso X/Y), coluna "SEÇÕES" com contador por seção,
 	// cartões de seção com chip de ícone + subtítulo + contagem, e rodapé fixo. A grade de
@@ -6,11 +8,9 @@
 	// do form — tudo salva junto no `?/save`, que o `+page.server` orquestra.
 	import { untrack } from 'svelte';
 	import { enhance } from '$app/forms';
-	import SubmitButton from '$lib/components/SubmitButton.svelte';
 	import ConflictsModal from '$lib/components/scheduling/ConflictsModal.svelte';
 	import { parseFutureConflicts, type FutureConflicts } from '$lib/scheduling-conflicts';
 	import type { SubmitFunction } from '@sveltejs/kit';
-	import ChevronLeft from '@lucide/svelte/icons/chevron-left';
 	import User from '@lucide/svelte/icons/user';
 	import MapPin from '@lucide/svelte/icons/map-pin';
 	import Stethoscope from '@lucide/svelte/icons/stethoscope';
@@ -18,10 +18,10 @@
 	import CalendarClock from '@lucide/svelte/icons/calendar-clock';
 	import Palette from '@lucide/svelte/icons/palette';
 	import CalendarOff from '@lucide/svelte/icons/calendar-off';
+	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 	import Clock from '@lucide/svelte/icons/clock';
 	import Check from '@lucide/svelte/icons/check';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
-	import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
 	import SwitchToggle from '$lib/components/scheduling/SwitchToggle.svelte';
 	import PeriodEditor from '$lib/components/scheduling/PeriodEditor.svelte';
 	import ProfessionalHoursEditor from './ProfessionalHoursEditor.svelte';
@@ -41,7 +41,7 @@
 	} from '$lib/professionals';
 	import { validateDayPeriods, formatDate, formatPeriods, type Period } from '$lib/scheduling';
 	import { maskCpf, maskTel, maskCep, maskCnpj, maskAno, maskUf } from '$lib/masks';
-	import { lookupCep, type CepStatus } from '$lib/cep';
+	import { criarCep } from '$lib/cep.svelte';
 	import { formatarTelefone, telefoneValido } from '$lib/telefone';
 
 	let {
@@ -139,34 +139,9 @@
 			: [...especialidades, t];
 	}
 
-	// CEP → autopreenchimento (endereço/bairro/cidade/UF) pelo BFF, com status e guarda de
-	// requisição obsoleta (o usuário pode mudar o CEP no meio da consulta), como no protótipo.
-	let cepStatus = $state<CepStatus>(null);
-	let cepReq = '';
-
-	async function runCepLookup(cep: string) {
-		const digits = cep.replace(/\D/g, '');
-		if (digits.length !== 8) {
-			cepStatus = null;
-			return;
-		}
-		cepReq = digits;
-		cepStatus = 'loading';
-		const { status, address } = await lookupCep(digits);
-		if (cepReq !== digits) return; // um novo CEP foi digitado durante a consulta
-		cepStatus = status;
-		if (status === 'ok' && address) {
-			if (address.endereco) f.endereco = address.endereco;
-			if (address.bairro) f.bairro = address.bairro;
-			if (address.cidade) f.cidade = address.cidade;
-			if (address.uf) f.uf = address.uf;
-		}
-	}
-
-	function onCepInput(e: Event & { currentTarget: HTMLInputElement }) {
-		f.cep = maskCep(e.currentTarget.value);
-		runCepLookup(f.cep);
-	}
+	// CEP → autopreenchimento pelo BFF, com status na tela e guarda de resposta atrasada. Ver a
+	// nota gêmea no `PatientForm`: a máquina mora em `$lib/cep.svelte` (doc 94 §D-1).
+	const cep = criarCep(f);
 
 	// ---- Validação: nome, telefone e horário obrigatórios ----
 	const nomeOk = $derived(f.nome.trim().length > 0);
@@ -262,32 +237,12 @@
 		{ id: 'horario', icon: CalendarClock, t: 'Horário de atendimento', sub: 'Disponibilidade na agenda', total: 1 },
 		{ id: 'cor', icon: Palette, t: 'Cor & status', sub: 'Aparência na agenda e situação', total: 2 }
 	] as const;
-	const totalKeys = SECTIONS.reduce((a, s) => a + s.total, 0);
-	const totalFilled = $derived(Object.values(counts).reduce((a: number, b: number) => a + b, 0));
 
-	// ---- Navegação lateral com scroll-spy ----
-	let active = $state('ident');
-	let scrollEl = $state<HTMLElement | null>(null);
-
-	function onScroll() {
-		if (!scrollEl) return;
-		let cur = SECTIONS[0].id as string;
-		for (const s of SECTIONS) {
-			const el = document.getElementById(`sec-${s.id}`);
-			if (el && el.getBoundingClientRect().top - scrollEl.getBoundingClientRect().top - 56 <= 0) cur = s.id;
-		}
-		active = cur;
-	}
-	function goSec(id: string) {
-		document.getElementById(`sec-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-	}
-
-	const inputCls =
-		'h-[38px] w-full rounded-lg border border-edge bg-surface px-2.5 text-[13.5px] text-ink';
+	const inputCls = `${CONTROL_CLASS} ${CONTROL_PX} ${CONTROL_H} w-full`;
 </script>
 
 {#snippet label(text: string, required = false)}
-	<span class="mb-1 block text-[12px] font-medium text-muted"
+	<span class="mb-1 block text-rotulo font-medium text-muted"
 		>{text}{#if required}<span class="text-danger"> *</span>{/if}</span
 	>
 {/snippet}
@@ -295,16 +250,16 @@
 {#snippet cardHead(icon: typeof User, t: string, sub: string, filled: number, total: number)}
 	{@const Icon = icon}
 	<div class="mb-4 flex items-center gap-3">
-		<span class="grid size-[34px] shrink-0 place-items-center rounded-[9px] bg-teal-subtle text-teal-text">
+		<span class="grid size-[34px] shrink-0 place-items-center rounded-controle bg-accent-subtle text-accent-text">
 			<Icon size={17} />
 		</span>
 		<div class="min-w-0 flex-1">
 			<!-- `h2` pelo mesmo motivo da ficha do paciente (ACC-22): a hierarquia já era visual, só
 			     não estava na marcação. As classes mandam, então o visual não muda. -->
-			<h2 class="text-[15px] font-bold">{t}</h2>
-			<div class="text-[11.5px] text-faint">{sub}</div>
+			<h2 class="text-titulo font-bold">{t}</h2>
+			<div class="text-meta text-faint">{sub}</div>
 		</div>
-		<span class="shrink-0 font-mono text-[10.5px] {filled ? 'text-teal-text' : 'text-faint'}">{filled}/{total}</span>
+		<span class="shrink-0 font-mono text-micro {filled ? 'text-accent-text' : 'text-faint'}">{filled}/{total}</span>
 	</div>
 {/snippet}
 
@@ -325,65 +280,22 @@
 	<input type="hidden" name="ativo" value={ativo} />
 	<input type="hidden" name="original_ativo" value={originalAtivo} />
 
-	<!-- Cabeçalho do painel -->
-	<header class="flex shrink-0 items-center gap-3.5 border-b border-edge bg-surface px-4 py-3 md:px-6">
-		<a
-			href="/profissionais"
-			title="Voltar"
-			class="grid size-[34px] shrink-0 place-items-center rounded-lg border border-edge bg-surface text-muted hover:bg-surface-2"
-		>
-			<ChevronLeft size={18} />
-		</a>
-		<span
-			class="grid size-[42px] shrink-0 place-items-center rounded-full text-[15px] font-bold"
-			style={avatarStyle(corIndice)}
-		>
-			{f.nome.trim() ? initials(f.nome) : '?'}
-		</span>
-		<div class="min-w-0 flex-1">
-			<div class="truncate text-[16px] font-bold md:text-[18px]">
-				{f.nome.trim() || (editing ? 'Editar profissional' : 'Novo profissional')}
-			</div>
-			<div class="text-[12px] text-faint">
-				{editing ? 'Editando cadastro profissional' : 'Cadastro de novo profissional'}
-			</div>
-		</div>
-		<div class="hidden shrink-0 items-center gap-2.5 md:flex">
-			<div class="h-1.5 w-[120px] overflow-hidden rounded bg-surface-2">
-				<div class="h-full bg-teal transition-all" style="width:{(totalFilled / totalKeys) * 100}%"></div>
-			</div>
-			<span class="font-mono text-[11px] text-faint">{totalFilled}/{totalKeys}</span>
-		</div>
-	</header>
-
-	<div class="flex min-h-0 flex-1">
-		<!-- SEÇÕES (desktop) -->
-		<nav class="hidden w-[236px] shrink-0 overflow-y-auto border-r border-edge bg-surface p-3 md:block">
-			<div class="px-2 pb-2 text-[10.5px] font-bold text-faint">SEÇÕES</div>
-			<div class="flex flex-col gap-0.5">
-				{#each SECTIONS as s (s.id)}
-					{@const on = active === s.id}
-					{@const cnt = counts[s.id as keyof typeof counts]}
-					<button
-						type="button"
-						onclick={() => goSec(s.id)}
-						class="flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] {on
-							? 'bg-teal-subtle font-bold text-teal-text'
-							: 'font-medium text-muted hover:bg-surface-2'}"
-					>
-						<s.icon size={16} />
-						<span class="min-w-0 flex-1 truncate">{s.t}</span>
-						{#if cnt}<span class="size-[7px] shrink-0 rounded-full bg-teal"></span>{/if}
-					</button>
-				{/each}
-			</div>
-		</nav>
-
-		<!-- Cartões -->
-		<div bind:this={scrollEl} onscroll={onScroll} class="min-h-0 flex-1 overflow-y-auto p-4 md:p-6">
-			<div class="mx-auto max-w-[720px] space-y-3.5 pb-4">
+	<FichaShell
+		voltarHref="/profissionais"
+		titulo={editing ? 'Editar profissional' : 'Novo profissional'}
+		subtitulo={editing ? 'Editando cadastro profissional' : 'Cadastro de novo profissional'}
+		nome={f.nome}
+		{corIndice}
+		secoes={SECTIONS}
+		{counts}
+		{problema}
+		dica="Nome e telefone são obrigatórios — o resto pode ficar para depois."
+		acaoRotulo={editing ? 'Salvar' : 'Cadastrar profissional'}
+		acaoDesabilitada={!canSave}
+		emVoo={submitting}
+	>
 				<!-- 1. Identificação -->
-				<section id="sec-ident" class="scroll-mt-4 rounded-[14px] border border-edge bg-surface p-5">
+				<section id="sec-ident" class="scroll-mt-4 rounded-cartao border border-edge bg-surface p-5">
 					{@render cardHead(User, SECTIONS[0].t, SECTIONS[0].sub, counts.ident, SECTIONS[0].total)}
 					<label class="mb-3 block">
 						{@render label('Nome completo', true)}
@@ -418,7 +330,7 @@
 				</section>
 
 				<!-- 2. Contato & localização -->
-				<section id="sec-contato" class="scroll-mt-4 rounded-[14px] border border-edge bg-surface p-5">
+				<section id="sec-contato" class="scroll-mt-4 rounded-cartao border border-edge bg-surface p-5">
 					{@render cardHead(MapPin, SECTIONS[1].t, SECTIONS[1].sub, counts.contato, SECTIONS[1].total)}
 					<div class="grid grid-cols-1 gap-3 md:grid-cols-2">
 						<label class="block">
@@ -431,20 +343,20 @@
 						</label>
 						<label class="block">
 							{@render label('CEP')}
-							<input value={f.cep} oninput={onCepInput} onblur={() => runCepLookup(f.cep)} inputmode="numeric" placeholder="00000-000" class="{inputCls} font-mono" />
-							{#if cepStatus}
+							<input value={f.cep} oninput={cep.aoDigitar} onblur={() => cep.consultar(f.cep)} inputmode="numeric" placeholder="00000-000" class="{inputCls} font-mono" />
+							{#if cep.status}
 								<span
-									class="mt-1 block text-[11px] {cepStatus === 'ok'
-										? 'text-teal-text'
-										: cepStatus === 'loading'
+									class="mt-1 block text-meta {cep.status === 'ok'
+										? 'text-accent-text'
+										: cep.status === 'loading'
 											? 'text-muted'
 											: 'text-danger'}"
 								>
-									{cepStatus === 'loading'
+									{cep.status === 'loading'
 										? 'Buscando endereço…'
-										: cepStatus === 'ok'
+										: cep.status === 'ok'
 											? 'Endereço preenchido pelo CEP'
-											: cepStatus === 'notfound'
+											: cep.status === 'notfound'
 												? 'CEP não encontrado — preencha manualmente'
 												: 'Não foi possível consultar o CEP agora'}
 								</span>
@@ -488,7 +400,7 @@
 				</section>
 
 				<!-- 3. Dados técnicos -->
-				<section id="sec-tecnicos" class="scroll-mt-4 rounded-[14px] border border-edge bg-surface p-5">
+				<section id="sec-tecnicos" class="scroll-mt-4 rounded-cartao border border-edge bg-surface p-5">
 					{@render cardHead(Stethoscope, SECTIONS[2].t, SECTIONS[2].sub, counts.tecnicos, SECTIONS[2].total)}
 					<div class="mb-3 grid grid-cols-1 gap-3 md:grid-cols-2">
 						<label class="block">
@@ -519,8 +431,8 @@
 							<button
 								type="button"
 								onclick={() => toggleEsp(t)}
-								class="flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[12.5px] font-semibold {on
-									? 'border-transparent bg-teal-subtle text-teal-text'
+								class="flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-rotulo font-semibold {on
+									? 'border-transparent bg-accent-subtle text-accent-text'
 									: 'border-edge bg-surface text-ink hover:bg-surface-2'}"
 							>
 								{t}{#if on}<Check size={13} />{/if}
@@ -530,7 +442,7 @@
 				</section>
 
 				<!-- 4. Contratuais & financeiros -->
-				<section id="sec-contrato" class="scroll-mt-4 rounded-[14px] border border-edge bg-surface p-5">
+				<section id="sec-contrato" class="scroll-mt-4 rounded-cartao border border-edge bg-surface p-5">
 					{@render cardHead(FileText, SECTIONS[3].t, SECTIONS[3].sub, counts.contrato, SECTIONS[3].total)}
 					{@render label('Tipo de vínculo')}
 					<div class="mb-3 flex gap-2">
@@ -538,7 +450,7 @@
 							<button
 								type="button"
 								onclick={() => (vinculo = val)}
-								class="flex-1 rounded-lg border py-2 text-[12.5px] font-semibold {vinculo === val
+								class="flex-1 rounded-controle border py-2 text-rotulo font-semibold {vinculo === val
 									? 'border-transparent bg-primary text-on-primary'
 									: 'border-edge bg-surface text-ink hover:bg-surface-2'}"
 							>
@@ -558,7 +470,7 @@
 							</label>
 						</div>
 					{/if}
-					<div class="mb-2 text-[11px] font-bold text-faint">Dados bancários para repasse</div>
+					<div class="mb-2 text-meta font-bold text-faint">Dados bancários para repasse</div>
 					<label class="block">
 						{@render label('Chave PIX')}
 						<input bind:value={f.pix} placeholder="CPF, e-mail, telefone ou aleatória" class={inputCls} />
@@ -566,14 +478,14 @@
 				</section>
 
 				<!-- 5. Horário de atendimento (grade + exceções) -->
-				<section id="sec-horario" class="scroll-mt-4 rounded-[14px] border border-edge bg-surface p-5">
+				<section id="sec-horario" class="scroll-mt-4 rounded-cartao border border-edge bg-surface p-5">
 					{@render cardHead(CalendarClock, SECTIONS[4].t, SECTIONS[4].sub, counts.horario, SECTIONS[4].total)}
 
-					<div class="mb-3 flex items-center gap-3 rounded-lg border p-3 {segue ? 'border-teal bg-teal-subtle' : 'border-edge'}">
+					<div class="mb-3 flex items-center gap-3 rounded-controle border p-3 {segue ? 'border-accent bg-accent-subtle' : 'border-edge'}">
 						<SwitchToggle checked={segue} label="Seguir o horário da clínica" onchange={() => (segue = !segue)} />
 						<div>
-							<div class="text-[13px] font-semibold">Seguir o horário da clínica</div>
-							<div class="text-[11.5px] text-muted">
+							<div class="text-corpo font-semibold">Seguir o horário da clínica</div>
+							<div class="text-meta text-muted">
 								{segue
 									? 'O profissional atende exatamente no horário da clínica.'
 									: 'Defina o horário do profissional — sempre dentro do funcionamento da clínica.'}
@@ -584,7 +496,7 @@
 					{#if !segue}
 						<ProfessionalHoursEditor {clinicHours} {grade} onchange={(g) => (grade = g)} />
 						{#if !attendanceOk}
-							<p class="mt-2 flex items-center gap-1.5 text-[12px] font-semibold text-danger">
+							<p class="mt-2 flex items-center gap-1.5 text-rotulo font-semibold text-danger">
 								<TriangleAlert size={14} /> Defina ao menos um dia de atendimento (horário é obrigatório).
 							</p>
 						{/if}
@@ -594,14 +506,14 @@
 					<div class="mt-4 border-t border-edge pt-4">
 						<div class="mb-0.5 flex items-center gap-2">
 							<CalendarOff size={15} class="text-muted" />
-							<span class="text-[13.5px] font-semibold">Exceções de data</span>
+							<span class="text-corpo font-semibold">Exceções de data</span>
 						</div>
-						<p class="mb-3 text-[11.5px] text-muted">
+						<p class="mb-3 text-meta text-muted">
 							Folgas, férias, congressos ou um horário pontual só deste profissional. Valem sobre o
 							horário semanal.
 						</p>
 
-						<div class="mb-3 rounded-[10px] border border-edge bg-surface-2 p-3">
+						<div class="mb-3 rounded-cartao border border-edge bg-surface-2 p-3">
 							<div class="mb-2.5 flex flex-wrap gap-2">
 								<input
 									type="date"
@@ -620,8 +532,8 @@
 									type="button"
 									onclick={() => (exTipo = 'fechado')}
 									aria-pressed={exTipo === 'fechado'}
-									class="flex-1 rounded-[7px] border px-2 py-[7px] text-[12px] font-semibold {exTipo === 'fechado'
-										? 'border-teal bg-teal-subtle text-teal-text'
+									class="flex-1 rounded-controle border px-2 py-[7px] text-rotulo font-semibold {exTipo === 'fechado'
+										? 'border-accent bg-accent-subtle text-accent-text'
 										: 'border-edge bg-surface text-muted'}"
 								>
 									Não atende no dia
@@ -630,8 +542,8 @@
 									type="button"
 									onclick={() => (exTipo = 'horario')}
 									aria-pressed={exTipo === 'horario'}
-									class="flex-1 rounded-[7px] border px-2 py-[7px] text-[12px] font-semibold {exTipo === 'horario'
-										? 'border-teal bg-teal-subtle text-teal-text'
+									class="flex-1 rounded-controle border px-2 py-[7px] text-rotulo font-semibold {exTipo === 'horario'
+										? 'border-accent bg-accent-subtle text-accent-text'
 										: 'border-edge bg-surface text-muted'}"
 								>
 									Horário específico
@@ -639,7 +551,7 @@
 							</div>
 							{#if exTipo === 'horario'}
 								<div class="mb-2.5">
-									<p class="mb-1.5 text-[11.5px] text-muted">Períodos de atendimento neste dia:</p>
+									<p class="mb-1.5 text-meta text-muted">Períodos de atendimento neste dia:</p>
 									<PeriodEditor periods={exPeriods} onchange={(p) => (exPeriods = p)} />
 								</div>
 							{/if}
@@ -647,22 +559,22 @@
 								type="button"
 								onclick={addException}
 								disabled={!exData || newExceptionInvalid}
-								class="rounded-lg bg-primary px-3.5 py-2 text-[13px] font-semibold text-on-primary hover:bg-primary-hover disabled:opacity-60"
+								class="rounded-controle bg-primary px-3.5 py-2 text-corpo font-semibold text-on-primary hover:bg-primary-hover disabled:opacity-60"
 							>
 								Adicionar exceção
 							</button>
 						</div>
 
 						{#if sortedExceptions.length}
-							<div class="overflow-hidden rounded-[10px] border border-edge">
+							<div class="overflow-hidden rounded-cartao border border-edge">
 								{#each sortedExceptions as e (e.id)}
 									{@const isH = e.tipo === 'horario'}
 									<div class="flex items-center gap-3 border-t border-edge px-3 py-2.5 first:border-t-0">
-										{#if isH}<Clock size={16} class="text-teal-text" />{:else}<CalendarOff size={16} class="text-danger" />{/if}
-										<span class="w-[82px] shrink-0 font-mono text-[11.5px]">{formatDate(e.data)}</span>
+										{#if isH}<Clock size={16} class="text-accent-text" />{:else}<CalendarOff size={16} class="text-danger" />{/if}
+										<span class="w-[82px] shrink-0 font-mono text-meta">{formatDate(e.data)}</span>
 										<div class="min-w-0 flex-1">
-											<div class="truncate text-[13px]">{e.nome}</div>
-											<div class="font-mono text-[10.5px] {isH ? 'text-teal-text' : 'text-danger'}">
+											<div class="truncate text-corpo">{e.nome}</div>
+											<div class="font-mono text-micro {isH ? 'text-accent-text' : 'text-danger'}">
 												{isH ? formatPeriods(e.periods) : 'Não atende o dia inteiro'}
 											</div>
 										</div>
@@ -670,7 +582,7 @@
 											type="button"
 											onclick={() => removeException(e.id)}
 											title="Remover"
-											class="grid size-7.5 place-items-center rounded-[7px] border border-edge bg-surface text-danger hover:bg-surface-2"
+											class="grid size-7.5 place-items-center rounded-controle border border-edge bg-surface text-danger hover:bg-surface-2"
 										>
 											<Trash2 size={14} />
 										</button>
@@ -682,9 +594,9 @@
 				</section>
 
 				<!-- 6. Cor & status -->
-				<section id="sec-cor" class="scroll-mt-4 rounded-[14px] border border-edge bg-surface p-5">
+				<section id="sec-cor" class="scroll-mt-4 rounded-cartao border border-edge bg-surface p-5">
 					{@render cardHead(Palette, SECTIONS[5].t, SECTIONS[5].sub, counts.cor, SECTIONS[5].total)}
-					<div class="mb-1 text-[12px] font-medium text-muted">Cor do avatar na agenda</div>
+					<div class="mb-1 text-rotulo font-medium text-muted">Cor do avatar na agenda</div>
 					<div class="mb-4 flex flex-wrap gap-2.5">
 						{#each [1, 2, 3, 4, 5, 6, 7] as ci (ci)}
 							<button
@@ -704,8 +616,8 @@
 					<div class="flex items-center gap-3 border-t border-edge pt-4">
 						<SwitchToggle checked={ativo} label="Profissional ativo" onchange={() => (ativo = !ativo)} />
 						<div>
-							<div class="text-[13px] font-semibold">{ativo ? 'Profissional ativo' : 'Inativo (arquivado)'}</div>
-							<div class="text-[11.5px] text-muted">
+							<div class="text-corpo font-semibold">{ativo ? 'Profissional ativo' : 'Inativo (arquivado)'}</div>
+							<div class="text-meta text-muted">
 								{ativo
 									? 'Aparece na agenda e na lista de ativos.'
 									: 'Fica arquivado — some dos ativos, sem apagar o histórico.'}
@@ -713,40 +625,7 @@
 						</div>
 					</div>
 				</section>
-			</div>
-		</div>
-	</div>
-
-	<!-- Rodapé fixo -->
-	<footer class="flex shrink-0 items-center gap-3 border-t border-edge bg-surface px-4 py-3 md:px-6">
-		<!-- ACC-04 (doc 83): o par do rodapé da ficha do paciente — problema é `role="alert"` e
-		     visível em qualquer largura; dica segue só no desktop e sem papel. -->
-		{#if problema}
-			<span role="alert" class="flex flex-1 items-center gap-1.5 text-[12px] text-danger">
-				<TriangleAlert size={14} class="shrink-0" /> {problema}
-			</span>
-		{:else}
-			<!-- D6: o mínimo deixou de ser só o nome. A frase antiga ("apenas o nome") passou a
-			     mentir no instante em que a validação entrou, e uma dica que mente é pior que
-			     nenhuma: manda a pessoa clicar em salvar para descobrir o contrário. -->
-			<span class="hidden flex-1 items-center gap-1.5 text-[12px] text-faint md:flex">
-				Nome e telefone são obrigatórios — o resto pode ficar para depois.
-			</span>
-			<div class="flex-1 md:hidden"></div>
-		{/if}
-		<a
-			href="/profissionais"
-			class="rounded-lg border border-edge bg-surface px-4 py-2 text-[13px] font-semibold text-ink hover:bg-surface-2"
-			>Cancelar</a
-		>
-		<SubmitButton
-			emVoo={submitting}
-			disabled={!canSave}
-			class="inline-flex items-center gap-1.5 rounded-lg bg-primary px-5 py-2 text-[13px] font-semibold text-on-primary hover:bg-primary-hover disabled:opacity-60"
-		>
-			{editing ? 'Salvar' : 'Cadastrar profissional'}
-		</SubmitButton>
-	</footer>
+	</FichaShell>
 </form>
 
 {#if conflitos}

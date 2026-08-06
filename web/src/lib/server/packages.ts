@@ -1,7 +1,7 @@
 import type { RequestEvent } from '@sveltejs/kit';
 import { apiFetch } from './api';
 import { mutate, errorInfo, type MutationResult } from './mutate';
-import type { Package, PreviewResult } from '$lib/packages';
+import type { Package, PackageSession, PreviewResult } from '$lib/packages';
 
 // BFF dos pacotes (Fatia 3 / ADR-005): fala com `/api/packages` server-to-server, repassando o
 // cookie de sessão. `clinic_id` e RBAC vivem no escopo da API — o BFF nunca manda tenant no corpo.
@@ -179,12 +179,13 @@ export function adjustPackageGrade(
 
 // A trilha do pacote (estado de cada sessão). Sob demanda: a ficha não a carrega para todo pacote
 // — é uma leitura por pacote, e a ficha já faz seis em paralelo.
-export interface PackageSession {
-	attendance_id: string;
-	appointment_id: string;
-	starts_at: string;
-	estado: 'concluida' | 'falta' | 'segurada' | 'proxima' | 'agendada';
-}
+//
+// `PackageSession` vem de `$lib/packages` e é reexportado aqui por conveniência de quem já importa
+// deste módulo. Ele NÃO é redeclarado: a interface morava escrita três vezes — aqui, lá, e uma
+// terceira dentro do `PackageSessionsModal` — campo por campo, união por união, dos dois lados de
+// uma fronteira que o TypeScript atravessa de graça. Bastava a API acrescentar um valor a `estado`
+// para os três compilarem e o `switch` do componente cair no default calado (doc 94 §4.5).
+export type { PackageSession };
 
 export async function fetchPackageSessions(
 	event: RequestEvent,

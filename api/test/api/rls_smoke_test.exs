@@ -104,25 +104,37 @@ defmodule Api.RlsSmokeTest do
   # A resposta ao link, pela mesma porta do controller público (`record_reply` dentro de
   # `in_clinic`).
   #
-  # A mensagem **não** é criada aqui: com o paciente alcançável, o gatilho de criação do bloco já
-  # enfileirou a confirmação, e um segundo `Dispatch.dispatch` devolve `{:skip, :ja_na_fila}`. Ler
-  # a que existe é também o caminho real — o paciente responde à automática, não a uma inventada
-  # pelo teste. Zero mensagens aqui já seria falha de GUC, antes da asserção do agregado.
+  # A mensagem é disparada aqui desde 2026-07-31 (doc 98): criar o bloco deixou de enfileirar a
+  # confirmação, e sem este disparo a leitura abaixo voltaria vazia — o teste falharia por falta de
+  # dado, dizendo "RLS" no nome. O disparo passa pelo `Dispatch`, que é o caminho real; a leitura
+  # sob GUC continua sendo o que este arquivo mede.
   defp responder(ctx, appointment_id, resposta) do
     [presenca | _] = bloco(ctx, appointment_id).attendances
 
     Api.Tenancy.in_clinic(ctx.scope, fn ->
-      [message | _] =
-        Api.Messaging.list_attendance_messages!(presenca.id,
-          tenant: ctx.clinic.id,
-          authorize?: false
-        )
+      [message | _] = mensagens_da_presenca(ctx, presenca)
 
       Api.Messaging.do_record_reply!(message, %{resposta: resposta},
         tenant: ctx.clinic.id,
         authorize?: false
       )
     end)
+  end
+
+  # Dispara a confirmação desta presença e devolve as mensagens dela. Roda **dentro** do
+  # `in_clinic` de quem chama — é o que a leitura por-tenant exige, e o ponto do arquivo.
+  defp mensagens_da_presenca(ctx, presenca) do
+    paciente =
+      Api.Records.get_patient!(presenca.patient_id, tenant: ctx.clinic.id, authorize?: false)
+
+    clinic = Api.Accounts.get_clinic!(ctx.clinic.id, authorize?: false)
+
+    {:ok, _} = Api.Messaging.Dispatch.dispatch(clinic, presenca, paciente, :confirmacao)
+
+    Api.Messaging.list_attendance_messages!(presenca.id,
+      tenant: ctx.clinic.id,
+      authorize?: false
+    )
   end
 
   # A próxima segunda-feira — dia de expediente (o seed abre seg–sex) e no **futuro**, que é o
@@ -156,6 +168,42 @@ defmodule Api.RlsSmokeTest do
   defp sem_guc do
     Api.Repo.query!("SELECT set_config('cinetra.clinic_id', '', true)")
     :ok
+  end
+
+  # Regressão (auditoria doc 96, T-0). O projeto afirmava em CINCO lugares que leitura por-tenant
+  # sem GUC devolve "zero linhas, silenciosamente". Medido, isso valia em 2 das 17 tabelas: nas
+  # outras 15 a policy comparava a GUC CRUA, e `''::uuid` levanta `22P02`.
+  #
+  # A diferença aparecia só em conexão RECICLADA do pool: `current_setting(x, true)` devolve NULL
+  # enquanto a GUC nunca foi setada, mas volta a `''` depois de um `SET LOCAL` que já commitou. Ou
+  # seja, o modo de falha real em produção era **500 intermitente**, não lista vazia — e quem
+  # depurasse seguindo a documentação procuraria a coisa errada.
+  #
+  # A migration `20260731120000_rls_fail_closed_uniforme` pôs `nullif` nas 15. Este teste é o que
+  # impede a regressão: ele exercita justamente a GUC VAZIA (não a ausente).
+  describe "o modo de falha é fail-closed, não exceção (T-0)" do
+    test "GUC vazia devolve ZERO linhas em toda tabela por-tenant — nenhuma levanta 22P02" do
+      tabelas = ~w(
+        appointment_types appointments attachments attendances audit_events availability_rules
+        clinic_hours notifications package_schedules packages patients professional_hours
+        professionals schedule_exceptions waitlist_entries messages message_opt_outs
+      )
+
+      sem_guc()
+
+      for tabela <- tabelas do
+        resultado =
+          try do
+            %{rows: [[n]]} = Api.Repo.query!("SELECT count(*) FROM #{tabela}")
+            {:ok, n}
+          rescue
+            erro -> {:levantou, Exception.message(erro)}
+          end
+
+        assert {:ok, _} = resultado,
+               "#{tabela}: a policy LEVANTOU em vez de fechar — #{inspect(resultado)}"
+      end
+    end
   end
 
   describe "quem sou eu" do
@@ -822,7 +870,17 @@ defmodule Api.RlsSmokeTest do
     test "o resumo diário enxerga a agenda de amanhã sob RLS" do
       ctx = fixture()
       tz = Scheduling.clinic_timezone(ctx.clinic.id)
-      amanha = DateTime.utc_now() |> DateTime.shift_zone!(tz) |> DateTime.to_date() |> Date.add(1)
+
+      # Dia ÚTIL, não literalmente amanhã: o seed abre seg–sex, e agendar num sábado/domingo é
+      # recusado com "A clínica não atende neste dia" — o teste reprovaria por calendário, não
+      # por RLS, que é o que ele existe para provar (mesma família do doc 96).
+      amanha =
+        DateTime.utc_now()
+        |> DateTime.shift_zone!(tz)
+        |> DateTime.to_date()
+        |> Date.add(1)
+        |> Api.Generators.proximo_dia_util()
+
       {:ok, as_nove} = Scheduling.LocalTime.to_utc(amanha, "09:00", tz)
 
       {:ok, _} =
@@ -846,6 +904,66 @@ defmodule Api.RlsSmokeTest do
         )
 
       assert map_size(blocos) > 0, "o cron não enxergou a agenda (GUC faltando na varredura?)"
+    end
+
+    # Regressão do doc 96, B-11, preservada depois de o `ReminderJob` sair (2026-08-01).
+    #
+    # O job fazia a varredura INTEIRA de uma clínica dentro de um `with_clinic/2` — leitura e os N
+    # `Dispatch.dispatch` juntos. A correção separou as fases, e com isso a responsabilidade da GUC
+    # passou a ser do `Dispatch`, que a assume por escrito ("é chamado FORA de qualquer transação
+    # com GUC").
+    #
+    # O cron que motivou a regra não existe mais, mas a afirmação continua no moduledoc e continua
+    # valendo para quem chama hoje: o clique da recepção (`ApiWeb.MessagesController`) e o
+    # `Api.Messaging.Notifier`. Por isso o teste passou a exercitar o `Dispatch` direto, com a GUC
+    # zerada — que é a única coisa que ele sempre provou de fato. Sem isso, uma dependência de GUC
+    # reintroduzida ali não geraria mensagem nenhuma **e devolveria `:ok` do mesmo jeito**.
+    test "o Dispatch grava com a GUC zerada — quem chama não precisa abrir transação" do
+      ctx = fixture()
+      _ = alcancavel(ctx)
+      tz = Scheduling.clinic_timezone(ctx.clinic.id)
+      amanha = Api.Generators.proximo_dia_util(Date.add(Date.utc_today(), 1))
+      {:ok, as_nove} = Scheduling.LocalTime.to_utc(amanha, "09:00", tz)
+
+      {:ok, appointment} =
+        Scheduling.schedule_appointment(
+          %{
+            starts_at: as_nove,
+            professional_id: ctx.prof.id,
+            appointment_type_id: ctx.tipo.id,
+            patient_ids: [ctx.paciente.id]
+          },
+          scope: ctx.scope
+        )
+
+      [presenca | _] = bloco(ctx, appointment.id).attendances
+
+      paciente =
+        Api.Tenancy.in_clinic(ctx.clinic.id, fn ->
+          Api.Records.get_patient!(presenca.patient_id, tenant: ctx.clinic.id, authorize?: false)
+        end)
+
+      clinic = Api.Accounts.get_clinic!(ctx.clinic.id, authorize?: false)
+
+      # A GUC zerada AQUI é o ponto: quem chama o `Dispatch` hoje (o clique da recepção, o
+      # `Notifier`) não abre transação para ele.
+      :ok = sem_guc()
+
+      assert {:ok, _mensagem} =
+               Api.Messaging.Dispatch.dispatch(clinic, presenca, paciente, :confirmacao,
+                 disparado_por_id: ctx.owner.id
+               )
+
+      mensagens =
+        Api.Tenancy.in_clinic(ctx.clinic.id, fn ->
+          Api.Messaging.list_attendance_messages!(presenca.id,
+            tenant: ctx.clinic.id,
+            authorize?: false
+          )
+        end)
+
+      assert mensagens != [],
+             "a mensagem não nasceu — o Dispatch dependia da GUC de quem o chamava"
     end
   end
 
@@ -920,7 +1038,7 @@ defmodule Api.RlsSmokeTest do
 
       assert {:ok, %{url: _}} = Records.attachment_download(ctx.scope, anexo)
 
-      eventos = Records.list_clinic_attachment_events(ctx.scope, anexo.id)
+      eventos = eventos_do_anexo(ctx.scope, anexo.id)
       assert Enum.any?(eventos, &(&1.action == "visualizou")), "a trilha LGPD não foi gravada"
     end
   end
@@ -1032,14 +1150,15 @@ defmodule Api.RlsSmokeTest do
                Api.Notifications.list_inbox(ctx.scope).results
     end
 
-    test "o aviso da massa por pacote alcança o paciente sob cinetra_app" do
-      # `avisa_o_paciente/6` acha a âncora, lê a clínica e grava a mensagem — três leituras
-      # por-tenant depois do commit da massa. Sem GUC, a âncora volta `nil` e a mensagem some em
-      # silêncio: a massa "funciona" e o paciente não é avisado.
+    test "a massa por pacote NÃO fala mais com o paciente" do
+      # Este teste já provou o contrário: que o aviso da massa alcançava o paciente sob
+      # `cinetra_app`. O disparo saiu em 2026-08-01 — quem avisa o paciente de mudança em pacote é
+      # a recepção, pelo telefone que agora vai dentro de toda mensagem.
       #
-      # As sessões são criadas **pela porta de agendar**, e não pelo materializador do pacote, de
-      # propósito: o caminho do materializador está vermelho na árvore por outra causa (doc 60 §5,
-      # trabalho de outra fatia), e um teste que depende dele não prova o que este quer provar.
+      # O que ele guarda agora é a ausência: a massa roda inteira sob `cinetra_app` e **nenhuma**
+      # mensagem ao paciente nasce. A metade que ficou — a caixa do profissional dono da coluna —
+      # é coberta pelos testes de `Api.Packages.Bulk`, que sabem qual usuário é o dono da coluna;
+      # aqui a `ctx.scope` é a do owner, que não é.
       ctx = fixture()
 
       paciente =
@@ -1066,20 +1185,17 @@ defmodule Api.RlsSmokeTest do
 
       :ok = sem_guc()
 
-      assert {:ok, %{afetadas: afetadas}} =
-               Packages.bulk_cancel(ctx.scope, pkg.id, %{escopo: :todas})
-
-      assert afetadas == 2
+      assert {:ok, %{afetadas: 2}} = Packages.bulk_cancel(ctx.scope, pkg.id, %{escopo: :todas})
 
       avisos =
         Api.Tenancy.in_clinic(ctx.clinic.id, fn ->
           Api.Messaging.Message
           |> Ash.Query.for_read(:read, %{}, tenant: ctx.clinic.id, authorize?: false)
-          |> Ash.Query.filter(kind == :pacote_cancelado)
+          |> Ash.Query.filter(kind in [:pacote_cancelado, :pacote_remarcado])
           |> Ash.read!(authorize?: false)
         end)
 
-      assert length(avisos) == 1, "o aviso da massa não saiu — a GUC não chegou na âncora"
+      assert avisos == [], "a massa voltou a mandar mensagem ao paciente"
     end
 
     test "o opt-out global é legível e gravável sem GUC" do
@@ -1095,13 +1211,6 @@ defmodule Api.RlsSmokeTest do
 
     # Uma mensagem pronta para enviar, na clínica do `ctx`.
     defp mensagem(ctx) do
-      # A confirmação automática da criação do bloco ficaria na fila e a trava contra duplicata
-      # recusaria o disparo à mão abaixo. O que este arquivo mede é a RLS do caminho de envio, e
-      # para isso ele precisa da mensagem na mão.
-      Api.Accounts.update_clinic_messaging!(ctx.clinic, %{msg_confirmacao_auto: false},
-        authorize?: false
-      )
-
       paciente =
         Records.update_patient!(ctx.paciente, %{comunicacao: true, email: "rls@example.com"},
           tenant: ctx.clinic.id,
@@ -1126,5 +1235,15 @@ defmodule Api.RlsSmokeTest do
 
       message
     end
+  end
+
+  # A trilha do anexo, lida direto de `Api.Audit` — que é onde ela mora desde o doc 63, e o que a
+  # tela de Auditoria consulta. O atalho `Records.list_clinic_attachment_events/2` foi removido:
+  # nunca teve rota, e era uma delegação de uma linha usada só por teste (doc 96, M-4).
+  defp eventos_do_anexo(scope, attachment_id) do
+    %{entries: entries} =
+      Api.Audit.list_events(scope, resource: :attachment, record_id: attachment_id)
+
+    entries
   end
 end

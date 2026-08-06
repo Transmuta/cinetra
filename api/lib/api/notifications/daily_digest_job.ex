@@ -34,21 +34,36 @@ defmodule Api.Notifications.DailyDigestJob do
   def perform(%Oban.Job{args: args}) do
     hora = Map.get(args, "hora", hora_configurada())
     forcar? = Map.get(args, "forcar", false) == true
+    # `"hoje"` (ISO) injeta a data-base, como `scope.now` injeta o instante em todo o resto do
+    # projeto (ADR-009). Em produção nunca vem: o cron não passa e o default é o relógio real.
+    #
+    # Existe porque o digest olha **amanhã**, e "amanhã" é dia fechado toda sexta e sábado — o
+    # teste reprovava dois dias por semana por calendário, não por regra (mesma família do doc 96).
+    base = data_base(args)
 
     enviados =
       Reminders.em_cada_clinica_as(hora, [forcar?: forcar?], fn clinic_id, tz ->
-        amanha = tz |> hoje_local() |> Date.add(1)
+        amanha = (base || hoje_local(tz)) |> Date.add(1)
 
         de = Reminders.inicio_do_dia(amanha, tz)
         ate = Reminders.inicio_do_dia(Date.add(amanha, 1), tz)
 
-        Reminders.por_dono_da_coluna(clinic_id, de, ate, fn user_id, blocos ->
+        Reminders.por_dono_da_coluna(clinic_id, de, ate, fn user_id, blocos, _tz ->
           Fanout.daily_digest(clinic_id, user_id, amanha, length(blocos))
           1
         end)
       end)
 
     {:ok, %{enviados: enviados}}
+  end
+
+  defp data_base(args) do
+    with iso when is_binary(iso) <- Map.get(args, "hoje"),
+         {:ok, data} <- Date.from_iso8601(iso) do
+      data
+    else
+      _ -> nil
+    end
   end
 
   @doc "A hora local em que o resumo sai. Config, porque é escolha de produto."

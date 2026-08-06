@@ -39,20 +39,23 @@ defmodule Api.DeployEnvTest do
 
   use ExUnit.Case, async: true
 
-  # O compose mora fora de `api/`, e a suíte roda a partir de `api/`. Dois lugares, duas formas de
-  # alcançá-lo: no CI o checkout inteiro está ao lado (`../`); no container de dev, onde só `api/`
-  # é montado em `/app`, o `docker-compose.yml` monta a raiz do repositório em `/repo` só-leitura.
-  # Sem o segundo caminho o teste pularia justamente onde se desenvolve.
-  @compose ["../compose.dokploy.yml", "/repo/compose.dokploy.yml"]
+  # O recorte do compose por serviço mora em `Api.ComposeDeProducao`: nasceu aqui e ganhou um
+  # segundo cliente (`Api.DeployHorizontalidadeTest`), que o teria copiado.
+  alias Api.ComposeDeProducao, as: Compose
+
   @runtime "config/runtime.exs"
 
   @familias ~w(RESEND_ MAIL_ ZERNIO_ WHATSAPP_)
 
+  # A variável do stack que responde "qual header a edge garante?". Uma só, porque a resposta é
+  # uma só — ver o teste abaixo.
+  @fonte_do_ip "CLIENT_IP_HEADER"
+
   test "o serviço `api` do compose de produção recebe toda env de comunicação do runtime.exs" do
-    compose = File.read!(caminho_do_compose())
+    servico = Compose.servico(Compose.ler(), "api")
 
     for env <- envs_de_comunicacao() do
-      assert compose =~ env,
+      assert Enum.any?(servico, &Regex.match?(~r/^\s+#{Regex.escape(env)}:/, &1)),
              """
              `#{env}` é lida por config/runtime.exs mas não é passada ao container da API em \
              compose.dokploy.yml.
@@ -63,21 +66,46 @@ defmodule Api.DeployEnvTest do
     end
   end
 
-  # Falha em vez de pular quando o compose não é alcançável: um teste de configuração que some
-  # sozinho no ambiente errado é pior do que não existir — ele reporta verde sem ter olhado nada.
-  defp caminho_do_compose do
-    Enum.find(@compose, &File.exists?/1) ||
-      flunk("compose.dokploy.yml não encontrado em nenhum de: #{Enum.join(@compose, ", ")}")
+  @doc false
+  # "Qual header de proxy merece confiança?" é UMA decisão, e ela é respondida em dois arquivos
+  # muito distantes: a lista do `ApiWeb.ClientIp` (API) e o `ADDRESS_HEADER` do adapter-node (BFF).
+  #
+  # Elas já discordaram uma vez, e o custo foi medido: o BFF passou a confiar em `CF-Connecting-IP`
+  # e a lista da API ficou vazia, caindo no `x-forwarded-for` — que o Cloudflare **acrescenta** em
+  # vez de sobrescrever, e cujo primeiro elemento é escrito pelo cliente. Separar a resposta em dois
+  # lugares foi também a causa B do bate-volta doc 68.
+  #
+  # Então o teste não cobra um valor: cobra que os dois lados **derivem da mesma variável do
+  # stack**. Assim a topologia é declarada uma vez, no painel do Dokploy, e não há como um ambiente
+  # ter um lado configurado e o outro não.
+  #
+  # A terceira asserção fecha o laço pelo outro lado: passar a env no compose não faz nada se o
+  # `runtime.exs` não a ler — e essa metade da ligação é invisível em qualquer inspeção do compose.
+  test "o header de IP do cliente sai da MESMA variável nos dois serviços — e o runtime.exs a lê" do
+    compose = Compose.ler()
+
+    assert "TRUSTED_CLIENT_IP_HEADER" in envs_lidas_pelo_runtime(),
+           "o compose passaria a env para um runtime.exs que não a lê — ligação pela metade"
+
+    assert Compose.valor_de(Compose.servico(compose, "api"), "TRUSTED_CLIENT_IP_HEADER") =~
+             @fonte_do_ip
+
+    assert Compose.valor_de(Compose.servico(compose, "web"), "ADDRESS_HEADER") =~ @fonte_do_ip
   end
 
-  # Todo `System.get_env("X")` do runtime.exs cujo nome começa por uma das famílias de comunicação.
+  # Todo `System.get_env("X")` do runtime.exs.
+  defp envs_lidas_pelo_runtime do
+    ~r/System\.get_env\("([A-Z0-9_]+)"/
+    |> Regex.scan(File.read!(@runtime))
+    |> Enum.map(fn [_todo, nome] -> nome end)
+    |> Enum.uniq()
+  end
+
+  # As do recorte de comunicação, que é o alcance do bug que originou o primeiro teste.
   defp envs_de_comunicacao do
     nomes =
-      ~r/System\.get_env\("([A-Z0-9_]+)"/
-      |> Regex.scan(File.read!(@runtime))
-      |> Enum.map(fn [_todo, nome] -> nome end)
+      envs_lidas_pelo_runtime()
       |> Enum.filter(fn nome -> Enum.any?(@familias, &String.starts_with?(nome, &1)) end)
-      |> Enum.uniq()
 
     # Guarda contra o teste virar vacuidade: se a regex parar de casar (o `runtime.exs` muda de
     # forma), a lista fica vazia e o `for` acima passa sem verificar nada.

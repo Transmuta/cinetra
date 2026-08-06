@@ -25,7 +25,8 @@ defmodule ApiWeb.ResendWebhookControllerTest do
     ctx = clinica()
     paciente = paciente_com(ctx, comunicacao: true, email: "ana@example.com")
     appt = agendamento!(ctx, paciente: paciente)
-    [message] = mensagens(ctx, appt)
+    # Disparada à mão: criar o bloco não fala mais com o paciente (doc 98).
+    message = confirmacao!(ctx, appt, paciente)
 
     # Simula o que o transporte grava quando o provider aceita.
     enviada =

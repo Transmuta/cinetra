@@ -29,12 +29,20 @@ const LIGHT = {
 	bd: '#cdd3d9',
 	text: '#161a1e',
 	muted: '#5c6670',
-	faint: '#8a929b',
-	primary: '#16181c',
+	faint: '#6b737c',
+	primary: '#7fa59a', // ADR-020: o sage da marca; NÃO inverte mais por tema
+	primary_hover: '#72958b',
 	on_primary: '#ffffff',
-	teal_text: '#0a7e73',
-	teal_subtle: '#e5f7f4',
-	teal_border: '#7fdacd',
+	// ADR-021: a família ERA o teal (`#0a7e73` / `#e5f7f4` / `#7fdacd`) e virou sage.
+	accent_text: '#3b6d5f',
+	accent_subtle: '#ebf4f2',
+	accent_border: '#9cc9bc',
+	// Semânticas como TEXTO: por tema desde o doc 83 — uma cor que contrasta com branco não
+	// contrasta com quase-preto. Estavam em SHARED aqui, medindo o valor do tema errado.
+	success: '#037736',
+	warning: '#a15200',
+	danger: '#c3262b',
+	info: '#0b5fdf',
 	rail: '#16181c',
 	rail_item: '#26292f'
 };
@@ -47,27 +55,32 @@ const DARK = {
 	bd: '#313640',
 	text: '#eceef0',
 	muted: '#9aa3ac',
-	faint: '#6b747d',
-	primary: '#eceef0',
-	on_primary: '#16181c',
-	teal_text: '#3fd6c7',
+	faint: '#7e8790',
+	primary: '#7fa59a', // idem ao claro — ver ADR-020
+	primary_hover: '#72958b',
+	on_primary: '#ffffff',
+	accent_text: '#8ec2b3',
 	// Estes dois são `rgba` no tema escuro. A razão de contraste não sabe o que é transparência,
 	// então entram ACHATADOS sobre `surface` (#16181c), que é onde de fato pintam. Achatar sobre
 	// outra superfície daria outro número — é uma aproximação consciente, não um valor do CSS.
-	teal_subtle: '#153132', // rgba(15,181,166,.16) sobre #16181c
-	teal_border: '#456f6c', // rgba(127,218,205,.45) sobre #16181c
+	accent_subtle: '#272f30', // rgba(127,165,154,.16) sobre #16181c
+	accent_border: '#455755', // rgba(127,165,154,.45) sobre #16181c
+	success: '#2da160',
+	warning: '#f5a623',
+	danger: '#f5585d',
+	info: '#3c90ff',
 	rail: '#08090a',
 	rail_item: '#1a1d22'
 };
 
-/** Semânticas e marca: iguais nos dois temas (são pigmento, não superfície). */
+/** Fundos sólidos e marca: iguais nos dois temas (são pigmento, não superfície). */
 const SHARED = {
-	success: '#2da160',
-	warning: '#f5a623',
-	danger: '#e5484d',
-	info: '#2b7fff',
-	teal_solid: '#0fb5a6',
-	teal_hover: '#0ba294',
+	success_solid: '#2da160',
+	warning_solid: '#f5a623',
+	danger_solid: '#d83b40',
+	info_solid: '#2b7fff',
+	accent_solid: '#7fa59a',
+	accent_hover: '#72958b',
 	sage: '#7fa59a',
 	blue: '#3a5a78',
 	white: '#ffffff',
@@ -101,41 +114,49 @@ function pares(T, tema) {
 		p('faint / surface', 'faint', 'surface', 4.5, 'metadado 10,5–12px'),
 		p('faint / surface2', 'faint', 'surface2', 4.5, 'metadado 10,5–12px'),
 		p('faint / canvas', 'faint', 'canvas', 4.5, 'metadado 10,5–12px'),
-		// teal
-		p('teal_text / surface', 'teal_text', 'surface', 4.5),
-		p('teal_text / surface2', 'teal_text', 'surface2', 4.5),
-		p('teal_text / teal_subtle', 'teal_text', 'teal_subtle', 4.5, 'chip teal'),
-		p('branco / teal_solid', 'white', 'teal_solid', 4.5, 'botão teal, chip ABRIU'),
-		p('branco / teal_hover', 'white', 'teal_hover', 4.5, 'botão teal :hover'),
-		p('ink_fixo / teal_solid', 'ink_fixo', 'teal_solid', 4.5, 'alternativa: texto escuro'),
-		// botão primário
-		p('on_primary / primary', 'on_primary', 'primary', 4.5, 'botão primário'),
-		// badges (10,5px bold — NÃO é texto grande, piso 4,5)
-		p('branco / success', 'white', 'success', 4.5, 'badge'),
-		p('branco / danger', 'white', 'danger', 4.5, 'badge, PriorityBadge'),
-		p('branco / info', 'white', 'info', 4.5, 'badge'),
-		p('branco / warning', 'white', 'warning', 4.5, 'badge — era o ENCAIXE'),
-		p('ink_fixo / warning', 'ink_fixo', 'warning', 4.5, 'ENCAIXE consertado'),
-		p('ink_fixo / success', 'ink_fixo', 'success', 4.5, 'alternativa: texto escuro'),
-		p('ink_fixo / danger', 'ink_fixo', 'danger', 4.5, 'alternativa: texto escuro'),
-		p('ink_fixo / info', 'ink_fixo', 'info', 4.5, 'alternativa: texto escuro'),
+		// acento (sage desde a ADR-021)
+		p('accent_text / surface', 'accent_text', 'surface', 4.5),
+		p('accent_text / surface2', 'accent_text', 'surface2', 4.5),
+		p('accent_text / accent_subtle', 'accent_text', 'accent_subtle', 4.5, 'chip do acento'),
+		// O par que o app de fato usa no sólido é `ink_fixo`, não branco: `bg-accent text-on-solid`.
+		// A linha do branco fica porque há DOIS `hover:bg-accent hover:text-white` no app
+		// (AppointmentDrawer, /notificacoes) que reprovam — e reprovavam igual no teal (2,57).
+		p('ink_fixo / accent_solid', 'ink_fixo', 'accent_solid', 4.5, 'bg-accent + text-on-solid'),
+		p('ink_fixo / accent_hover', 'ink_fixo', 'accent_hover', 4.5, ':hover'),
+		p('branco / accent_solid', 'white', 'accent_solid', 4.5, 'os 2 hover:text-white — REPROVA'),
+		// Botão primário. REPROVA de propósito desde a ADR-020 (débito D-17): o piso segue 4,5
+		// justamente para a linha continuar saindo em vermelho na tabela — a exceção é decisão
+		// registrada, não um número que se conserta baixando o piso.
+		p('on_primary / primary', 'on_primary', 'primary', 4.5, 'botão primário — EXCEÇÃO ADR-020'),
+		p('on_primary / primary_hover', 'on_primary', 'primary_hover', 4.5, ':hover — idem'),
+		// badges (10,5px bold — NÃO é texto grande, piso 4,5). O fundo é o `-solid`, que não muda
+		// com o tema; medir o token de TEXTO aqui era o erro antigo desta tabela.
+		p('branco / danger_solid', 'white', 'danger_solid', 4.5, 'badge, PriorityBadge'),
+		p('ink_fixo / warning_solid', 'ink_fixo', 'warning_solid', 4.5, 'ENCAIXE'),
+		p('ink_fixo / success_solid', 'ink_fixo', 'success_solid', 4.5, 'badge'),
+		p('ink_fixo / info_solid', 'ink_fixo', 'info_solid', 4.5, 'badge'),
+		p('branco / warning_solid', 'white', 'warning_solid', 4.5, 'o par ERRADO — deve reprovar'),
 		// KPI de /relatorios: número 23px semibold, direto sobre a superfície do card.
 		// 23px < 24px ⇒ piso 4,5, e não os 3 de texto grande.
 		p('KPI warning / surface', 'warning', 'surface', 4.5, 'número 23px de /relatorios'),
 		p('KPI success / surface', 'success', 'surface', 4.5, 'número 23px de /relatorios'),
 		p('KPI danger / surface', 'danger', 'surface', 4.5, 'número 23px de /relatorios'),
 		p('KPI info / surface', 'info', 'surface', 4.5, 'número 23px de /relatorios'),
-		p('KPI teal / surface', 'teal_solid', 'surface', 4.5, 'número 23px de /relatorios'),
+		p('KPI acento / surface', 'accent_text', 'surface', 4.5, 'número 23px de /relatorios'),
 		// rail (escuro nos dois temas)
 		p('branco / rail', 'white', 'rail', 4.5, 'ícone/label do rail'),
 		p('branco / rail_item', 'white', 'rail_item', 4.5),
 		// não-textual: 1.4.11 pede 3:1
-		p('anel de foco (teal_solid) / surface', 'teal_solid', 'surface', 3, 'foco 1.4.11'),
-		p('anel de foco (teal_solid) / canvas', 'teal_solid', 'canvas', 3, 'foco 1.4.11'),
-		p('anel de foco (teal_solid) / surface2', 'teal_solid', 'surface2', 3, 'foco 1.4.11'),
+		// O anel do acento REPROVA sozinho no tema claro — e é esperado: o anel é duplo, e quem
+		// cobre a superfície clara é o companheiro na cor do texto. Quem prova o par é o
+		// `contraste.test.ts`; estas linhas ficam para a metade do acento continuar visível aqui.
+		p('anel de foco (accent) / surface', 'accent_solid', 'surface', 3, 'metade do anel duplo'),
+		p('anel de foco (accent) / canvas', 'accent_solid', 'canvas', 3, 'metade do anel duplo'),
+		p('anel de foco (accent) / surface2', 'accent_solid', 'surface2', 3, 'metade do anel duplo'),
+		p('anel de foco (accent) / rail', 'accent_solid', 'rail', 3, 'aqui é o acento que cobre'),
 		p('borda sutil (bs) / surface', 'bs', 'surface', 3, 'borda de input 1.4.11'),
 		p('borda densa (bd) / surface', 'bd', 'surface', 3, 'borda de input 1.4.11'),
-		p('teal_border / surface', 'teal_border', 'surface', 3, '1.4.11'),
+		p('accent_border / surface', 'accent_border', 'surface', 3, '1.4.11 — débito D-18'),
 		// marca
 		p('branco / blue', 'white', 'blue', 4.5, 'gradiente landing/aside'),
 		p('branco / sage', 'white', 'sage', 4.5, 'gradiente landing/aside')
@@ -187,12 +208,12 @@ console.log('\n## Candidatos\n');
 for (const [rot, base, fundo, piso] of [
 	['faint claro (o pior caso é sobre surface2)', LIGHT.faint, LIGHT.surface2, 4.5],
 	['faint escuro (sobre surface2)', DARK.faint, DARK.surface2, 4.5],
-	['anel de foco no tema claro (sobre surface2)', SHARED.teal_solid, LIGHT.surface2, 3],
-	['teal_text sobre teal_subtle (claro)', LIGHT.teal_text, LIGHT.teal_subtle, 4.5],
-	['teal_solid escurecido para aceitar texto branco', SHARED.teal_solid, SHARED.white, 4.5],
-	['success escurecido para aceitar texto branco', SHARED.success, SHARED.white, 4.5],
-	['danger escurecido para aceitar texto branco', SHARED.danger, SHARED.white, 4.5],
-	['info escurecido para aceitar texto branco', SHARED.info, SHARED.white, 4.5],
+	['anel de foco no tema claro (sobre surface2)', SHARED.accent_solid, LIGHT.surface2, 3],
+	['accent_text sobre accent_subtle (claro)', LIGHT.accent_text, LIGHT.accent_subtle, 4.5],
+	['accent_solid escurecido para aceitar texto branco', SHARED.accent_solid, SHARED.white, 4.5],
+	['accent_border para bater os 3 de 1.4.11 (débito D-18)', LIGHT.accent_border, LIGHT.surface, 3],
+	['success_solid escurecido para aceitar texto branco', SHARED.success_solid, SHARED.white, 4.5],
+	['info_solid escurecido para aceitar texto branco', SHARED.info_solid, SHARED.white, 4.5],
 	['borda densa (bd) do tema claro', LIGHT.bd, LIGHT.surface, 3]
 ]) {
 	const c = candidato(base, fundo, piso);

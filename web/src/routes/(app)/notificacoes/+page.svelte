@@ -1,15 +1,15 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import SubmitButton from '$lib/components/SubmitButton.svelte';
-	import { envio, envioPorItem } from '$lib/forms.svelte';
+	import { envio, envioPorItem, reagirAoForm } from '$lib/forms.svelte';
 	import { goto, invalidate } from '$app/navigation';
 	import { page as pageState } from '$app/state';
 	import { navigateQuery } from '$lib/querystring';
 	import BellOff from '@lucide/svelte/icons/bell-off';
 	import Check from '@lucide/svelte/icons/check';
 	import CheckCheck from '@lucide/svelte/icons/check-check';
-	import ChevronLeft from '@lucide/svelte/icons/chevron-left';
-	import ChevronRight from '@lucide/svelte/icons/chevron-right';
+	import Paginacao from '$lib/components/Paginacao.svelte';
+	import EstadoVazio from '$lib/components/EstadoVazio.svelte';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import { toast } from '$lib/toast.svelte';
@@ -29,10 +29,10 @@
 	//
 	// Só ERRO vira toast: o sucesso já se vê na tela (o realce sai, o contador cai, a lista
 	// esvazia), e anunciar o óbvio seria ruído em cima de cada ✓ da lista.
-	$effect(() => {
-		if (!form || form.ok) return;
-		toast(form.error ?? 'Não foi possível concluir a ação.', 'error');
-	});
+	reagirAoForm(
+		() => form,
+		{ erro: (f) => toast(f.error ?? 'Não foi possível concluir a ação.', 'error') }
+	);
 
 	// Paginação (#54): `?page=` na URL, sem empilhar histórico — mesmo gesto da fila e de
 	// Pacientes. Sem rodapé "X–Y de Z": a API não conta o total da caixa de propósito.
@@ -51,9 +51,6 @@
 	// e o form escondido é o que ele dispara (molde do "sair de todos os dispositivos").
 	let confirmingClear = $state(false);
 	let clearForm: HTMLFormElement;
-
-	const navBtn =
-		'inline-flex items-center gap-1 rounded-lg border border-edge bg-surface px-2.5 py-1.5 text-[12.5px] font-semibold text-ink hover:bg-surface-2 disabled:opacity-40 disabled:hover:bg-surface';
 
 	// Marcar lida ao abrir: submete a action e, se a notificação tem destino, navega para lá.
 	// Sem destino, só revalida (a linha perde o realce e o badge cai).
@@ -90,8 +87,8 @@
 	<header class="mb-5 flex items-center justify-between gap-4">
 		<div>
 			<!-- `h2` (ACC-22): o `h1` é o do topbar, que já diz "Notificações". -->
-			<h2 class="text-xl font-semibold text-ink">Notificações</h2>
-			<p class="text-sm text-muted">
+			<h2 class="text-destaque leading-7 font-semibold text-ink">Notificações</h2>
+			<p class="text-leitura leading-5 text-muted">
 				{#if unread > 0}
 					{unread} não {unread === 1 ? 'lida' : 'lidas'}
 				{:else}
@@ -105,7 +102,7 @@
 				<form method="POST" action="?/readAll" use:enhance={lerTodas.submit}>
 					<SubmitButton
 						emVoo={lerTodas.emVoo}
-						class="inline-flex items-center gap-1.5 rounded-lg border border-edge bg-surface px-3 py-1.5 text-sm font-medium text-ink transition-colors hover:bg-surface-2 disabled:opacity-60"
+						class="inline-flex items-center gap-1.5 rounded-controle border border-edge bg-surface px-3 py-1.5 text-leitura leading-5 font-medium text-ink transition-colors hover:bg-surface-2 disabled:opacity-60"
 					>
 						<CheckCheck size={15} />
 						Marcar todas como lidas
@@ -117,7 +114,7 @@
 				<button
 					type="button"
 					onclick={() => (confirmingClear = true)}
-					class="inline-flex items-center gap-1.5 rounded-lg border border-edge bg-surface px-3 py-1.5 text-sm font-medium text-ink transition-colors hover:bg-surface-2 hover:text-danger"
+					class="inline-flex items-center gap-1.5 rounded-controle border border-edge bg-surface px-3 py-1.5 text-leitura leading-5 font-medium text-ink transition-colors hover:bg-surface-2 hover:text-danger"
 				>
 					<Trash2 size={15} />
 					Limpar tudo
@@ -127,16 +124,13 @@
 	</header>
 
 	{#if notifications.length === 0}
-		<div
-			class="flex flex-col items-center justify-center rounded-xl border border-edge bg-surface py-16 text-center"
+		<!-- O vazio diz QUAL vazio: "Nenhuma notificação" com o filtro ligado faria quem tem a
+		     caixa cheia de lidas achar que perdeu tudo. -->
+		<EstadoVazio
+			icone={BellOff}
+			titulo={onlyUnread ? 'Nenhuma não lida' : 'Nenhuma notificação'}
 		>
-			<BellOff size={28} class="text-faint" />
-			<!-- O vazio diz QUAL vazio: "Nenhuma notificação" com o filtro ligado faria quem tem a
-			     caixa cheia de lidas achar que perdeu tudo. -->
-			<p class="mt-3 text-sm font-medium text-ink">
-				{onlyUnread ? 'Nenhuma não lida' : 'Nenhuma notificação'}
-			</p>
-			<p class="mt-1 text-sm text-muted">
+			{#snippet descricao()}
 				{#if onlyUnread}
 					<!-- "Todas" é o item da SIDEBAR, à esquerda — não uma aba. Dizer "aba" aqui mandava
 					     a pessoa procurar um controle que não existe mais nesta tela. -->
@@ -144,10 +138,10 @@
 				{:else}
 					Avisamos aqui quando algo mudar na sua agenda, na fila ou na equipe.
 				{/if}
-			</p>
-		</div>
+			{/snippet}
+		</EstadoVazio>
 	{:else}
-		<ul class="overflow-hidden rounded-xl border border-edge bg-surface">
+		<ul class="overflow-hidden rounded-cartao border border-edge bg-surface">
 			{#each notifications as n (n.id)}
 				<!-- Dois forms irmãos para a MESMA action, e não um botão dentro do outro (que é HTML
 				     inválido): o grande abre a notificação, o de check só a marca lida. O realce da
@@ -155,7 +149,7 @@
 				<li
 					class="flex items-stretch border-b border-edge last:border-b-0 {n.read
 						? ''
-						: 'bg-teal-subtle/40'}"
+						: 'bg-accent-subtle/40'}"
 				>
 					<form method="POST" action="?/read" use:enhance={openRow(n)} class="min-w-0 flex-1">
 						<input type="hidden" name="id" value={n.id} />
@@ -164,15 +158,15 @@
 							class="flex w-full items-start gap-3 px-4 py-3.5 text-left transition-colors hover:bg-surface-2"
 						>
 							<span
-								class="mt-1.5 size-2 shrink-0 rounded-full {n.read ? 'bg-transparent' : 'bg-teal'}"
+								class="mt-1.5 size-2 shrink-0 rounded-full {n.read ? 'bg-transparent' : 'bg-accent'}"
 								aria-hidden="true"
 							></span>
 							<span class="min-w-0 flex-1">
 								<span class="flex items-baseline justify-between gap-3">
-									<span class="truncate text-sm font-semibold text-ink">{n.title}</span>
-									<span class="shrink-0 text-xs text-faint">{relativeTime(n.inserted_at)}</span>
+									<span class="truncate text-leitura leading-5 font-semibold text-ink">{n.title}</span>
+									<span class="shrink-0 text-rotulo leading-4 text-faint">{relativeTime(n.inserted_at)}</span>
 								</span>
-								<span class="mt-0.5 block text-sm text-muted">{n.body}</span>
+								<span class="mt-0.5 block text-leitura leading-5 text-muted">{n.body}</span>
 							</span>
 						</button>
 					</form>
@@ -187,15 +181,15 @@
 							use:enhance={lerUma.submit(n.id)}
 							class="flex shrink-0 items-center pr-3"
 						>
-							<!-- Em repouso já se lê como botão (borda + ícone teal, não um cinza apagado);
-							     no hover vira teal sólido. Antes era `text-faint` sem borda, e ao vivo
+							<!-- Em repouso já se lê como botão (borda + ícone no acento, não um cinza apagado);
+							     no hover vira o acento sólido. Antes era `text-faint` sem borda, e ao vivo
 							     passava por enfeite da linha. -->
 							<SubmitButton
 								emVoo={lerUma.emVoo(n.id)}
 								trocaConteudo
 								title="Marcar como lida"
 								ariaLabel={'Marcar "' + n.title + '" como lida'}
-								class="grid size-8 place-items-center rounded-lg border border-teal-border bg-surface text-teal-text transition-colors hover:border-teal hover:bg-teal hover:text-white disabled:opacity-60"
+								class="grid size-8 place-items-center rounded-controle border border-accent-border bg-surface text-accent-text transition-colors hover:border-accent hover:bg-accent hover:text-white disabled:opacity-60"
 							>
 								<Check size={16} />
 							</SubmitButton>
@@ -205,26 +199,9 @@
 			{/each}
 		</ul>
 
-		{#if data.pageInfo.more || data.current > 1}
-			<div class="mt-4 flex items-center justify-end gap-2">
-				<button
-					type="button"
-					class={navBtn}
-					disabled={data.current === 1}
-					onclick={() => goPage(data.current - 1)}
-				>
-					<ChevronLeft size={14} /> Anterior
-				</button>
-				<button
-					type="button"
-					class={navBtn}
-					disabled={!data.pageInfo.more}
-					onclick={() => goPage(data.current + 1)}
-				>
-					Próxima <ChevronRight size={14} />
-				</button>
-			</div>
-		{/if}
+		<!-- Sem rótulo "X–Y de Z": a API do sino não conta o total de propósito (contar obriga a
+		     ler o recorte inteiro), e o `rotulo={null}` diz isso em voz alta. -->
+		<Paginacao current={data.current} pageInfo={data.pageInfo} onPage={goPage} />
 	{/if}
 
 	<!-- Disparado pela confirmação. `use:enhance` padrão: o invalidateAll recarrega o layout, e é

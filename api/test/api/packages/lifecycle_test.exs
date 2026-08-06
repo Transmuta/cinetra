@@ -65,6 +65,38 @@ defmodule Api.Packages.LifecycleTest do
     |> Enum.sort_by(& &1.starts_at, DateTime)
   end
 
+  # O escopo de um usuário com papel `profissional` vinculado a uma coluna da agenda — o papel que
+  # o recorte A7 (`OwnAgendaOnly`) filtra. O relógio é o mesmo `scope_before/1`: `escopo_de_membro!`
+  # devolve o escopo com `now` real, e as sessões destes testes ficam em 2026-07, no passado.
+  defp scope_profissional(ctx, professional_id) do
+    s = escopo_de_membro!(ctx, :profissional, professional_id)
+    {:ok, now} = Scheduling.LocalTime.to_utc(~D[2026-07-13], "08:00", "America/Sao_Paulo")
+    Api.Scope.with_membership(s.user, s.membership, now: now)
+  end
+
+  # Uma sessão do MESMO pacote na coluna de OUTRO profissional. É estado atingível pelo produto:
+  # `bulk_adjust(aplicar_profissional: true)` move as sessões do pacote entre colunas, e o `+` da
+  # ficha agenda sessão nova escolhendo o profissional. Sexta 10:00 não colide com a grade
+  # (segunda/quarta) da série.
+  defp sessao_em_outra_coluna(ctx, pkg) do
+    outra = profissional!(ctx, "Dr. Y #{unico()}")
+    {:ok, sexta} = Scheduling.LocalTime.to_utc(~D[2026-07-24], "10:00", "America/Sao_Paulo")
+
+    {:ok, appt} =
+      Scheduling.schedule_appointment(
+        %{
+          starts_at: sexta,
+          professional_id: outra.id,
+          appointment_type_id: ctx.tipo.id,
+          patient_ids: [ctx.paciente.id],
+          package_id: pkg.id
+        },
+        scope: scope_before(ctx)
+      )
+
+    appt
+  end
+
   # O estado CRU das sessões do pacote, direto no banco — RN-05 esconde `pkg_hold` de toda leitura
   # do Ash, então pausar só é verificável por SQL. Sandbox é `postgres` (BYPASSRLS), sem GUC.
   defp sessoes_cruas(pkg) do
@@ -178,6 +210,64 @@ defmodule Api.Packages.LifecycleTest do
         )
 
       assert hold == true
+    end
+
+    # Regressão (auditoria doc 96, B-1). CANCELAR o bloco não alcançava a presença segurada: a
+    # `CascadeToAttendances` lia as presenças com `Ash.load!`, que passa pela preparation global
+    # `HideHeldAttendances` (filtra `pkg_hold == false`). A cascata irmã `RemoveParticipants` abre
+    # a porta com `set_context(%{include_held: true})`; esta não abria — assimetria entre duas
+    # cascatas que precisam ver o MESMO conjunto.
+    #
+    # O estrago não parava no bloco cancelado. A presença ficava viva (`:prevista`, segurada)
+    # pendurada num bloco `:cancelado`, e o `resume_package` não a recuperava: `held_targets/2`
+    # rejeita bloco `:cancelado`, o par caía fora e `enqueue_reproject(…, 0)` não reprojetava
+    # nada. Resultado para o paciente: **uma sessão paga desaparecia** do pacote, e a ficha
+    # seguia desenhando a bolinha como "segurada" para sempre, num pacote `:ativo`.
+    test "cancelar o bloco alcança a presença SEGURADA — a sessão paga não vira órfã" do
+      ctx = setup_clinic()
+      turma = tipo!(ctx, nome: "Turma #{unico()}", icon: "Users", grupo: true, capacidade: 4)
+      colega = paciente!(ctx, "Colega #{unico()}")
+
+      {:ok, pkg} =
+        Packages.create_package(params(ctx, %{appointment_type_id: turma.id}), scope: ctx.scope)
+
+      {:ok, dt} = Scheduling.LocalTime.to_utc(@segunda, "08:00", "America/Sao_Paulo")
+
+      {:ok, appt} =
+        Scheduling.schedule_appointment(
+          %{
+            starts_at: dt,
+            professional_id: ctx.prof.id,
+            appointment_type_id: turma.id,
+            patient_ids: [ctx.paciente.id],
+            package_id: pkg.id
+          },
+          scope: ctx.scope
+        )
+
+      {:ok, appt} =
+        Scheduling.add_appointment_participants(appt, %{patient_ids: [colega.id]},
+          scope: ctx.scope
+        )
+
+      # Pausar segura a presença do dono do pacote e deixa o bloco de pé (o colega continua).
+      {:ok, _} = Packages.pause_package(scope_before(ctx), pkg.id)
+
+      {:ok, _} = Scheduling.transition_appointment(scope_before(ctx), appt.id, :cancel)
+
+      # Estado CRU: nenhuma presença do bloco pode ter sobrado viva.
+      {:ok, %{rows: rows}} =
+        Api.Repo.query(
+          "SELECT at.status, at.pkg_hold FROM attendances at WHERE at.appointment_id = $1",
+          [Ecto.UUID.dump!(appt.id)]
+        )
+
+      assert length(rows) == 2
+
+      for [status, hold] <- rows do
+        assert status == "cancelada",
+               "presença sobrou #{status} (pkg_hold=#{hold}) num bloco cancelado"
+      end
     end
 
     # Achado adversarial do bate-volta de 2026-07-26: com a presença segurada dentro, tirar o
@@ -324,6 +414,175 @@ defmodule Api.Packages.LifecycleTest do
       recarregado = Packages.get_package!(pkg.id, scope: ctx.scope, load: [:usadas, :restantes])
       assert recarregado.usadas == 1
       assert recarregado.restantes == 3
+    end
+  end
+
+  # O achado A3 (doc 101): o pacote pode ter sessões em mais de uma coluna da agenda — a massa move
+  # (`bulk_adjust(aplicar_profissional:)`) e o `+` da ficha agenda onde quiser. Enquanto
+  # `list_package_attendances/3` lia com `scope:` (`authorize?` ligado), a preparation
+  # `OwnAgendaOnly` recortava as presenças pela coluna do ator; como TODO o resto do pacote deriva
+  # os blocos a partir das presenças, o pacote inteiro se escondia de si mesmo para um
+  # `:profissional`. Não é vazamento — o recorte fecha, não abre. É estado corrompido em silêncio.
+  #
+  # O conserto tem duas metades, e cada uma tem o seu teste aqui:
+  #
+  #   1. a **leitura** perdeu o recorte (é leitura do pacote, não da agenda de quem clicou);
+  #   2. as **transições** do ciclo de vida saíram do alcance do papel `:profissional`, porque a
+  #      escrita na sessão continua (deliberadamente) passando pela policy do `Appointment` — e
+  #      cancelar um pacote espalhado esbarraria em `OwnProfessionalColumn` no meio do caminho.
+  describe "pacote espalhado por mais de uma coluna (A3)" do
+    @describetag :a3
+
+    test "a trilha da ficha mostra o pacote INTEIRO, não só a coluna de quem olha" do
+      ctx = setup_clinic()
+      pkg = criar_e_materializar(ctx)
+      _na_outra_coluna = sessao_em_outra_coluna(ctx, pkg)
+
+      trilha = Packages.list_sessions(scope_profissional(ctx, ctx.prof.id), pkg.id)
+
+      assert length(trilha) == 5,
+             "trilha recortada pelo A7: o cartão desenha #{length(trilha)} bolinhas ao lado de " <>
+               "um contador `usadas` que sempre contou o pacote inteiro"
+    end
+
+    test "a âncora do `+1` é a última sessão do PACOTE, mesmo na coluna do colega" do
+      ctx = setup_clinic()
+      pkg = criar_e_materializar(ctx)
+      # a última sessão do pacote passa a ser a de sexta 24/07, na coluna do outro profissional;
+      # as 4 da grade (seg/qua) terminam na quarta 22/07.
+      _na_outra_coluna = sessao_em_outra_coluna(ctx, pkg)
+
+      # O ator era o `:profissional` — era ele que reproduzia o A3, porque só o papel dele é
+      # recortado por `OwnAgendaOnly`. Desde a A8 de 2026-08-04 (doc 103) ele não escreve pacote
+      # nenhum, e essa ROTA para o bug fechou por construção: nenhum ator que alcança
+      # `add_session/2` tem leitura recortada. O que este teste ainda guarda é `proxima_ancora/2`
+      # em si — a âncora sai de `list_package_attendances/3` (o pacote inteiro, todas as colunas),
+      # e não das sessões da coluna da grade.
+      assert {:ok, _} = Packages.add_session(scope_before(ctx), pkg.id)
+      Oban.drain_queue(queue: :housekeeping)
+
+      # `sessoes/2` lê pelo escopo do owner (sem recorte) e vem ordenada por `starts_at`
+      nova = ctx |> sessoes(pkg) |> List.last()
+      {:ok, sexta} = Scheduling.LocalTime.to_utc(~D[2026-07-24], "10:00", "America/Sao_Paulo")
+
+      assert DateTime.after?(nova.starts_at, sexta),
+             "a sessão nova nasceu antes da última do pacote: `proxima_ancora/2` ancorou na " <>
+               "última sessão da COLUNA do ator, não na do pacote"
+    end
+
+    test "cancelar por quem enxerga a clínica inteira alcança as duas colunas" do
+      ctx = setup_clinic()
+      pkg = criar_e_materializar(ctx)
+      _na_outra_coluna = sessao_em_outra_coluna(ctx, pkg)
+
+      assert {:ok, cancelado} = Packages.cancel_package(scope_before(ctx), pkg.id)
+      assert cancelado.status == :cancelado
+
+      cruas = sessoes_cruas(pkg)
+      assert length(cruas) == 5
+
+      assert Enum.all?(cruas, &(&1.status == "cancelado")),
+             "pacote marcado :cancelado com sessão viva: #{inspect(cruas)}"
+    end
+
+    test "arquivar recusa quando há sessão viva na coluna do colega" do
+      ctx = setup_clinic()
+      # sem materializar: a ÚNICA sessão do pacote nasce na coluna do outro profissional
+      {:ok, pkg} = Packages.create_series(scope_before(ctx), params(ctx))
+      _na_outra_coluna = sessao_em_outra_coluna(ctx, pkg)
+
+      assert {:error, :sessoes_futuras} = Packages.archive_package(scope_before(ctx), pkg.id),
+             "pacote arquivado com sessão viva na coluna do colega: `future_sessions/3` " <>
+               "enxergou vazio por causa do recorte A7"
+    end
+  end
+
+  describe "o pacote é de quem enxerga a clínica inteira (A3 + A8)" do
+    @describetag :a3
+
+    # `:profissional` ficou de fora das quatro transições no doc 101 §4.1 (as três saídas foram
+    # pesadas lá: recortar as sessões É o bug; escrever a sessão como cascata interna reabriria a
+    # porta lateral que o bate-volta do `Bulk` fechou de propósito). Em 2026-08-04 o resto da
+    # escrita do pacote foi junto — ver o teste do `+1`, no fim desta describe, para o porquê.
+    setup do
+      ctx = setup_clinic()
+      pkg = criar_e_materializar(ctx)
+      %{ctx: ctx, pkg: pkg, prof_scope: scope_profissional(ctx, ctx.prof.id)}
+    end
+
+    test "pausar recusa", %{pkg: pkg, prof_scope: scope} do
+      assert {:error, %Ash.Error.Forbidden{}} = Packages.pause_package(scope, pkg.id)
+    end
+
+    test "cancelar recusa", %{pkg: pkg, prof_scope: scope} do
+      assert {:error, %Ash.Error.Forbidden{}} = Packages.cancel_package(scope, pkg.id)
+    end
+
+    test "cancelar recusando não deixa sessão pela metade", %{pkg: pkg, prof_scope: scope} do
+      {:error, _} = Packages.cancel_package(scope, pkg.id)
+
+      cruas = sessoes_cruas(pkg)
+
+      assert Enum.all?(cruas, &(&1.status == "agendado")),
+             "a recusa cancelou sessão antes de parar — o ciclo de vida não é tudo-ou-nada: " <>
+               "#{inspect(cruas)}"
+    end
+
+    # Faltou na primeira leva (doc 101 §4.1): `resume_package/2` também casava
+    # `{:ok, _, _} = mark_package_active(...)`, então a recusa da policy virava `MatchError` — 500
+    # no botão Retomar em vez do 403 que o caso é. É o mesmo defeito que `lifecycle/5` e
+    # `archive_package/2` já tinham, na única das quatro transições que não passa por eles.
+    test "retomar recusa — e recusa como erro, não como 500", %{
+      ctx: ctx,
+      pkg: pkg,
+      prof_scope: scope
+    } do
+      {:ok, _} = Packages.pause_package(scope_before(ctx), pkg.id)
+
+      assert {:error, %Ash.Error.Forbidden{}} = Packages.resume_package(scope, pkg.id)
+    end
+
+    test "arquivar recusa", %{ctx: ctx, prof_scope: scope} do
+      # um pacote SEM sessão materializada, para que a recusa seja a da policy e não a de
+      # `:sessoes_futuras` — que chega antes e esconderia o que este teste quer provar. Grade na
+      # sexta para não colidir com a do `setup` (segunda/quarta), que já ocupou os slots.
+      {:ok, vazio} =
+        Packages.create_series(
+          scope_before(ctx),
+          params(ctx, %{
+            grade: %{dows: [5], horarios: %{"5" => "15:00"}, professional_id: ctx.prof.id}
+          })
+        )
+
+      assert {:error, %Ash.Error.Forbidden{}} = Packages.archive_package(scope, vazio.id)
+    end
+
+    # Era "o `+1` da ficha CONTINUA sendo do profissional" — a fronteira que o doc 101 traçou
+    # entre TRANSIÇÕES (fora do alcance dele) e o resto da escrita do pacote (dentro). A A8 de
+    # 2026-08-04 apagou essa fronteira: criar ou crescer uma série é agendar por atacado, e o
+    # `Materializer` lança as sessões com `authorize?: false` — deixar o `+1` de pé seria a porta
+    # lateral exata que fechar a policy do `Appointment` sozinha não fecha.
+    test "o `+1` da ficha também saiu do profissional", %{pkg: pkg, prof_scope: scope} do
+      assert {:error, %Ash.Error.Forbidden{}} = Packages.add_session(scope, pkg.id)
+    end
+
+    # Grade na sexta pelo mesmo motivo do "arquivar recusa" acima: com a grade do `setup`
+    # (segunda/quarta) a criação morreria no conflito da prévia, ANTES da policy — e o teste
+    # ficaria verde provando outra coisa.
+    test "criar a série também", %{ctx: ctx, prof_scope: scope} do
+      params =
+        params(ctx, %{
+          grade: %{dows: [5], horarios: %{"5" => "15:00"}, professional_id: ctx.prof.id}
+        })
+
+      assert {:error, %Ash.Error.Forbidden{}} = Packages.create_series(scope, params)
+    end
+
+    # Controle positivo das quatro recusas acima: ele não perdeu o pacote de vista, perdeu a
+    # caneta. Sem esta linha, "tudo dá Forbidden" seria indistinguível de "o pacote sumiu".
+    test "mas continua LENDO o pacote", %{pkg: pkg, prof_scope: scope} do
+      assert %{id: id} = Packages.get_package!(pkg.id, scope: scope)
+      assert id == pkg.id
     end
   end
 
@@ -599,6 +858,36 @@ defmodule Api.Packages.LifecycleTest do
       assert menor.total == 3
 
       assert {:error, :sem_sessao_futura} = Packages.remove_session(scope_before(ctx), pkg.id)
+    end
+
+    # Regressão do doc 96, B-13. O `−1` fazia duas escritas **sem transação**: cancelava a sessão
+    # e só então baixava o total. Quando a segunda falha, a primeira fica — e a segunda tem um
+    # jeito banal de falhar, que não é hipótese nenhuma: `total` tem `min: 1` no recurso, então
+    # num pacote de UMA sessão o `set_package_total` recusa `0`.
+    #
+    # O estado que sobrava é o pior do domínio, e o próprio código o nomeia noutro lugar: "pacote
+    # vendido com N sessões e zero na agenda". A recepção via 1 vendida, o paciente não tinha
+    # nenhuma marcada, e nada no sistema dizia que houve um erro.
+    test "recusa do total NÃO deixa a sessão cancelada para trás" do
+      ctx = setup_clinic()
+
+      {:ok, pkg} =
+        Packages.create_series(
+          scope_before(ctx),
+          params(ctx, %{total: 1, nome: "Avulsa #{unico()}"})
+        )
+
+      Oban.drain_queue(queue: :housekeeping)
+
+      [unica] = sessoes(ctx, pkg)
+
+      # `min: 1` no `total` faz o segundo passo recusar. O primeiro já rodou.
+      assert {:error, _} = Packages.remove_session(scope_before(ctx), pkg.id)
+
+      assert Packages.get_package!(pkg.id, scope: ctx.scope).total == 1
+
+      assert Scheduling.get_appointment!(unica.id, scope: ctx.scope).status == :agendado,
+             "a sessão foi cancelada e o total não baixou — pacote vendido com 1, zero na agenda"
     end
   end
 

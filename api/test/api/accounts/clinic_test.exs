@@ -98,5 +98,94 @@ defmodule Api.Accounts.ClinicTest do
       {:ok, updated} = Accounts.update_clinic_info(clinic, %{nome: "Nova"}, actor: admin)
       assert updated.nome == "Nova"
     end
+
+    test "grava o telefone e o endereço estruturado" do
+      {owner, clinic} = owner_and_clinic()
+
+      {:ok, atualizada} =
+        Accounts.update_clinic_info(
+          clinic,
+          %{
+            telefone: "(11) 3456-7890",
+            cep: "01310-100",
+            endereco: "Av. Paulista",
+            numero: "1000",
+            complemento: "sala 5",
+            bairro: "Bela Vista",
+            cidade: "São Paulo",
+            uf: "SP"
+          },
+          actor: owner
+        )
+
+      assert atualizada.telefone == "(11) 3456-7890"
+      assert atualizada.cep == "01310-100"
+      assert atualizada.endereco == "Av. Paulista"
+      assert atualizada.numero == "1000"
+      assert atualizada.complemento == "sala 5"
+      assert atualizada.bairro == "Bela Vista"
+      assert atualizada.cidade == "São Paulo"
+      assert atualizada.uf == "SP"
+    end
+  end
+
+  describe "o WhatsApp só liga com telefone (doc 52 §9.1.4)" do
+    test "sem telefone, ligar o WhatsApp é recusado" do
+      # A regra não é de tela: o template HSM leva o telefone como posicional obrigatório, e sem
+      # ele toda mensagem daquela clínica sairia dizendo "Ligue para —".
+      {owner, clinic} = owner_and_clinic()
+
+      assert {:error, %Ash.Error.Invalid{} = erro} =
+               Accounts.update_clinic_messaging(clinic, %{msg_whatsapp_ativo: true}, actor: owner)
+
+      assert Enum.any?(erro.errors, &(Map.get(&1, :field) == :telefone))
+    end
+
+    test "com telefone, liga" do
+      {owner, clinic} = owner_and_clinic()
+
+      {:ok, com_telefone} =
+        Accounts.update_clinic_info(clinic, %{telefone: "(11) 3456-7890"}, actor: owner)
+
+      {:ok, ligada} =
+        Accounts.update_clinic_messaging(com_telefone, %{msg_whatsapp_ativo: true}, actor: owner)
+
+      assert ligada.msg_whatsapp_ativo
+    end
+
+    test "nasce desligado" do
+      # Mensagem de WhatsApp é paga. Uma clínica que nunca pediu o canal não pode passar a
+      # gastar por causa de um deploy — foi exatamente o custo que o doc 98 declarou ao ligar o
+      # lembrete para todo mundo, e aqui a decisão é a contrária.
+      {_owner, clinic} = owner_and_clinic()
+
+      refute clinic.msg_whatsapp_ativo
+    end
+
+    test "apagar o telefone com o WhatsApp ligado é recusado" do
+      # O outro lado da mesma regra. Sem isto, o gate seria contornável pela tela vizinha: liga o
+      # WhatsApp com telefone, apaga o telefone depois, e as mensagens voltam a sair com "—".
+      {owner, clinic} = owner_and_clinic()
+
+      {:ok, com} =
+        Accounts.update_clinic_info(clinic, %{telefone: "(11) 3456-7890"}, actor: owner)
+
+      {:ok, ligada} =
+        Accounts.update_clinic_messaging(com, %{msg_whatsapp_ativo: true}, actor: owner)
+
+      assert {:error, %Ash.Error.Invalid{} = erro} =
+               Accounts.update_clinic_info(ligada, %{telefone: ""}, actor: owner)
+
+      assert Enum.any?(erro.errors, &(Map.get(&1, :field) == :telefone))
+    end
+
+    test "desligar o WhatsApp não exige telefone" do
+      {owner, clinic} = owner_and_clinic()
+
+      {:ok, desligada} =
+        Accounts.update_clinic_messaging(clinic, %{msg_whatsapp_ativo: false}, actor: owner)
+
+      refute desligada.msg_whatsapp_ativo
+    end
   end
 end

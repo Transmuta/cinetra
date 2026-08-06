@@ -90,3 +90,29 @@ export function recebeWhatsapp(valor: string | null | undefined): boolean {
 
 	return nacional.length === 11 && nacional[2] === '9';
 }
+
+/**
+ * O link que abre a conversa no WhatsApp — `https://wa.me/<E.164 sem o "+">`.
+ *
+ * Devolve `null` quando o número **não recebe WhatsApp**, e isso é o ponto: `wa.me` de um fixo
+ * abre o aplicativo só para anunciar que aquele número não existe lá. Quem chama decide o que
+ * mostrar no lugar (na tela do paciente, o `tel:`).
+ *
+ * `texto` vira o rascunho já digitado na conversa. Não é enfeite: quem recebe é a recepção, com
+ * dezenas de conversas abertas, e chegar sabendo de qual sessão se trata é a diferença entre
+ * resolver e perguntar "quem é?".
+ *
+ * `wa.me` e não `api.whatsapp.com/send`: é o encurtador oficial, e é o único que o app abre
+ * direto no celular sem passar por uma página do navegador.
+ */
+export function linkWhatsapp(
+	valor: string | null | undefined,
+	texto?: string
+): string | null {
+	if (!recebeWhatsapp(valor)) return null;
+
+	const numero = canonizarTelefone(valor)?.replace('+', '');
+	if (!numero) return null;
+
+	return `https://wa.me/${numero}${texto ? `?text=${encodeURIComponent(texto)}` : ''}`;
+}

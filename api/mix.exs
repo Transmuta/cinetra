@@ -55,8 +55,14 @@ defmodule Api.MixProject do
       {:ash_authentication_phoenix, "~> 2.0"},
       {:swoosh, "~> 1.16"},
       {:sourceror, "~> 1.8", only: [:dev, :test]},
-      {:open_api_spex, "~> 3.0"},
-      {:ash_json_api, "~> 1.0"},
+      # R-M7 (doc 95, onda 3 do doc 102) — CVE conhecida em dependência direta entrava e
+      # permanecia sem NENHUM sinal. `mix deps.audit` cruza o `mix.lock` com a base pública de
+      # advisories do Hex e sai != 0 quando acha; o CI o roda no job `api`.
+      #
+      # Só em `:dev, :test` porque é ferramenta de gate, não código de produção — o release não
+      # deve carregá-la. Vale junto com o Dependabot (`.github/dependabot.yml`): este acusa o que
+      # já está lá, aquele propõe a atualização.
+      {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false},
       # Trilha de auditoria (A-D6c, doc 25 §11): uma linha por escrita em `Appointment` e
       # `Attendance`. Escolhida sobre as duas colunas de autoria porque `updated_by_id`
       # sobrescreve o autor anterior — numa tela operada por 3–4 pessoas, a remarcação some.

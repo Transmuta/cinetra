@@ -1,6 +1,24 @@
 defmodule ApiWeb.Telemetry do
+  @moduledoc """
+  O supervisor do `:telemetry_poller`.
+
+  ## O que saiu daqui, e por quê
+
+  Este módulo veio do `mix phx.new` com um `metrics/0` de 40 linhas e um `periodic_measurements/0`
+  vazio. Os dois eram **código morto** (doc 96, M-1): nenhum reporter consumia `metrics/0` — o
+  `Telemetry.Metrics.ConsoleReporter` está comentado no `init/1` desde o gerador —, e o poller
+  media uma lista vazia.
+
+  Pior que morto, era **enganoso**: as métricas que `metrics/0` declarava
+  (`phoenix.endpoint.stop.duration`, `phoenix.router_dispatch.*`, `phoenix.channel_joined.*`,
+  `vm.memory.total`) são exatamente as que o `Api.PromEx` de fato exporta, via `Plugins.Phoenix` e
+  `Plugins.Beam`. Quem fosse procurar "onde estão definidas as métricas de HTTP" encontrava
+  primeiro a lista que não produzia série nenhuma.
+
+  **A fonte de verdade das métricas é `Api.PromEx`.** Este supervisor fica só com o poller, que é
+  o que o `Plugins.Beam` do PromEx consome.
+  """
   use Supervisor
-  import Telemetry.Metrics
 
   def start_link(arg) do
     Supervisor.start_link(__MODULE__, arg, name: __MODULE__)
@@ -9,62 +27,9 @@ defmodule ApiWeb.Telemetry do
   @impl true
   def init(_arg) do
     children = [
-      # Telemetry poller will execute the given period measurements
-      # every 10_000ms. Learn more here: https://telemetry-metrics.hexdocs.pm
-      {:telemetry_poller, measurements: periodic_measurements(), period: 10_000}
-      # Add reporters as children of your supervision tree.
-      # {Telemetry.Metrics.ConsoleReporter, metrics: metrics()}
+      {:telemetry_poller, measurements: [], period: 10_000}
     ]
 
     Supervisor.init(children, strategy: :one_for_one)
-  end
-
-  def metrics do
-    [
-      # Phoenix Metrics
-      summary("phoenix.endpoint.start.system_time",
-        unit: {:native, :millisecond}
-      ),
-      summary("phoenix.endpoint.stop.duration",
-        unit: {:native, :millisecond}
-      ),
-      summary("phoenix.router_dispatch.start.system_time",
-        tags: [:route],
-        unit: {:native, :millisecond}
-      ),
-      summary("phoenix.router_dispatch.exception.duration",
-        tags: [:route],
-        unit: {:native, :millisecond}
-      ),
-      summary("phoenix.router_dispatch.stop.duration",
-        tags: [:route],
-        unit: {:native, :millisecond}
-      ),
-      summary("phoenix.socket_connected.duration",
-        unit: {:native, :millisecond}
-      ),
-      sum("phoenix.socket_drain.count"),
-      summary("phoenix.channel_joined.duration",
-        unit: {:native, :millisecond}
-      ),
-      summary("phoenix.channel_handled_in.duration",
-        tags: [:event],
-        unit: {:native, :millisecond}
-      ),
-
-      # VM Metrics
-      summary("vm.memory.total", unit: {:byte, :kilobyte}),
-      summary("vm.total_run_queue_lengths.total"),
-      summary("vm.total_run_queue_lengths.cpu"),
-      summary("vm.total_run_queue_lengths.io")
-    ]
-  end
-
-  defp periodic_measurements do
-    [
-      # A module, function and arguments to be invoked periodically.
-      # This function must call :telemetry.execute/3 and a metric must be added above.
-      # {ApiWeb, :count_users, []}
-    ]
   end
 end

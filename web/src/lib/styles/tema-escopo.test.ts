@@ -30,6 +30,20 @@ function seletoresDoTemaClaro(): string[] {
 		.filter(Boolean);
 }
 
+/** Corpo do bloco que começa no primeiro `{` depois de `seletor`, até a chave que o fecha. */
+function corpoDoBloco(seletor: string): string {
+	const i = css.indexOf(seletor);
+	if (i < 0) throw new Error(`app.css não declara mais ${seletor}`);
+	const abre = css.indexOf('{', i);
+
+	let nivel = 0;
+	for (let p = abre; p < css.length; p++) {
+		if (css[p] === '{') nivel++;
+		else if (css[p] === '}' && --nivel === 0) return css.slice(abre + 1, p);
+	}
+	throw new Error(`bloco de ${seletor} não fecha`);
+}
+
 describe('escopo do tema claro', () => {
 	it('os tokens claros valem para qualquer nó com data-theme="light", não só o :root', () => {
 		expect(seletoresDoTemaClaro()).toContain("[data-theme='light']");
@@ -42,5 +56,35 @@ describe('escopo do tema claro', () => {
 		for (const token of ['--mv-surface:', '--mv-canvas:', '--mv-text:', '--mv-primary:']) {
 			expect(corpo).toContain(token);
 		}
+	});
+});
+
+/**
+ * `color-scheme` é a metade da troca de tema que o CSS do app NÃO consegue fazer sozinho.
+ *
+ * Os tokens `--mv-*` pintam tudo que é nosso. O que eles não alcançam é o que o browser desenha
+ * dentro do shadow-DOM da UA: o ícone do `<input type="date">`, o painel do `<select>`, a barra de
+ * rolagem, o realce de autofill. Quem governa isso é `color-scheme` — e sem ele o browser assume
+ * que o documento é claro e pinta ícone PRETO sobre a nossa superfície escura (#000 sobre #16181c
+ * = 1,15:1, medido em Chromium no doc 93 §A-1).
+ *
+ * O furo era silencioso por construção: o axe não avalia pseudo-elemento da UA, e o
+ * `contraste.test.ts` mede pares de token — e este par não é de token, é do browser. Por isso a
+ * trava é aqui, na declaração, e não numa varredura.
+ *
+ * O `AuthCard` continua sobrescrevendo o seu inline (`color-scheme:light`), que é o comportamento
+ * certo: ele é claro mesmo quando o documento é escuro.
+ */
+describe('color-scheme acompanha o tema', () => {
+	it('o bloco claro declara color-scheme: light', () => {
+		expect(corpoDoBloco(":root[data-theme='light']")).toMatch(/color-scheme:\s*light/);
+	});
+
+	it('o bloco escuro declara color-scheme: dark', () => {
+		expect(corpoDoBloco(":root[data-theme='dark']")).toMatch(/color-scheme:\s*dark/);
+	});
+
+	it('quem não escolheu tema e está no escuro do SO também recebe o dark', () => {
+		expect(corpoDoBloco(':root:not([data-theme])')).toMatch(/color-scheme:\s*dark/);
 	});
 });

@@ -20,8 +20,9 @@ defmodule Api.Accounts.AccessMatrixTest do
     clinic =
       Accounts.onboard_clinic!("Clínica #{System.unique_integer([:positive])}", %{}, actor: owner)
 
-    # A coluna do profissional: sem o vínculo, o `OwnProfessionalColumn` (A7 na escrita) fecha e
-    # a sonda da agenda mediria o caso degenerado, não a matriz.
+    # A coluna do profissional: com o vínculo, a sonda da agenda mede o caso MAIS permissivo que
+    # o papel já teve (agendar na própria coluna). Sem ele mediria o degenerado do "UUID mole",
+    # que fecha por outro motivo — e um teste que passa pelo motivo errado não é sonda.
     prof =
       Api.Directory.create_professional!("Fisio Matriz", %{tel: Api.Generators.telefone_unico()},
         tenant: clinic.id,
@@ -78,17 +79,41 @@ defmodule Api.Accounts.AccessMatrixTest do
     end
   end
 
-  test "agenda: os quatro papéis escrevem (o recorte do profissional é de linha, não de papel)",
+  # Até 2026-08-03 esta sonda aceitava `:propria` como escrita — era o profissional agendando na
+  # própria coluna. A A8 mudou (doc 103): `:propria` na agenda passou a ser recorte de LEITURA, e
+  # a sonda voltou a ser o `escreve?/1` comum a todas as outras. Se alguém devolver o papel à
+  # policy sem mexer na matriz, é aqui que quebra.
+  test "agenda: escrever é do balcão — o profissional só lê a própria",
        %{clinic: clinic, prof: prof, atores: atores} do
     for {papel, actor} <- atores do
       nivel = AccessMatrix.nivel(:agenda, papel)
 
-      # `professional_id` da própria coluna: para o profissional é o que o A7-na-escrita exige;
-      # para os demais papéis a policy nem se aplica.
+      # `professional_id` da própria coluna: o caso mais permissivo que existia para o papel.
+      # Se nem ele passa, nenhum outro passa.
       assert Api.Scheduling.can_create_appointment_slot?(actor, %{professional_id: prof.id},
                tenant: clinic.id
-             ) == nivel in [:total, :propria],
+             ) == escreve?(nivel),
              "agenda/#{papel}: matriz diz #{nivel}"
+    end
+  end
+
+  # O irmão da linha acima: a presença é a mesma célula da matriz ("Agenda e presenças"), e sem
+  # esta sonda a metade "presenças" ficaria sem tripwire nenhum.
+  #
+  # O registro é um struct SOLTO, não uma presença do banco: a policy é `HasClinicRole` com
+  # `clinic_from: :tenant`, que lê o tenant da ação e não a linha — montar agendamento, tipo e
+  # paciente só para perguntar "este papel pode?" seria custo sem sonda a mais. `:prevista` é o
+  # status que a `StatusIn` de `mark_present` aceita, para o `can?` medir a policy e não a
+  # validação.
+  test "presenças seguem a mesma célula da agenda", %{clinic: clinic, atores: atores} do
+    presenca = %Api.Scheduling.Attendance{clinic_id: clinic.id, status: :prevista}
+
+    for {papel, actor} <- atores do
+      nivel = AccessMatrix.nivel(:agenda, papel)
+
+      assert Api.Scheduling.can_mark_attendance_present?(actor, presenca, tenant: clinic.id) ==
+               escreve?(nivel),
+             "presenças/#{papel}: matriz diz #{nivel}"
     end
   end
 
@@ -105,7 +130,7 @@ defmodule Api.Accounts.AccessMatrixTest do
     end
   end
 
-  test "fila e pacotes: todo papel opera", %{clinic: clinic, atores: atores} do
+  test "fila e pacotes: o profissional lê, mas não opera", %{clinic: clinic, atores: atores} do
     for {papel, actor} <- atores do
       assert Api.Waitlist.can_enqueue_waitlist_entry?(actor, %{}, tenant: clinic.id) ==
                escreve?(AccessMatrix.nivel(:fila, papel))
@@ -123,6 +148,10 @@ defmodule Api.Accounts.AccessMatrixTest do
       assert Api.Directory.can_create_professional?(actor, %{}, tenant: clinic.id) ==
                escreve?(AccessMatrix.nivel(:profissionais, papel)),
              "profissionais/#{papel}"
+
+      assert Api.Directory.can_create_appointment_type?(actor, %{}, tenant: clinic.id) ==
+               escreve?(AccessMatrix.nivel(:tipos, papel)),
+             "tipos/#{papel}"
 
       assert Api.Scheduling.can_set_clinic_hours_day?(actor, %{}, tenant: clinic.id) ==
                escreve?(AccessMatrix.nivel(:horarios, papel)),

@@ -327,6 +327,40 @@ defmodule Api.Directory.ProfessionalTest do
 
       assert [] = Directory.list_professionals!(tenant: clinic.id, actor: user)
     end
+
+    # Por que a leitura do RECURSO continua aberta ao papel, se a tela de Profissionais fechou
+    # para ele em 2026-08-04 (doc 103): `Api.Scheduling.load_agenda/4` chama
+    # `list_professionals!(scope: scope)` por dentro, para montar a coluna da agenda. A policy de
+    # leitura é `SimpleCheck` — fechá-la faria a agenda dele **estourar Forbidden**, não devolver
+    # menos. Quem fecha a tela é a guarda de papel do `ProfessionalsController`; quem recorta as
+    # linhas continua sendo esta preparation. Este teste é o que impede alguém de "terminar o
+    # serviço" fechando a policy e derrubando a agenda junto.
+    test "a leitura do recurso continua de pé — é dela que a agenda dele se monta" do
+      {owner, clinic} = owner_and_clinic()
+      eu = Directory.create_professional!("Eu", min_attrs(), tenant: clinic.id, actor: owner)
+      user = member_with_role(clinic, :profissional, eu.id)
+
+      assert [%{nome: "Eu"}] = Directory.list_professionals!(tenant: clinic.id, actor: user)
+    end
+
+    # A outra metade do fechamento: mesmo alcançando o próprio registro por dentro, a ficha
+    # CONTRATUAL (CPF, endereço, dados bancários) não é mais dele. Antes a `field_policy` tinha
+    # cláusula para o papel; ela saiu. Ash não derruba a leitura — devolve `%Ash.ForbiddenField{}`
+    # no lugar do valor —, e é isso que faz a agenda sobreviver a este corte.
+    test "mas a ficha contratual não vem mais — nem a própria" do
+      {owner, clinic} = owner_and_clinic()
+      eu = Directory.create_professional!("Eu", @full, tenant: clinic.id, actor: owner)
+      user = member_with_role(clinic, :profissional, eu.id)
+
+      assert [lido] = Directory.list_professionals!(tenant: clinic.id, actor: user)
+
+      assert %Ash.ForbiddenField{} = lido.cpf
+      assert %Ash.ForbiddenField{} = lido.pix
+
+      # O controle positivo: o que a agenda usa continua legível.
+      assert lido.nome == "Eu"
+      assert lido.cor_indice == eu.cor_indice
+    end
   end
 
   describe "arquivar / reativar (não apaga)" do

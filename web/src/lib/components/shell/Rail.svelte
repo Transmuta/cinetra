@@ -12,6 +12,7 @@
 	import Mark from '$lib/components/Mark.svelte';
 	import ThemeToggle from '$lib/components/ThemeToggle.svelte';
 	import { canViewAudit } from '$lib/audit';
+	import { canViewProfessionals } from '$lib/professionals';
 	import type { Papel } from '$lib/session';
 	import { sectionOf, RAIL_ITEMS, type Section } from './nav';
 
@@ -29,9 +30,16 @@
 
 	const active = $derived(sectionOf(pathname));
 
-	// A Auditoria é owner·admin: o ícone só aparece para quem pode entrar (a policy da API é a
-	// autoridade — os demais levariam 403). Os outros destinos são de todo membro.
-	const items = $derived(RAIL_ITEMS.filter((item) => !item.ownerAdmin || canViewAudit(papel)));
+	// Os destinos restritos só aparecem para quem pode entrar (a guarda da API é a autoridade —
+	// os demais levariam 403). Os outros são de todo membro. São dois recortes diferentes: a
+	// Auditoria é owner·admin; Profissionais exclui só o próprio profissional, porque a recepção
+	// continua lendo o diretório (2026-08-04, doc 103).
+	const PODE: Record<NonNullable<(typeof RAIL_ITEMS)[number]['restrito']>, typeof canViewAudit> = {
+		'owner-admin': canViewAudit,
+		'sem-profissional': canViewProfessionals
+	};
+
+	const items = $derived(RAIL_ITEMS.filter((item) => !item.restrito || PODE[item.restrito](papel)));
 	const notificacoesActive = $derived(pathname.startsWith('/notificacoes'));
 	// Cap visual do badge: acima de 9 vira "9+" (o número real está na tela).
 	const badge = $derived(unread > 9 ? '9+' : String(unread));
@@ -62,7 +70,7 @@
 		href="/"
 		title="Cinetra"
 		aria-label="Cinetra — página inicial"
-		class="mb-2.5 grid size-[34px] place-items-center rounded-[9px] bg-white"
+		class="mb-2.5 grid size-[34px] place-items-center rounded-controle bg-white"
 	>
 		<Mark class="size-6" />
 	</a>
@@ -74,13 +82,13 @@
 			href={item.href}
 			title={item.label}
 			aria-current={isActive ? 'page' : undefined}
-			class="relative grid size-10 place-items-center rounded-lg transition-colors {isActive
+			class="relative grid size-10 place-items-center rounded-controle transition-colors {isActive
 				? 'bg-rail-item text-white'
 				: 'text-white/60 hover:bg-rail-item/60 hover:text-white'}"
 		>
 			<Icon size={19} />
 			{#if isActive}
-				<span class="absolute right-1.5 top-1.5 size-[5px] rounded-full bg-teal"></span>
+				<span class="absolute right-1.5 top-1.5 size-[5px] rounded-full bg-accent"></span>
 			{/if}
 		</a>
 	{/each}
@@ -93,14 +101,14 @@
 		title="Notificações"
 		aria-label={unread > 0 ? `Notificações (${unread} não lidas)` : 'Notificações'}
 		aria-current={notificacoesActive ? 'page' : undefined}
-		class="relative grid size-10 place-items-center rounded-lg transition-colors {notificacoesActive
+		class="relative grid size-10 place-items-center rounded-controle transition-colors {notificacoesActive
 			? 'bg-rail-item text-white'
 			: 'text-white/60 hover:bg-rail-item/60 hover:text-white'}"
 	>
 		<Bell size={18} />
 		{#if unread > 0}
 			<span
-				class="absolute -right-0.5 -top-0.5 grid h-3.75 min-w-3.75 place-items-center rounded-full border-[1.5px] border-rail bg-teal px-0.75 text-[9px] font-semibold leading-none text-on-solid"
+				class="absolute -right-0.5 -top-0.5 grid h-3.75 min-w-3.75 place-items-center rounded-full border-[1.5px] border-rail bg-accent px-0.75 text-micro font-semibold leading-none text-on-solid"
 			>
 				{badge}
 			</span>

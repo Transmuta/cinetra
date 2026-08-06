@@ -28,9 +28,6 @@ defmodule Api.Messaging.ReplyToken do
   @salt "patient reply"
   @max_age 60 * 60 * 24 * 30
 
-  @doc "Validade do token, em segundos."
-  def max_age, do: @max_age
-
   @doc """
   Assina o token de resposta de uma mensagem.
 

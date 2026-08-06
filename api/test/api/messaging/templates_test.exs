@@ -22,6 +22,7 @@ defmodule Api.Messaging.TemplatesTest do
     "hora" => "14:00",
     "quantas" => "3 sessões",
     "pacote" => "Pilates 10",
+    "telefone" => "(11) 3456-7890",
     "token" => "tok123"
   }
 
@@ -83,7 +84,9 @@ defmodule Api.Messaging.TemplatesTest do
       # Some seria pior: a Meta recusa a mensagem inteira quando a contagem não bate.
       {:ok, %{params: params}} = Templates.render_whatsapp("confirmacao_v1", %{})
 
-      assert length(params) == 5
+      # Derivado da definição, não literal: um número escrito à mão aqui só diria que alguém
+      # lembrou de atualizar o teste ao acrescentar uma posicional.
+      assert length(params) == length(Templates.hsm("confirmacao_v1").vars) + 1
       assert Enum.all?(params, &is_binary/1)
     end
 
@@ -120,6 +123,178 @@ defmodule Api.Messaging.TemplatesTest do
     test "template desconhecido devolve :error nos dois canais" do
       assert Templates.render_whatsapp("nao_existe_v9", @vars) == :error
       assert Templates.render_email("nao_existe_v9", @vars) == :error
+    end
+  end
+
+  describe "render_email/2 — o telefone e o aviso de automática" do
+    test "todo e-mail diz o telefone da clínica e que não se responde por ali" do
+      for template <- Templates.conhecidos() do
+        {:ok, %{texto: texto}} = Templates.render_email(template, @vars)
+
+        assert texto =~ "(11) 3456-7890", "#{template}: e-mail sem telefone"
+        assert texto =~ "Mensagem automática", "#{template}: e-mail sem o aviso"
+      end
+    end
+
+    test "sem telefone, a LINHA some — não vira 'ligue para —'" do
+      # Aqui o e-mail pode o que o WhatsApp não pode: omitir. No template HSM a contagem de
+      # posicionais é fixa e um travessão é o mal menor; no e-mail, texto livre, "Ligue para —"
+      # seria defeito visível escrito por nós.
+      sem = Map.delete(@vars, "telefone")
+
+      for template <- Templates.conhecidos() do
+        {:ok, %{texto: texto}} = Templates.render_email(template, sem)
+
+        refute texto =~ "—", "#{template}: travessão vazou para o e-mail"
+        assert texto =~ "Mensagem automática", "#{template}: o aviso não depende do telefone"
+      end
+    end
+  end
+
+  describe "render_email/2 — a parte em HTML" do
+    test "todo template conhecido rende HTML, com a clínica no topo e a Cinetra no rodapé" do
+      for template <- Templates.conhecidos() do
+        {:ok, %{html: html}} = Templates.render_email(template, @vars)
+
+        assert html =~ "<!DOCTYPE html", "#{template}: HTML sem documento"
+        # O §9.1.4 no canal que tem cabeçalho: quem fala com o paciente é a clínica.
+        assert html =~ "Clínica Cinetra", "#{template}: HTML sem o nome da clínica"
+        # O rótulo "Sua clínica" saiu: o nome da clínica já diz de quem é a mensagem, e a
+        # etiqueta em cima dele só repetia isso em caixa alta.
+        refute html =~ "Sua clínica", "#{template}: o rótulo voltou ao cabeçalho"
+        # E a Cinetra aparece como quem entrega, não como quem fala.
+        assert html =~ "CINETRA", "#{template}: HTML sem o crédito no rodapé"
+      end
+    end
+
+    test "as duas partes saem juntas, e a de texto continua sendo texto" do
+      {:ok, corpo} = Templates.render_email("confirmacao_v1", @vars)
+
+      assert corpo.texto =~ "Olá, Maria!"
+      refute corpo.texto =~ "<", "a parte de texto não é o HTML raspado"
+    end
+
+    test "o botão aparece nos templates que fazem pergunta — e só quando há link" do
+      # A autoridade é a MESMA `botao?` do HSM: um template que ganha botão no WhatsApp e não no
+      # e-mail é divergência que ninguém vê até um paciente reclamar.
+      com_link = Map.put(@vars, "link", "https://app.cinetra.test/confirmar/abc")
+
+      for template <- Templates.conhecidos() do
+        {:ok, %{html: html}} = Templates.render_email(template, com_link)
+        {:ok, %{html: sem_link}} = Templates.render_email(template, @vars)
+
+        if Templates.hsm(template).botao? do
+          assert html =~ "Confirmar ou remarcar", "#{template}: pergunta sem botão"
+          assert html =~ "https://app.cinetra.test/confirmar/abc"
+        else
+          refute html =~ "Confirmar ou remarcar", "#{template}: botão numa mensagem sem pergunta"
+        end
+
+        # Sem link não há botão em template nenhum — é o caso da timeline, que renderiza o
+        # histórico sem token.
+        refute sem_link =~ "Confirmar ou remarcar", "#{template}: botão sem link para onde ir"
+      end
+    end
+
+    test "o descadastro aparece nas DUAS partes quando há token" do
+      url = "https://app.cinetra.test/descadastrar/xyz"
+      vars = Map.put(@vars, "descadastro", url)
+
+      for template <- Templates.conhecidos() do
+        {:ok, %{html: html, texto: texto}} = Templates.render_email(template, vars)
+
+        assert html =~ url, "#{template}: HTML sem o link de descadastro"
+        # Também no texto: quem lê e-mail sem HTML é justamente quem não tem onde clicar.
+        assert texto =~ url, "#{template}: texto sem o link de descadastro"
+      end
+    end
+
+    test "sem token, nenhuma das duas partes promete um link que não existe" do
+      for template <- Templates.conhecidos() do
+        {:ok, %{html: html, texto: texto}} = Templates.render_email(template, @vars)
+
+        refute html =~ "descadastrar", "#{template}: link de descadastro quebrado no HTML"
+        refute texto =~ "descadastrar", "#{template}: link de descadastro quebrado no texto"
+      end
+    end
+
+    test "o rodapé do paciente não promete página que não existe" do
+      {:ok, %{html: html}} = Templates.render_email("confirmacao_v1", @vars)
+
+      # Nenhuma das três existe no produto. Rodapé que aponta para o vazio é pior que rodapé curto.
+      refute html =~ "Preferências de e-mail"
+      refute html =~ "Central de ajuda"
+      refute html =~ "CNPJ"
+    end
+
+    test "nome de clínica com & e < sai escapado — não vira marcação" do
+      # Texto livre digitado no balcão. O `<script>` é o caso raro; o `&` de "Silva & Filhos" é o
+      # de terça, e sozinho já produz HTML inválido.
+      vars = %{@vars | "clinica" => "Silva & Filhos <b>Fisio</b>"}
+
+      {:ok, %{html: html}} = Templates.render_email("confirmacao_v1", vars)
+
+      assert html =~ "Silva &amp; Filhos &lt;b&gt;Fisio&lt;/b&gt;"
+      refute html =~ "Filhos <b>Fisio"
+    end
+
+    test "o cumprimento também é escapado — ele é o outro campo de texto livre" do
+      # O nome do paciente entra no parágrafo pelo primeiro nome; o `&` chega ali igual.
+      vars = %{@vars | "paciente" => "Ana&Bia Souza"}
+
+      {:ok, %{html: html}} = Templates.render_email("confirmacao_v1", vars)
+
+      assert html =~ "Olá, Ana&amp;Bia."
+    end
+  end
+
+  describe "o assunto diz o que a mensagem tem de novo" do
+    test "a remarcação leva a HORA nova no assunto, não só a data" do
+      # O que muda numa remarcação é quase sempre o horário, com a data igual — arrastar o card
+      # duas linhas na agenda é o gesto de terça. "Sua sessão mudou para 28/07/2026" chega então
+      # à caixa de entrada dizendo exatamente o que o paciente já sabia, e o único dado novo (as
+      # 14:00) fica escondido atrás de um clique. O contrato do átomo sempre disse a hora —
+      # `Api.Messaging.MessageKind`: "Sua sessão mudou para <dia> às <hora>".
+      {:ok, %{assunto: assunto}} = Templates.render_email("remarcacao_v1", @vars)
+
+      assert assunto =~ "28/07/2026"
+      assert assunto =~ "14:00", "o assunto da remarcação não diz a hora nova: #{assunto}"
+    end
+
+    test "o cancelamento também diz a hora — a data sozinha não identifica a sessão" do
+      # Paciente com duas sessões no mesmo dia (o caso comum de quem faz pacote) recebia
+      # "sua sessão de 28/07/2026 foi cancelada" e não sabia qual das duas caiu.
+      {:ok, %{assunto: assunto}} = Templates.render_email("cancelamento_v1", @vars)
+
+      assert assunto =~ "28/07/2026"
+      assert assunto =~ "14:00", "o assunto do cancelamento não diz a hora: #{assunto}"
+    end
+
+    test "o assunto e o corpo contam a MESMA sessão" do
+      # A razão de `conteudo/2` existir: assunto e corpo nascem da mesma definição. Um assunto
+      # que perde um dado que o corpo tem é a divergência que essa estrutura devia impedir.
+      for template <- ["confirmacao_v1", "remarcacao_v1", "cancelamento_v1"] do
+        {:ok, %{assunto: assunto, texto: texto}} = Templates.render_email(template, @vars)
+
+        for dado <- [@vars["data"], @vars["hora"]] do
+          assert assunto =~ dado, "#{template}: o corpo diz #{dado}, o assunto não"
+          assert texto =~ dado, "#{template}: #{dado} sumiu do corpo"
+        end
+      end
+    end
+  end
+
+  describe "assunto/2 — o título da timeline" do
+    test "devolve o mesmo assunto do e-mail, sem montar corpo nenhum" do
+      for template <- Templates.conhecidos() do
+        {:ok, %{assunto: assunto}} = Templates.render_email(template, @vars)
+
+        assert Templates.assunto(template, @vars) == {:ok, assunto}
+      end
+    end
+
+    test "template desconhecido devolve :error — a timeline não pode cair por causa disso" do
+      assert Templates.assunto("nao_existe_v9", @vars) == :error
     end
   end
 
@@ -167,6 +342,38 @@ defmodule Api.Messaging.TemplatesTest do
 
     test "template desconhecido não vira payload" do
       assert Templates.hsm_payload("nao_existe_v9", "https://cinetra.com.br") == :error
+    end
+
+    test "o telefone da clínica está em TODO template" do
+      # O canal não tem para onde responder: botão de URL abre o navegador, e uma resposta em
+      # texto livre cai no número compartilhado que ninguém lê (`Api.Messaging.Zernio`). Sem um
+      # telefone no corpo, "preciso falar com alguém" não tem saída nenhuma.
+      for template <- Templates.conhecidos() do
+        assert "telefone" in Templates.hsm(template).vars, "#{template} não diz para onde ligar"
+      end
+    end
+
+    test "o footer é estático, curto e sem variável" do
+      # Três regras da Meta numa asserção só, e cada uma reprova o template dias depois de
+      # submetido: footer não aceita parâmetro, tem teto de 60 caracteres, e é o MESMO texto para
+      # todas as clínicas — é por isso que o telefone teve de ir para o corpo.
+      for template <- Templates.conhecidos() do
+        {:ok, payload} = Templates.hsm_payload(template, "https://cinetra.com.br")
+
+        footer = Enum.find(payload.components, &(&1.type == "FOOTER"))
+
+        assert footer, "#{template} não tem footer"
+        assert String.length(footer.text) <= 60, "#{template}: footer passa de 60 caracteres"
+        refute footer.text =~ ~r/\{\{/, "#{template}: footer com variável — a Meta recusa"
+      end
+    end
+
+    test "o footer vem ANTES dos botões, que é a ordem que a Meta espera" do
+      {:ok, payload} = Templates.hsm_payload("confirmacao_v1", "https://cinetra.com.br")
+
+      tipos = Enum.map(payload.components, & &1.type)
+
+      assert tipos == ["BODY", "FOOTER", "BUTTONS"]
     end
 
     test "o nome da clínica está em TODO template (§9.1.4)" do

@@ -42,7 +42,7 @@
 
 	const COLS = 'md:grid-cols-[2.05fr_1.35fr_1.15fr_0.9fr_1.25fr]';
 	const pill =
-		'inline-block rounded-full bg-teal-subtle px-2 py-0.5 text-[10.5px] font-semibold text-teal-text';
+		'inline-block rounded-full bg-accent-subtle px-2 py-0.5 text-micro font-semibold text-accent-text';
 </script>
 
 <svelte:head><title>Profissionais · Cinetra</title></svelte:head>
@@ -57,7 +57,7 @@
 				bind:value={term}
 				placeholder="Buscar profissional"
 				aria-label="Buscar profissional"
-				class="h-9 w-full rounded-lg border border-edge bg-surface pr-3 pl-8 text-[13px] text-ink"
+				class="h-9 w-full rounded-controle border border-edge bg-surface pr-3 pl-8 text-corpo text-ink"
 			/>
 		</div>
 		{#if canManage}
@@ -65,17 +65,17 @@
 				href="/profissionais/novo"
 				title="Novo profissional"
 				aria-label="Novo profissional"
-				class="grid size-9 shrink-0 place-items-center rounded-lg bg-ink text-canvas hover:opacity-90 md:hidden"
+				class="grid size-9 shrink-0 place-items-center rounded-controle bg-ink text-canvas hover:opacity-90 md:hidden"
 			>
 				<Plus size={18} />
 			</a>
 		{/if}
 	</div>
 
-	<div class="overflow-hidden rounded-[10px] border border-edge bg-surface">
+	<div class="overflow-hidden rounded-cartao border border-edge bg-surface">
 		<!-- Cabeçalho (desktop) -->
 		<div
-			class="hidden gap-2 border-b border-edge px-3.5 pb-2.5 pt-3 text-[12px] font-medium text-faint md:grid {COLS}"
+			class="hidden gap-2 border-b border-edge px-3.5 pb-2.5 pt-3 text-rotulo font-medium text-faint md:grid {COLS}"
 		>
 			<span>Profissional</span><span>Especialidade</span><span>Contato</span><span>Vínculo</span>
 			<span>Atendimento</span>
@@ -92,31 +92,31 @@
 			>
 				<span class="flex min-w-0 items-center gap-2.5">
 					<span
-						class="grid size-7 shrink-0 place-items-center rounded-full text-[10px] font-bold"
+						class="grid size-7 shrink-0 place-items-center rounded-full text-micro font-bold"
 						style={avatarStyle(p.cor_indice)}
 					>
 						{initials(p.nome)}
 					</span>
 					<span class="min-w-0">
-						<span class="block truncate text-[13px] font-semibold">
-							{p.nome}{#if !p.ativo}<span class="ml-1 text-[10px] font-medium text-faint">(inativo)</span>{/if}
+						<span class="block truncate text-corpo font-semibold">
+							{p.nome}{#if !p.ativo}<span class="ml-1 text-micro font-medium text-faint">(inativo)</span>{/if}
 						</span>
-						<span class="block font-mono text-[10px] text-faint">{p.crefito ?? '—'}</span>
+						<span class="block font-mono text-micro text-faint">{p.crefito ?? '—'}</span>
 					</span>
 				</span>
-				<span class="truncate text-[12.5px] text-muted">{especialidadeLabel(p)}</span>
-				<span class="truncate font-mono text-[11px] text-muted">{formatarTelefone(p.tel) ?? '—'}</span>
+				<span class="truncate text-rotulo text-muted">{especialidadeLabel(p)}</span>
+				<span class="truncate font-mono text-meta text-muted">{formatarTelefone(p.tel) ?? '—'}</span>
 				<span>
 					{#if p.vinculo}<span class={pill}>{CONTRACT_LABELS[p.vinculo]}</span>{:else}<span
-							class="text-[11px] text-faint">—</span
+							class="text-meta text-faint">—</span
 						>{/if}
 				</span>
-				<span class="min-w-0 text-[12px] text-muted">
+				<span class="min-w-0 text-rotulo text-muted">
 					<span class="flex items-center gap-1.5"><CalendarClock size={12} /> {at.days}</span>
 					{#if at.hours}
-						<span class="block font-mono text-[10.5px] text-faint">{at.hours}</span>
+						<span class="block font-mono text-micro text-faint">{at.hours}</span>
 					{:else if at.followsClinic}
-						<span class="block text-[10px] font-semibold text-teal-text">Segue a clínica</span>
+						<span class="block text-micro font-semibold text-accent-text">Segue a clínica</span>
 					{/if}
 				</span>
 			</a>
@@ -130,33 +130,33 @@
 			>
 				<div class="flex items-center gap-2.5">
 					<span
-						class="grid size-8.5 shrink-0 place-items-center rounded-full text-[11px] font-bold"
+						class="grid size-8.5 shrink-0 place-items-center rounded-full text-meta font-bold"
 						style={avatarStyle(p.cor_indice)}
 					>
 						{initials(p.nome)}
 					</span>
 					<div class="min-w-0 flex-1">
-						<div class="truncate text-[14px] font-semibold">
-							{p.nome}{#if !p.ativo}<span class="ml-1 text-[10px] font-medium text-faint">(inativo)</span>{/if}
+						<div class="truncate text-leitura font-semibold">
+							{p.nome}{#if !p.ativo}<span class="ml-1 text-micro font-medium text-faint">(inativo)</span>{/if}
 						</div>
-						<div class="font-mono text-[10.5px] text-faint">{p.crefito ?? '—'}</div>
+						<div class="font-mono text-micro text-faint">{p.crefito ?? '—'}</div>
 					</div>
 					{#if p.vinculo}<span class={pill}>{CONTRACT_LABELS[p.vinculo]}</span>{/if}
 				</div>
-				<div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-muted">
+				<div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-rotulo text-muted">
 					<span class="inline-flex items-center gap-1.5"><Stethoscope size={12} /> {especialidadeLabel(p)}</span>
 					{#if p.tel}<span class="inline-flex items-center gap-1.5 font-mono"><Phone size={12} /> {formatarTelefone(p.tel)}</span>{/if}
 				</div>
-				<div class="flex items-center gap-1.5 text-[12px] text-muted">
+				<div class="flex items-center gap-1.5 text-rotulo text-muted">
 					<CalendarClock size={12} /> {at.days}
-					{#if at.hours}<span class="font-mono text-[11px] text-faint">{at.hours}</span>
-					{:else if at.followsClinic}<span class="text-[11px] font-semibold text-teal-text">· Segue a clínica</span>{/if}
+					{#if at.hours}<span class="font-mono text-meta text-faint">{at.hours}</span>
+					{:else if at.followsClinic}<span class="text-meta font-semibold text-accent-text">· Segue a clínica</span>{/if}
 				</div>
 			</a>
 		{/each}
 
 		{#if !visible.length}
-			<div class="px-7 py-7 text-center text-[13px] text-faint">
+			<div class="px-7 py-7 text-center text-corpo text-faint">
 				{#if term}
 					Nenhum profissional encontrado para “{term}”.
 				{:else if status === 'inativos'}

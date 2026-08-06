@@ -40,25 +40,36 @@ defmodule Api.Records.Patient.Validations.CampoValido do
     case Ash.Changeset.get_attribute(changeset, campo) do
       nil -> :ok
       "" -> :ok
-      valor -> conferir(campo, valor)
+      valor -> conferir(campo, valor, hoje(changeset))
     end
   end
 
-  defp conferir(:cpf, valor) do
+  # O relógio vem do escopo (`Api.Scope`, ADR-009), com o de parede só como último recurso — a
+  # mesma disciplina de `StampExcludedAt` e `SessionStarted`. Sem isto, "nascimento no futuro"
+  # dependia do relógio da máquina e não podia ser testado sem viajar no tempo de verdade
+  # (doc 96, B-14).
+  defp hoje(changeset) do
+    case changeset.context[:now] do
+      %DateTime{} = now -> DateTime.to_date(now)
+      _ -> Date.utc_today()
+    end
+  end
+
+  defp conferir(:cpf, valor, _hoje) do
     if Api.Cpf.valid?(valor),
       do: :ok,
       else: {:error, field: :cpf, message: "CPF inválido — confira os dígitos"}
   end
 
-  defp conferir(:email, valor) when is_binary(valor) do
+  defp conferir(:email, valor, _hoje) when is_binary(valor) do
     if String.match?(valor, @email_re),
       do: :ok,
       else: {:error, field: :email, message: "E-mail inválido — use nome@dominio"}
   end
 
-  defp conferir(:nascimento, %Date{} = data) do
+  defp conferir(:nascimento, %Date{} = data, hoje) do
     cond do
-      Date.compare(data, Date.add(Date.utc_today(), 1)) == :gt ->
+      Date.compare(data, Date.add(hoje, 1)) == :gt ->
         {:error, field: :nascimento, message: "Data de nascimento no futuro"}
 
       data.year < 1900 ->
@@ -70,5 +81,5 @@ defmodule Api.Records.Patient.Validations.CampoValido do
   end
 
   # Tipo inesperado (o cast do Ash já barrou antes; isto é cinto de segurança).
-  defp conferir(_campo, _valor), do: :ok
+  defp conferir(_campo, _valor, _hoje), do: :ok
 end

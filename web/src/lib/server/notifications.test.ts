@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { contrato, exigirCampos, primeiro } from '$lib/testing/contrato';
+import type { NotificationsData } from '$lib/notifications';
 
 const m = vi.hoisted(() => ({ apiFetch: vi.fn() }));
 vi.mock('./api', () => m);
@@ -25,22 +27,25 @@ beforeEach(() => {
 	mut.mutate.mockReset();
 });
 
+// Os corpos vêm de `contratos/bff/notificacoes.json`, gravado pela API de verdade (doc 101, A2).
+const caixa = contrato<NotificationsData>('notificacoes', 'caixa');
+const badge = contrato<{ unread: number }>('notificacoes', 'badge');
+
 describe('fetchNotifications', () => {
 	it('200 → devolve os dados', async () => {
-		const data = { notifications: [{ id: 'n1' }], unread: 1 };
-		m.apiFetch.mockResolvedValueOnce(res(200, data));
+		m.apiFetch.mockResolvedValueOnce(res(200, caixa));
 
 		const out = await fetchNotifications(event);
-		expect(out).toEqual({ status: 200, data });
+		expect(out).toEqual({ status: 200, data: caixa });
 		expect(m.apiFetch.mock.calls[0][1]).toBe('/api/notifications');
 	});
 
 	// Bate-volta (2ª passada): o badge roda em TODA navegação e pedia uma lista de 1 linha só
 	// para descartá-la — 2 queries onde 1 basta. Agora tem rota própria.
 	it('fetchUnreadCount usa a rota de contagem, sem pedir lista', async () => {
-		m.apiFetch.mockResolvedValueOnce(res(200, { unread: 7 }));
+		m.apiFetch.mockResolvedValueOnce(res(200, badge));
 
-		expect(await fetchUnreadCount(event)).toBe(7);
+		expect(await fetchUnreadCount(event)).toBe(badge.unread);
 		expect(m.apiFetch.mock.calls[0][1]).toBe('/api/notifications/unread-count');
 	});
 
@@ -105,5 +110,27 @@ describe('limpar a caixa', () => {
 		mut.mutate.mockResolvedValueOnce({ ok: true, status: 200 });
 		await clearAllNotifications(event);
 		expect(mut.mutate).toHaveBeenCalledWith(event, '/api/notifications', 'DELETE');
+	});
+});
+
+// O contrato com a API (doc 101, A2).
+describe('contrato com a API', () => {
+	it('a caixa traz a lista, o contador do badge e a página', () => {
+		exigirCampos(caixa, ['notifications', 'unread', 'page'], 'notificacoes/caixa');
+		exigirCampos(caixa.page, ['limit', 'offset', 'more'], 'notificacoes/caixa → page');
+	});
+
+	// `read` é DERIVADO de `read_at` do lado da API: a UI quer o estado, não o instante. Se algum
+	// dia o serializer passar a mandar `read_at` cru, o sino deixaria de acender e nada acusaria.
+	it('a notificação traz o estado já derivado, não o carimbo', () => {
+		const n = primeiro(caixa.notifications, 'notificacoes/caixa → notifications');
+
+		exigirCampos(n, ['id', 'kind', 'title', 'body', 'data', 'read', 'inserted_at'], 'caixa[0]');
+		expect(typeof n.read).toBe('boolean');
+	});
+
+	it('o badge é só o número', () => {
+		exigirCampos(badge, ['unread'], 'notificacoes/badge');
+		expect(typeof badge.unread).toBe('number');
 	});
 });

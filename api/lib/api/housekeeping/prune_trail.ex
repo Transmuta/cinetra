@@ -88,9 +88,11 @@ defmodule Api.Housekeeping.PruneTrail do
   # `at` é o relógio do ESCOPO (ADR-009), não o `inserted_at` da linha: a trilha é podada pelo
   # instante em que o evento aconteceu, que é o mesmo que a tela mostra.
   defp podar(tabela, clinic_id, corte) do
-    Poda.em_lote(tabela, "clinic_id = $1 AND at < $2", [
-      Ecto.UUID.dump!(clinic_id),
-      corte
-    ])
+    Poda.em_lote(
+      tabela,
+      "clinic_id = $1 AND at < $2",
+      [Ecto.UUID.dump!(clinic_id), corte],
+      clinic_id
+    )
   end
 end

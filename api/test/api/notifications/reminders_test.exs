@@ -74,7 +74,7 @@ defmodule Api.Notifications.RemindersTest do
       prof_user = dono_da_coluna(ctx)
 
       tz = Scheduling.clinic_timezone(ctx.clinic.id)
-      amanha = DateTime.utc_now() |> DateTime.shift_zone!(tz) |> DateTime.to_date() |> Date.add(1)
+      amanha = proximo_dia_util_local(tz)
 
       {:ok, as_nove} = Scheduling.LocalTime.to_utc(amanha, "09:00", tz)
       {:ok, as_dez} = Scheduling.LocalTime.to_utc(amanha, "10:00", tz)
@@ -82,7 +82,11 @@ defmodule Api.Notifications.RemindersTest do
       agenda(ctx, as_nove)
       agenda(ctx, as_dez)
 
-      assert {:ok, %{enviados: 1}} = perform_job(DailyDigestJob, %{"forcar" => true})
+      assert {:ok, %{enviados: 1}} =
+               perform_job(DailyDigestJob, %{
+                 "forcar" => true,
+                 "hoje" => Date.to_iso8601(Date.add(amanha, -1))
+               })
 
       assert :daily_digest in kinds(prof_user, ctx.clinic)
 
@@ -98,6 +102,7 @@ defmodule Api.Notifications.RemindersTest do
       prof_user = dono_da_coluna(ctx)
 
       assert {:ok, %{enviados: 0}} = perform_job(DailyDigestJob, %{"forcar" => true})
+
       refute :daily_digest in kinds(prof_user, ctx.clinic)
     end
 
@@ -107,7 +112,7 @@ defmodule Api.Notifications.RemindersTest do
       prof_user = dono_da_coluna(ctx)
 
       tz = Scheduling.clinic_timezone(ctx.clinic.id)
-      amanha = DateTime.utc_now() |> DateTime.shift_zone!(tz) |> DateTime.to_date() |> Date.add(1)
+      amanha = proximo_dia_util_local(tz)
       {:ok, as_nove} = Scheduling.LocalTime.to_utc(amanha, "09:00", tz)
       agenda(ctx, as_nove)
 
@@ -117,7 +122,12 @@ defmodule Api.Notifications.RemindersTest do
       assert {:ok, %{enviados: 0}} = perform_job(DailyDigestJob, %{"hora" => outra_hora})
       refute :daily_digest in kinds(prof_user, ctx.clinic)
 
-      assert {:ok, %{enviados: 1}} = perform_job(DailyDigestJob, %{"hora" => hora_agora})
+      assert {:ok, %{enviados: 1}} =
+               perform_job(DailyDigestJob, %{
+                 "hora" => hora_agora,
+                 "hoje" => Date.to_iso8601(Date.add(amanha, -1))
+               })
+
       assert :daily_digest in kinds(prof_user, ctx.clinic)
     end
 
@@ -125,7 +135,7 @@ defmodule Api.Notifications.RemindersTest do
       ctx = clinica()
 
       tz = Scheduling.clinic_timezone(ctx.clinic.id)
-      amanha = DateTime.utc_now() |> DateTime.shift_zone!(tz) |> DateTime.to_date() |> Date.add(1)
+      amanha = proximo_dia_util_local(tz)
       {:ok, as_nove} = Scheduling.LocalTime.to_utc(amanha, "09:00", tz)
       agenda(ctx, as_nove)
 
@@ -141,13 +151,18 @@ defmodule Api.Notifications.RemindersTest do
       ctx = clinica()
 
       tz = Scheduling.clinic_timezone(ctx.clinic.id)
-      amanha = DateTime.utc_now() |> DateTime.shift_zone!(tz) |> DateTime.to_date() |> Date.add(1)
+      amanha = proximo_dia_util_local(tz)
       {:ok, as_nove} = Scheduling.LocalTime.to_utc(amanha, "09:00", tz)
       agenda(ctx, as_nove)
 
       {_, queries} =
         Api.QueryCounter.count(
-          fn -> perform_job(DailyDigestJob, %{"forcar" => true}) end,
+          fn ->
+            perform_job(DailyDigestJob, %{
+              "forcar" => true,
+              "hoje" => Date.to_iso8601(Date.add(amanha, -1))
+            })
+          end,
           "appointments"
         )
 
@@ -248,5 +263,16 @@ defmodule Api.Notifications.RemindersTest do
 
       refute :session_soon in kinds(prof_user, ctx.clinic)
     end
+  end
+
+  # O próximo dia ÚTIL, não literalmente amanhã: o seed do onboard abre seg–sex, e "amanhã" numa
+  # sexta ou num sábado cai em dia fechado — a escrita da agenda é recusada com "A clínica não
+  # atende neste dia" e o teste reprova por motivo que nada tem a ver com a regra sob teste.
+  defp proximo_dia_util_local(tz) do
+    DateTime.utc_now()
+    |> DateTime.shift_zone!(tz)
+    |> DateTime.to_date()
+    |> Date.add(1)
+    |> Api.Generators.proximo_dia_util()
   end
 end

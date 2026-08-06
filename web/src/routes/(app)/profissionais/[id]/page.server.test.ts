@@ -37,6 +37,19 @@ describe('load', () => {
 		ch.fetchClinicHours.mockResolvedValueOnce({ status: 200, data: { clinic_hours: {} } });
 		await expect(load({ params: { id: 'nope' } } as never)).rejects.toMatchObject({ status: 404 });
 	});
+
+	// 403 vem ANTES do 404, e a distinção não é cosmética: desde 2026-08-04 (doc 103) o papel
+	// `profissional` não abre ficha nenhuma — nem a dele, cujo id ele conhece. Cair no 404
+	// mandaria a pessoa procurar um registro que existe.
+	it('403 → não vira "não encontrado"', async () => {
+		m.fetchProfessional.mockResolvedValueOnce({ status: 403, professional: null });
+		ch.fetchClinicHours.mockResolvedValueOnce({ status: 200, data: { clinic_hours: {} } });
+
+		await expect(load({ params: { id: 'p1' } } as never)).rejects.toMatchObject({
+			status: 403,
+			body: { message: 'Esta tela não está disponível para o seu perfil.' }
+		});
+	});
 });
 
 describe('action save', () => {

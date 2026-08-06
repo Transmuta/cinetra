@@ -104,13 +104,31 @@ defmodule Api.Notifications.FanoutTest do
       assert :appointment_scheduled in kinds(prof_user, ctx.clinic)
     end
 
-    test "o autor não se notifica (o próprio profissional agendando)" do
+    # A supressão do autor continua sendo invariante — mudou quem consegue ser o autor. Desde a
+    # A8 de 2026-08-04 (doc 103) o papel `profissional` não agenda, então "o autor é o dono da
+    # coluna" só acontece para quem acumula as duas coisas: a admin (ou a dona) que também
+    # atende — o caso da clínica pequena. O `Fanout` casa o destinatário por
+    # `Membership.professional_id` **sem olhar o papel**, e é por isso que o caso existe.
+    test "o autor não se notifica (a admin que também atende, agendando na própria coluna)" do
       ctx = setup_clinic()
-      prof_user = member(ctx.clinic, :profissional, ctx.prof.id)
+      autora = member(ctx.clinic, :admin, ctx.prof.id)
 
-      {:ok, _appt} = schedule(ctx, scope_for(prof_user, ctx.clinic))
+      {:ok, _appt} = schedule(ctx, scope_for(autora, ctx.clinic))
 
-      refute :appointment_scheduled in kinds(prof_user, ctx.clinic)
+      refute :appointment_scheduled in kinds(autora, ctx.clinic)
+    end
+
+    # O controle positivo do de cima: a mesma admin-que-atende recebe quando quem agendou foi
+    # OUTRA pessoa. Sem ele, o `refute` acima passaria também se o vínculo por `professional_id`
+    # tivesse deixado de valer para papel que não é `:profissional` — e aí não seria supressão do
+    # autor, seria destinatário nenhum.
+    test "e recebe quando quem agenda é outra pessoa" do
+      ctx = setup_clinic()
+      autora = member(ctx.clinic, :admin, ctx.prof.id)
+
+      {:ok, _appt} = schedule(ctx, scope_for(ctx.owner, ctx.clinic))
+
+      assert :appointment_scheduled in kinds(autora, ctx.clinic)
     end
 
     test "remarcar e cancelar também notificam o profissional" do
@@ -159,15 +177,17 @@ defmodule Api.Notifications.FanoutTest do
       assert falta.data["patient_id"] == ctx.paciente.id
     end
 
-    test "#46 — o próprio profissional marcando não se notifica" do
+    # Mesma troca de sujeito da describe acima: quem marca a falta é o balcão desde 2026-08-04, e
+    # o autor-que-é-dono-da-coluna é a admin que também atende.
+    test "#46 — quem marca a falta na PRÓPRIA coluna não se notifica" do
       ctx = setup_clinic()
-      prof_user = member(ctx.clinic, :profissional, ctx.prof.id)
-      prof_scope = scope_for(prof_user, ctx.clinic)
+      autora = member(ctx.clinic, :admin, ctx.prof.id)
+      scope = scope_for(autora, ctx.clinic)
 
-      {:ok, appt} = schedule(ctx, prof_scope, %{starts_at: segunda_passada("08:00")})
-      {:ok, _} = Scheduling.transition_participant(prof_scope, appt.id, ctx.paciente.id, :no_show)
+      {:ok, appt} = schedule(ctx, scope, %{starts_at: segunda_passada("08:00")})
+      {:ok, _} = Scheduling.transition_participant(scope, appt.id, ctx.paciente.id, :no_show)
 
-      refute :appointment_missed in kinds(prof_user, ctx.clinic)
+      refute :appointment_missed in kinds(autora, ctx.clinic)
     end
 
     test "#46 — concluir NÃO gera notificação (é ruído: doc 31 §3a)" do
@@ -565,6 +585,25 @@ defmodule Api.Notifications.FanoutTest do
       assert :member_joined in kinds
       # O recém-chegado não recebe o próprio aviso.
       refute :member_joined in kinds(novo, ctx.clinic)
+    end
+
+    # Regressão (auditoria doc 96, B-2): `user_name/1` casava contra `%{nome: nome}`, mas
+    # `Accounts.get_user/2` é code interface NÃO-bang e devolve `{:ok, %User{}}`. Uma tupla nunca
+    # casa com um mapa, então o fallback era o ÚNICO caminho: toda notificação de equipe dizia
+    # "Um novo membro", inclusive a de saída. O irmão `patient_name/1`, quatro linhas acima no
+    # mesmo arquivo, já desembrulhava certo — era assimetria, não decisão.
+    test "o aviso traz o NOME de quem entrou, não o genérico" do
+      ctx = setup_clinic()
+      novo = member(ctx.clinic, :recepcao)
+      nome = Accounts.get_user!(novo.id, authorize?: false).nome
+
+      aviso =
+        ctx.owner
+        |> inbox(ctx.clinic)
+        |> Enum.find(&(&1.kind == :member_joined))
+
+      assert aviso.body =~ nome
+      refute aviso.body =~ "Um novo membro"
     end
   end
 end

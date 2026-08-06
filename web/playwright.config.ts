@@ -41,6 +41,27 @@ export default defineConfig({
 		? {
 				command: `npm run build && npm run preview -- --port ${PORT}`,
 				port: PORT,
+				// A guarda de boot do R-A3 (`lib/server/boot.ts`) exige `ORIGIN` e `API_URL` quando
+				// `NODE_ENV=production` — e o `vite preview` roda em production. Passá-las aqui não é
+				// contornar a guarda: é fazer a e2e exercitar a MESMA configuração que produção usa,
+				// em vez de uma variante mais frouxa que esconderia justamente esta classe de erro.
+				//
+				// A origem que o BROWSER usa para o WebSocket, alinhada à que o processo do Playwright
+				// usa para falar com a API — as duas rodam na mesma máquina, então é a mesma (ver
+				// `e2e/env.ts`). Vale para o `build` e para o `preview` da linha acima, e é preciso nos
+				// dois: a CSP é assada no build (`connect-src`) e a origem é lida em runtime pelo BFF.
+				// Sem isto, dentro do container o browser herdava `localhost:4010` — o endereço de quem
+				// navega do host — e o socket morria em silêncio, com o motivo só no console.
+				//
+				// As três moram num objeto SÓ: já foram duas chaves `env` neste mesmo literal, e a
+				// segunda apagou a primeira em silêncio — o `preview` perdia `ORIGIN`/`API_URL` e
+				// morria na guarda de boot antes do primeiro teste. `src/lib/e2e-webserver.test.ts`
+				// existe para isso não voltar.
+				env: {
+					ORIGIN: LOCAL,
+					API_URL: API_ORIGIN,
+					API_PUBLIC_ORIGIN: API_ORIGIN
+				},
 				// **Nunca reusar** um preview que já esteja de pé (doc 88, A-14).
 				//
 				// Com `reuseExistingServer`, um `preview` esquecido de uma sessão anterior serve o
@@ -51,14 +72,7 @@ export default defineConfig({
 				reuseExistingServer: false,
 				// 120s não cobria `build && preview` em máquina fria, e a suíte inteira morria antes
 				// de começar com "Timed out waiting from config.webServer" (A-5).
-				timeout: 300_000,
-				// A origem que o BROWSER usa para o WebSocket, alinhada à que o processo do Playwright
-				// usa para falar com a API — as duas rodam na mesma máquina, então é a mesma (ver
-				// `e2e/env.ts`). Vale para o `build` e para o `preview` da linha acima, e é preciso nos
-				// dois: a CSP é assada no build (`connect-src`) e a origem é lida em runtime pelo BFF.
-				// Sem isto, dentro do container o browser herdava `localhost:4010` — o endereço de quem
-				// navega do host — e o socket morria em silêncio, com o motivo só no console.
-				env: { API_PUBLIC_ORIGIN: API_ORIGIN }
+				timeout: 300_000
 			}
 		: undefined,
 	projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }]

@@ -36,6 +36,15 @@ defmodule Api.Scheduling.ProfessionalHours do
       reference :professional, on_delete: :delete
     end
 
+    check_constraints do
+      # O gêmeo de `clinic_hours_dow_range` — ver a nota lá. Mesmo domínio (0..6), mesmo modo de
+      # falha silencioso.
+      check_constraint :dow,
+        name: "professional_hours_dow_range",
+        check: "dow BETWEEN 0 AND 6",
+        message: "Dia da semana precisa estar entre 0 (domingo) e 6 (sábado)."
+    end
+
     # Sem índice standalone em `clinic_id`: a identidade `one_per_prof_dow` `(clinic_id,
     # professional_id, dow)` já lidera por `clinic_id`, cobrindo o lookup por tenant. O índice
     # que apoia o cascade da FK de `professional_id` é escrito à mão na migration (como em

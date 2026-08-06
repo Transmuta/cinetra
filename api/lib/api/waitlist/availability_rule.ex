@@ -30,6 +30,22 @@ defmodule Api.Waitlist.AvailabilityRule do
       reference :waitlist_entry, on_delete: :delete
     end
 
+    check_constraints do
+      # A forma da regra tem de bater com o tipo — o que a `Validations.RuleShape` já exige na
+      # fronteira do Ash (doc 92, P2-7). Uma regra `:semana` sem dias, ou `:data` sem data, é uma
+      # disponibilidade que **nunca casa com vaga nenhuma**: o paciente fica na fila para sempre e
+      # o `SlotFinder` não tem como reclamar — ele simplesmente não encontra ninguém.
+      #
+      # `coalesce(array_length(...), 0)` porque `array_length` de array vazio é NULL, não 0, e um
+      # `NULL > 0` faria a constraint inteira virar NULL — que o Postgres aceita como satisfeita.
+      check_constraint :tipo,
+        name: "availability_rules_forma",
+        check:
+          "(tipo = 'semana' AND coalesce(array_length(dows, 1), 0) > 0) OR " <>
+            "(tipo = 'data' AND data IS NOT NULL)",
+        message: "Regra por semana precisa de dias; regra por data precisa da data."
+    end
+
     custom_indexes do
       # O acesso é sempre "as regras deste item"; o índice de apoio ao cascade da FK é escrito à
       # mão na migration (mesma razão de `schedule_exceptions`): sob tenancy por atributo o Ash
@@ -77,9 +93,30 @@ defmodule Api.Waitlist.AvailabilityRule do
       authorize_if {Api.Accounts.Checks.HasClinicRole, roles: :any, clinic_from: :tenant}
     end
 
+    # `always()` era uma afirmação sobre quem chama ("só o `WaitlistEntry` gerencia"), não uma
+    # garantia — e afirmação não é policy (doc 96, A-1). `accessing_from` expressa a invariante
+    # real: a escrita só é autorizada quando vem pela relação `:rules` do `WaitlistEntry`, cuja
+    # própria policy já cobrou papel e tenant. Chamada direta ao recurso passa a ser recusada.
     policy action_type([:create, :update, :destroy]) do
-      authorize_if always()
+      authorize_if accessing_from(Api.Waitlist.WaitlistEntry, :rules)
     end
+  end
+
+  changes do
+    # A trilha (doc 63) — e ela precisa morar **aqui**, não no `WaitlistEntry` (doc 101, M9).
+    #
+    # O pai já tem o `Capture` dele, mas o diff de um recurso Ash é sobre **atributos**: escrita
+    # que chega por `manage_relationship` não aparece nele. Medido: trocar a disponibilidade de um
+    # item da fila ("segundas 09–11" virando "sextas 13–18") gravava no `waitlist_entry` uma linha
+    # de `update` com `diff: []` e mais nada. A mudança que de fato importa para quem audita a fila
+    # — quando o paciente disse que pode vir — não deixava rastro.
+    #
+    # `on: [:create, :update, :destroy]` porque `type: :direct_control` faz as três: a edição
+    # substitui o conjunto, então uma regra trocada são um destroy e um create, e é justamente esse
+    # par que conta a história.
+    change {Api.Audit.Capture,
+            resource: :availability_rule, meta: [:waitlist_entry_id, :tipo, :dows, :data]},
+           on: [:create, :update, :destroy]
   end
 
   validations do

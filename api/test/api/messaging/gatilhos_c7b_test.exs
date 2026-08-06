@@ -23,8 +23,21 @@ defmodule Api.Messaging.GatilhosC7bTest do
 
   defp kinds(ctx, appt), do: ctx |> mensagens(appt) |> Enum.map(& &1.kind)
 
+  # Uma confirmação PENDENTE na fila, disparada à mão pela recepção — o que a criação do bloco
+  # fazia sozinha até 2026-07-31 (doc 98). É o estado que os descartes existem para varrer, e ele
+  # não nasce mais de graça: sem este disparo os três testes de descarte não teriam o que descartar
+  # e ficariam verdes sem provar nada.
+  defp confirmacao_na_fila!(ctx, appt, paciente) do
+    [presenca] = appt.attendances
+
+    {:ok, message} =
+      Api.Messaging.Dispatch.dispatch(ctx.clinic, presenca, paciente, :confirmacao)
+
+    message
+  end
+
   describe "ciclo de vida do bloco" do
-    test "remarcar avisa o paciente, com o horário NOVO" do
+    test "remarcar avisa o paciente QUANDO PEDIDO, com o horário NOVO" do
       ctx = clinica()
       paciente = paciente_alcancavel(ctx)
       appt = agendamento!(ctx, paciente: paciente)
@@ -34,7 +47,7 @@ defmodule Api.Messaging.GatilhosC7bTest do
           ctx.scope,
           appt.id,
           :reschedule,
-          %{starts_at: Api.Generators.amanha_as(ctx, 16)},
+          %{starts_at: Api.Generators.proximo_dia_util_as(ctx, 16), avisar_paciente: true},
           appt.version
         )
 
@@ -44,15 +57,77 @@ defmodule Api.Messaging.GatilhosC7bTest do
       assert remarcacao.vars["hora"] == "16:00"
     end
 
-    test "cancelar avisa — e este é o que a cascata quase engoliu" do
+    test "cancelar avisa QUANDO PEDIDO — e este é o que a cascata quase engoliu" do
       ctx = clinica()
       paciente = paciente_alcancavel(ctx)
       appt = agendamento!(ctx, paciente: paciente)
 
       {:ok, _} =
-        Scheduling.transition_appointment(ctx.scope, appt.id, :cancel, %{}, appt.version)
+        Scheduling.transition_appointment(
+          ctx.scope,
+          appt.id,
+          :cancel,
+          %{avisar_paciente: true},
+          appt.version
+        )
 
       assert :cancelamento in kinds(ctx, appt)
+    end
+
+    test "sem pedir, remarcar e cancelar NÃO falam com o paciente" do
+      # O default é o silêncio (2026-08-01). A pergunta passou a ser da recepção, no modal — e o
+      # default precisa ser `false` pelo mesmo motivo que a criação deixou de avisar: mensagem
+      # enviada não volta, e no WhatsApp ela é paga.
+      #
+      # Um default `true` "para não mudar o comportamento" seria pior do que o automático de
+      # antes: a tela passaria a prometer uma escolha que o servidor ignora quando o campo não
+      # chega — que é exatamente como um checkbox some do FormData.
+      ctx = clinica()
+      paciente = paciente_alcancavel(ctx)
+      appt = agendamento!(ctx, paciente: paciente)
+
+      {:ok, remarcado} =
+        Scheduling.transition_appointment(
+          ctx.scope,
+          appt.id,
+          :reschedule,
+          %{starts_at: Api.Generators.proximo_dia_util_as(ctx, 16)},
+          appt.version
+        )
+
+      {:ok, _} =
+        Scheduling.transition_appointment(ctx.scope, appt.id, :cancel, %{}, remarcado.version)
+
+      assert kinds(ctx, appt) == []
+    end
+
+    test "numa TURMA, a escolha vale para o bloco — os quatro recebem ou nenhum recebe" do
+      # O disparo sempre foi por bloco, e continua: remarcar move a turma inteira, então a
+      # pergunta é uma só. O que mudou é que agora ela é feita.
+      ctx = clinica(tipo: [grupo: true, capacidade: 4])
+      pacientes = for _ <- 1..3, do: paciente_alcancavel(ctx)
+
+      {:ok, appt} =
+        Scheduling.schedule_appointment(
+          %{
+            starts_at: Api.Generators.proximo_dia_util_as(ctx, 10),
+            professional_id: ctx.prof.id,
+            appointment_type_id: ctx.tipo.id,
+            patient_ids: Enum.map(pacientes, & &1.id)
+          },
+          scope: ctx.scope
+        )
+
+      {:ok, _} =
+        Scheduling.transition_appointment(
+          ctx.scope,
+          appt.id,
+          :cancel,
+          %{avisar_paciente: true},
+          appt.version
+        )
+
+      assert length(Enum.filter(kinds(ctx, appt), &(&1 == :cancelamento))) == 3
     end
 
     test "excluir NÃO avisa — é correção de lançamento, não desmarcação" do
@@ -66,8 +141,8 @@ defmodule Api.Messaging.GatilhosC7bTest do
       {:ok, _} =
         Scheduling.transition_appointment(ctx.scope, appt.id, :exclude, %{}, appt.version)
 
-      # Só a confirmação da criação; nada de cancelamento.
-      assert kinds(ctx, appt) == [:confirmacao]
+      # Nada: criar não fala com o paciente (desde 2026-07-31) e excluir também não.
+      assert kinds(ctx, appt) == []
     end
 
     test "reabrir NÃO avisa" do
@@ -76,30 +151,42 @@ defmodule Api.Messaging.GatilhosC7bTest do
       appt = agendamento!(ctx, paciente: paciente)
 
       {:ok, cancelado} =
-        Scheduling.transition_appointment(ctx.scope, appt.id, :cancel, %{}, appt.version)
+        Scheduling.transition_appointment(
+          ctx.scope,
+          appt.id,
+          :cancel,
+          %{avisar_paciente: true},
+          appt.version
+        )
 
       {:ok, _} =
         Scheduling.transition_appointment(ctx.scope, appt.id, :reopen, %{}, cancelado.version)
 
-      # Uma confirmação (da criação) e um cancelamento. Reabrir não acrescenta nada: quase sempre
-      # é um clique errado sendo desfeito segundos depois.
-      assert Enum.sort(kinds(ctx, appt)) == [:cancelamento, :confirmacao]
+      # Só o cancelamento. Reabrir não acrescenta nada: quase sempre é um clique errado sendo
+      # desfeito segundos depois.
+      assert kinds(ctx, appt) == [:cancelamento]
     end
 
     test "cancelar descarta a confirmação que ainda estava na fila" do
-      # A janela de silêncio (§7) **adia**: uma confirmação criada às 22h fica parada até as 8h.
+      # A janela de silêncio (§7) **adia**: uma confirmação disparada às 22h fica parada até as 8h.
       # Se o bloco for cancelado às 22h45, nada tirava aquela linha da fila — e às 8h o paciente
       # recebia "sua sessão está marcada para 28/07 às 12:00" de uma sessão que já não existe,
       # seguida do cancelamento. Mensagem enviada não volta.
       ctx = clinica()
       paciente = paciente_alcancavel(ctx)
       appt = agendamento!(ctx, paciente: paciente)
+      confirmacao = confirmacao_na_fila!(ctx, appt, paciente)
 
-      assert [confirmacao] = mensagens(ctx, appt)
       assert confirmacao.status == :pendente
 
       {:ok, _} =
-        Scheduling.transition_appointment(ctx.scope, appt.id, :cancel, %{}, appt.version)
+        Scheduling.transition_appointment(
+          ctx.scope,
+          appt.id,
+          :cancel,
+          %{avisar_paciente: true},
+          appt.version
+        )
 
       descartada = recarregar_mensagem(ctx, confirmacao)
 
@@ -113,13 +200,12 @@ defmodule Api.Messaging.GatilhosC7bTest do
 
     test "excluir descarta a confirmação que ainda estava na fila" do
       # Excluir é corrigir um lançamento errado (doc 40), e a decisão de não avisar o paciente
-      # (acima) morria aqui: a confirmação da criação seguia parada na fila e saía às 8h. Quem
-      # apagou uma duplicata teria acabado de dizer a alguém que a sessão dele existe.
+      # (acima) morria aqui: a confirmação que a recepção já tinha disparado seguia parada na fila
+      # e saía às 8h. Quem apagou uma duplicata teria acabado de dizer a alguém que a sessão existe.
       ctx = clinica()
       paciente = paciente_alcancavel(ctx)
       appt = agendamento!(ctx, paciente: paciente)
-
-      assert [confirmacao] = mensagens(ctx, appt)
+      confirmacao = confirmacao_na_fila!(ctx, appt, paciente)
 
       {:ok, _} =
         Scheduling.transition_appointment(ctx.scope, appt.id, :exclude, %{}, appt.version)
@@ -134,8 +220,7 @@ defmodule Api.Messaging.GatilhosC7bTest do
       ctx = clinica()
       paciente = paciente_alcancavel(ctx)
       appt = agendamento!(ctx, paciente: paciente)
-
-      assert [confirmacao] = mensagens(ctx, appt)
+      confirmacao = confirmacao_na_fila!(ctx, appt, paciente)
 
       enviada =
         Api.Tenancy.in_clinic(ctx.clinic.id, fn ->
@@ -165,7 +250,7 @@ defmodule Api.Messaging.GatilhosC7bTest do
           ctx.scope,
           appt.id,
           :reschedule,
-          %{starts_at: Api.Generators.amanha_as(ctx, 16)},
+          %{starts_at: Api.Generators.proximo_dia_util_as(ctx, 16), avisar_paciente: true},
           appt.version
         )
 
@@ -174,7 +259,7 @@ defmodule Api.Messaging.GatilhosC7bTest do
           ctx.scope,
           appt.id,
           :reschedule,
-          %{starts_at: Api.Generators.amanha_as(ctx, 17)},
+          %{starts_at: Api.Generators.proximo_dia_util_as(ctx, 17), avisar_paciente: true},
           uma.version
         )
 
@@ -237,11 +322,15 @@ defmodule Api.Messaging.GatilhosC7bTest do
       %{ctx: ctx, pkg: pkg, paciente: paciente}
     end
 
-    test "remarcar a série manda UMA mensagem com o número dentro", %{
+    test "remarcar a série NÃO manda mensagem nenhuma ao paciente", %{
       ctx: ctx,
       pkg: pkg,
       paciente: paciente
     } do
+      # Já mandou UMA — era o desenho até 2026-08-01, e existia para não mandar 40. O disparo saiu
+      # inteiro: quem avisa o paciente de mudança em pacote é a recepção, pelo telefone que agora
+      # vai dentro de toda mensagem. O template `pacote_remarcado_v1` continua no código, sem
+      # gatilho, para renderizar histórico.
       {:ok, %{afetadas: afetadas}} =
         Packages.bulk_adjust(ctx.scope, pkg.id, %{
           escopo: :todas,
@@ -250,12 +339,7 @@ defmodule Api.Messaging.GatilhosC7bTest do
         })
 
       assert afetadas > 1
-
-      lote = mensagens_do_paciente(ctx, paciente, :pacote_remarcado)
-
-      assert length(lote) == 1
-      assert hd(lote).vars["quantas"] == Api.Texto.sessoes(afetadas)
-      assert hd(lote).vars["pacote"] == "Pilates 10"
+      assert mensagens_do_paciente(ctx, paciente, :pacote_remarcado) == []
     end
 
     test "e nenhuma mensagem por sessão junto", %{ctx: ctx, pkg: pkg, paciente: paciente} do
@@ -285,13 +369,18 @@ defmodule Api.Messaging.GatilhosC7bTest do
       assert notificacao.body =~ "Pilates 10"
     end
 
-    test "cancelar a série também manda UMA", %{ctx: ctx, pkg: pkg, paciente: paciente} do
-      {:ok, %{afetadas: afetadas}} =
-        Packages.bulk_cancel(ctx.scope, pkg.id, %{escopo: :todas})
+    test "cancelar a série também não fala com o paciente", %{
+      ctx: ctx,
+      pkg: pkg,
+      paciente: paciente
+    } do
+      # O par do teste acima. **Nem por sessão, nem em lote** — e o teste vizinho garante que a
+      # caixa do profissional continua sendo avisada, que é a metade que ficou.
+      {:ok, %{afetadas: afetadas}} = Packages.bulk_cancel(ctx.scope, pkg.id, %{escopo: :todas})
 
       assert afetadas > 1
-      assert [uma] = mensagens_do_paciente(ctx, paciente, :pacote_cancelado)
-      assert uma.vars["quantas"] == Api.Texto.sessoes(afetadas)
+      assert mensagens_do_paciente(ctx, paciente, :pacote_cancelado) == []
+      assert mensagens_do_paciente(ctx, paciente, :cancelamento) == []
     end
   end
 

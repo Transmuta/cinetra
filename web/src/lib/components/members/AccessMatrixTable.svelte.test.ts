@@ -29,7 +29,7 @@ const matrix: AccessMatrixData = {
 describe('AccessMatrixTable', () => {
 	it('cabeçalho usa os rótulos de fonte única dos papéis', () => {
 		render(AccessMatrixTable, { props: { matrix } });
-		for (const label of ['Dona', 'Administrador', 'Profissional', 'Recepção']) {
+		for (const label of ['Dono(a)', 'Administrador', 'Profissional', 'Recepção']) {
 			expect(screen.getByRole('columnheader', { name: label })).toBeInTheDocument();
 		}
 	});

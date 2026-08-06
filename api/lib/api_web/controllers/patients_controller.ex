@@ -28,7 +28,7 @@ defmodule ApiWeb.PatientsController do
 
       json(conn, %{
         patients: Enum.map(page.results, &patient_json/1),
-        page: %{limit: page.limit, offset: page.offset, total: page.count, more: page.more?},
+        page: page_json(page),
         counts: Records.clinic_patient_counts(scope)
       })
     end)
@@ -56,7 +56,9 @@ defmodule ApiWeb.PatientsController do
           # mais usada da recepção.
           Api.Audit.Acesso.ficha_visualizada(scope, patient)
 
-          json(conn, %{patient: patient_json(patient)})
+          # `no-store`: a ficha completa é dado de saúde de um titular (doc 96, S-9). O default do
+          # `Plug.Session` é `must-revalidate`, que **autoriza armazenar**.
+          conn |> no_store() |> json(%{patient: patient_json(patient)})
 
         {:ok, nil} ->
           not_found(conn)
@@ -160,6 +162,23 @@ defmodule ApiWeb.PatientsController do
   def reactivate(conn, %{"id" => id}) do
     with_roles_scope(conn, @papeis_de_escrita, fn scope ->
       write(conn, scope, id, &Records.reactivate_clinic_patient(scope, &1))
+    end)
+  end
+
+  # POST /api/patients/:id/opt-in — o paciente voltou a aceitar mensagens.
+  #
+  # Revoga o "pare" de todos os contatos da ficha, nos dois canais, registrando quem autorizou.
+  # É `owner`/`admin`/`recepção`: quem atende o balcão é quem ouve o pedido.
+  def opt_in(conn, %{"id" => id}) do
+    with_roles_scope(conn, [:owner, :admin, :recepcao], fn scope ->
+      case Records.fetch_clinic_patient(scope, id) do
+        {:ok, %{} = patient} ->
+          :ok = Api.Messaging.revoke_patient_opt_outs(scope, patient)
+          send_resp(conn, :no_content, "")
+
+        {:ok, nil} ->
+          not_found(conn)
+      end
     end)
   end
 

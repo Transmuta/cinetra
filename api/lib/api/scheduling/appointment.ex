@@ -300,6 +300,19 @@ defmodule Api.Scheduling.Appointment do
       accept [:starts_at, :professional_id, :reschedule_reason]
       argument :encaixe, :boolean
 
+      # A recepção decide, no modal, se o paciente é avisado (2026-08-01). Quem lê é o
+      # `Api.Messaging.Notifier`, depois do commit.
+      #
+      # **Default `false`, e ele é a decisão.** O gatilho era automático; virar opt-in com default
+      # `true` seria trocar o automático por um automático que se pode desligar — e, pior, faria a
+      # tela prometer uma escolha que o servidor ignora quando o campo não chega (é assim que um
+      # checkbox some do FormData). Silêncio por omissão: mensagem enviada não volta, e no WhatsApp
+      # ela é paga.
+      #
+      # É argumento, não atributo: não é fato do agendamento, é instrução para este gesto. Guardá-lo
+      # numa coluna faria a próxima remarcação herdar a escolha da anterior.
+      argument :avisar_paciente, :boolean, default: false
+
       # Remarcar ESCOLHE profissional (a ação aceita `professional_id`), então vale a mesma
       # pergunta de `:schedule` — e só ela: o tipo vem do bloco que já existe, e checá-lo aqui
       # quebraria o §7 ("existente continua válido"). Ver o moduledoc de `ReferencesActive`.
@@ -332,6 +345,20 @@ defmodule Api.Scheduling.Appointment do
                 from: Api.Scheduling.AppointmentStatus.abertos()}
 
       accept [:cancel_reason]
+
+      # A recepção decide, no modal, se o paciente é avisado (2026-08-01). Quem lê é o
+      # `Api.Messaging.Notifier`, depois do commit.
+      #
+      # **Default `false`, e ele é a decisão.** O gatilho era automático; virar opt-in com default
+      # `true` seria trocar o automático por um automático que se pode desligar — e, pior, faria a
+      # tela prometer uma escolha que o servidor ignora quando o campo não chega (é assim que um
+      # checkbox some do FormData). Silêncio por omissão: mensagem enviada não volta, e no WhatsApp
+      # ela é paga.
+      #
+      # É argumento, não atributo: não é fato do agendamento, é instrução para este gesto. Guardá-lo
+      # numa coluna faria a próxima remarcação herdar a escolha da anterior.
+      argument :avisar_paciente, :boolean, default: false
+
       change set_attribute(:status, :cancelado)
       change {Api.Scheduling.Appointment.Changes.CascadeToAttendances, status: :cancelada}
       change Api.Scheduling.Appointment.Changes.BumpVersion
@@ -405,25 +432,20 @@ defmodule Api.Scheduling.Appointment do
       authorize_if {Api.Accounts.Checks.HasClinicRole, roles: :any, clinic_from: :tenant}
     end
 
-    # A8: recepção é quem agenda — o par admin/membro de hoje não serve. A lista `@write_actions`
+    # A8: quem agenda é o balcão — `owner`·`admin`·`recepcao`. A lista `@write_actions`
     # cobre o merge (A-D4, `:add_participant`) e todo o ciclo de vida da Entrega 4: casar por
     # `action_type` deixaria alguma delas sem policy, e ação sem policy é ação proibida (403).
+    #
+    # **O papel `profissional` saiu daqui em 2026-08-04** (doc 103). Ele agendava na própria
+    # coluna, e um segundo policy (`OwnProfessionalColumn`) era o que o mantinha fora da coluna
+    # do colega; a decisão foi que ele não escreve em coluna nenhuma — vê a própria agenda e os
+    # próprios agendamentos, e quem lança, remarca, cancela e fecha o desfecho é o balcão. Como
+    # a A7 na escrita perdeu o objeto (não há mais escrita do papel para recortar), o policy e o
+    # check foram removidos junto: policy que nunca é alcançada é policy que mente sobre o que
+    # protege. O recorte A7 que **sobra** é o de leitura, na preparation `OwnAgendaOnly`.
     policy action(@write_actions) do
       authorize_if {Api.Accounts.Checks.HasClinicRole,
-                    roles: [:owner, :admin, :recepcao, :profissional], clinic_from: :tenant}
-    end
-
-    # A7 **na escrita**. As policies do Ash são AND entre si: esta só se aplica quando o actor
-    # é `profissional`, e então exige a própria coluna. Sem ela o profissional não conseguia
-    # LER a agenda do colega mas escrevia nela às cegas, mandando outro `professional_id`.
-    # Vale para todo o ciclo de vida: nas transições de status o `professional_id` não muda
-    # (o check lê o valor atual do bloco, que já é o dele), e na remarcação impede mover o
-    # bloco para a coluna de um colega.
-    policy [
-      action(@write_actions),
-      {Api.Accounts.Checks.HasClinicRole, roles: [:profissional], clinic_from: :tenant}
-    ] do
-      authorize_if Api.Scheduling.Appointment.Checks.OwnProfessionalColumn
+                    roles: [:owner, :admin, :recepcao], clinic_from: :tenant}
     end
 
     # A9: encaixe é de recepção para cima. `encaixe = true` isenta a linha da exclusion
@@ -431,6 +453,12 @@ defmodule Api.Scheduling.Appointment do
     # contra dupla-marcação mandando um booleano no corpo.
     # Em `:add_participant` o mesmo argumento fura o teto da turma (A-D3); na remarcação volta a
     # isentar a constraint. A decisão de quem pode furar um limite combinado é a mesma.
+    #
+    # Hoje a lista repete a da A8 acima e, por isso, nenhum actor é barrado só por aqui. Ela fica
+    # porque é uma regra PRÓPRIA e independente: a A8 responde "quem lança na agenda" e a A9
+    # responde "quem pode furar a grade". Se um dia a primeira lista voltar a crescer (um papel
+    # novo, o `profissional` de volta), é esta policy que continua guardando o furo — apagá-la
+    # agora seria confiar em uma coincidência de listas.
     policy [
       action(@encaixe_actions),
       Api.Scheduling.Appointment.Checks.CreatingEncaixe

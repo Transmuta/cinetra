@@ -32,6 +32,8 @@ defmodule Api.Scheduling.Appointment.Changes.CascadeToAttendances do
   """
   use Ash.Resource.Change
 
+  require Ash.Query
+
   @impl true
   def change(changeset, opts, context) do
     Ash.Changeset.after_action(changeset, fn cs, appointment ->
@@ -39,7 +41,7 @@ defmodule Api.Scheduling.Appointment.Changes.CascadeToAttendances do
 
       atualizadas =
         appointment
-        |> Ash.load!([:attendances], authorize?: false, tenant: cs.tenant)
+        |> Ash.load!([attendances: attendances_query()], authorize?: false, tenant: cs.tenant)
         |> Map.get(:attendances, [])
         |> Enum.map(fn attendance ->
           Ash.update!(attendance, input,
@@ -57,6 +59,18 @@ defmodule Api.Scheduling.Appointment.Changes.CascadeToAttendances do
       # acabara de sair daqui. `Enum.map` no lugar de `Enum.each` é literalmente a diferença.
       {:ok, %{appointment | attendances: atualizadas}}
     end)
+  end
+
+  # `include_held` porque presença **segurada** por pausa de pacote (doc 43 §5c) continua sendo
+  # presença do bloco — está escondida da leitura normal pela preparation global
+  # `HideHeldAttendances`, não removida. Sem a porta, cancelar o bloco não a alcançava: ela ficava
+  # `:prevista` pendurada num bloco `:cancelado`, e o `resume_package` também não a recuperava
+  # (`held_targets/2` rejeita bloco cancelado). A sessão paga sumia do pacote (doc 96, B-1).
+  #
+  # É a mesma porta que a cascata irmã `RemoveParticipants` já abria — as duas precisam enxergar
+  # o mesmo conjunto, e a assimetria entre elas era o bug.
+  defp attendances_query do
+    Ash.Query.set_context(Api.Scheduling.Attendance, %{include_held: true})
   end
 
   defp build_input(changeset, opts) do

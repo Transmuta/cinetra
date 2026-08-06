@@ -226,7 +226,16 @@ export function createAppointment(
 export function rescheduleAppointment(
 	event: RequestEvent,
 	id: string,
-	input: { starts_at: string; professional_id?: string; encaixe?: boolean; reschedule_reason?: string; expected_version: number }
+	input: {
+		starts_at: string;
+		professional_id?: string;
+		encaixe?: boolean;
+		reschedule_reason?: string;
+		// A pergunta do modal (2026-08-01). Sempre presente: ausente é `false` na API, e omitir
+		// aqui tornaria a escolha da recepção indistinguível de um campo que não chegou.
+		avisar_paciente: boolean;
+		expected_version: number
+	}
 ): Promise<MutationResult> {
 	return mutate(event, `/api/appointments/${id}/reschedule`, 'PATCH', input);
 }
@@ -234,7 +243,7 @@ export function rescheduleAppointment(
 export function cancelAppointment(
 	event: RequestEvent,
 	id: string,
-	input: { cancel_reason?: string; expected_version: number }
+	input: { cancel_reason?: string; avisar_paciente: boolean; expected_version: number }
 ) {
 	return mutate(event, `/api/appointments/${id}/cancel`, 'POST', input);
 }

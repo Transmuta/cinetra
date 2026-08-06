@@ -24,21 +24,26 @@ defmodule Api.Messaging.Webhooks do
   Zernio entrou, esta parte — a que não se descobre sem escrever — já estava de pé, e o que
   sobrou foi um mapa de nomes de evento.
 
-  ## Idempotência sem tabela de eventos vistos
+  ## Idempotência em duas camadas
 
   Os dois providers reentregam o mesmo evento quando não recebem 2xx a tempo (a Zernio tenta 7
-  vezes, até 24 h), então repetição é o caso normal. Não há tabela de id já processado porque as
-  duas escritas possíveis já são idempotentes por natureza:
+  vezes, até 24 h), então repetição é o caso normal. Duas coisas diferentes cuidam disso:
+
+  **1. Os efeitos são idempotentes por natureza** — é o que torna a reentrega *dentro da janela de
+  retentativa* inofensiva:
 
     * **avanço de estado** é monotônico (`MessageStatus.avanca?/2`) — reaplicar `delivered` numa
       mensagem entregue é no-op;
-    * **opt-out** é verificado antes de gravar (`Api.Messaging.opt_out/4`).
+    * **opt-out** é upsert sobre a identity dos vigentes (doc 96, A-5) — regravar não duplica.
 
-  Uma tabela a mais daria a mesma garantia com custo de escrita e de poda. O que ela acrescentaria
-  é proteção contra *reprocessar* eventos muito antigos — e disso o Resend cuida pela janela de
-  tolerância da assinatura (`Api.Messaging.Svix`). **A Zernio não tem essa janela**
-  (`Api.Messaging.ZernioSignature` explica), então ali a idempotência é a única defesa: acrescentar
-  um evento de efeito não-idempotente exige a tabela primeiro.
+  **2. `Api.Messaging.WebhookEvent` recusa o corpo já visto** — e é ela que cuida do replay
+  *tardio*, que a camada 1 não alcança. O que o argumento antigo não via: entre o `SAIR` original e
+  a reentrega cabe uma **revogação**, e replay depois dela ressilencia o paciente. Isso não é um
+  efeito não-idempotente do evento; é uma ação do outro lado que o desfaz (doc 96, S-7).
+
+  A barreira mora na **fronteira** (os dois controllers de webhook), porque a chave é o SHA-256 do
+  corpo cru e só ela o tem. O Resend também a atravessa, embora o Svix já valide timestamp: a
+  propriedade "um evento é processado uma vez" não deve depender de qual provider mandou.
 
   ## `complained` é opt-out imediato, `bounced` não é
 
@@ -201,12 +206,13 @@ defmodule Api.Messaging.Webhooks do
 
   defp buscar(id) do
     Api.Repo.with_provider_message(id, fn ->
-      case Messaging.get_message_by_provider_id(id, authorize?: false, not_found_error?: false) do
-        {:ok, %{} = message} -> {:ok, message}
-        _ -> :error
-      end
+      Messaging.get_message_by_provider_id(id, authorize?: false, not_found_error?: false)
     end)
-    |> elem(1)
+    |> Api.Repo.unwrap()
+    |> case do
+      {:ok, %{} = message} -> {:ok, message}
+      _ -> :error
+    end
   end
 
   defp id_do_resend(%{"email_id" => id}), do: [id]
@@ -236,13 +242,14 @@ defmodule Api.Messaging.Webhooks do
     end
   end
 
+  # Sem `with_clinic/2` em volta (doc 96, B-11): `:advance` carrega `SetTenantGuc`, e a transação
+  # externa só acrescentava a armadilha de `Api.Tenancy` — rollback do Ash arrebentando a de fora.
+  # O caminho de erro deste ponto é o `rescue` abaixo, e agora é o único.
   defp avancar(message, estado, motivo) do
-    Api.Repo.with_clinic(message.clinic_id, fn ->
-      Messaging.do_advance_message!(message, %{novo_status: estado, erro: motivo},
-        tenant: message.clinic_id,
-        authorize?: false
-      )
-    end)
+    Messaging.do_advance_message!(message, %{novo_status: estado, erro: motivo},
+      tenant: message.clinic_id,
+      authorize?: false
+    )
 
     :ok
   rescue

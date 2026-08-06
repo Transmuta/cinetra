@@ -91,12 +91,12 @@ describe('NewAppointmentModal', () => {
 	});
 
 	// A9 / D2: encaixe fura a grade e é de quem responde pela agenda.
-	it('recepção vê o checkbox de Encaixe', () => {
+	it('recepção vê o interruptor de Encaixe', () => {
 		render(NewAppointmentModal, { props: base });
 		expect(screen.getByLabelText(/encaixe/i)).toBeInTheDocument();
 	});
 
-	it('profissional NÃO vê o checkbox de Encaixe', () => {
+	it('profissional NÃO vê o interruptor de Encaixe', () => {
 		render(NewAppointmentModal, { props: { ...base, papel: 'profissional' as const } });
 		expect(screen.queryByLabelText(/encaixe/i)).not.toBeInTheDocument();
 	});

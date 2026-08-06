@@ -9,7 +9,7 @@ defmodule ApiWeb.AuthController do
 
   # Tradução do erro do Ash em resposta HTTP (403/404/422). Fonte única compartilhada com os
   # controllers de tenant, mesmo que estes endpoints de identidade sejam globais (sem clínica).
-  import ApiWeb.TenantScope, only: [error_response: 2]
+  import ApiWeb.TenantScope, only: [error_response: 2, unauthorized: 1, invalid: 2]
 
   alias Api.Accounts
   alias Api.Accounts.Membership
@@ -46,10 +46,17 @@ defmodule ApiWeb.AuthController do
         |> Helpers.store_in_session(user)
         |> redirect(external: Api.web_app_url())
 
+      # **401 de verdade, sem `Location`** (doc 96, H-10). Isto era
+      # `put_status(:unauthorized) |> redirect(external: …)`, e `Phoenix.Controller.redirect/2`
+      # faz `send_resp(conn.status || 302, …)` — saía **401 com header `Location`**, um redirect
+      # que browser nenhum segue. Funcionava porque quem lê esta resposta é o BFF, com
+      # `redirect: 'manual'`, e ele olha só o `set-cookie` (`reemitSession/2`); o destino do
+      # "redirect" nunca foi usado por ninguém.
+      #
+      # Quem decide para onde o usuário vai depois de um link inválido é o BFF, que já faz
+      # `redirect(303, '/entrar?erro=link')` — e é o lugar certo, porque a rota de destino é dele.
       {:error, _reason} ->
-        conn
-        |> put_status(:unauthorized)
-        |> redirect(external: Api.web_app_url() <> "/entrar?erro=magic_link")
+        unauthorized(conn)
     end
   end
 
@@ -70,7 +77,7 @@ defmodule ApiWeb.AuthController do
         memberships = Accounts.list_active_memberships!(user.id, authorize?: false)
 
         json(conn, %{
-          user: %{id: user.id, nome: user.nome, email: to_string(user.email)},
+          user: user_json(user),
           active_clinic_id: scope.clinic_id,
           papel: scope.papel,
           professional_id: scope.professional_id,
@@ -87,7 +94,7 @@ defmodule ApiWeb.AuthController do
         })
 
       _ ->
-        unauthenticated(conn)
+        unauthorized(conn)
     end
   end
 
@@ -104,12 +111,15 @@ defmodule ApiWeb.AuthController do
             |> reload_scope(user, clinic_id)
             |> me(%{})
 
+          # 404, e não 403 (doc 96, H-7): o ator não está proibido de nada — a clínica pedida
+          # simplesmente não existe para ele. Com 403 o cliente não distinguia "sem permissão
+          # nesta clínica" de "esta clínica não é sua", e as duas pedem telas diferentes.
           _ ->
-            conn |> put_status(:forbidden) |> json(%{error: "no_active_membership"})
+            conn |> put_status(:not_found) |> json(%{error: "no_active_membership"})
         end
 
       _ ->
-        unauthenticated(conn)
+        unauthorized(conn)
     end
   end
 
@@ -142,16 +152,42 @@ defmodule ApiWeb.AuthController do
       %Scope{user: user} ->
         case Accounts.update_profile(user, %{nome: params["nome"]}, actor: user) do
           {:ok, updated} ->
-            json(conn, %{
-              user: %{id: updated.id, nome: updated.nome, email: to_string(updated.email)}
-            })
+            json(conn, %{user: user_json(updated)})
 
           {:error, error} ->
             error_response(conn, error)
         end
 
       _ ->
-        unauthenticated(conn)
+        unauthorized(conn)
+    end
+  end
+
+  # POST /api/auth/terms-acceptance {versao} — registra o aceite dos documentos legais (`[D-14]`).
+  #
+  # Quem chama é o **BFF**, logo depois de assinar a sessão, nos dois caminhos de login. E a
+  # versão vem dele, não daqui, de propósito: o texto legal mora em `web/src/lib/legal.ts`, e uma
+  # constante espelhada nesta ponta apodreceria em silêncio no dia em que o texto mudasse — o
+  # banco passaria a registrar aceite de uma versão que ninguém leu. É o A5 aplicado ao registro
+  # que menos pode estar errado.
+  #
+  # Idempotente por versão (ver `Api.Accounts.User.Changes.StampTermsAcceptance`): rodar a cada
+  # login não reescreve a data do primeiro aceite.
+  def terms_acceptance(conn, params) do
+    versao = params["versao"]
+
+    case {conn.assigns[:scope], versao} do
+      {%Scope{user: user}, v} when is_binary(v) and v != "" ->
+        case Accounts.accept_terms(user, v, %{}, actor: user) do
+          {:ok, _updated} -> send_resp(conn, :no_content, "")
+          {:error, error} -> error_response(conn, error)
+        end
+
+      {%Scope{}, _} ->
+        invalid(conn, "versao é obrigatória")
+
+      _ ->
+        unauthorized(conn)
     end
   end
 
@@ -172,7 +208,7 @@ defmodule ApiWeb.AuthController do
         end
 
       _ ->
-        unauthenticated(conn)
+        unauthorized(conn)
     end
   end
 
@@ -198,12 +234,30 @@ defmodule ApiWeb.AuthController do
 
         json(conn, %{token: token, expires_at: expires_at, clinic_id: clinic_id})
 
+      # 422, e não 409 (doc 96, H-6). A régua do projeto está escrita em `TenantScope`:
+      # **422 = "seu pedido está errado"; 409 = "seu pedido estava certo, o mundo mudou"**, com o
+      # 409 reservado a concorrência. "Você não tem clínica ativa" não é corrida — e o corpo
+      # tampouco seguia a forma do 409 do projeto.
       %Scope{} ->
-        conn |> put_status(:conflict) |> json(%{error: "no_active_clinic"})
+        invalid(conn, "Nenhuma clínica ativa nesta sessão.")
 
       _ ->
-        unauthenticated(conn)
+        unauthorized(conn)
     end
+  end
+
+  # A identidade como o cliente a vê. Fonte única do `/me` e do PATCH de perfil — as duas
+  # respostas descreviam o mesmo usuário com dois literais, e foi assim que a segunda ficaria
+  # para trás quando um campo entrasse (o `avatar_url` seria exatamente esse campo).
+  defp user_json(user) do
+    %{
+      id: user.id,
+      nome: user.nome,
+      email: to_string(user.email),
+      # URL assinada de vida curta, nunca a chave do objeto. A regra inteira — e o porquê de cada
+      # parte dela — mora em `ApiWeb.AvatarUrl`, que a lista da equipe usa igual.
+      avatar_url: ApiWeb.AvatarUrl.for_user(user)
+    }
   end
 
   # Reconstrói o scope em memória após a troca de tenant, para o /me refletir na hora.
@@ -217,22 +271,51 @@ defmodule ApiWeb.AuthController do
     end
   end
 
+  # A identidade da clínica que viaja no /me, com o prefixo `clinic_` (o payload é um membership
+  # por clínica). Alimenta o topo do sidebar — nome no lugar da marca, CNPJ, contato e endereço —
+  # sem um fetch extra e reagindo à troca de tenant; a `clinic` já vem carregada pela read
+  # `active_for_user`, então nada disto custa query.
+  #
+  # É uma LISTA, e espelha o `@campos_de_info` do `ClinicController`, porque foi exatamente aí
+  # que ela falhou: quando o endereço deixou de ser uma linha livre e virou sete campos, só
+  # `endereco` (o logradouro) continuou atravessando. A tela salvava número, bairro, cidade e
+  # CEP, e o sidebar mostrava "Av. Paulista" — dado gravado e invisível, sem erro nenhum.
+  # Campo novo lá entra aqui, e chega ao sidebar.
+  @campos_da_clinica for campo <- [
+                           :nome,
+                           :cnpj,
+                           :telefone,
+                           :cep,
+                           :endereco,
+                           :numero,
+                           :complemento,
+                           :bairro,
+                           :cidade,
+                           :uf,
+                           # Por membership também, e não só no topo: na troca de tenant o fuso
+                           # muda junto, e a UI não deveria precisar de um /me novo para saber.
+                           :timezone
+                         ],
+                         do: {campo, :"clinic_#{campo}"}
+
   defp membership_json(%Membership{} = m) do
-    %{
-      clinic_id: m.clinic_id,
-      clinic_nome: m.clinic && m.clinic.nome,
-      # Identidade da clínica também viaja no /me: alimenta o topo do sidebar (nome no lugar da
-      # marca + CNPJ/endereço) sem um fetch extra e reagindo à troca de tenant. A `clinic` já vem
-      # carregada pela read `active_for_user`.
-      clinic_cnpj: m.clinic && m.clinic.cnpj,
-      clinic_endereco: m.clinic && m.clinic.endereco,
-      # Por membership também, e não só no topo: na troca de tenant o fuso muda junto, e a UI
-      # não deveria precisar de um /me novo para saber disso.
-      clinic_timezone: m.clinic && m.clinic.timezone,
-      papel: m.papel,
-      professional_id: m.professional_id
-    }
+    Map.merge(
+      %{
+        clinic_id: m.clinic_id,
+        papel: m.papel,
+        professional_id: m.professional_id
+      },
+      clinic_json(m.clinic)
+    )
   end
+
+  defp clinic_json(%Api.Accounts.Clinic{} = clinic) do
+    Map.new(@campos_da_clinica, fn {campo, chave} -> {chave, Map.get(clinic, campo)} end)
+  end
+
+  # Membership sem a clínica carregada: as chaves continuam existindo, nulas. O cliente não deve
+  # precisar distinguir "a API não manda esse campo" de "a clínica não preencheu".
+  defp clinic_json(_), do: Map.new(@campos_da_clinica, fn {_campo, chave} -> {chave, nil} end)
 
   # Acha a membership da clínica ativa e SÓ ENTÃO extrai o fuso. A forma óbvia —
   # `Enum.find_value` com `m.clinic_id == clinic_id && m.clinic.timezone` — parece equivalente
@@ -246,9 +329,5 @@ defmodule ApiWeb.AuthController do
       %{clinic: %{timezone: timezone}} -> timezone
       _ -> nil
     end
-  end
-
-  defp unauthenticated(conn) do
-    conn |> put_status(:unauthorized) |> json(%{error: "not_authenticated"})
   end
 end

@@ -30,17 +30,17 @@
 
 <Modal {title} {onClose}>
 	<div
-		class="flex items-start gap-2.75 rounded-[11px] border border-danger/30 bg-danger/10 px-3.25 py-3"
+		class="flex items-start gap-2.75 rounded-cartao border border-danger/30 bg-danger/10 px-3.25 py-3"
 	>
 		<TriangleAlert size={18} class="mt-px shrink-0 text-danger" />
-		<div class="text-[13px] leading-normal text-ink">{@render children()}</div>
+		<div class="text-corpo leading-normal text-ink">{@render children()}</div>
 	</div>
 
 	{#snippet footer()}
 		<button
 			type="button"
 			onclick={onClose}
-			class="rounded-md border border-edge bg-surface px-4 py-2.25 text-[13.5px] font-semibold text-ink hover:bg-surface-2"
+			class="rounded-controle border border-edge bg-surface px-4 py-2.25 text-corpo font-semibold text-ink hover:bg-surface-2"
 		>
 			{cancelLabel}
 		</button>
@@ -51,7 +51,7 @@
 			onclick={onConfirm}
 			disabled={submitting}
 			aria-busy={submitting}
-			class="inline-flex items-center gap-1.5 rounded-md bg-danger-solid px-4 py-2.25 text-[13.5px] font-bold text-white hover:opacity-90 disabled:opacity-60"
+			class="inline-flex items-center gap-1.5 rounded-controle bg-danger-solid px-4 py-2.25 text-corpo font-bold text-white hover:opacity-90 disabled:opacity-60"
 		>
 			{#if submitting}<Loader size={14} class="animate-spin" />{/if}
 			{confirmLabel}

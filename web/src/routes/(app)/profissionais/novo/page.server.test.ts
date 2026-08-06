@@ -19,15 +19,32 @@ function ev(fields: Record<string, string> = {}) {
 
 beforeEach(() => [...Object.values(ch), ...Object.values(m)].forEach((fn) => fn.mockReset()));
 
+// O `load` desta tela lê o papel do layout pai: ela é a única das três de Profissionais que NÃO
+// toca `/api/professionals` (só o expediente da clínica), então não haveria 403 da API para
+// herdar — a guarda tem de ser explícita. Ver doc 103.
+const evLoad = (papel = 'owner') => ({ parent: async () => ({ me: { papel } }) }) as never;
+
 describe('load', () => {
 	it('converte o expediente da clínica em linhas', async () => {
 		ch.fetchClinicHours.mockResolvedValueOnce({ status: 200, data: { clinic_hours: { '1': [['08:00', '12:00']] } } });
-		const r = (await load({} as never)) as { clinicHours: { dow: number; periods: unknown }[] };
+		const r = (await load(evLoad())) as { clinicHours: { dow: number; periods: unknown }[] };
 		expect(r.clinicHours).toEqual([{ dow: 1, modo: null, periods: [['08:00', '12:00']] }]);
 	});
 	it('sem data → error', async () => {
 		ch.fetchClinicHours.mockResolvedValueOnce({ status: 502, data: null });
-		await expect(load({} as never)).rejects.toMatchObject({ status: 502 });
+		await expect(load(evLoad())).rejects.toMatchObject({ status: 502 });
+	});
+
+	it('o profissional toma 403 — e nem chega a pedir o expediente', async () => {
+		await expect(load(evLoad('profissional'))).rejects.toMatchObject({ status: 403 });
+		expect(ch.fetchClinicHours).not.toHaveBeenCalled();
+	});
+
+	// A recepção não CRIA profissional (a policy da API recusa o save), mas alcança a seção —
+	// o recorte desta guarda é "não é o próprio profissional", não "é owner/admin".
+	it('a recepção passa pela guarda', async () => {
+		ch.fetchClinicHours.mockResolvedValueOnce({ status: 200, data: { clinic_hours: { '1': [] } } });
+		await expect(load(evLoad('recepcao'))).resolves.toBeTruthy();
 	});
 });
 

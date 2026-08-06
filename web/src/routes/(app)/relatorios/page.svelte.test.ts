@@ -28,8 +28,8 @@ function report(over: Partial<ReportsData> = {}): ReportsData {
 			pico: { date: '2026-06-12', total: 5 }
 		},
 		por_dia: [
-			{ date: '2026-06-01', total: 5, concluidos: 4 },
-			{ date: '2026-06-02', total: 3, concluidos: 2 }
+			{ date: '2026-06-01', total: 5, concluidos: 4, aberto: true },
+			{ date: '2026-06-02', total: 3, concluidos: 2, aberto: true }
 		],
 		por_tipo: [{ appointment_type_id: 't1', total: 8 }],
 		por_profissional: [
@@ -125,10 +125,36 @@ describe('Relatórios — render', () => {
 		expect(getByText('Fisioterapia')).toBeInTheDocument();
 	});
 
+	// Três desenhos, um cartão (doc 106): a barra vertical servia os três e desmontava nos
+	// extremos — tijolos de 145px na semana, fios de 4,8px no trimestre.
+	it('janela curta desenha uma linha por dia, com o nome do dia da semana', () => {
+		const { getByText, queryByRole } = render(Page, { props: { data: data() as never } });
+
+		expect(getByText('seg')).toBeInTheDocument(); // 01/06/2026 é uma segunda
+		expect(getByText('01/06')).toBeInTheDocument();
+		expect(queryByRole('table')).not.toBeInTheDocument();
+	});
+
+	it('janela longa troca as barras pelo calendário', () => {
+		const mes = data({
+			por_dia: Array.from({ length: 30 }, (_, i) => ({
+				date: `2026-06-${String(i + 1).padStart(2, '0')}`,
+				total: i,
+				concluidos: i,
+				aberto: true
+			}))
+		});
+		const { getByRole } = render(Page, { props: { data: mes as never } });
+
+		expect(getByRole('table')).toBeInTheDocument();
+		expect(getByRole('rowheader', { name: 'seg' })).toBeInTheDocument();
+		expect(getByRole('button', { name: '03/06: 2 atendimentos, 2 concluídos' })).toBeInTheDocument();
+	});
+
 	it('um dia só troca o gráfico para "Volume por profissional"', () => {
 		const um = data({
 			range: { from: '2026-06-17', to: '2026-06-17' },
-			por_dia: [{ date: '2026-06-17', total: 4, concluidos: 3 }]
+			por_dia: [{ date: '2026-06-17', total: 4, concluidos: 3, aberto: true }]
 		});
 		const { getByText, queryByText } = render(Page, { props: { data: um as never } });
 

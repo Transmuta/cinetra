@@ -47,11 +47,12 @@
 		/>
 
 		{#if form?.error}
-			<p class="mb-3 text-[12.5px] text-danger">{form.error}</p>
+			<p class="mb-3 text-rotulo text-danger">{form.error}</p>
 		{/if}
 
 		<div class="mt-[6px]">
-			<Button type="submit" disabled={submitting}>
+			<!-- Largura total é da TELA de auth, não do botão: por isso `w-full` vem por `class`. -->
+			<Button type="submit" emVoo={submitting} class="w-full py-2.75 text-leitura">
 				{submitting ? 'Criando…' : 'Criar clínica'}
 			</Button>
 		</div>
@@ -59,10 +60,10 @@
 
 	{#snippet footer()}
 		{#if nova}
-			Você será a <strong class="text-ink">dona</strong> desta clínica.
-			<a class="ml-1 text-teal-text hover:underline" href="/">Voltar</a>
+			Você será o(a) <strong class="text-ink">dono(a)</strong> desta clínica.
+			<a class="ml-1 text-accent-text hover:underline" href="/">Voltar</a>
 		{:else}
-			Você será a <strong class="text-ink">dona</strong> desta clínica.
+			Você será o(a) <strong class="text-ink">dono(a)</strong> desta clínica.
 		{/if}
 	{/snippet}
 </AuthCard>

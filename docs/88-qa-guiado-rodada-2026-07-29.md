@@ -257,7 +257,44 @@ build, então um `preview` posterior quebra com `Cannot find module '.../server/
 
 **Sugestão:** subir o `timeout` do `webServer` para ~300s.
 
-### A-6 · O formulário de paciente re-renderiza a cada tecla — **observação, não reproduzida à mão**
+### A-6 · ~~O formulário re-renderiza a cada tecla~~ → **a hidratação come a primeira tecla** (diagnóstico corrigido)
+
+> **Este achado estava errado como escrito, e a correção é mais útil que ele.** O texto original
+> dizia que o formulário "se re-monta a cada `input`". Medido depois, com build fresco: **nenhum nó
+> é substituído**. Um `elementHandle` preso ao input do CPF continua com `isConnected === true`
+> através dos 11 dígitos, do debounce de 400ms e da consulta de duplicado. Não há laço de
+> re-render. O parágrafo abaixo fica como registro do que se pensou; o que valia está aqui.
+
+**A causa real.** A primeira tecla se perde quando a página ainda não hidratou: ela cai num input
+cujo `oninput` não existe, o estado do Svelte não recebe nada, e a hidratação reescreve
+`value={f.cpf}` — ainda vazio — por cima do que foi digitado. Medido, digitando `39053344705`:
+
+```
+valor do CPF no campo: 905.334.470-5     ← dez dígitos; o "3" inicial foi comido
+"já cadastrado" na tela? 0
+```
+
+E aí o efeito em cascata que me enganou: com **CPF incompleto o lookup de duplicado nem dispara**
+(ele exige 11 dígitos, por decisão — meio CPF não identifica ninguém). O teste falhava acusando "o
+aviso não apareceu", que é dois passos depois da causa. O `detached from the DOM, retrying` da
+primeira tentativa era a mesma corrida, vista pelo outro lado: a hidratação remendando a árvore no
+meio de uma ação do Playwright.
+
+**Consequência para o usuário:** plausível, não observada. Quem abre `/pacientes/novo` e começa a
+digitar antes da hidratação perde o primeiro caractere — e num CPF isso é silencioso, porque o
+campo continua parecendo preenchido. Não reproduzi com uma pessoa (o Playwright digita muito antes
+do que alguém alcança o campo), e por isso não virou conserto de produção nesta rodada. Se doer, os
+caminhos são desabilitar o formulário até hidratar, ou semear o estado a partir do DOM no mount —
+`bind:value` não serve, porque a máscara é justamente o que exige o `value` + `oninput`.
+
+**Os dois testes do §4 voltaram, e passam.** Estavam retirados por "instabilidade"; a instabilidade
+tinha nome. O helper `digitarCpf` redigita até o campo conter o CPF inteiro — a única afirmação que
+interessa ali — e é o que torna o cenário determinístico.
+
+<details>
+<summary>O diagnóstico original, mantido como registro</summary>
+
+### O que se pensou: o formulário de paciente re-renderiza a cada tecla
 
 Ao automatizar os dois itens de tela do §4, o campo de CPF aparece como
 `element was detached from the DOM, retrying` **até o timeout de 90s**: a cada `input` o formulário
@@ -275,6 +312,8 @@ O que merece um olhar é **por que o desanexamento não converge** — um `detac
 
 Os dois testes foram **retirados** do spec com o porquê no lugar, em vez de ficarem vermelhos:
 teste que falha por instabilidade própria treina a equipe a ignorar vermelho.
+
+</details>
 
 ### A-7 · A página 404 diz "Em construção" — **cosmético**
 

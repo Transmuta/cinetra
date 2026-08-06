@@ -42,7 +42,11 @@ defmodule ApiWeb.AuditController do
       case build_opts(scope, params) do
         {:ok, opts} ->
           result = Audit.list_events(scope, opts)
-          json(conn, %{entries: Enum.map(result.entries, &entry_json/1), page: result.page})
+
+          json(conn, %{
+            entries: Enum.map(result.entries, &entry_json/1),
+            page: page_json(result.page)
+          })
 
         {:error, message} ->
           invalid(conn, message)

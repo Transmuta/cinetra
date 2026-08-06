@@ -6,24 +6,34 @@
 	// uma frase FALSA diferente quando ele faltava: a Semana dizia "Sem expediente" (a clínica
 	// abre; quem sumiu foram os profissionais), o Mês desenhava células vazias, e a Lista dizia
 	// "Nenhum agendamento neste dia" havendo agendamentos — apenas filtrados.
+	//
+	// A casca agora é o `EstadoVazio`, que carrega essa mesma lição para as outras quatro telas
+	// que a repetiam com geometria própria (doc 94 §2.4). O que sobra aqui é o que é da AGENDA: o
+	// texto, a saída ("Mostrar todos") e o `h-full` sobre o canvas — este vazio preenche a área da
+	// grade, não é um cartão no meio de uma página.
 	import EyeOff from '@lucide/svelte/icons/eye-off';
+	import EstadoVazio from '$lib/components/EstadoVazio.svelte';
 
 	let { onShowAll }: { onShowAll: () => void } = $props();
 </script>
 
-<div
-	class="flex h-full flex-col items-center justify-center gap-2.5 bg-canvas p-6 text-center text-faint"
+<EstadoVazio
+	icone={EyeOff}
+	titulo="Nenhum profissional em exibição"
+	variante="inline"
+	class="h-full bg-canvas"
 >
-	<EyeOff size={26} />
-	<div class="text-[13.5px] font-semibold text-muted">Nenhum profissional em exibição</div>
-	<div class="text-[12.5px]">
+	{#snippet descricao()}
 		Ative ao menos um profissional na barra lateral para ver a agenda.
-	</div>
-	<button
-		type="button"
-		onclick={onShowAll}
-		class="mt-1 rounded-lg bg-primary px-3.5 py-2 text-[13px] font-semibold text-on-primary hover:opacity-90"
-	>
-		Mostrar todos
-	</button>
-</div>
+	{/snippet}
+
+	{#snippet acao()}
+		<button
+			type="button"
+			onclick={onShowAll}
+			class="rounded-controle bg-primary px-3.5 py-2 text-corpo font-semibold text-on-primary hover:bg-primary-hover"
+		>
+			Mostrar todos
+		</button>
+	{/snippet}
+</EstadoVazio>

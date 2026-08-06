@@ -1,6 +1,7 @@
 /* Cinetra — superfícies de marketing/autenticação (interface/Cinetra Landing.dc.html).
    Paleta quente (papel #F6F4EF · navy #212A37 · sálvia #7FA59A · sálvia-fundo #4E7468 ·
-   azul #3A5A78), separada do design system teal do app interno. Tudo escopado sob
+   azul #3A5A78), separada do design system do app interno — que desde a ADR-021 também é sage,
+   pelo mesmo #7FA59A daqui. Tudo escopado sob
    `.cn-root` para NÃO vazar no shell administrativo — só as @keyframes são globais
    (os `animation:` inline das artes/seções as referenciam pelo nome). */
 
@@ -150,6 +151,293 @@
 	line-height: 1.65;
 	color: #575249;
 	text-wrap: pretty;
+}
+
+/* ---------------------------------------------------------------------------------------------
+   A tela do PACIENTE (/confirmar/[token] — doc 52 §5).
+
+   Quem abre não é usuário do sistema: é alguém que recebeu uma mensagem e clicou. A tela vinha
+   pintada com o design system do app interno (superfície branco-azulada, tokens `--mv-*`) e — por
+   não ter cookie de tema — seguia o `prefers-color-scheme` do aparelho: e-mail em papel creme,
+   página quase preta. Duas marcas a um clique de distância, num link que chega por WhatsApp.
+
+   Então ela passa a ser a MESMA moldura do e-mail (`Api.EmailLayout`): papel, cartão, topo navy
+   com o nome da clínica, régua sálvia, e a Cinetra só no rodapé — porque quem manda a mensagem é
+   a clínica, e nós somos quem entrega. Os hex são os de lá, um a um.
+
+   Mora aqui, e não no `.svelte`, pelo motivo de sempre neste arquivo: é pigmento de marca, fora
+   do sistema de tokens do app — e como CSS ele ganha media query, `:hover` e `:focus-visible`
+   sem inline nenhum. --------------------------------------------------------------------------- */
+
+.cn-paciente {
+	min-height: 100dvh;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	align-items: center;
+	gap: 18px;
+	padding: 28px 18px 34px;
+}
+.cn-paciente-cartao {
+	width: 100%;
+	max-width: 440px;
+	background: #fff;
+	border: 1px solid #e6e2d8;
+	border-radius: 18px;
+	overflow: hidden;
+	animation: cnFade 0.4s ease both;
+}
+
+/* Topo: o nome da CLÍNICA, como no cabeçalho do e-mail. Não é enfeite de marca — é o §9.1.4
+   ("de quem é esta mensagem?") respondido na primeira linha, para quem recebe avisos de mais de
+   um lugar. */
+.cn-paciente-topo {
+	background: #212a37;
+	padding: 26px 26px 22px;
+	/* O logo herda daqui: as letras da marca são `currentColor` (ver `Logo.svelte`), e sobre o
+	   navy elas precisam ser brancas. */
+	color: #fff;
+}
+.cn-paciente-topo h2,
+.cn-paciente-topo p.cn-paciente-clinica {
+	margin: 0;
+	font-size: 22px;
+	line-height: 1.25;
+	font-weight: 700;
+	letter-spacing: -0.01em;
+	color: #fff;
+	text-wrap: pretty;
+}
+/* A mesma régua sálvia de 52×3 do e-mail, e no mesmo lugar: é ela que faz os dois cabeçalhos
+   serem lidos como a mesma peça. */
+.cn-paciente-regua {
+	width: 52px;
+	height: 3px;
+	border-radius: 2px;
+	background: #7fa59a;
+	margin: 14px 0 0;
+}
+.cn-paciente-tel {
+	display: inline-block;
+	margin-top: 14px;
+	font-size: 14px;
+	line-height: 22px;
+	color: #c3ccd2;
+	text-decoration: none;
+}
+.cn-paciente-tel:hover {
+	color: #fff;
+}
+.cn-paciente-corpo {
+	padding: 24px 26px 26px;
+}
+.cn-paciente-corpo h1 {
+	margin: 0;
+	font-size: 21px;
+	line-height: 1.3;
+	font-weight: 700;
+	letter-spacing: -0.015em;
+	color: #212a37;
+	text-wrap: pretty;
+}
+.cn-paciente-corpo p {
+	margin: 8px 0 0;
+	font-size: 15.5px;
+	line-height: 1.6;
+	color: #575249;
+	text-wrap: pretty;
+}
+
+/* A caixa do QUANDO. É o hero da tela: quem abre no ônibus está decidindo se sai de casa, e o
+   que responde isso é o dia e a hora — não a saudação. Mesma cor da caixa de destaque do e-mail. */
+.cn-paciente-quando {
+	margin-top: 18px;
+	padding: 18px 20px;
+	background: #f1f5f3;
+	border: 1px solid #dce6e1;
+	border-radius: 14px;
+}
+.cn-paciente-selo {
+	display: inline-block;
+	margin-bottom: 8px;
+	padding: 4px 10px;
+	border-radius: 999px;
+	background: #e0ebe6;
+	font-family: 'Martian Mono', monospace;
+	font-size: 11px;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	color: #28453b;
+}
+.cn-paciente-hora {
+	display: block;
+	font-size: 34px;
+	line-height: 1.05;
+	font-weight: 800;
+	letter-spacing: -0.02em;
+	color: #212a37;
+	font-variant-numeric: tabular-nums;
+}
+.cn-paciente-dia {
+	display: block;
+	margin-top: 6px;
+	font-size: 16px;
+	line-height: 1.4;
+	color: #3f5a50;
+	text-wrap: pretty;
+}
+
+/* Os dois botões. O espaço entre eles é regra, não respiro: são respostas OPOSTAS, e quem
+   responde está no celular, muitas vezes em rede ruim. Com 8px, o toque que erra por um dedo
+   manda o contrário do que a pessoa quis. */
+.cn-paciente-acoes {
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+	margin-top: 20px;
+}
+.cn-paciente-btn {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 9px;
+	width: 100%;
+	min-height: 54px;
+	padding: 14px 18px;
+	border: 1px solid transparent;
+	border-radius: 12px;
+	font-size: 16px;
+	font-weight: 700;
+	font-family: inherit;
+	cursor: pointer;
+	transition:
+		background 0.2s,
+		border-color 0.2s;
+}
+.cn-paciente-btn:disabled {
+	opacity: 0.6;
+	cursor: default;
+}
+/* Sálvia escura, e não o navy do "Começar grátis" da landing: aqui o botão principal é um SIM,
+   não uma conversão. 5,2:1 sobre branco — acima do piso da WCAG AA. */
+.cn-paciente-btn-sim {
+	background: #4e7468;
+	color: #fff;
+}
+.cn-paciente-btn-sim:hover:not(:disabled) {
+	background: #41625a;
+}
+.cn-paciente-btn-nao {
+	background: #fff;
+	border-color: #dcd8ce;
+	color: #212a37;
+	font-weight: 600;
+}
+.cn-paciente-btn-nao:hover:not(:disabled) {
+	background: #f2efe8;
+	border-color: #b9b3a4;
+}
+
+/* O depois do clique. Dois tons, e a diferença não é decorativa: confirmar é um desfecho
+   (verde), pedir remarcação é um pedido em aberto que ainda depende da clínica ligar. Pintar os
+   dois de verde dizia "resolvido" para quem ainda não tem horário nenhum. */
+.cn-paciente-aviso {
+	display: flex;
+	align-items: flex-start;
+	gap: 10px;
+	margin-top: 18px;
+	padding: 14px 16px;
+	border: 1px solid;
+	border-radius: 12px;
+	font-size: 15px;
+	line-height: 1.5;
+	text-wrap: pretty;
+}
+.cn-paciente-aviso svg {
+	flex-shrink: 0;
+	margin-top: 2px;
+}
+.cn-paciente-aviso-sim {
+	background: #eaf0ee;
+	border-color: #cfe0d8;
+	color: #28453b;
+}
+.cn-paciente-aviso-espera {
+	background: #eef2f6;
+	border-color: #d8e2ec;
+	color: #2c4a66;
+}
+/* Sessão cancelada ou já passada: não é erro do paciente nem sucesso — é um fato que ele precisa
+   ver antes de tudo. Areia, e não vermelho: vermelho leria como "você fez algo errado". */
+.cn-paciente-aviso-atencao {
+	background: #f6ede2;
+	border-color: #e7d6c2;
+	color: #6b4e2e;
+}
+
+/* Ações secundárias: "adicionar à agenda" e "falar com a clínica". Discretas de propósito — a
+   decisão principal já foi tomada acima, e o que sobra é o que fazer com ela. */
+.cn-paciente-secundarias {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 10px;
+	margin-top: 16px;
+}
+.cn-paciente-link {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	min-height: 44px;
+	padding: 10px 16px;
+	border: 1px solid #dcd8ce;
+	border-radius: 10px;
+	background: #fff;
+	font-size: 14.5px;
+	font-weight: 600;
+	font-family: inherit;
+	color: #212a37;
+	cursor: pointer;
+	transition:
+		background 0.2s,
+		border-color 0.2s;
+}
+.cn-paciente-link:hover {
+	background: #f2efe8;
+	border-color: #b9b3a4;
+}
+/* A nota de rodapé (o que a tela NÃO faz) e a assinatura. Fora do cartão: são sobre a página,
+   não sobre a sessão. */
+.cn-paciente-nota {
+	max-width: 440px;
+	margin: 0;
+	text-align: center;
+	font-size: 13.5px;
+	line-height: 1.5;
+	color: #736e63;
+	text-wrap: pretty;
+}
+.cn-paciente-assinatura {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	font-size: 12.5px;
+	color: #8b8577;
+}
+
+@media (max-width: 380px) {
+	.cn-paciente {
+		padding: 18px 12px 26px;
+	}
+	.cn-paciente-topo {
+		padding: 22px 20px 18px;
+	}
+	.cn-paciente-corpo {
+		padding: 20px 20px 22px;
+	}
+	.cn-paciente-hora {
+		font-size: 30px;
+	}
 }
 
 /* Documentos legais (/privacidade e /termos). Prosa longa, não superfície de conversão: a

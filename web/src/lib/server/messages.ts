@@ -73,17 +73,17 @@ function parseResultados(body: unknown): SendOutcome[] {
 
 	return raw.flatMap((item) => {
 		if (typeof item !== 'object' || item === null) return [];
-		const { patientId, enviado, motivo, agendadoPara } = item as Record<string, unknown>;
-		if (typeof patientId !== 'string' || typeof enviado !== 'boolean') return [];
+		const { patient_id, enviado, motivo, agendado_para } = item as Record<string, unknown>;
+		if (typeof patient_id !== 'string' || typeof enviado !== 'boolean') return [];
 
 		return [
 			{
-				patientId,
+				patient_id,
 				enviado,
 				motivo: typeof motivo === 'string' ? motivo : null,
 				// Preenchido = a janela de silêncio adiou. Ausente é o caso normal (sai agora), e
 				// por isso o desvio de forma cai em `null` em vez de derrubar o resultado inteiro.
-				agendadoPara: typeof agendadoPara === 'string' ? agendadoPara : null
+				agendado_para: typeof agendado_para === 'string' ? agendado_para : null
 			}
 		];
 	});

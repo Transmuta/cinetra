@@ -69,6 +69,28 @@ export interface Slot {
 	freed: boolean;
 }
 
+/**
+ * O corpo dos endpoints internos que o BROWSER chama por `fetch`.
+ *
+ * Eles moram aqui, e não no `+server.ts`, porque precisam ser importáveis dos **dois** lados: o
+ * handler que responde e o componente que consome. Sem isso o formato ficava escrito duas vezes,
+ * inline em cada `.then()`, e nada ligava um ao outro — o TypeScript atravessaria essa fronteira
+ * de graça e não estava sendo deixado (doc 94 §4.5).
+ *
+ * O default vazio é parte do contrato, não descuido: estes três degradam para lista vazia em vez
+ * de estourar, porque a tela funciona sem eles (a fila sem chip de vaga ainda é a fila).
+ */
+export interface SlotsResponse {
+	slots: Slot[];
+}
+
+export interface SlotsByEntryResponse {
+	slots_by_entry: Record<string, Slot[]>;
+}
+
+export interface CandidatesResponse {
+	candidates: Entry[];
+}
 
 // O profissional como a fila o consome é o MESMO da agenda (o JSON reusa `AgendaJSON.professional`)
 // — reexportado para os call-sites da fila não importarem de `agenda`.
@@ -252,10 +274,13 @@ export function priorityCounts(entries: Entry[]): WaitlistCounts {
 // ---------------------------------------------------------------------------
 
 /**
- * A8: administrar a fila é de quem opera a agenda — owner/admin/recepção **e** profissional (a
- * fila não é "do profissional": qualquer um vê e mexe na fila inteira da clínica). Difere de
+ * A8: administrar a fila é de quem opera a agenda — owner/admin/recepção. Difere de
  * `canManageMembers` (só owner/admin), daí a lista própria em vez do alias.
+ *
+ * O `profissional` saiu em 2026-08-04, junto com o agendar: a saída natural de um item da fila é
+ * virar agendamento, então mexer na fila seria a mesma escrita pela porta ao lado. **Ler** ele
+ * continua lendo, e a fila inteira da clínica — inclusive as vagas nas colunas dos colegas.
  */
 export function canManageWaitlist(papel: Papel | null | undefined): boolean {
-	return papel === 'owner' || papel === 'admin' || papel === 'recepcao' || papel === 'profissional';
+	return papel === 'owner' || papel === 'admin' || papel === 'recepcao';
 }

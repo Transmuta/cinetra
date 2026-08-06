@@ -92,6 +92,28 @@ defmodule Api.Scheduling.Attendance do
   actions do
     defaults [:read]
 
+    # As presenças **previstas** que começam na janela `[de, ate)` — o recorte do lembrete por
+    # relógio (doc 52 §7).
+    #
+    # Mora aqui, e não solta no worker (doc 96, A-4): "quem ainda vai ser atendido nesta janela" é
+    # regra do recurso, e escrita no cron ela ficava fora do alcance de qualquer outra leitura que
+    # precisasse da mesma pergunta — inclusive da policy, que num filtro solto não tem onde entrar.
+    #
+    # `session_starts_at` mora na presença (não no bloco) desde a A2, e quem serve esta varredura é
+    # `attendances_clinic_session_starts_at_index`. O `status` fica **fora** do índice de propósito
+    # (ver o moduledoc da migration `LembretePorJanelaDeTempo`).
+    read :na_janela do
+      description "Presenças previstas que começam em [de, ate)."
+
+      argument :de, :utc_datetime, allow_nil?: false
+      argument :ate, :utc_datetime, allow_nil?: false
+
+      filter expr(
+               session_starts_at >= ^arg(:de) and session_starts_at < ^arg(:ate) and
+                 status == :prevista
+             )
+    end
+
     create :create do
       primary? true
       # `package_id` entra aqui (doc 41 etapa 2) porque quem cria a presença é o
@@ -199,9 +221,14 @@ defmodule Api.Scheduling.Attendance do
       authorize_if {Api.Accounts.Checks.HasClinicRole, roles: :any, clinic_from: :tenant}
     end
 
+    # A mesma lista da A8 do `Appointment`, e pelo mesmo motivo: a presença é o desfecho do
+    # bloco, não um registro à parte. Deixar o `profissional` marcando presença/falta enquanto
+    # ele não agenda seria dar-lhe a escrita que fecha a sessão (e debita pacote, e mexe no
+    # agregado `Patient.faltas`) depois de tirar a que a abre — ver o moduledoc de `Appointment`
+    # e a decisão de 2026-08-04 no doc 103.
     policy action_type([:create, :update, :destroy]) do
       authorize_if {Api.Accounts.Checks.HasClinicRole,
-                    roles: [:owner, :admin, :recepcao, :profissional], clinic_from: :tenant}
+                    roles: [:owner, :admin, :recepcao], clinic_from: :tenant}
     end
   end
 

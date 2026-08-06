@@ -19,6 +19,23 @@ defmodule ApiWeb.ClinicController do
   alias Api.Accounts
   alias Api.Scope
 
+  # Os campos de identidade, numa lista só: é ela que a whitelist do PATCH usa E que o JSON do GET
+  # devolve. Duas listas iguais divergiriam no primeiro campo novo, e a divergência tem uma cara
+  # específica e chata de achar — o formulário grava um campo que a leitura seguinte não traz, e a
+  # tela "perde" o valor ao recarregar.
+  @campos_de_info [
+    :nome,
+    :cnpj,
+    :telefone,
+    :cep,
+    :endereco,
+    :numero,
+    :complemento,
+    :bairro,
+    :cidade,
+    :uf
+  ]
+
   # POST /api/clinics {nome} — cria a clínica + o Membership `owner` do usuário atual.
   def onboard(conn, params) do
     case conn.assigns[:scope] do
@@ -54,9 +71,7 @@ defmodule ApiWeb.ClinicController do
     with_admin_scope(conn, fn scope ->
       with {:ok, %{} = clinic} <- Accounts.get_clinic(scope.clinic_id, scope: scope),
            {:ok, updated} <-
-             Accounts.update_clinic_info(clinic, whitelist(params, [:nome, :cnpj, :endereco]),
-               scope: scope
-             ) do
+             Accounts.update_clinic_info(clinic, whitelist(params, @campos_de_info), scope: scope) do
         json(conn, %{clinic: clinic_json(updated)})
       else
         {:ok, nil} -> not_found(conn)
@@ -82,30 +97,37 @@ defmodule ApiWeb.ClinicController do
     end)
   end
 
-  # O booleano chega do form como string; os inteiros podem chegar em branco, e **branco é
-  # `nil`** — que para `msg_lembrete_horas` significa DESLIGADO, não zero. Tratá-lo como 0 ligaria
-  # o lembrete para o instante da sessão.
+  # Os inteiros da janela de silêncio podem chegar em branco, e **branco é `nil`** — as duas
+  # pontas nulas significam "sem janela".
   defp messaging_params(params) do
     %{
-      msg_confirmacao_auto: params["msg_confirmacao_auto"] in [true, "true", "on", "1"],
-      msg_lembrete_horas: parse_int(params["msg_lembrete_horas"]),
+      # Booleano vem do form como string. `parse_bool/1` trata ausente como `false` de propósito:
+      # o formulário manda um hidden sempre (`SwitchToggle` é `<button>` e não entra no FormData),
+      # e a alternativa — ausente significa "não mexe" — faria o interruptor ser impossível de
+      # DESLIGAR pela tela. É exatamente o bug que o doc 98 §6 pegou ao vivo na janela de
+      # silêncio, e ele não vai acontecer duas vezes.
+      msg_whatsapp_ativo: parse_bool(params["msg_whatsapp_ativo"]),
       msg_silencio_inicio: parse_int(params["msg_silencio_inicio"]),
       msg_silencio_fim: parse_int(params["msg_silencio_fim"])
     }
   end
 
+  defp parse_bool(valor) when valor in [true, "true", "on", "1"], do: true
+  defp parse_bool(_valor), do: false
+
   # Os campos de comunicação viajam junto com a identidade: as duas telas de configuração leem
-  # do mesmo `GET /api/clinic`, e uma segunda rota só para quatro escalares seria um round-trip a
+  # do mesmo `GET /api/clinic`, e uma segunda rota só para três escalares seria um round-trip a
   # mais por uma economia de bytes que não existe.
   defp clinic_json(c) do
-    %{id: c.id, nome: c.nome, cnpj: c.cnpj, endereco: c.endereco}
+    @campos_de_info
+    |> Map.new(fn campo -> {campo, Map.fetch!(c, campo)} end)
+    |> Map.put(:id, c.id)
     |> Map.merge(messaging_json(c))
   end
 
   defp messaging_json(c) do
     %{
-      msg_confirmacao_auto: c.msg_confirmacao_auto,
-      msg_lembrete_horas: c.msg_lembrete_horas,
+      msg_whatsapp_ativo: c.msg_whatsapp_ativo,
       msg_silencio_inicio: c.msg_silencio_inicio,
       msg_silencio_fim: c.msg_silencio_fim
     }

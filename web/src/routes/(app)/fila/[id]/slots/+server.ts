@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { fetchSlots } from '$lib/server/waitlist';
+import type { SlotsResponse } from '$lib/waitlist';
 
 // As vagas compatíveis de UM item da fila (`GET /api/waitlist/:id/slots`, o motor `find_slots`).
 // Endpoint próprio consumido por `fetch` do modal de Oferecer — NÃO no load da lista, que faria N
@@ -11,5 +12,5 @@ import { fetchSlots } from '$lib/server/waitlist';
 // uma tela de erro.
 export const GET: RequestHandler = async (event) => {
 	const r = await fetchSlots(event, event.params.id);
-	return json({ slots: r.data?.slots ?? [] });
+	return json({ slots: r.data?.slots ?? [] } satisfies SlotsResponse);
 };

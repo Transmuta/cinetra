@@ -2,6 +2,7 @@
 // tenant/RBAC aqui — isso vive no escopo da API.
 
 import { TYPE_COLORS } from './appointment-types';
+import { DOW_LABELS } from './data-hora';
 
 export type PackageStatus = 'ativo' | 'pausado' | 'cancelado' | 'concluido';
 
@@ -61,6 +62,19 @@ export interface PreviewResult {
 	pode_salvar: boolean;
 }
 
+/**
+ * O corpo dos endpoints internos que o BROWSER chama por `fetch`. Moram aqui, e não no
+ * `+server.ts`, porque precisam ser importáveis dos **dois** lados — ver a nota gêmea em
+ * `waitlist.ts` e o doc 94 §4.5.
+ */
+export interface PackageSessionsResponse {
+	sessions: PackageSession[];
+}
+
+export interface PackagePreviewResponse {
+	preview: PreviewResult | null;
+}
+
 // Rótulo humano do status, para o chip da ficha.
 const STATUS_LABEL: Record<PackageStatus, string> = {
 	ativo: 'Ativo',
@@ -88,8 +102,10 @@ export function issueLabel(issue: OccurrenceIssue): string {
 	return ISSUE_LABEL[issue] ?? '';
 }
 
-// Dias da semana na convenção do projeto (0=domingo). Rótulos curtos para a grade.
-export const DOW_LABELS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+// Dias da semana na convenção do projeto (0=domingo). A lista mora em `data-hora` — ela não é do
+// domínio de pacotes, e enquanto morou aqui virou três cópias com três nomes em três componentes
+// (doc 93 §B-2). Reexportada porque a grade do pacote é o maior consumidor dela.
+export { DOW_LABELS };
 
 // Paleta de cores do pacote (o `cor` do cartão). O backend só exige `allow_nil? false` — a lista
 // fechada existe para o modal oferecer só tons legíveis, e é **a mesma dos tipos de atendimento**:
@@ -153,7 +169,7 @@ export function gradeLabel(
 	return [dias, prof].filter(Boolean).join(' · ');
 }
 
-export type ChipTone = 'teal' | 'warning' | 'faint' | 'danger';
+export type ChipTone = 'accent' | 'warning' | 'faint' | 'danger';
 /** Ícone da pílula de estado — `null` é o "Ativo", que no protótipo não tem ícone. */
 export type ChipIcone = 'alerta' | 'pausa' | 'check' | 'x' | null;
 
@@ -176,7 +192,7 @@ export function statusChip(pkg: {
 
 	if (pkg.restantes === 0) return { label: 'Completo', tone: 'faint', icone: 'check' };
 	if (pkg.acabando) return { label: 'Acabando', tone: 'warning', icone: 'alerta' };
-	return { label: 'Ativo', tone: 'teal', icone: null };
+	return { label: 'Ativo', tone: 'accent', icone: null };
 }
 
 /**

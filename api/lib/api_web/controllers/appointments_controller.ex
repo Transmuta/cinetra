@@ -104,7 +104,13 @@ defmodule ApiWeb.AppointmentsController do
         scope,
         id,
         :reschedule,
-        whitelist(params, [:starts_at, :professional_id, :encaixe, :reschedule_reason]),
+        whitelist(params, [
+          :starts_at,
+          :professional_id,
+          :encaixe,
+          :reschedule_reason,
+          :avisar_paciente
+        ]),
         params
       )
     end)
@@ -113,7 +119,14 @@ defmodule ApiWeb.AppointmentsController do
   # POST /api/appointments/:id/cancel — motivo opcional (D4).
   def cancel(conn, %{"id" => id} = params) do
     with_member_scope(conn, fn scope ->
-      transition(conn, scope, id, :cancel, whitelist(params, [:cancel_reason]), params)
+      transition(
+        conn,
+        scope,
+        id,
+        :cancel,
+        whitelist(params, [:cancel_reason, :avisar_paciente]),
+        params
+      )
     end)
   end
 

@@ -9,11 +9,8 @@
 	import { page as pageState } from '$app/state';
 	import { navigateQuery, type QueryPatch } from '$lib/querystring';
 	import { reportar } from '$lib/report';
-	import {
-		connectWaitlist,
-		type RealtimeConfig,
-		type WaitlistConnection
-	} from '$lib/realtime';
+	import { connectWaitlist, type WaitlistConnection } from '$lib/realtime';
+	import { usarTokenRealtime } from '$lib/realtime-token.svelte';
 	import Plus from '@lucide/svelte/icons/plus';
 	import Pencil from '@lucide/svelte/icons/pencil';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
@@ -22,7 +19,9 @@
 	import OfferSlotModal from '$lib/components/fila/OfferSlotModal.svelte';
 	import PriorityBadge from '$lib/components/fila/PriorityBadge.svelte';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
+	import Paginacao from '$lib/components/Paginacao.svelte';
 	import { toast } from '$lib/toast.svelte';
+	import { reagirAoForm } from '$lib/forms.svelte';
 	import { initials } from '$lib/format';
 	import { avatarColor, avatarStyle } from '$lib/avatar';
 	import { stripTitle } from '$lib/patients';
@@ -32,8 +31,10 @@
 		slotDateLabel,
 		type Entry,
 		type Slot,
+		type SlotsByEntryResponse
 	} from '$lib/waitlist';
-	import { m2t, type SearchResult } from '$lib/agenda';
+	import { m2t } from '$lib/agenda';
+	import { buscarPacientes } from '$lib/patient-search-client';
 	import Radio from '@lucide/svelte/icons/radio';
 	import { pageLabel } from '$lib/pagination';
 	import ChevronLeft from '@lucide/svelte/icons/chevron-left';
@@ -101,14 +102,7 @@
 		navigate({ page: n > 1 ? String(n) : null });
 	}
 
-	const navBtn =
-		'inline-flex items-center gap-1 rounded-lg border border-edge bg-surface px-2.5 py-1.5 text-[12.5px] font-semibold text-ink hover:bg-surface-2 disabled:opacity-40 disabled:hover:bg-surface';
-
-	async function search(q: string): Promise<SearchResult> {
-		const res = await fetch(`/fila/pacientes?q=${encodeURIComponent(q)}`);
-		if (!res.ok) return { patients: [], total: 0 };
-		return (await res.json()) as SearchResult;
-	}
+	const search = (q: string) => buscarPacientes('/fila/pacientes', q);
 
 	// ---- Vagas (camada "quem cabe" / motor find_slots em lote) ------------------------------
 	// A lista carrega SEM as vagas (o load não chama o motor); logo após, um GET em lote
@@ -127,7 +121,7 @@
 				(data.prio === 'todas' ? '' : `&prio=${data.prio}`)
 		)
 			.then((r) => (r.ok ? r.json() : { slots_by_entry: {} }))
-			.then((d: { slots_by_entry?: Record<string, Slot[]> }) => {
+			.then((d: Partial<SlotsByEntryResponse>) => {
 				if (vivo) slotsByEntry = d.slots_by_entry ?? {};
 			})
 			// Engolir é certo para a TELA (a fila funciona sem os chips de vaga), mas não pode ser
@@ -147,23 +141,10 @@
 	// O sinal `waitlist_changed` do canal recarrega a lista — a fila não é recortada por papel,
 	// então não há bloco para remendar (é o mesmo desenho do sinal do Mês). O token vem do BFF,
 	// uma vez por aba; sem ele a fila continua funcionando, só não atualiza sozinha.
-	let realtime = $state<RealtimeConfig | null>(null);
-
-	$effect(() => {
-		let vivo = true;
-		fetch('/api/realtime/token')
-			.then((r) => (r.ok ? r.json() : null))
-			.then((cfg) => {
-				if (vivo && cfg?.token) realtime = cfg as RealtimeConfig;
-			})
-			// Falha aqui mata o TEMPO REAL da tela, e antes era invisível: sem token o socket nunca
-			// abre, a fila para de atualizar sozinha e não há console, log nem aviso em lugar
-			// nenhum. O usuário só vê uma tela que envelhece calada (doc 62 §7.2).
-			.catch((e) => reportar('realtime:token', e));
-		return () => {
-			vivo = false;
-		};
-	});
+	// Sem token a fila continua funcionando, só não atualiza sozinha — e a falha é reportada, não
+	// engolida: o usuário só veria uma tela que envelhece calada (doc 62 §7.2).
+	const token = usarTokenRealtime();
+	const realtime = $derived(token.cfg);
 
 	// Coalescida: uma rajada (recepção mexendo em vários itens) vira UMA recarga. A leitura da
 	// fila é barata, mas recarregar a cada evento de uma rajada é churn à toa.
@@ -245,39 +226,34 @@
 		converter: 'Agendamento criado'
 	};
 
-	// Marcador "último form já tratado" — NÃO é `$state`, e a agenda já aprendeu isso (o mesmo
-	// comentário mora em `agenda/+page.svelte`). Como `$state`, a atribuição embrulhava o objeto
-	// num PROXY, então a guarda `form === ultimoForm` era falsa para sempre: o efeito lia e
-	// escrevia o mesmo estado, estourava `effect_update_depth_exceeded` e derrubava a reatividade
-	// da tela inteira — o modal ficava aberto, o `goto` não valia e só um F5 (ou insistir no
-	// clique) tirava dali. Um `let` simples quebra o ciclo; o efeito só precisa depender de `form`.
-	let ultimoForm: unknown = null;
-	$effect(() => {
-		if (!form || form === ultimoForm) return;
-		ultimoForm = form;
-		const action = form.action as string;
-
-		if (form.ok) {
-			if (action === 'enqueue') navigate({ novo: null });
-			if (action === 'atualizar') editing = null;
-			if (action === 'converter') offering = null;
-			toast(SUCESSO[action] ?? 'Feito');
+	// Erros de enqueue/atualizar/converter ficam DENTRO dos modais (ConflictErrorBox) — por isso
+	// não há `erro` aqui. A guarda de "resultado novo" mora no `reagirAoForm`, com o crash que a
+	// originou escrito lá.
+	reagirAoForm(
+		() => form,
+		{
+			sucesso: (f) => {
+				const action = f.action as string;
+				if (action === 'enqueue') navigate({ novo: null });
+				if (action === 'atualizar') editing = null;
+				if (action === 'converter') offering = null;
+				toast(SUCESSO[action] ?? 'Feito');
+			}
 		}
-		// Erros de enqueue/atualizar/converter ficam DENTRO dos modais (ConflictErrorBox).
-	});
+	);
 
 	const COLS =
 		'md:grid-cols-[minmax(160px,1.7fr)_100px_minmax(200px,2fr)_minmax(90px,0.9fr)_64px_148px]';
 	// `max-w-full` + `truncate`: o chip nunca é maior que a coluna — o texto vira reticências e o
 	// inteiro fica no `title`. Sem isso ele empurra e cobre a coluna vizinha (doc 38 §5C).
 	const chip =
-		'max-w-full truncate rounded-[5px] border border-edge-strong px-[7px] py-0.5 text-[10.5px] leading-[1.5] text-ink';
-	// Chip de vaga casada (protótipo :2605): mesmo formato do chip, mas clicável e teal — sólido
+		'max-w-full truncate rounded-micro border border-edge-strong px-[7px] py-0.5 text-micro leading-[1.5] text-ink';
+	// Chip de vaga casada (protótipo :2605): mesmo formato do chip, mas clicável e no acento — sólido
 	// quando a vaga ABRIU (cancelamento/falta), suave quando é uma brecha geral.
 	const matchChip =
-		'inline-flex max-w-full min-w-0 items-center gap-x-[5px] gap-y-1 rounded-[5px] border px-[7px] py-0.5 text-[10.5px] font-semibold leading-[1.5]';
+		'inline-flex max-w-full min-w-0 items-center gap-x-[5px] gap-y-1 rounded-micro border px-[7px] py-0.5 text-micro font-semibold leading-[1.5]';
 	const iconBtn =
-		'grid size-8 place-items-center rounded-md border border-edge bg-surface text-muted hover:bg-surface-2';
+		'grid size-8 place-items-center rounded-controle border border-edge bg-surface text-muted hover:bg-surface-2';
 </script>
 
 <svelte:head><title>Fila de espera · Cinetra</title></svelte:head>
@@ -289,9 +265,9 @@
 	{#if nomes.length}
 		<span
 			title="{nomes.join(', ')} — está com o modal de oferecer aberto agora"
-			class="inline-flex max-w-full min-w-0 items-center gap-1 rounded-full bg-surface-2 px-2 py-px text-[10.5px] font-semibold text-muted"
+			class="inline-flex max-w-full min-w-0 items-center gap-1 rounded-full bg-surface-2 px-2 py-px text-micro font-semibold text-muted"
 		>
-			<Radio size={10} class="shrink-0 text-teal" />
+			<Radio size={10} class="shrink-0 text-accent" />
 			<span class="truncate">
 				{stripTitle(nomes[0])}{nomes.length > 1 ? ` +${nomes.length - 1}` : ''} oferecendo
 			</span>
@@ -320,11 +296,11 @@
 						? ' · vaga que abriu'
 						: ''}"
 					class="{matchChip} {item.slot.freed
-						? 'border-teal bg-teal text-on-solid'
-						: 'border-teal-border bg-teal-subtle text-teal-text'}"
+						? 'border-accent bg-accent text-on-solid'
+						: 'border-accent-border bg-accent-subtle text-accent-text'}"
 				>
 					<span
-						class="size-1.5 shrink-0 rounded-full {item.slot.freed ? 'bg-on-solid' : 'bg-teal'}"
+						class="size-1.5 shrink-0 rounded-full {item.slot.freed ? 'bg-on-solid' : 'bg-accent'}"
 					></span>
 					<!-- O que encolhe é o RÓTULO da regra ("Seg/Ter/Qua…"); a data e a hora ficam
 					     inteiras, porque são a informação que faz a pessoa clicar. -->
@@ -333,13 +309,13 @@
 						{slotDateLabel(item.slot)} {m2t(item.slot.start)}
 					</span>
 					{#if item.slot.freed}
-						<span class="rounded-[3px] bg-white/25 px-1 py-px text-[8.5px] font-extrabold tracking-[.05em]">
+						<span class="rounded-micro bg-white/25 px-1 py-px text-micro font-extrabold tracking-[.05em]">
 							ABRIU
 						</span>
 					{/if}
 				</button>
 			{:else}
-				<span class="text-[10.5px] text-faint italic">· sem vaga compatível</span>
+				<span class="text-micro text-faint italic">· sem vaga compatível</span>
 			{/if}
 		{/each}
 	</div>
@@ -354,11 +330,11 @@
 		title={has
 			? `Próxima vaga: ${slotDateLabel(slots[0])} ${m2t(slots[0].start)}`
 			: 'Sem vaga compatível — oferecer manualmente'}
-		class="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-1.5 text-[12.5px] font-semibold hover:opacity-90 {has
-			? 'border-teal-border bg-teal-subtle text-teal-text'
+		class="inline-flex flex-1 items-center justify-center gap-1.5 rounded-controle border px-3 py-1.5 text-rotulo font-semibold hover:opacity-90 {has
+			? 'border-accent-border bg-accent-subtle text-accent-text'
 			: 'border-edge-strong bg-transparent text-muted'}"
 	>
-		{#if has}<span class="size-1.5 shrink-0 rounded-full bg-teal"></span>{/if}
+		{#if has}<span class="size-1.5 shrink-0 rounded-full bg-accent"></span>{/if}
 		Oferecer vaga
 	</button>
 {/snippet}
@@ -372,17 +348,17 @@
 				href="/fila?novo=1"
 				title="Adicionar à fila"
 				aria-label="Adicionar à fila"
-				class="grid size-9 shrink-0 place-items-center rounded-lg bg-ink text-canvas hover:opacity-90"
+				class="grid size-9 shrink-0 place-items-center rounded-controle bg-ink text-canvas hover:opacity-90"
 			>
 				<Plus size={17} />
 			</a>
 		</div>
 	{/if}
 
-	<div class="overflow-hidden rounded-[12px] border border-edge bg-surface">
+	<div class="overflow-hidden rounded-cartao border border-edge bg-surface">
 		<!-- Cabeçalho (desktop) -->
 		<div
-			class="hidden gap-4 border-b border-edge px-4 pb-2.5 pt-3 text-[12px] font-medium text-faint md:grid {COLS}"
+			class="hidden gap-4 border-b border-edge px-4 pb-2.5 pt-3 text-rotulo font-medium text-faint md:grid {COLS}"
 		>
 			<span>Paciente</span><span>Prioridade</span><span>Disponibilidade</span>
 			<span>Profissional</span><span class="text-right">Espera</span><span></span>
@@ -391,25 +367,25 @@
 		{#each list as entry (entry.id)}
 			{@const rowSlots = slotsFor(entry)}
 			{@const rowHasVaga = rowSlots.length > 0}
-			<!-- Desktop: linha em grid. Barra teal à esquerda quando há vaga (protótipo :2878). -->
+			<!-- Desktop: linha em grid. Barra do acento à esquerda quando há vaga (protótipo :2878). -->
 			<div
 				class="hidden items-center gap-4 border-b border-edge px-4 py-2.5 last:border-b-0 md:grid {COLS} {rowHasVaga
-					? 'shadow-[inset_3px_0_0_var(--mv-teal-solid)]'
+					? 'shadow-[inset_3px_0_0_var(--mv-accent-solid)]'
 					: ''}"
 			>
 				<span class="flex min-w-0 items-center gap-2.5">
 					<span
-						class="grid size-7 shrink-0 place-items-center rounded-full text-[10px] font-bold"
+						class="grid size-7 shrink-0 place-items-center rounded-full text-micro font-bold"
 						style={avatarStyle(entryColor(entry))}
 					>
 						{initials(entry.patient.nome)}
 					</span>
 					<span class="min-w-0">
-						<span class="block truncate text-[13px] font-semibold">{entry.patient.nome}</span>
+						<span class="block truncate text-corpo font-semibold">{entry.patient.nome}</span>
 						{#if oferecendo[entry.id]?.length}
 							{@render oferecendoAviso(entry)}
 						{:else if entry.obs}
-							<span class="block truncate text-[11px] text-faint">{entry.obs}</span>
+							<span class="block truncate text-meta text-faint">{entry.obs}</span>
 						{/if}
 					</span>
 				</span>
@@ -418,15 +394,15 @@
 
 				{@render dispCell(entry)}
 
-				<span class="min-w-0 truncate text-[12px] text-muted">{profNames(entry)}</span>
+				<span class="min-w-0 truncate text-rotulo text-muted">{profNames(entry)}</span>
 
 				<span class="text-right">
 					<span
-						class="font-mono text-[14px] font-semibold tabular-nums {entry.dias_na_fila >= 7
+						class="font-mono text-leitura font-semibold tabular-nums {entry.dias_na_fila >= 7
 							? 'text-warning'
 							: 'text-ink'}">{entry.dias_na_fila}</span
 					>
-					<span class="block text-[10px] tracking-[.03em] text-faint">
+					<span class="block text-micro tracking-[.03em] text-faint">
 						dia{entry.dias_na_fila === 1 ? '' : 's'}
 					</span>
 				</span>
@@ -439,11 +415,11 @@
 							title={rowHasVaga
 								? `Próxima vaga: ${slotDateLabel(rowSlots[0])} ${m2t(rowSlots[0].start)}`
 								: 'Sem vaga compatível — oferecer manualmente'}
-							class="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[12px] font-semibold hover:opacity-90 {rowHasVaga
-								? 'border-teal-border bg-teal-subtle text-teal-text'
+							class="inline-flex items-center gap-1.5 rounded-controle border px-2.5 py-1.5 text-rotulo font-semibold hover:opacity-90 {rowHasVaga
+								? 'border-accent-border bg-accent-subtle text-accent-text'
 								: 'border-edge-strong bg-transparent text-muted'}"
 						>
-							{#if rowHasVaga}<span class="size-1.5 shrink-0 rounded-full bg-teal"></span>{/if}
+							{#if rowHasVaga}<span class="size-1.5 shrink-0 rounded-full bg-accent"></span>{/if}
 							Oferecer
 						</button>
 						<button
@@ -464,22 +440,22 @@
 				</span>
 			</div>
 
-			<!-- Mobile: cartão. Mesma barra teal do "tem vaga". -->
+			<!-- Mobile: cartão. Mesma barra do acento do "tem vaga". -->
 			<div
 				class="flex flex-col gap-2 border-b border-edge px-4 py-3 last:border-b-0 md:hidden {rowHasVaga
-					? 'shadow-[inset_3px_0_0_var(--mv-teal-solid)]'
+					? 'shadow-[inset_3px_0_0_var(--mv-accent-solid)]'
 					: ''}"
 			>
 				<div class="flex items-center gap-2.5">
 					<span
-						class="grid size-8.5 shrink-0 place-items-center rounded-full text-[11px] font-bold"
+						class="grid size-8.5 shrink-0 place-items-center rounded-full text-meta font-bold"
 						style={avatarStyle(entryColor(entry))}
 					>
 						{initials(entry.patient.nome)}
 					</span>
 					<div class="min-w-0 flex-1">
-						<div class="truncate text-[14px] font-semibold">{entry.patient.nome}</div>
-						<div class="text-[11px] text-faint">
+						<div class="truncate text-leitura font-semibold">{entry.patient.nome}</div>
+						<div class="text-meta text-faint">
 							<span class="font-mono font-semibold {entry.dias_na_fila >= 7 ? 'text-warning' : 'text-muted'}"
 								>{entry.dias_na_fila}</span
 							>
@@ -489,11 +465,11 @@
 					<PriorityBadge prio={entry.prio} />
 				</div>
 
-				{#if entry.obs}<div class="text-[12px] text-muted">{entry.obs}</div>{/if}
+				{#if entry.obs}<div class="text-rotulo text-muted">{entry.obs}</div>{/if}
 
 				{@render dispCell(entry)}
 
-				<div class="flex items-center gap-1.5 text-[12px] text-muted">
+				<div class="flex items-center gap-1.5 text-rotulo text-muted">
 					<Stethoscope size={13} class="shrink-0" />
 					<span class="min-w-0 truncate">{profNames(entry)}</span>
 				</div>
@@ -505,14 +481,14 @@
 							type="button"
 							aria-label="Editar item de {entry.patient.nome}"
 							onclick={() => (editing = entry)}
-							class="grid size-9 place-items-center rounded-lg border border-edge bg-surface text-muted"
+							class="grid size-9 place-items-center rounded-controle border border-edge bg-surface text-muted"
 							><Pencil size={15} /></button
 						>
 						<button
 							type="button"
 							aria-label="Remover {entry.patient.nome} da fila"
 							onclick={() => (removing = entry)}
-							class="grid size-9 place-items-center rounded-lg border border-edge bg-surface text-danger"
+							class="grid size-9 place-items-center rounded-controle border border-edge bg-surface text-danger"
 							><Trash2 size={15} /></button
 						>
 					</div>
@@ -521,7 +497,7 @@
 		{/each}
 
 		{#if !list.length}
-			<div class="px-7 py-7 text-center text-[13px] text-faint">
+			<div class="px-7 py-7 text-center text-corpo text-faint">
 				{#if data.prio !== 'todas'}
 					Nenhum paciente na fila com esta prioridade.
 				{:else}
@@ -531,32 +507,13 @@
 		{/if}
 	</div>
 
-	<!-- Rodapé de paginação (F6): mesmo desenho e mesmos helpers da lista de Pacientes. Só
-	     aparece quando há mais de uma página — a fila curta continua parecendo o que era. -->
-	{#if data.pageInfo.more || data.current > 1}
-		<div class="mt-3 flex items-center gap-3 px-1">
-			<span class="font-mono text-[11.5px] text-faint">
-				{pageLabel(data.pageInfo, list.length)}
-			</span>
-			<div class="flex-1"></div>
-			<button
-				type="button"
-				class={navBtn}
-				disabled={data.current === 1}
-				onclick={() => goPage(data.current - 1)}
-			>
-				<ChevronLeft size={14} /> Anterior
-			</button>
-			<button
-				type="button"
-				class={navBtn}
-				disabled={!data.pageInfo.more}
-				onclick={() => goPage(data.current + 1)}
-			>
-				Próxima <ChevronRight size={14} />
-			</button>
-		</div>
-	{/if}
+	<Paginacao
+		current={data.current}
+		pageInfo={data.pageInfo}
+		onPage={goPage}
+		rotulo={pageLabel(data.pageInfo, list.length)}
+		class="px-1"
+	/>
 </div>
 
 {#if showAdd}

@@ -31,15 +31,16 @@ defmodule ApiWeb.AuthStrategyControllerTest do
     assert get_session(conn, "user_token")
   end
 
-  test "failure/3: 401 com location para o login (erro=oauth)", %{conn: conn} do
+  # Doc 96, H-10 — o irmão do `magic_link_callback`. Ver o teste de lá para o porquê: o
+  # `Location` num 401 é decorativo, e quem escolhe o destino é o BFF.
+  test "failure/3: 401 unauthenticated, sem redirect decorativo", %{conn: conn} do
     conn =
       conn
       |> init_test_session(%{})
       |> AuthStrategyController.failure(nil, :invalid_credentials)
 
-    assert conn.status == 401
-    assert [location] = get_resp_header(conn, "location")
-    assert location =~ "/entrar?erro=oauth"
+    assert json_response(conn, 401) == %{"error" => "unauthenticated"}
+    assert get_resp_header(conn, "location") == []
   end
 
   test "sign_out/2 limpa a sessão e redireciona ao app web", %{conn: conn} do

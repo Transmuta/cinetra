@@ -44,14 +44,25 @@ export interface Clinic {
 	id: string;
 	nome: string;
 	cnpj: string | null;
+	// O telefone que o PACIENTE vê, dentro da mensagem ("Ligue para (11) 3456-7890"). Guardado
+	// como foi digitado, não em E.164: aqui ele é texto para ler e discar, não destino de envio.
+	// É ele que destrava `msg_whatsapp_ativo` — a API recusa ligar o canal sem ele.
+	telefone: string | null;
+	// Endereço estruturado, com os mesmos nomes da ficha do paciente — é o que deixa
+	// `AddressFields.svelte` servir as duas telas sem tradução de campo no meio.
+	cep: string | null;
 	endereco: string | null;
+	numero: string | null;
+	complemento: string | null;
+	bairro: string | null;
+	cidade: string | null;
+	uf: string | null;
 	// Comunicação com o paciente (doc 52 §7). Viajam junto com a identidade porque as duas telas
 	// de configuração leem do mesmo `GET /api/clinic`.
 	//
-	// `msg_lembrete_horas: null` é **desligado**, não "zero horas antes" — a distinção é
-	// load-bearing e a tela a preserva mandando o campo em branco.
-	msg_confirmacao_auto: boolean;
-	msg_lembrete_horas: number | null;
+	// O `msg_lembrete_horas` saiu em 2026-08-01 junto com o lembrete automático: sem cron, ele era
+	// um número que ninguém lia.
+	msg_whatsapp_ativo: boolean;
 	msg_silencio_inicio: number | null;
 	msg_silencio_fim: number | null;
 }
@@ -75,7 +86,14 @@ export async function fetchClinic(event: RequestEvent): Promise<ClinicResult> {
 export interface ClinicInfoInput {
 	nome?: string;
 	cnpj?: string;
+	telefone?: string;
+	cep?: string;
 	endereco?: string;
+	numero?: string;
+	complemento?: string;
+	bairro?: string;
+	cidade?: string;
+	uf?: string;
 }
 
 // PATCH /api/clinic — edita nome/CNPJ/endereço (só owner/admin, garantido pela API). O CNPJ pode
@@ -107,15 +125,16 @@ export async function switchTenant(event: RequestEvent, clinicId: string): Promi
 	}
 }
 
-// Comunicação com o paciente (doc 52 §7): quando a confirmação sai sozinha, se há lembrete e a
-// janela de silêncio. Rota própria na API (`PATCH /api/clinic/messaging`) — e não campos somados
-// ao `updateClinic` — porque a fronteira aceita o que a AÇÃO aceita, não o que o formulário
-// desenha (09 §8): somar aqui deixaria a tela de identidade capaz de desligar o lembrete.
+// Comunicação com o paciente (doc 52 §7): quantas horas antes sai o lembrete e a janela de
+// silêncio. Rota própria na API (`PATCH /api/clinic/messaging`) — e não campos somados ao
+// `updateClinic` — porque a fronteira aceita o que a AÇÃO aceita, não o que o formulário desenha
+// (09 §8): somar aqui deixaria a tela de identidade capaz de desligar o lembrete.
 export async function updateClinicMessaging(
 	event: RequestEvent,
 	body: {
-		msg_confirmacao_auto: boolean;
-		msg_lembrete_horas: number | null;
+		// Sempre presente, nunca omitido: a API lê ausente como `false`, e é isso que torna o
+		// interruptor DESLIGÁVEL pela tela. Omitir aqui recriaria o bug do doc 98 §6.
+		msg_whatsapp_ativo: boolean;
 		msg_silencio_inicio: number | null;
 		msg_silencio_fim: number | null;
 	}

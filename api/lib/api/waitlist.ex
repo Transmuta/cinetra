@@ -31,7 +31,6 @@ defmodule Api.Waitlist do
     end
 
     resource Api.Waitlist.AvailabilityRule do
-      define :list_availability_rules, action: :read
     end
   end
 
@@ -66,12 +65,37 @@ defmodule Api.Waitlist do
         entries: page.results,
         professionals:
           Api.Directory.list_professionals!(scope: scope, query: [filter: [ativo: true]]),
-        page: %{limit: page.limit, offset: page.offset, total: page.count, more: page.more?}
+        # Cru, como em `Api.Audit`: a forma do wire é da fronteira (doc 96, H-8).
+        page: page
       }
     end)
   end
 
   # Os tetos são de `Api.Pagination` — a mesma regra das outras listas do projeto.
+
+  @doc """
+  Só os **itens** da mesma página — sem a contagem total e sem os profissionais (doc 96, P-8).
+
+  Serve `GET /waitlist/slots`, que precisa da mesma janela de `list_entries/2` para saber de quem
+  calcular vaga, e jogava fora as duas outras coisas que ela traz: o `COUNT(*) OVER ()` da
+  paginação e a lista completa de profissionais ativos. Duas leituras por request, todo request,
+  para nada — e a contagem é a cara: `Api.Pagination` documenta o `count: false` custando 400×
+  menos buffers.
+
+  A janela é a mesma de propósito (o cliente pede o mesmo `limit`/`offset` nas duas chamadas), e é
+  por isso que as duas funções compartilham `build_query/1` e `entry_load/0` em vez de repetirem o
+  recorte.
+  """
+  def list_entries_only(%Api.Scope{} = scope, opts \\ []) do
+    in_clinic(scope, fn ->
+      page_waitlist_entries!(
+        scope: scope,
+        load: entry_load(),
+        query: build_query(opts),
+        page: opts |> Api.Pagination.page_opts() |> Keyword.put(:count, false)
+      ).results
+    end)
+  end
 
   @doc """
   Quantos itens a fila tem por prioridade — a sidebar (F6).
@@ -107,6 +131,8 @@ defmodule Api.Waitlist do
   # O que todo item de fila carrega para a tela: as regras e o paciente numa projeção enxuta
   # (nome/telefone) + o agregado `faltas`. Sem `select` o cadastro traria as ~39 colunas (CPF,
   # RG, prefs) por item — mesma economia de `Api.Scheduling.patients_for/2`.
+  @teto_candidatos 200
+
   defp entry_load do
     patient_query =
       Api.Records.Patient
@@ -212,10 +238,12 @@ defmodule Api.Waitlist do
   ativos), as fontes de expediente e os agendamentos da janela de 14 dias, e delega ao motor puro
   `Api.Waitlist.SlotFinder` com o **relógio do escopo** (ADR-009) no fuso da clínica.
 
-  A leitura de agendamentos é **invariante** (`authorize?: false`), não a recortada por A7: as
-  vagas são o que está de fato livre na clínica, não a agenda "do profissional". Sob o recorte,
-  um profissional veria as colunas dos colegas como vazias e ofereceria vagas já ocupadas —
-  mesmo motivo de `Api.Scheduling.count_participants/2` ler sem escopo.
+  As leituras deste motor são **invariantes** (`authorize?: false`), não as recortadas por papel:
+  as vagas são o que está de fato livre na clínica, não a agenda "do profissional". Vale para as
+  DUAS — os agendamentos (sob o recorte A7, um profissional veria as colunas dos colegas como
+  vazias e ofereceria vagas já ocupadas) e os **profissionais candidatos**, que até o doc 96
+  (E-4) eram lidos com `scope:` e caíam na preparation `OwnProfessionalOnly`. Mesmo motivo de
+  `Api.Scheduling.count_participants/2` ler sem escopo.
   """
   def find_slots(%Api.Scope{} = scope, entry) do
     scope |> slots_by_entry([entry]) |> Map.fetch!(entry.id)
@@ -235,8 +263,21 @@ defmodule Api.Waitlist do
     to = Date.add(today, 13)
 
     in_clinic(scope, fn ->
+      # `authorize?: false` + `tenant:`, e NÃO `scope:` — pelo mesmo motivo da leitura de
+      # agendamentos logo abaixo (doc 96, E-4).
+      #
+      # `Professional` tem a preparation global `OwnProfessionalOnly`: sob `scope:`, o papel
+      # `profissional` enxerga só o próprio registro. O efeito na fila era subnotificação
+      # SILENCIOSA — ele abria `GET /waitlist/slots` e via `[]` para todo item cuja preferência
+      # não o incluísse, concluindo "não tem vaga" quando havia. O moduledoc acima já declarava a
+      # intenção certa ("as vagas são o que está de fato livre na clínica, não a agenda do
+      # profissional") e o `WaitlistChannel` afirmava o mesmo; só esta linha discordava.
       active_by_id =
-        Api.Directory.list_professionals!(scope: scope, query: [filter: [ativo: true]])
+        Api.Directory.list_professionals!(
+          tenant: scope.clinic_id,
+          authorize?: false,
+          query: [filter: [ativo: true]]
+        )
         |> Map.new(&{&1.id, &1})
 
       ids = entries |> Enum.flat_map(&candidate_ids(&1, active_by_id)) |> Enum.uniq()
@@ -251,6 +292,16 @@ defmodule Api.Waitlist do
           appts = appts_index(scope, from_utc, to_utc, ids, tz)
           pair_by_id = Map.new(pairs, fn {prof, sources} -> {prof.id, {prof, sources}} end)
 
+          # O expediente por `(prof, dia)` é composto UMA vez para a página inteira, ao lado do
+          # `appts_index` — antes ele era recomposto dentro do motor, por item da fila (doc 96,
+          # P-1). Depende só de `(prof, data)`, nunca do entry.
+          periods =
+            SlotFinder.periods_index(
+              Enum.map(pairs, fn {prof, _} -> prof end),
+              Map.new(pairs, fn {prof, sources} -> {prof.id, sources} end),
+              today
+            )
+
           Map.new(entries, fn entry ->
             entry_pairs =
               entry
@@ -258,7 +309,7 @@ defmodule Api.Waitlist do
               |> Enum.map(&Map.get(pair_by_id, &1))
               |> Enum.reject(&is_nil/1)
 
-            {entry.id, run_finder(entry, entry_pairs, appts, today, now_minutes)}
+            {entry.id, run_finder(entry, entry_pairs, appts, today, now_minutes, periods)}
           end)
       end
     end)
@@ -266,16 +317,17 @@ defmodule Api.Waitlist do
 
   # O motor puro sobre os índices já carregados. Sem par candidato (nenhum preferido ativo com
   # expediente), não há o que varrer — devolve vazio, como `candidate_ids == []`.
-  defp run_finder(_entry, [], _appts, _today, _now_minutes), do: []
+  defp run_finder(_entry, [], _appts, _today, _now_minutes, _periods), do: []
 
-  defp run_finder(entry, pairs, appts, today, now_minutes) do
+  defp run_finder(entry, pairs, appts, today, now_minutes, periods) do
     SlotFinder.find_slots(%{
       entry: %{janela: entry.janela, rules: entry.rules},
       professionals: Enum.map(pairs, fn {prof, _} -> prof end),
       sources_by_prof: Map.new(pairs, fn {prof, sources} -> {prof.id, sources} end),
       appts_by_prof_day: appts,
       today: today,
-      now_minutes: now_minutes
+      now_minutes: now_minutes,
+      periods_by_prof_day: periods
     })
   end
 
@@ -335,7 +387,20 @@ defmodule Api.Waitlist do
     dow = LocalTime.dow(date)
 
     in_clinic(scope, fn ->
-      list_waitlist_entries!(scope: scope, load: entry_load())
+      # Pela ação `:queued`, e com teto — era a **única lista do projeto sem limite** (doc 96,
+      # P-2). A `:read` default não pagina, e `entry_load/0` puxa `:rules` mais o paciente com o
+      # agregado `:faltas` (um `LEFT JOIN LATERAL` sobre `attendances`) — ou seja, o custo por
+      # linha não é pequeno, e o consumidor (`GET /waitlist/candidates`) devolvia a fila inteira.
+      #
+      # O teto é o mesmo `max_page_size` que a fila já declara para si (200): quem cabe numa vaga
+      # é lido na mesma régua com que a fila é exibida. Uma clínica com mais de 200 esperando tem
+      # um problema de operação que uma lista mais longa não resolve.
+      list_waitlist_entries!(
+        scope: scope,
+        load: entry_load(),
+        action: :queued,
+        page: [limit: @teto_candidatos]
+      ).results
       |> Enum.filter(fn entry ->
         prof_preferred?(entry, professional_id) and
           SlotFinder.matches_slot?(entry, start, finish, date, dow, today)

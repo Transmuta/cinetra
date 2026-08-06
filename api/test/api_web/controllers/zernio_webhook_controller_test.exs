@@ -37,10 +37,13 @@ defmodule ApiWeb.ZernioWebhookControllerTest do
 
     on_exit(fn -> Application.put_env(:api, Api.Messaging.Transport, transporte) end)
 
-    ctx = clinica()
+    # `whatsapp: true` é a segunda chave: o bloco acima liga o transporte da INSTALAÇÃO, e esta
+    # liga o canal DESTA CLÍNICA (`msg_whatsapp_ativo`). Só uma delas e a mensagem sai por e-mail.
+    ctx = clinica(whatsapp: true)
     paciente = paciente_com(ctx, comunicacao: true, tel: "11987654321")
     appt = agendamento!(ctx, paciente: paciente)
-    [message] = mensagens(ctx, appt)
+    # Disparada à mão: criar o bloco não fala mais com o paciente (doc 98).
+    message = confirmacao!(ctx, appt, paciente)
 
     # Simula o que o transporte grava quando a Zernio aceita.
     enviada =
@@ -221,6 +224,48 @@ defmodule ApiWeb.ZernioWebhookControllerTest do
       conn |> assinar(corpo, @secret) |> post(~p"/webhooks/zernio", corpo)
 
       refute Messaging.opted_out?(:whatsapp, "+5511987654321", ctx.clinic.id)
+    end
+  end
+
+  describe "replay (§S-7)" do
+    # A Zernio **não assina timestamp** (`Api.Messaging.ZernioSignature` explica): um corpo
+    # capturado continua com assinatura válida para sempre. O argumento de que isso é inócuo
+    # dependia de todo efeito ser idempotente — e tem um furo, porque `revoke_opt_out/3` existe:
+    # entre o "SAIR" original e o replay cabe uma revogação, e o replay a desfaz.
+    #
+    # O sintoma para quem usa é o pior possível: o paciente pediu no balcão para voltar a receber,
+    # a recepção reativou, e ele simplesmente para de receber de novo — sem erro, sem log, sem
+    # ninguém conseguir explicar.
+    test "um SAIR capturado e reentregue não ressilencia depois da revogação", %{
+      conn: conn,
+      ctx: ctx
+    } do
+      corpo = entrada("SAIR", "+5511987654321")
+
+      conn |> assinar(corpo, @secret) |> post(~p"/webhooks/zernio", corpo)
+      assert Messaging.opted_out?(:whatsapp, "+5511987654321", ctx.clinic.id)
+
+      :ok = Messaging.revoke_opt_out(ctx.scope, :whatsapp, "+5511987654321")
+      refute Messaging.opted_out?(:whatsapp, "+5511987654321", ctx.clinic.id)
+
+      # Mesmíssimos bytes, mesma assinatura — é literalmente a requisição de antes.
+      build_conn() |> assinar(corpo, @secret) |> post(~p"/webhooks/zernio", corpo)
+
+      refute Messaging.opted_out?(:whatsapp, "+5511987654321", ctx.clinic.id),
+             "o replay ressilenciou o paciente (doc 96, S-7)"
+    end
+
+    test "evento novo, de corpo diferente, continua sendo processado", %{conn: conn, ctx: ctx} do
+      # O controle contra excesso: a barreira é por evento, não por remetente nem por rota. Dois
+      # "SAIR" de números diferentes são dois fatos, e os dois têm de valer.
+      um = entrada("SAIR", "+5511987654321")
+      outro = entrada("SAIR", "+5511912345678")
+
+      conn |> assinar(um, @secret) |> post(~p"/webhooks/zernio", um)
+      build_conn() |> assinar(outro, @secret) |> post(~p"/webhooks/zernio", outro)
+
+      assert Messaging.opted_out?(:whatsapp, "+5511987654321", ctx.clinic.id)
+      assert Messaging.opted_out?(:whatsapp, "+5511912345678", ctx.clinic.id)
     end
   end
 

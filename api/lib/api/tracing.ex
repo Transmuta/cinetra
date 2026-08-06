@@ -43,6 +43,7 @@ defmodule Api.Tracing do
   Pendura os handlers de `:telemetry` das quatro fontes. Chamado uma vez, no boot.
   """
   def setup do
+    instalar_filtro_de_ruido()
     OpentelemetryBandit.setup()
     OpentelemetryPhoenix.setup(adapter: :bandit)
 
@@ -70,5 +71,21 @@ defmodule Api.Tracing do
       :undefined -> nil
       ctx -> :otel_span.hex_trace_id(ctx)
     end
+  end
+
+  # Filtro PRIMÁRIO do `:logger` (vale para todo handler, inclusive o do LoggerJSON em produção).
+  #
+  # `:ok` e `{:error, {:already_exist, _}}` são os dois retornos normais: o segundo acontece em
+  # rebuild de release e em teste, quando o setup roda mais de uma vez. Levantar nesse caso
+  # derrubaria o boot por causa de um filtro idempotente.
+  defp instalar_filtro_de_ruido do
+    :logger.add_primary_filter(
+      :cinetra_otlp_export_failure,
+      {&Api.Tracing.OtlpFilter.filtrar/2, []}
+    )
+  rescue
+    _ -> :ok
+  catch
+    _, _ -> :ok
   end
 end

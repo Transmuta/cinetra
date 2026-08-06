@@ -114,7 +114,11 @@ defmodule ApiWeb.AuditControllerTest do
 
       # **Sem `total` no corpo** (D-Aud1): medido em 265× o custo da própria página, ~99% do
       # tempo de banco da request. O `more` é exato e é o que habilita a paginação.
-      refute Map.has_key?(page, "total")
+      # `total` existe SEMPRE no wire e vem `nil` quando a leitura não contou (doc 96, H-8): a
+      # ausência da chave era o que obrigava o cliente a saber, endpoint a endpoint, se ela
+      # apareceria. A decisão de não contar (`count: false`, caríssimo na trilha) continua a
+      # mesma — o que mudou é como ela é dita.
+      assert page["total"] == nil
       assert page["more"] == false
 
       # Quem · quando · ação · registro · diff, na entrada do cancelamento.

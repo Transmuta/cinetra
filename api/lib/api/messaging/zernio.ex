@@ -46,8 +46,9 @@ defmodule Api.Messaging.Zernio do
 
   ## O que este módulo NÃO faz
 
-  Não cria template na Meta (isso é `mix cinetra.whatsapp.templates`, uma vez por conta, com lead
-  time de dias) e não lê conversa. Ler a caixa de entrada do WhatsApp seria outra funcionalidade —
+  Não cria template na Meta — o cadastro é **manual**, no painel, uma vez por conta e com lead
+  time de dias; `Api.Messaging.Templates.hsm_payload/2` é a referência do que registrar. Também
+  não lê conversa. Ler a caixa de entrada do WhatsApp seria outra funcionalidade —
   e, pelo §9.1.5, é a que reabriria a decisão do número compartilhado.
   """
   @behaviour Api.Messaging.Transport
@@ -101,19 +102,6 @@ defmodule Api.Messaging.Zernio do
   def conta(%{vars: %{"zernio_account_id" => id}}) when is_binary(id) and id != "", do: id
   def conta(_message), do: config()[:account_id]
 
-  @doc """
-  Submete um template à aprovação da Meta (`POST /whatsapp/templates`).
-
-  Fora do caminho de envio de propósito: roda **uma vez por conta**, pela mix task, e tem lead
-  time de dias do outro lado. Devolve `{:ok, corpo}` ou `{:error, motivo}`.
-  """
-  def criar_template(payload) when is_map(payload) do
-    case requisicao(:post, "/whatsapp/templates", payload, nil) do
-      {:ok, %{status: status, body: body}} when status in 200..299 -> {:ok, body}
-      outro -> interpretar(outro)
-    end
-  end
-
   # ---- interno ----
 
   # `:plug` só existe em teste (`Req.Test`), e é o que permite exercitar **este** módulo — o
@@ -124,7 +112,7 @@ defmodule Api.Messaging.Zernio do
 
     [
       method: metodo,
-      url: (config[:base_url] || @base_url_padrao) <> caminho,
+      url: base_url(config) <> caminho,
       json: corpo,
       headers: cabecalhos(config, idempotency_key),
       retry: false,
@@ -179,7 +167,21 @@ defmodule Api.Messaging.Zernio do
   defp texto(valor) when is_binary(valor), do: String.slice(valor, 0, 200)
   defp texto(valor), do: valor |> inspect() |> String.slice(0, 200)
 
-  defp somente_digitos(destino), do: String.replace(destino, ~r/\D/, "")
+  defp somente_digitos(destino), do: Api.Texto.somente_digitos(destino)
+
+  # **Branco é ausente**, e o `||` sozinho não sabe disso: `${ZERNIO_BASE_URL:-}` no compose define
+  # a env sem valor, `System.get_env/1` devolve `""`, e string vazia é truthy em Elixir. O
+  # fallback nunca disparava e a URL virava `/inbox/conversations` — sem host, sem esquema.
+  #
+  # O sintoma escondia a causa: o Finch levanta `scheme is required for url`, o `interpretar/1`
+  # trata exceção como falha de REDE (e está certo em geral), e o Oban retentava três vezes uma
+  # requisição que nunca sairia. Nada na coluna `erro`, mensagem parada em `:pendente`.
+  #
+  # Medido no primeiro envio real de WhatsApp, em 2026-08-01. `compose.dokploy.yml` tem a mesma
+  # linha, então produção quebraria idêntico no primeiro disparo — o dev só chegou primeiro.
+  defp base_url(config) do
+    if preenchido?(config[:base_url]), do: config[:base_url], else: @base_url_padrao
+  end
 
   defp preenchido?(valor), do: is_binary(valor) and valor != ""
 

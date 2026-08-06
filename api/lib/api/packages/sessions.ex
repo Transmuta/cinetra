@@ -48,8 +48,9 @@ defmodule Api.Packages.Sessions do
   seguradas, que seria zero → nenhuma sessão volta). Então materializa **e segura**, que é o estado
   em que a pausa as teria deixado.
   """
-  @spec create_and_stamp(map(), map(), DateTime.t(), binary(), boolean()) :: {:ok, struct()}
-  def create_and_stamp(pkg, tipo, %DateTime{} = starts_at, clinic_id, forcar) do
+  @spec create_and_stamp(map(), map(), DateTime.t(), binary(), boolean(), map() | nil) ::
+          {:ok, struct()}
+  def create_and_stamp(pkg, tipo, %DateTime{} = starts_at, clinic_id, forcar, warm \\ nil) do
     attrs = %{
       starts_at: starts_at,
       professional_id: pkg.schedule.professional_id,
@@ -59,12 +60,16 @@ defmodule Api.Packages.Sessions do
       encaixe: forcar
     }
 
-    with {:ok, appt} <-
-           Api.Scheduling.schedule_appointment(attrs,
-             tenant: clinic_id,
-             authorize?: false,
-             context: %{bulk_pacote: true}
-           ) do
+    # `warm` é o invariante do lote já lido — viaja no CONTEXTO da ação e é consumido pelas
+    # validações e por `CheckAvailability`. `nil` (uma sessão avulsa) é no-op: `Warm.opts/2`
+    # devolve as opções intactas e tudo relê como sempre releu. Ver `Api.Scheduling.Warm`.
+    opts =
+      Api.Scheduling.Warm.opts(
+        [tenant: clinic_id, authorize?: false, context: %{bulk_pacote: true}],
+        warm
+      )
+
+    with {:ok, appt} <- Api.Scheduling.schedule_appointment(attrs, opts) do
       if pkg.status == :pausado, do: segura(appt, pkg, clinic_id)
       {:ok, appt}
     end
@@ -74,12 +79,19 @@ defmodule Api.Packages.Sessions do
   # o bloco; **acompanhado** (a sessão fundiu numa turma que já existia), segura só a presença — o
   # pacote pausado da Maria não pode sumir com o Pilates do João da agenda.
   defp segura(appt, pkg, clinic_id) do
+    # `in_clinic` obrigatório: esta leitura acontece DEPOIS do commit do `schedule_appointment`
+    # acima, e o `SET LOCAL` daquela transação já morreu. Sem a GUC, sob o role `cinetra_app`
+    # (NOBYPASSRLS), a RLS não devolve lista vazia — ela LEVANTA `22P02`, porque a GUC volta a
+    # `''` e não a NULL (doc 96, T-0/T-1). O gate `:rls` não pega: o sandbox roda o teste inteiro
+    # numa transação e a GUC da escrita fica pendurada, cobrindo esta leitura de graça.
     bloco =
-      Api.Scheduling.get_appointment!(appt.id,
-        tenant: clinic_id,
-        authorize?: false,
-        load: [:attendances]
-      )
+      Api.Tenancy.in_clinic(clinic_id, fn ->
+        Api.Scheduling.get_appointment!(appt.id,
+          tenant: clinic_id,
+          authorize?: false,
+          load: [:attendances]
+        )
+      end)
 
     case Enum.find(bloco.attendances, &(&1.package_id == pkg.id)) do
       nil ->

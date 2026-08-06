@@ -22,6 +22,19 @@ describe('UserMenu', () => {
 		expect(queryByText('Meu perfil')).not.toBeInTheDocument();
 	});
 
+	it('com foto do Google, o botão mostra a imagem no lugar das iniciais', () => {
+		const url = 'https://conta.r2.cloudflarestorage.com/user/u1/avatar.png?X-Amz-Signature=abc';
+		const comFoto: Me = meFixture({
+			user: { id: 'u1', nome: 'Ana Paula', email: 'ana@x.com', avatar_url: url }
+		});
+
+		const { getByTitle } = render(UserMenu, { props: { me: comFoto } });
+		const botao = getByTitle('Ana Paula');
+
+		expect(botao.querySelector('img')).toHaveAttribute('src', url);
+		expect(botao).not.toHaveTextContent('AP');
+	});
+
 	it('ao abrir, lista perfil, clínicas, nova clínica e sair', async () => {
 		const { getByTitle, getByText, getByRole } = render(UserMenu, { props: { me } });
 		await fireEvent.click(getByTitle('Ana Paula'));

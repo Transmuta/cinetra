@@ -41,7 +41,7 @@ describe('Toast', () => {
 		expect(pilula(regiao)).toBeNull();
 	});
 
-	it('usa o visual invertido do protótipo (primary/on-primary) com o check teal', () => {
+	it('usa os tokens primary/on-primary, e o ícone herda o mesmo on-primary', () => {
 		const { getByRole } = render(Toast);
 
 		toast('Acesso removido.');
@@ -50,21 +50,31 @@ describe('Toast', () => {
 		const pill = pilula(getByRole('status'))!;
 		expect(pill.className).toContain('bg-primary');
 		expect(pill.className).toContain('text-on-primary');
-		expect(pill.querySelector('.text-teal')).not.toBeNull();
+		// Desde a ADR-020 o ícone NÃO é mais tingido de acento/danger: sobre o sage de `primary` o
+		// teal media 1,06:1 e o check sumia. Ele usa o mesmo branco do texto.
+		// `getAttribute` e não `.className`: em SVG o `className` é um `SVGAnimatedString`, não string.
+		expect(pill.querySelector('.lucide-check')?.getAttribute('class')).toContain('text-on-primary');
+		expect(pill.querySelector('.text-accent')).toBeNull();
 	});
 
-	it('sucesso mostra o check teal e NÃO o ícone de erro', () => {
+	/**
+	 * As duas variantes se distinguem pela FORMA do ícone, não pela cor — ver a nota no
+	 * `Toast.svelte`. Por isso estes dois testes olham `lucide-check` vs `lucide-circle-alert`:
+	 * é o ícone de fato renderizado, e não a tinta que ele por acaso recebeu. A versão anterior
+	 * media `.text-accent` / `.text-danger`, e teria passado verde sobre um check invisível.
+	 */
+	it('sucesso mostra o check e NÃO o ícone de erro', () => {
 		const { getByRole } = render(Toast);
 
 		toast('Horário da clínica salvo', 'success');
 		flushSync();
 
 		const pill = pilula(getByRole('status'))!;
-		expect(pill.querySelector('.text-teal')).not.toBeNull();
-		expect(pill.querySelector('.text-danger')).toBeNull();
+		expect(pill.querySelector('.lucide-check')).not.toBeNull();
+		expect(pill.querySelector('.lucide-circle-alert')).toBeNull();
 	});
 
-	it('erro NÃO usa o check de sucesso — mostra um ícone de erro (danger)', () => {
+	it('erro NÃO usa o check de sucesso — mostra o ícone de alerta', () => {
 		// Regressão: um horário inválido devolvia "Dados inválidos" com o check verde de sucesso.
 		// Erro e sucesso precisam ser visualmente distintos (o protótipo não distinguia; aqui sim).
 		const { getByRole } = render(Toast);
@@ -74,7 +84,7 @@ describe('Toast', () => {
 
 		const pill = pilula(getByRole('status'))!;
 		expect(pill).toHaveTextContent('Dados inválidos. Verifique os campos.');
-		expect(pill.querySelector('.text-teal')).toBeNull();
-		expect(pill.querySelector('.text-danger')).not.toBeNull();
+		expect(pill.querySelector('.lucide-check')).toBeNull();
+		expect(pill.querySelector('.lucide-circle-alert')).not.toBeNull();
 	});
 });

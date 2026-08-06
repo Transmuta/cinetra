@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { fetchCandidates } from '$lib/server/waitlist';
+import type { CandidatesResponse } from '$lib/waitlist';
 
 // O "quem cabe aqui?" (AN-12, doc 64): a vaga que abriu (cancelamento/falta) pergunta à fila
 // quem casa com aquele horário. Buscado pelo drawer **quando ele abre** num bloco de vaga —
@@ -14,8 +15,8 @@ export const GET: RequestHandler = async (event) => {
 	const starts_at = event.url.searchParams.get('starts_at') ?? '';
 	const ends_at = event.url.searchParams.get('ends_at') ?? '';
 
-	if (!professional_id || !starts_at || !ends_at) return json({ candidates: [] });
+	if (!professional_id || !starts_at || !ends_at) return json({ candidates: [] } satisfies CandidatesResponse);
 
 	const r = await fetchCandidates(event, { professional_id, starts_at, ends_at });
-	return json({ candidates: r.data?.candidates ?? [] });
+	return json({ candidates: r.data?.candidates ?? [] } satisfies CandidatesResponse);
 };

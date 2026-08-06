@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Button from '$lib/components/Button.svelte';
 	// "Adicionar à fila de espera" / "Editar item da fila" (protótipo `modalAddFila` :2197).
 	// Clone estrutural do NewAppointmentModal: um `<form>` com `use:enhance` cujos campos
 	// compostos (profissionais preferidos, regras de disponibilidade) viajam como JSON em inputs
@@ -11,7 +12,6 @@
 	import CalendarDays from '@lucide/svelte/icons/calendar-days';
 	import CalendarClock from '@lucide/svelte/icons/calendar-clock';
 	import Modal from '$lib/components/Modal.svelte';
-	import SubmitButton from '$lib/components/SubmitButton.svelte';
 	import Field, { CONTROL_CLASS, CONTROL_PX } from '$lib/components/Field.svelte';
 	import PatientPicker from '$lib/components/agenda/PatientPicker.svelte';
 	import ConflictErrorBox from '$lib/components/agenda/ConflictErrorBox.svelte';
@@ -138,14 +138,14 @@
 		<Field label="Paciente">
 			{#if entry}
 				<!-- Edição: o paciente é a CHAVE do item (upsert por paciente) — não muda aqui. -->
-				<div class="flex items-center gap-2.5 rounded-md border border-edge bg-surface-2 px-3 py-2">
+				<div class="flex items-center gap-2.5 rounded-controle border border-edge bg-surface-2 px-3 py-2">
 					<span
-						class="grid size-7 shrink-0 place-items-center rounded-full text-[10px] font-bold"
+						class="grid size-7 shrink-0 place-items-center rounded-full text-micro font-bold"
 						style={avatarStyle(patientColor)}
 					>
 						{initials(entry.patient.nome)}
 					</span>
-					<span class="min-w-0 truncate text-[13px] font-semibold">{entry.patient.nome}</span>
+					<span class="min-w-0 truncate text-corpo font-semibold">{entry.patient.nome}</span>
 				</div>
 			{:else}
 				<input type="hidden" name="patient_id" value={selected[0]?.id ?? ''} />
@@ -177,12 +177,12 @@
 						<button
 							type="button"
 							onclick={() => toggleProf(p.id)}
-							class="flex items-center gap-1.5 rounded-full border py-1.5 pl-1.5 pr-2.5 text-[12.5px] font-semibold {on
-								? 'border-transparent bg-teal-subtle text-teal-text'
+							class="flex items-center gap-1.5 rounded-full border py-1.5 pl-1.5 pr-2.5 text-rotulo font-semibold {on
+								? 'border-transparent bg-accent-subtle text-accent-text'
 								: 'border-edge bg-surface text-ink hover:bg-surface-2'}"
 						>
 							<span
-								class="grid size-5 place-items-center rounded-full text-[9px] font-bold"
+								class="grid size-5 place-items-center rounded-full text-micro font-bold"
 								style={avatarStyle(p.cor_indice)}
 							>
 								{initials(p.nome)}
@@ -191,28 +191,28 @@
 						</button>
 					{/each}
 				</div>
-				<p class="mt-1.5 text-[11.5px] text-faint">
+				<p class="mt-1.5 text-meta text-faint">
 					Pode escolher mais de um, ou deixar em branco para qualquer profissional.
 				</p>
 			{:else}
-				<p class="text-[12px] text-faint">Nenhum profissional cadastrado ainda.</p>
+				<p class="text-rotulo text-faint">Nenhum profissional cadastrado ainda.</p>
 			{/if}
 		</Field>
 
 		<!-- Disponibilidade do paciente: quando ele consegue vir para um encaixe (protótipo :2233). -->
-		<div class="mb-3 rounded-[10px] border border-edge bg-surface p-3.5">
-			<div class="text-[13px] font-bold">Disponibilidade do paciente</div>
-			<div class="mb-3 text-[11.5px] text-muted">Quando ele consegue vir para um encaixe.</div>
+		<div class="mb-3 rounded-cartao border border-edge bg-surface p-3.5">
+			<div class="text-corpo font-bold">Disponibilidade do paciente</div>
+			<div class="mb-3 text-meta text-muted">Quando ele consegue vir para um encaixe.</div>
 
-			<div class="mb-1.5 text-[12px] font-semibold text-muted">Período preferido</div>
+			<div class="mb-1.5 text-rotulo font-semibold text-muted">Período preferido</div>
 			<div class="mb-4 flex gap-1.5">
 				{#each WINDOWS as w (w)}
 					<button
 						type="button"
 						onclick={() => (janela = w)}
 						aria-pressed={janela === w}
-						class="flex-1 rounded-md border py-2 text-[12.5px] font-semibold {janela === w
-							? 'border-teal bg-teal-subtle text-teal-text'
+						class="flex-1 rounded-controle border py-2 text-rotulo font-semibold {janela === w
+							? 'border-accent bg-accent-subtle text-accent-text'
 							: 'border-edge bg-surface text-muted hover:bg-surface-2'}"
 					>
 						{TIME_WINDOW_LABEL[w]}
@@ -220,30 +220,30 @@
 				{/each}
 			</div>
 
-			<div class="mb-2 text-[12px] font-semibold text-muted">
+			<div class="mb-2 text-rotulo font-semibold text-muted">
 				Horários específicos <span class="font-normal text-faint">(opcional)</span>
 			</div>
 
 			{#if rules.length}
 				<div class="mb-2.5 flex flex-col gap-2">
 					{#each rules as rule, i (i)}
-						<div class="rounded-[9px] border border-edge bg-surface p-3">
+						<div class="rounded-controle border border-edge bg-surface p-3">
 							<div class="mb-2.5 flex items-center justify-between">
-								<span class="flex items-center gap-1.5 text-[12px] font-bold {rule.tipo === 'data' ? 'text-teal-text' : 'text-ink'}">
+								<span class="flex items-center gap-1.5 text-rotulo font-bold {rule.tipo === 'data' ? 'text-accent-text' : 'text-ink'}">
 									{#if rule.tipo === 'data'}<CalendarClock size={14} /> Data específica{:else}<CalendarDays size={14} /> Dias da semana{/if}
 								</span>
 								<button
 									type="button"
 									onclick={() => removeRule(i)}
 									aria-label="Remover regra {i + 1}"
-									class="grid size-6.5 place-items-center rounded-md border border-edge bg-surface text-danger hover:bg-surface-2"
+									class="grid size-6.5 place-items-center rounded-controle border border-edge bg-surface text-danger hover:bg-surface-2"
 								>
 									<Trash2 size={13} />
 								</button>
 							</div>
 
 							{#if rule.tipo === 'semana'}
-								<div class="mb-1.5 text-[11px] text-faint">Selecione os dias</div>
+								<div class="mb-1.5 text-meta text-faint">Selecione os dias</div>
 								<div class="mb-2.5 flex flex-wrap gap-1.5">
 									{#each DOW_BUTTONS as d (d.dow)}
 										{@const on = rule.dows.includes(d.dow)}
@@ -251,8 +251,8 @@
 											type="button"
 											onclick={() => toggleDow(i, d.dow)}
 											aria-pressed={on}
-											class="h-7 w-[34px] rounded-md border text-[11px] font-semibold {on
-												? 'border-teal bg-teal-subtle text-teal-text'
+											class="h-7 w-[34px] rounded-controle border text-meta font-semibold {on
+												? 'border-accent bg-accent-subtle text-accent-text'
 												: 'border-edge bg-surface text-muted hover:bg-surface-2'}"
 										>
 											{d.label}
@@ -271,13 +271,13 @@
 								</div>
 							{/if}
 
-							<div class="mb-1.5 text-[11px] text-faint">Horários — pode ter mais de um</div>
+							<div class="mb-1.5 text-meta text-faint">Horários — pode ter mais de um</div>
 							<PeriodEditor periods={rule.periodos} onchange={(next) => setPeriodos(i, next)} />
 						</div>
 					{/each}
 				</div>
 			{:else}
-				<div class="mb-2.5 rounded-lg bg-surface-2 p-3 text-center text-[11.5px] text-muted">
+				<div class="mb-2.5 rounded-controle bg-surface-2 p-3 text-center text-meta text-muted">
 					Sem horários específicos — encaixa em qualquer horário do período acima. Adicione dias da
 					semana ou uma data se ele tiver horários certos.
 				</div>
@@ -287,14 +287,14 @@
 				<button
 					type="button"
 					onclick={addSemana}
-					class="flex items-center gap-1.5 rounded-lg border border-dashed border-edge px-3 py-2 text-[12px] font-semibold text-teal-text hover:bg-surface-2"
+					class="flex items-center gap-1.5 rounded-controle border border-dashed border-edge px-3 py-2 text-rotulo font-semibold text-accent-text hover:bg-surface-2"
 				>
 					<Plus size={13} /> Dias da semana
 				</button>
 				<button
 					type="button"
 					onclick={addData}
-					class="flex items-center gap-1.5 rounded-lg border border-dashed border-edge px-3 py-2 text-[12px] font-semibold text-teal-text hover:bg-surface-2"
+					class="flex items-center gap-1.5 rounded-controle border border-dashed border-edge px-3 py-2 text-rotulo font-semibold text-accent-text hover:bg-surface-2"
 				>
 					<Plus size={13} /> Data específica
 				</button>
@@ -320,17 +320,16 @@
 		<button
 			type="button"
 			onclick={onClose}
-			class="rounded-md border border-edge-strong bg-surface px-3.5 py-2 text-[13px] font-semibold hover:bg-surface-2"
+			class="rounded-controle border border-edge-strong bg-surface px-3.5 py-2 text-corpo font-semibold hover:bg-surface-2"
 		>
 			Cancelar
 		</button>
-		<SubmitButton
+		<Button type="submit"
 			emVoo={envio.emVoo}
 			form="fila-form"
 			disabled={!podeSalvar}
-			class="inline-flex items-center gap-1.5 rounded-md bg-primary px-3.5 py-2 text-[13px] font-semibold text-on-primary disabled:cursor-not-allowed disabled:opacity-60"
 		>
 			{editando ? 'Salvar' : 'Adicionar à fila'}
-		</SubmitButton>
+		</Button>
 	{/snippet}
 </Modal>

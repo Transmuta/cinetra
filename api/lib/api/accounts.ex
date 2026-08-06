@@ -14,14 +14,19 @@ defmodule Api.Accounts do
       # Lote de usuários por id. O feed de auditoria não o usa mais para o autor — desde o doc 63
       # a trilha grava o nome de quem agiu junto com o evento (`user_label`), para a linha
       # continuar legível depois que a pessoa deixa a clínica.
-      define :list_users, action: :read
       define :get_user_by_email, action: :get_by_email, args: [:email]
       # Auth sem senha (ADR-015): usados pelo ApiWeb.AuthController.
       define :request_magic_link, action: :request_magic_link, args: [:email]
       define :sign_in_with_magic_link, action: :sign_in_with_magic_link, args: [:token]
       # Tela "Meu perfil": editar o próprio nome e sair de todos os dispositivos.
       define :update_profile, action: :update_profile
+      # O aceite dos documentos legais (`[D-14]`), carimbado pela fronteira de autenticação
+      # logo depois do login — nos DOIS caminhos, porque os dois passam pelo BFF.
+      define :accept_terms, action: :accept_terms, args: [:versao]
       define :log_out_everywhere, action: :log_out_everywhere, args: [:user]
+      # Só o `Api.Accounts.AvatarSyncJob` chama (com `authorize?: false`): grava a chave da foto
+      # já guardada no bucket. Não há caminho de request para cá.
+      define :set_user_avatar, action: :set_avatar
     end
 
     resource Api.Accounts.Clinic do

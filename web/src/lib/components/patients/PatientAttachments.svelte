@@ -63,6 +63,7 @@
 	import Paperclip from '@lucide/svelte/icons/paperclip';
 	import LoaderCircle from '@lucide/svelte/icons/loader-circle';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
+	import Modal from '$lib/components/Modal.svelte';
 	import { toast } from '$lib/toast.svelte';
 	import { reportar } from '$lib/report';
 	import {
@@ -261,14 +262,14 @@
 	}
 </script>
 
-<section class="rounded-[14px] border border-edge bg-surface p-5">
+<section class="rounded-cartao border border-edge bg-surface p-5">
 	<div class="mb-4 flex items-center gap-2.5">
-		<span class="grid size-[30px] shrink-0 place-items-center rounded-lg bg-teal-subtle text-teal-text">
+		<span class="grid size-[30px] shrink-0 place-items-center rounded-controle bg-accent-subtle text-accent-text">
 			<Paperclip size={15} />
 		</span>
-		<div class="flex-1 text-[14px] font-bold">Anexos e documentos</div>
+		<div class="flex-1 text-leitura font-bold">Anexos e documentos</div>
 		{#if attachments.length}
-			<span class="font-mono text-[11.5px] text-faint">
+			<span class="font-mono text-meta text-faint">
 				{attachments.length} arquivo{attachments.length === 1 ? '' : 's'}
 			</span>
 		{/if}
@@ -277,23 +278,23 @@
 	{#if !limites}
 		<!-- storage sem credencial (503): a seção diz o que houve em vez de oferecer um campo
 		     que não tem para onde enviar. -->
-		<p class="rounded-[10px] border border-edge bg-surface-2 px-3.5 py-3 text-[12.5px] text-muted">
+		<p class="rounded-cartao border border-edge bg-surface-2 px-3.5 py-3 text-rotulo text-muted">
 			O storage de anexos não está configurado. Fale com quem administra o sistema.
 		</p>
 	{:else}
 		{#if enviando}
-			<div class="mb-2.5 rounded-[10px] border border-edge bg-surface-2 px-3.5 py-3">
-				<div class="mb-1.5 flex items-center gap-2 text-[12.5px] font-semibold">
-					<LoaderCircle size={14} class="animate-spin text-teal-text" />
+			<div class="mb-2.5 rounded-cartao border border-edge bg-surface-2 px-3.5 py-3">
+				<div class="mb-1.5 flex items-center gap-2 text-rotulo font-semibold">
+					<LoaderCircle size={14} class="animate-spin text-accent-text" />
 					<span class="min-w-0 flex-1 truncate">{enviando.nome}</span>
-					<span class="font-mono text-[11px] text-faint">{enviando.pct}%</span>
+					<span class="font-mono text-meta text-faint">{enviando.pct}%</span>
 				</div>
 				<div class="h-1.5 overflow-hidden rounded-full bg-edge">
-					<div class="h-full rounded-full bg-teal transition-[width]" style="width:{enviando.pct}%"></div>
+					<div class="h-full rounded-full bg-accent transition-[width]" style="width:{enviando.pct}%"></div>
 				</div>
 			</div>
 		{:else if cheio}
-			<p class="mb-2.5 rounded-[10px] border border-edge bg-surface-2 px-3.5 py-3 text-[12.5px] text-muted">
+			<p class="mb-2.5 rounded-cartao border border-edge bg-surface-2 px-3.5 py-3 text-rotulo text-muted">
 				Este paciente atingiu o limite de {limites.max_por_paciente} anexos. Remova algum para enviar
 				outro.
 			</p>
@@ -306,8 +307,8 @@
 				significa "solte aqui".
 			-->
 			<label
-				class="mb-2.5 flex cursor-pointer flex-col items-center gap-1.5 rounded-[10px] border-[1.5px] border-dashed p-[18px] transition-colors focus-within:border-teal focus-within:bg-teal-subtle focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-teal {arrastando
-					? 'border-teal bg-teal-subtle'
+				class="mb-2.5 flex cursor-pointer flex-col items-center gap-1.5 rounded-cartao border-[1.5px] border-dashed p-[18px] transition-colors focus-within:border-accent focus-within:bg-accent-subtle focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-accent {arrastando
+					? 'border-accent bg-accent-subtle'
 					: 'border-edge-strong bg-surface'}"
 				ondragover={(e) => {
 					e.preventDefault();
@@ -336,18 +337,18 @@
 					class="sr-only"
 					onchange={(e) => receber((e.currentTarget as HTMLInputElement).files)}
 				/>
-				<Upload size={20} class="text-teal-text" />
-				<span class="text-[12.5px] font-semibold text-ink">Arraste um arquivo ou clique para enviar</span>
-				<span class="text-[11px] text-faint">{rotuloLimite()}</span>
+				<Upload size={20} class="text-accent-text" />
+				<span class="text-rotulo font-semibold text-ink">Arraste um arquivo ou clique para enviar</span>
+				<span class="text-meta text-faint">{rotuloLimite()}</span>
 			</label>
 		{/if}
 
 		{#if attachments.length}
 			<ul class="flex flex-col gap-1.5">
 				{#each attachments as a (a.id)}
-					<li class="flex items-center gap-2.75 rounded-[9px] border border-edge bg-surface p-2">
+					<li class="flex items-center gap-2.75 rounded-controle border border-edge bg-surface p-2">
 						<span
-							class="grid size-[38px] shrink-0 place-items-center rounded-[7px] {isImagem(a.content_type)
+							class="grid size-[38px] shrink-0 place-items-center rounded-controle {isImagem(a.content_type)
 								? 'bg-surface-2 text-muted'
 								: 'bg-danger/10 text-danger'}"
 						>
@@ -359,8 +360,8 @@
 						</span>
 
 						<div class="min-w-0 flex-1">
-							<div class="truncate text-[12.5px] font-semibold">{a.nome}</div>
-							<div class="font-mono text-[11px] text-faint">
+							<div class="truncate text-rotulo font-semibold">{a.nome}</div>
+							<div class="font-mono text-meta text-faint">
 								{rotuloTipo(a.content_type)} · {fmtBytes(a.bytes)} · {fmtData(a.inserted_at)}
 							</div>
 						</div>
@@ -370,7 +371,7 @@
 							title="Abrir"
 							aria-label="Abrir {a.nome}"
 							onclick={() => abrir(a)}
-							class="grid size-8 shrink-0 place-items-center rounded-lg text-muted hover:bg-surface-2 hover:text-ink"
+							class="grid size-8 shrink-0 place-items-center rounded-controle text-muted hover:bg-surface-2 hover:text-ink"
 						>
 							<ExternalLink size={15} />
 						</button>
@@ -382,7 +383,7 @@
 								renomeando = a;
 								novoNome = a.nome;
 							}}
-							class="grid size-8 shrink-0 place-items-center rounded-lg text-muted hover:bg-surface-2 hover:text-ink"
+							class="grid size-8 shrink-0 place-items-center rounded-controle text-muted hover:bg-surface-2 hover:text-ink"
 						>
 							<Pencil size={15} />
 						</button>
@@ -391,7 +392,7 @@
 							title="Remover"
 							aria-label="Remover {a.nome}"
 							onclick={() => (removendo = a)}
-							class="grid size-8 shrink-0 place-items-center rounded-lg text-muted hover:bg-danger/10 hover:text-danger"
+							class="grid size-8 shrink-0 place-items-center rounded-controle text-muted hover:bg-danger/10 hover:text-danger"
 						>
 							<Trash2 size={15} />
 						</button>
@@ -399,44 +400,48 @@
 				{/each}
 			</ul>
 		{:else if !enviando}
-			<p class="py-2 text-center text-[12.5px] text-faint">Nenhum anexo ainda.</p>
+			<p class="py-2 text-center text-rotulo text-faint">Nenhum anexo ainda.</p>
 		{/if}
 	{/if}
 </section>
 
+<!--
+	Era o único diálogo do app escrito à mão: overlay e raio próprios, e nenhuma das quatro
+	garantias que o `Modal` dá (role, Esc, Tab aprisionado, foco devolvido) — cinco linhas acima
+	de um `ConfirmDialog` correto. Doc 93 §A-3.
+
+	O rodapé mora fora do `<form>` (é um snippet do `Modal`), então o "Salvar" alcança o submit
+	pelo atributo `form=` em vez de por aninhamento.
+-->
 {#if renomeando}
-	<div class="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4">
-		<form
-			onsubmit={salvarNome}
-			class="w-full max-w-sm rounded-[14px] border border-edge bg-surface p-5 shadow-lg"
-		>
-			<h2 class="mb-3 text-[15px] font-bold">Renomear anexo</h2>
-			<!-- svelte-ignore a11y_autofocus -->
+	<Modal title="Renomear anexo" onClose={() => (renomeando = null)}>
+		<form id="form-renomear-anexo" onsubmit={salvarNome}>
 			<input
 				bind:value={novoNome}
-				autofocus
 				maxlength="200"
 				aria-label="Nome do anexo"
-				class="mb-4 w-full rounded-lg border border-edge bg-surface-2 px-3 py-2 text-[13.5px] outline-none focus:border-teal"
+				class="w-full rounded-controle border border-edge bg-surface-2 px-3 py-2 text-corpo outline-none focus:border-accent"
 			/>
-			<div class="flex justify-end gap-2">
-				<button
-					type="button"
-					onclick={() => (renomeando = null)}
-					class="rounded-lg border border-edge px-3.5 py-2 text-[13px] font-semibold text-muted hover:bg-surface-2"
-				>
-					Cancelar
-				</button>
-				<button
-					type="submit"
-					disabled={!novoNome.trim()}
-					class="rounded-lg bg-primary px-3.5 py-2 text-[13px] font-semibold text-on-primary disabled:opacity-50"
-				>
-					Salvar
-				</button>
-			</div>
 		</form>
-	</div>
+
+		{#snippet footer()}
+			<button
+				type="button"
+				onclick={() => (renomeando = null)}
+				class="rounded-controle border border-edge px-3.5 py-2 text-corpo font-semibold text-muted hover:bg-surface-2"
+			>
+				Cancelar
+			</button>
+			<button
+				type="submit"
+				form="form-renomear-anexo"
+				disabled={!novoNome.trim()}
+				class="rounded-controle bg-primary px-3.5 py-2 text-corpo font-semibold text-on-primary hover:bg-primary-hover disabled:opacity-50"
+			>
+				Salvar
+			</button>
+		{/snippet}
+	</Modal>
 {/if}
 
 {#if removendo}

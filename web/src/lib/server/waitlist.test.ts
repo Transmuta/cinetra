@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { contrato, exigirCampos, primeiro } from '$lib/testing/contrato';
+import type { WaitlistData } from './waitlist';
 
 const api = vi.hoisted(() => ({ apiFetch: vi.fn() }));
 vi.mock('./api', () => api);
@@ -39,6 +41,9 @@ beforeEach(() => {
 // MESMA (fila e vagas), senão a linha aparece sem chip de vaga.
 const janela = { limit: 50, offset: 0 };
 
+// O corpo vem de `contratos/bff/fila.json`, gravado pela API de verdade (doc 101, A2).
+const fila = contrato<WaitlistData>('fila', 'lista');
+
 describe('fetchWaitlist', () => {
 	it('o segmento da sidebar viaja como ?prio= (filtro no servidor)', async () => {
 		api.apiFetch.mockResolvedValueOnce(res(200, { waitlist: [], professionals: [] }));
@@ -53,13 +58,11 @@ describe('fetchWaitlist', () => {
 	});
 
 	it('200 → a fila e os profissionais da barra', async () => {
-		api.apiFetch.mockResolvedValueOnce(
-			res(200, { waitlist: [{ id: 'e1' }], professionals: [{ id: 'p1' }] })
-		);
+		api.apiFetch.mockResolvedValueOnce(res(200, fila));
 		const r = await fetchWaitlist(event, janela);
 		expect(r.status).toBe(200);
-		expect(r.data?.waitlist).toHaveLength(1);
-		expect(r.data?.professionals).toHaveLength(1);
+		expect(r.data?.waitlist).toHaveLength(fila.waitlist.length);
+		expect(r.data?.professionals).toHaveLength(fila.professionals.length);
 		expect(api.apiFetch.mock.calls[0][1]).toBe('/api/waitlist?limit=50&offset=0');
 	});
 
@@ -209,5 +212,61 @@ describe('fetchCandidates', () => {
 		api.apiFetch.mockRejectedValueOnce(new Error('rede'));
 		const r = await fetchCandidates(event, slot);
 		expect(r).toEqual({ status: 0, data: null });
+	});
+});
+
+// O contrato com a API (doc 101, A2).
+//
+// A **vaga** (`/slots`) fica de fora da fixture, e é decisão: o `SlotFinder` varre a partir de
+// AGORA, então as datas que ele devolve mudam com o dia em que a suíte roda — a fixture ficaria
+// suja todo dia e o gate viraria ruído em uma semana. Aquele corpo segue escrito à mão aqui.
+describe('contrato com a API', () => {
+	it('a resposta traz a fila, o diretório, o hoje do servidor, a página e as contagens', () => {
+		exigirCampos(
+			fila,
+			['waitlist', 'professionals', 'today', 'page', 'counts'],
+			'fila/lista'
+		);
+	});
+
+	it('o item da fila traz o que a linha desenha', () => {
+		exigirCampos(
+			primeiro(fila.waitlist, 'fila/lista → waitlist'),
+			[
+				'id',
+				'prio',
+				'janela',
+				'obs',
+				'professional_ids',
+				'dias_na_fila',
+				'rules',
+				'patient',
+				'inserted_at'
+			],
+			'fila/lista → waitlist[0]'
+		);
+	});
+
+	// `dias_na_fila` é derivado no SERVIDOR a partir de `inserted_at`, no fuso da clínica
+	// (ADR-009). Se ele sumisse, a coluna "espera" passaria a mostrar nada — e recalculá-lo no
+	// browser é justamente o que a decisão proíbe.
+	it('a espera vem calculada do servidor, não do browser', () => {
+		expect(typeof primeiro(fila.waitlist, 'fila/lista → waitlist').dias_na_fila).toBe('number');
+	});
+
+	it('a regra de disponibilidade traz as quatro chaves que o editor mexe', () => {
+		exigirCampos(
+			primeiro(primeiro(fila.waitlist, 'fila/lista').rules, 'fila/lista → rules'),
+			['tipo', 'dows', 'data', 'periodos'],
+			'fila/lista → waitlist[0].rules[0]'
+		);
+	});
+
+	it('o paciente da fila é a projeção enxuta, com o agregado de faltas', () => {
+		exigirCampos(
+			primeiro(fila.waitlist, 'fila/lista').patient,
+			['id', 'nome', 'tel', 'ativo', 'faltas'],
+			'fila/lista → waitlist[0].patient'
+		);
 	});
 });

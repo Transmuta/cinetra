@@ -37,7 +37,8 @@ defmodule Api.Audit.CaptureLigadoTest do
     Api.Accounts.Membership,
     Api.Accounts.Clinic,
     Api.Packages.Package,
-    Api.Waitlist.WaitlistEntry
+    Api.Waitlist.WaitlistEntry,
+    Api.Waitlist.AvailabilityRule
   ]
 
   defp captura(resource) do
@@ -87,6 +88,7 @@ defmodule Api.Audit.CaptureLigadoTest do
                :schedule_exception,
                :package,
                :waitlist_entry,
+               :availability_rule,
                :attachment,
                :seguranca
              ]),

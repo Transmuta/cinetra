@@ -20,11 +20,13 @@ defmodule ApiWeb.AuthStrategyController do
     |> redirect(external: Api.web_app_url())
   end
 
+  # **401 de verdade, sem `Location`** (doc 96, H-10) — o irmão do `magic_link_callback`, e o
+  # mesmo raciocínio: `redirect/2` com `put_status(:unauthorized)` antes emite 401 **com** header
+  # `Location`, um redirect que browser nenhum segue. Quem lê é o BFF, com `redirect: 'manual'`,
+  # e ele decide o destino sozinho (`redirect(303, '/entrar?erro=google')`).
   @impl true
   def failure(conn, _activity, _reason) do
-    conn
-    |> put_status(:unauthorized)
-    |> redirect(external: Api.web_app_url() <> "/entrar?erro=oauth")
+    ApiWeb.TenantScope.unauthorized(conn)
   end
 
   @impl true

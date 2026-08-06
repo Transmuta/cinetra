@@ -1,0 +1,118 @@
+{
+  "_leia_isto": [
+    "Os casos de teste das regras que EXISTEM DUAS VEZES no projeto — uma em Elixir (a autoridade)",
+    "e uma em TypeScript (a régua que chega antes da viagem, para o 422 não ser a primeira notícia).",
+    "",
+    "Este arquivo é lido pelos DOIS lados: `api/test/api/paridade_espelhada_test.exs` e",
+    "`web/src/lib/paridade-espelhada.test.ts`. Nenhum dos dois tem os casos escritos dentro de si —",
+    "é essa a única propriedade que importa aqui. Duas listas de casos, ainda que idênticas hoje,",
+    "divergem no dia em que alguém acrescenta um caso de um lado só, e aí os dois testes ficam",
+    "verdes sobre implementações que discordam.",
+    "",
+    "Por que existe: `docs/04-arquitetura.md §10` mandou que 'onde há espelho, a paridade é",
+    "garantida por contrato de teste compartilhado, nunca por cópia mantida a olho'. O contrato",
+    "nunca foi construído — cada `.ts` trazia um comentário dizendo 'espelho de X', e a prosa era a",
+    "única verificação (doc 101, A5).",
+    "",
+    "Mora na RAIZ do repositório, e não dentro de `api/` ou de `web/`, porque não é de nenhum dos",
+    "dois. Os containers de dev montam a raiz em `/repo` só-leitura; no CI o checkout inteiro está",
+    "em `../`. Os dois testes procuram nos dois lugares e FALHAM se não acharem — teste de contrato",
+    "que some sozinho no ambiente errado é pior que não existir, porque reporta verde sem ter",
+    "olhado nada.",
+    "",
+    "Ao acrescentar um caso: acrescente AQUI, e os dois lados passam a cobrá-lo no mesmo commit."
+  ],
+
+  "cpf": {
+    "elixir": "Api.Cpf.valid?/1",
+    "typescript": "isValidCpf — web/src/lib/cpf.ts",
+    "forma": "entrada: string · esperado: booleano",
+    "casos": [
+      { "entrada": "529.982.247-25", "esperado": true, "porque": "válido, com máscara" },
+      { "entrada": "52998224725", "esperado": true, "porque": "válido, só dígitos — a forma canônica do banco" },
+      { "entrada": "111.444.777-35", "esperado": true, "porque": "válido, o segundo DV cai em 10 ≡ 0" },
+      { "entrada": "123.456.789-09", "esperado": true, "porque": "válido, e é o que todo mundo assume ser falso" },
+      { "entrada": "529.982.247-24", "esperado": false, "porque": "último DV errado por um" },
+      { "entrada": "111.111.111-11", "esperado": false, "porque": "sequência de um dígito só fecha a conta, mas não é CPF emitido" },
+      { "entrada": "000.000.000-00", "esperado": false, "porque": "a mesma regra, no caso que a fórmula aceitaria mais facilmente" },
+      { "entrada": "529.982.247-2", "esperado": false, "porque": "10 dígitos" },
+      { "entrada": "529.982.247-256", "esperado": false, "porque": "12 dígitos" },
+      { "entrada": "", "esperado": false, "porque": "vazio" },
+      { "entrada": "abc.def.ghi-jk", "esperado": false, "porque": "sem dígito nenhum" },
+      { "entrada": "  52998224725  ", "esperado": true, "porque": "espaço em volta não muda o número" }
+    ]
+  },
+
+  "cnpj": {
+    "elixir": "Api.Cnpj.valid?/1",
+    "typescript": "isValidCnpj — web/src/lib/cnpj.ts",
+    "forma": "entrada: string · esperado: booleano",
+    "casos": [
+      { "entrada": "11.222.333/0001-81", "esperado": true, "porque": "válido, com máscara" },
+      { "entrada": "11222333000181", "esperado": true, "porque": "válido, só dígitos" },
+      { "entrada": "11.444.777/0001-61", "esperado": true, "porque": "segundo válido, para não pender de um número só" },
+      { "entrada": "11.222.333/0001-80", "esperado": false, "porque": "último DV errado por um" },
+      { "entrada": "11.111.111/1111-11", "esperado": false, "porque": "sequência de um dígito só" },
+      { "entrada": "11.222.333/0001-8", "esperado": false, "porque": "13 dígitos" },
+      { "entrada": "", "esperado": false, "porque": "vazio" }
+    ]
+  },
+
+  "telefone_canonico": {
+    "elixir": "Api.Messaging.Dispatch.normalizar(:whatsapp, _)",
+    "typescript": "canonizarTelefone — web/src/lib/telefone.ts",
+    "forma": "entrada: string · esperado: string em E.164, ou null quando não é telefone",
+    "casos": [
+      { "entrada": "(11) 98765-4321", "esperado": "+5511987654321", "porque": "celular como se digita no balcão" },
+      { "entrada": "11987654321", "esperado": "+5511987654321", "porque": "o mesmo, sem máscara" },
+      { "entrada": "(11) 3456-7890", "esperado": "+551134567890", "porque": "fixo: DDD + 8 dígitos" },
+      { "entrada": "+55 11 98765-4321", "esperado": "+5511987654321", "porque": "já veio com o código do país" },
+      { "entrada": "5511987654321", "esperado": "+5511987654321", "porque": "13 dígitos começando em 55" },
+      { "entrada": "551134567890", "esperado": "+551134567890", "porque": "12 dígitos começando em 55" },
+      { "entrada": "987654321", "esperado": null, "porque": "9 dígitos: falta o DDD" },
+      { "entrada": "119876543210", "esperado": null, "porque": "12 dígitos que NÃO começam em 55" },
+      { "entrada": "", "esperado": null, "porque": "vazio" },
+      { "entrada": "não é telefone", "esperado": null, "porque": "sem dígito nenhum" },
+      {
+        "entrada": "+1 415 555 0000",
+        "esperado": "+5514155550000",
+        "porque": "NÃO há guarda de estrangeiro, e é de propósito: o servidor não a tem, e o cliente que a tivesse recusaria o que o banco aceita. É a borda que este contrato existe para prender."
+      }
+    ]
+  },
+
+  "email_forma_minima": {
+    "elixir": "Api.Records.Patient.Validations.CampoValido, campo :email",
+    "typescript": "a regex de `sondaEmail` — web/src/routes/api/patients/lookup/+server.ts",
+    "forma": "entrada: string · esperado: booleano",
+    "casos": [
+      { "entrada": "ana@example.com", "esperado": true, "porque": "a forma mínima algo@algo.tld" },
+      { "entrada": "ana.souza+tag@sub.example.com.br", "esperado": true, "porque": "as formas improváveis que são válidas" },
+      { "entrada": "ana@example", "esperado": false, "porque": "sem ponto no domínio" },
+      { "entrada": "ana example.com", "esperado": false, "porque": "sem arroba" },
+      { "entrada": "ana @example.com", "esperado": false, "porque": "espaço antes do arroba" },
+      { "entrada": "a@b.c", "esperado": true, "porque": "curto, mas tem a forma — a régua é mínima de propósito; quem valida de verdade é o provider" },
+      { "entrada": "", "esperado": false, "porque": "vazio" }
+    ]
+  },
+
+  "periodos_do_dia": {
+    "elixir": "Api.Scheduling.Periods.validate/1",
+    "typescript": "validateDayPeriods(...).ok — web/src/lib/scheduling.ts",
+    "forma": "entrada: lista de pares [HH:MM, HH:MM] · esperado: booleano",
+    "casos": [
+      { "entrada": [], "esperado": true, "porque": "dia fechado é válido" },
+      { "entrada": [["08:00", "12:00"]], "esperado": true, "porque": "um período" },
+      { "entrada": [["08:00", "12:00"], ["13:00", "18:00"]], "esperado": true, "porque": "dois, ordenados e disjuntos" },
+      { "entrada": [["08:00", "12:00"], ["12:00", "18:00"]], "esperado": true, "porque": "encostados valem: o fim de um pode ser o início do próximo" },
+      { "entrada": [["08:00", "12:00"], ["11:00", "18:00"]], "esperado": false, "porque": "sobrepostos" },
+      { "entrada": [["13:00", "18:00"], ["08:00", "12:00"]], "esperado": false, "porque": "fora de ordem" },
+      { "entrada": [["12:00", "08:00"]], "esperado": false, "porque": "fim antes do início" },
+      { "entrada": [["08:00", "08:00"]], "esperado": false, "porque": "duração zero" },
+      { "entrada": [["8:00", "12:00"]], "esperado": false, "porque": "hora sem o zero à esquerda não é HH:MM" },
+      { "entrada": [["24:00", "25:00"]], "esperado": false, "porque": "fora do relógio de 24h" },
+      { "entrada": [["08:60", "12:00"]], "esperado": false, "porque": "minuto fora da faixa" },
+      { "entrada": [["08:00"]], "esperado": false, "porque": "período não é um par" }
+    ]
+  }
+}

@@ -90,8 +90,17 @@ defmodule ApiWeb.AvailabilityController do
     |> Enum.reject(&(&1 == ""))
     |> Enum.uniq()
     |> case do
-      [] -> {:error, "informe professional_id"}
-      ids -> {:ok, ids}
+      [] ->
+        {:error, "informe professional_id"}
+
+      ids ->
+        # O valor ia CRU para `Ash.Query.filter(Professional, id in ^ids)` sobre coluna `uuid`,
+        # com `list_professionals!` (bang) em seguida: um id malformado virava exceção no meio de
+        # uma leitura de fronteira. É a mesma classe que o `AuditController` documenta ter
+        # consertado em si mesmo (doc 96, A-3). 422 é a resposta certa — o pedido está errado.
+        if Enum.all?(ids, &Api.Params.uuid?/1),
+          do: {:ok, ids},
+          else: {:error, "professional_id inválido"}
     end
   end
 end

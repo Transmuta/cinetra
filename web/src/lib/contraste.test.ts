@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AVATAR_PALETTE } from './avatar';
+import { AVATAR_PALETTE, avatarStyle } from './avatar';
 import { TYPE_COLORS } from './appointment-types';
 import { PRIORITY_META, PRIORITY_ORDER } from './waitlist';
 import { razaoDeContraste, textoSobre, TEXTO_CLARO, TEXTO_ESCURO } from './contraste';
@@ -28,8 +28,62 @@ function checa(nome: string, fundo: string) {
 	).toBeGreaterThanOrEqual(PISO);
 }
 
+/** O sage da marca, que é a única exceção registrada da paleta de avatar (ver `avatarStyle`). */
+const SAGE = '#7FA59A';
+
+/** A cor de texto que o `avatarStyle` de fato emite — é ela que a tela mostra. */
+function textoDoAvatar(fundo: string): string {
+	const m = /color:(#[0-9a-f]{6})/i.exec(avatarStyle(fundo));
+	if (!m) throw new Error(`avatarStyle('${fundo}') não emitiu cor de texto`);
+	return m[1];
+}
+
 describe('paletas categóricas passam 4,5:1 com o texto escolhido', () => {
-	it.each(AVATAR_PALETTE)('avatar %s', (cor) => checa('avatar', cor));
+	/**
+	 * Mede o que o `avatarStyle` **emite**, não o que o `textoSobre` escolheria. A diferença passou
+	 * a existir com a exceção do sage: `textoSobre` devolveria o escuro (6,46), então um teste
+	 * escrito sobre ele continuaria verde enquanto a tela mostra branco a 2,71. Medir a função que
+	 * a marcação usa é o que impede o teste de concordar com uma realidade que mudou.
+	 */
+	it.each(AVATAR_PALETTE.filter((c) => c !== SAGE))('avatar %s', (cor) => {
+		const texto = textoDoAvatar(cor);
+		const r = razaoDeContraste(texto, cor);
+		expect(
+			r,
+			`avatar (${cor}): o avatarStyle emitiu ${texto}, que dá ${r.toFixed(2)} — abaixo de ${PISO}`
+		).toBeGreaterThanOrEqual(PISO);
+	});
+
+	/**
+	 * O sage — **EXCEÇÃO REGISTRADA** (ADR-020 estendida ao avatar, débito D-17).
+	 *
+	 * Branco sobre `#7FA59A` mede 2,71:1. Está aqui cravado, e não escondido, para que a exceção
+	 * seja um fato medido e versionado. O motivo é consistência: o botão primário já é branco sobre
+	 * este mesmo sage, e o avatar com texto escuro poria dois tratamentos da mesma cor lado a lado.
+	 */
+	it('avatar sage usa branco por decisão, a 2,71:1 (exceção registrada)', () => {
+		expect(AVATAR_PALETTE, 'o sage precisa continuar na paleta para esta exceção fazer sentido').toContain(
+			SAGE
+		);
+		expect(textoDoAvatar(SAGE), 'o texto sobre o sage é branco, por decisão').toBe(TEXTO_CLARO);
+
+		const r = razaoDeContraste(TEXTO_CLARO, SAGE);
+		expect(r).toBeGreaterThan(2.6);
+		expect(
+			r,
+			`branco sobre o sage subiu para ${r.toFixed(2)}. Se passou de ${PISO}, a exceção morreu: ` +
+				`tire o sage do SEMPRE_BRANCO em avatar.ts e devolva esta cor ao bloco de cima.`
+		).toBeLessThan(PISO);
+	});
+
+	/** A exceção é do tamanho de UMA cor: as outras seis não podem tê-la herdado. */
+	it('nenhuma outra cor da paleta virou branco de graça', () => {
+		for (const cor of AVATAR_PALETTE.filter((c) => c !== SAGE)) {
+			expect(textoDoAvatar(cor), `${cor} deve seguir o textoSobre, não a exceção`).toBe(
+				textoSobre(cor)
+			);
+		}
+	});
 
 	it.each(TYPE_COLORS)('tipo de atendimento %s', (cor) => checa('tipo', cor));
 

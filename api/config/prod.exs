@@ -23,23 +23,47 @@ config :logger, level: :info
 
 # Log em JSON, uma linha por evento (doc 62 §7.1) — é o que o agente coleta e o Loki indexa.
 # Só em produção: em dev, texto colorido é melhor para humano.
+#
+# O formatter é NOSSO (`Api.LogFormatter`), e não o `LoggerJSON.Formatters.Basic`, por um motivo
+# medido: o Basic aninha tudo sob a chave `metadata`, o `| json` do Loki achata isso com `_`, e o
+# rótulo real virava `metadata_status`. Os treze dashboards perguntavam por `status` — e consulta
+# certa sobre campo inexistente devolve ZERO linhas, não erro. Em produção, todo painel de 4xx
+# abria "No data" com o log inteiro presente no Loki (doc 99). Ver o moduledoc de lá para o
+# contrato dos campos.
 config :logger, :default_handler,
-  formatter:
-    {LoggerJSON.Formatters.Basic,
-     metadata: [
-       :request_id,
-       # O elo com o Tempo (doc 76). Esta é a lista que VALE em produção — ela sobrescreve a do
-       # `config.exs`, e é dela que sai o JSON que o Alloy embarca e o Loki indexa. Sem a chave
-       # aqui, o `derivedFields` do Grafana não encontra `trace_id` na linha e o botão "Ver trace"
-       # não aparece, com o trace existindo do outro lado e ninguém percebendo.
-       :trace_id,
-       :clinic_id,
-       :actor_id,
-       :method,
-       :route,
-       :status,
-       :duration_ms
-     ]}
+  formatter: {
+    Api.LogFormatter,
+    # A SEGUNDA camada da redação. A primeira roda na origem (`Api.LogRedacao.redigir/2`, no
+    # `RequestLogger`) e cobre o payload; esta cobre a linha INTEIRA, de qualquer ponto do
+    # sistema — um `Logger.info("...", cpf: valor)` escrito daqui a seis meses em outro módulo
+    # sai redigido sem que ninguém tenha de lembrar disso.
+    metadata: [
+      :request_id,
+      # O elo com o Tempo (doc 76). Esta é a lista que VALE em produção — ela sobrescreve a do
+      # `config.exs`, e é dela que sai o JSON que o Alloy embarca e o Loki indexa. Sem a chave
+      # aqui, o `derivedFields` do Grafana não encontra `trace_id` na linha e o botão "Ver trace"
+      # não aparece, com o trace existindo do outro lado e ninguém percebendo.
+      :trace_id,
+      :clinic_id,
+      :actor_id,
+      :method,
+      :route,
+      :status,
+      :duration_ms,
+      # Quem bateu na porta (doc 96, O-1). É o único identificador de origem que existe num
+      # 401/429 anônimo, onde `clinic_id` e `actor_id` são nulos por definição — sem ele a
+      # defesa contra brute-force funciona e não pode ser auditada. Também carimba as linhas
+      # de `rate_limit` e do plug de verificação de token, que passaram a emiti-lo.
+      :client_ip,
+      # O que foi enviado e o que foi devolvido, **só em 4xx/5xx** (ADR-025). Sem estas três
+      # chaves aqui o `RequestLogger` produz os campos e o formatter os descarta em silêncio —
+      # a mesma armadilha que matou o `trace_id` uma vez (doc 76 §7.6).
+      :payload,
+      :query,
+      :response
+    ],
+    redactors: [{Api.LogRedacao, []}]
+  }
 
 # Liga o rate limiting: o dos endpoints de auth (auditoria doc 13, causa A) e o global de
 # 200 req/min (`RateLimitGlobal`) nos demais endpoints. Só em produção: os dois plugs são

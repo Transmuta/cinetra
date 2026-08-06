@@ -286,4 +286,47 @@ defmodule Api.Notifications.NotificationTest do
       assert queries == 2
     end
   end
+
+  # Doc 92, P2-10. `title` e `body` não tinham teto em camada nenhuma — nem constraint no
+  # atributo, nem limite no banco (as duas colunas são `text`). É a tabela escrita em MASSA pelo
+  # `Fanout`: uma linha é gravada por destinatário, então um texto patológico não custa uma
+  # linha, custa uma por membro da clínica — na tabela que o sino lê a cada abertura.
+  #
+  # O teto é no ATRIBUTO, não `CHECK` no banco: quem escreve aqui é sempre o `Fanout` (a UI nunca
+  # cria notificação — não há policy de create), então a fronteira do Ash é a única porta real, e
+  # um `CHECK` sobre 20 mil linhas cobraria um `AccessExclusiveLock` para proteger um caminho que
+  # ninguém percorre.
+  describe "teto de tamanho de title/body" do
+    test "title acima de 120 é recusado" do
+      {owner, clinic} = owner_and_clinic()
+
+      assert {:error, %Ash.Error.Invalid{} = erro} =
+               notify(clinic, owner, %{title: String.duplicate("a", 121)})
+
+      assert Enum.any?(erro.errors, &(Map.get(&1, :field) == :title))
+    end
+
+    test "body acima de 500 é recusado" do
+      {owner, clinic} = owner_and_clinic()
+
+      assert {:error, %Ash.Error.Invalid{} = erro} =
+               notify(clinic, owner, %{body: String.duplicate("a", 501)})
+
+      assert Enum.any?(erro.errors, &(Map.get(&1, :field) == :body))
+    end
+
+    # O controle positivo, e ele é o que dimensiona os tetos acima: o corpo mais longo que o
+    # `Fanout` sabe montar é nome de paciente (120) + nome de pacote (120) + texto fixo — perto de
+    # 300. O teto tem de estar folgadamente acima disso, ou a Onda 1 vira um sino mudo.
+    test "o corpo mais longo que o Fanout monta continua passando" do
+      {owner, clinic} = owner_and_clinic()
+
+      realista =
+        "#{String.duplicate("Maria de Souza ", 8)} do pacote " <>
+          "#{String.duplicate("Pilates Reformer ", 7)} foram canceladas."
+
+      assert String.length(realista) > 250
+      assert {:ok, _} = notify(clinic, owner, %{body: realista})
+    end
+  end
 end

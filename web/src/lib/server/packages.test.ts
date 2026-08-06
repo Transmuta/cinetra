@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { contrato, exigirCampos, primeiro } from '$lib/testing/contrato';
+import type { Package, PackageSession, PreviewResult } from '$lib/packages';
 
 const api = vi.hoisted(() => ({ apiFetch: vi.fn() }));
 vi.mock('./api', () => api);
@@ -39,6 +41,12 @@ beforeEach(() => {
 	mut.mutate.mockResolvedValue({ ok: true, status: 200 });
 });
 
+// Os corpos vêm de `contratos/bff/pacotes.json`, gravado pela API de verdade (doc 101, A2) — não
+// mais escritos aqui. O mock inventado validava o BFF contra o BFF.
+const lista = contrato<{ packages: Package[] }>('pacotes', 'lista_do_paciente');
+const trilha = contrato<{ sessions: PackageSession[] }>('pacotes', 'trilha');
+const previa = contrato<PreviewResult>('pacotes', 'previa');
+
 const input: SeriesInput = {
 	nome: 'Pilates 4',
 	total: 4,
@@ -52,10 +60,10 @@ const input: SeriesInput = {
 
 describe('fetchPatientPackages', () => {
 	it('200 → os pacotes do paciente', async () => {
-		api.apiFetch.mockResolvedValueOnce(res(200, { packages: [{ id: 'k1' }] }));
+		api.apiFetch.mockResolvedValueOnce(res(200, lista));
 		const out = await fetchPatientPackages(event, 'p1');
 		expect(api.apiFetch.mock.calls[0][1]).toBe('/api/patients/p1/packages');
-		expect(out.packages).toEqual([{ id: 'k1' }]);
+		expect(out.packages).toEqual(lista.packages);
 	});
 
 	it('id é escapado no caminho', async () => {
@@ -78,12 +86,11 @@ describe('fetchPatientPackages', () => {
 
 describe('previewSeries', () => {
 	it('POSTa a série e devolve a prévia', async () => {
-		const preview = { ocorrencias: [], bloqueios: 0, pode_salvar: true };
-		api.apiFetch.mockResolvedValueOnce(res(200, preview));
+		api.apiFetch.mockResolvedValueOnce(res(200, previa));
 		const out = await previewSeries(event, input);
 		expect(api.apiFetch.mock.calls[0][1]).toBe('/api/packages/preview');
 		expect(JSON.parse(api.apiFetch.mock.calls[0][2].body).total).toBe(4);
-		expect(out.preview).toEqual(preview);
+		expect(out.preview).toEqual(previa);
 	});
 
 	it('erro de forma → preview null', async () => {
@@ -94,10 +101,11 @@ describe('previewSeries', () => {
 
 describe('createSeries', () => {
 	it('201 → devolve o pacote criado', async () => {
-		api.apiFetch.mockResolvedValueOnce(res(201, { package: { id: 'k1', status: 'ativo' } }));
+		const criado = primeiro(lista.packages, 'pacotes/lista_do_paciente');
+		api.apiFetch.mockResolvedValueOnce(res(201, { package: criado }));
 		const out = await createSeries(event, input);
 		expect(out.ok).toBe(true);
-		expect(out.package?.id).toBe('k1');
+		expect(out.package?.id).toBe(criado.id);
 	});
 
 	it('422 series_blocked → devolve motivo + prévia para reapresentar', async () => {
@@ -194,10 +202,10 @@ describe('arquivar, +/− e grade', () => {
 
 describe('fetchPackageSessions', () => {
 	it('200 → a trilha', async () => {
-		api.apiFetch.mockResolvedValueOnce(res(200, { sessions: [{ estado: 'proxima' }] }));
+		api.apiFetch.mockResolvedValueOnce(res(200, trilha));
 		const r = await fetchPackageSessions(event, 'k1');
 		expect(api.apiFetch.mock.calls[0][1]).toBe('/api/packages/k1/sessions');
-		expect(r.sessions).toHaveLength(1);
+		expect(r.sessions).toEqual(trilha.sessions);
 	});
 
 	it('erro degrada para lista vazia, com o status', async () => {
@@ -214,5 +222,62 @@ describe('fetchPackageSessions', () => {
 	it('falha de conexão → status 0 e lista vazia', async () => {
 		api.apiFetch.mockRejectedValueOnce(new Error('down'));
 		expect(await fetchPackageSessions(event, 'k1')).toEqual({ status: 0, sessions: [] });
+	});
+});
+
+// O contrato com a API (doc 101, A2). Os campos abaixo são os que `$lib/packages` declara e o
+// cartão da ficha desenha; a fixture é o que a API respondeu de verdade. Campo que sumir do
+// serializer some daqui na regravação e o teste fica vermelho — hoje ele chegaria `undefined` na
+// tela, calado.
+describe('contrato com a API', () => {
+	it('o pacote traz os campos que a ficha lê', () => {
+		exigirCampos(
+			primeiro(lista.packages, 'pacotes/lista_do_paciente'),
+			[
+				'id',
+				'nome',
+				'status',
+				'total',
+				'usadas',
+				'restantes',
+				'acabando',
+				'falta_punitiva',
+				'cor',
+				'data_inicio',
+				'appointment_type_id',
+				'grade',
+				'sessoes'
+			],
+			'pacotes/lista_do_paciente → packages[0]'
+		);
+	});
+
+	it('a grade traz o que o modal de ajuste manda de volta', () => {
+		const pacote = primeiro(lista.packages, 'pacotes/lista_do_paciente');
+		exigirCampos(pacote.grade, ['dows', 'horarios', 'professional_id'], 'packages[0].grade');
+	});
+
+	// A trilha é a mesma forma nas duas portas (vem junto da listagem e sozinha em `/sessions`) —
+	// é por isso que `PackageSession` é um tipo só, reexportado (doc 94 §4.5).
+	it('a sessão da trilha traz o que a bolinha e o link ao bloco precisam', () => {
+		for (const [nome, sessoes] of [
+			['pacotes/lista_do_paciente → packages[0].sessoes', primeiro(lista.packages, 'x').sessoes],
+			['pacotes/trilha → sessions', trilha.sessions]
+		] as const) {
+			exigirCampos(
+				primeiro(sessoes ?? [], nome),
+				['attendance_id', 'appointment_id', 'starts_at', 'estado'],
+				nome
+			);
+		}
+	});
+
+	it('a prévia traz o que o save-gate decide', () => {
+		exigirCampos(previa, ['ocorrencias', 'bloqueios', 'pode_salvar'], 'pacotes/previa');
+		exigirCampos(
+			primeiro(previa.ocorrencias, 'pacotes/previa → ocorrencias'),
+			['data', 'hhmm', 'feriado', 'issue', 'bloqueia'],
+			'pacotes/previa → ocorrencias[0]'
+		);
 	});
 });

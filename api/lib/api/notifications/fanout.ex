@@ -496,8 +496,9 @@ defmodule Api.Notifications.Fanout do
         not_found_error?: false
       )
     end)
+    |> Api.Repo.unwrap()
     |> case do
-      {:ok, {:ok, %{} = appointment}} -> appointment
+      {:ok, %{} = appointment} -> appointment
       _ -> nil
     end
   end
@@ -510,15 +511,19 @@ defmodule Api.Notifications.Fanout do
         not_found_error?: false
       )
     end)
+    |> Api.Repo.unwrap()
     |> case do
-      {:ok, {:ok, %{nome: nome}}} when is_binary(nome) -> nome
+      {:ok, %{nome: nome}} when is_binary(nome) -> nome
       _ -> "Um paciente"
     end
   end
 
+  # `get_user/2` é code interface NÃO-bang: devolve `{:ok, %User{}}`. Casar contra `%{nome: nome}`
+  # nunca dava match e o fallback virava o único caminho — todo aviso de equipe dizia "Um novo
+  # membro" (doc 96, B-2). O `patient_name/1` logo acima já desembrulhava certo.
   defp user_name(user_id) do
     case Api.Accounts.get_user(user_id, authorize?: false, not_found_error?: false) do
-      %{nome: nome} when is_binary(nome) -> nome
+      {:ok, %{nome: nome}} when is_binary(nome) -> nome
       _ -> "Um novo membro"
     end
   end

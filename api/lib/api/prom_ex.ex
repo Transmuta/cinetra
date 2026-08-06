@@ -113,7 +113,18 @@ defmodule Api.PromEx do
       # não é o job que falhou (esse o log tem, desde que `attach_default_logger` foi ligado) —
       # é o tamanho da fila e o tempo que o job passou esperando. Fila crescendo é lembrete que
       # não vai sair no horário, e ninguém descobre isso lendo log linha a linha.
-      {Plugins.Oban, oban_supervisors: [Oban]}
+      {Plugins.Oban, oban_supervisors: [Oban]},
+
+      # A saúde do exportador de traces. Não vem do PromEx: é sinal nosso, alimentado pelo
+      # `Api.Tracing.OtlpFilter` — a métrica que substitui a linha de log que ele descarta
+      # (doc 96, O-2). Sem ela, a queda do coletor só aparece como painel vazio.
+      Api.PromEx.Otlp,
+
+      # A amplificação do tempo real da agenda (doc 101, M6): uma escrita vira N releituras do
+      # bloco, uma por assinante. Também é sinal nosso, e existe para uma decisão adiada de
+      # propósito — o plano manda medir antes de trocar o desenho, porque a releitura por
+      # assinante é o que mantém o recorte A7 com uma autoridade só.
+      Api.PromEx.Agenda
     ]
   end
 end

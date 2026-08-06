@@ -191,7 +191,7 @@ export interface StatusMeta {
 	 * quem já saiu da agenda). O `null` sobrou só onde ele significa outra coisa — ver
 	 * `StatusSignal`.
 	 */
-	tone: 'info' | 'teal' | 'success' | 'danger' | 'muted' | 'faint';
+	tone: 'info' | 'accent' | 'success' | 'danger' | 'muted' | 'faint';
 	/** Concluído a 72% de opacidade (protótipo :1672). */
 	dim?: boolean;
 	/** Cancelado sai riscado. */
@@ -212,7 +212,7 @@ export const STATUS_ORDER: readonly AppointmentStatus[] = [
 export const STATUS_META: Record<AppointmentStatus, StatusMeta> = {
 	agendado: { label: 'Agendado', tone: 'muted' },
 	confirmado: { label: 'Confirmado', tone: 'info' },
-	em_atendimento: { label: 'Em atendimento', tone: 'teal', live: true },
+	em_atendimento: { label: 'Em atendimento', tone: 'accent', live: true },
 	concluido: { label: 'Concluído', tone: 'success', dim: true },
 	faltou: { label: 'Faltou', tone: 'danger' },
 	cancelado: { label: 'Cancelado', tone: 'faint', strike: true }
@@ -637,9 +637,15 @@ export function conflictIds(appts: Appointment[]): Set<string> {
 // Permissões (espelho de UX — a autoridade é a policy da API)
 // ---------------------------------------------------------------------------
 
-/** A8: recepção é quem agenda; profissional agenda a própria. */
+/**
+ * A8: agendar é do balcão — owner/admin/recepção.
+ *
+ * O `profissional` saiu em 2026-08-04: ele **vê** a própria agenda e os próprios agendamentos, e
+ * não lança, não remarca, não cancela e não marca presença. Espelho da policy do `Appointment`;
+ * a autoridade continua sendo o 403 da API — isto só evita oferecer um botão que dá erro.
+ */
 export function canCreateAppointment(papel: Papel | null | undefined): boolean {
-	return papel === 'owner' || papel === 'admin' || papel === 'recepcao' || papel === 'profissional';
+	return papel === 'owner' || papel === 'admin' || papel === 'recepcao';
 }
 
 /** A9 / D2: encaixe fura a grade, então é de quem responde pela agenda — profissional não. */

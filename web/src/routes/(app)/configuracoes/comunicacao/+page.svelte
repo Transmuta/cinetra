@@ -1,17 +1,21 @@
 <script lang="ts">
+	import Button from '$lib/components/Button.svelte';
+	import { CONTROL_CLASS, CONTROL_PX, CONTROL_H } from '$lib/components/Field.svelte';
 	// O que a clínica manda ao paciente, e quando (doc 52 §7).
 	//
 	// Por clínica, não por profissional: por profissional vira matriz que ninguém mantém.
 	//
-	// A tela existe para tornar **ligar o lembrete** uma escolha de número, não um deploy — o cron
-	// nasceu construído e calado de propósito, e é aqui que ele acorda.
+	// Dois controles: por qual CANAL se fala e QUANDO não incomodar. O "quando lembrar" saiu em
+	// 2026-08-01 junto com o lembrete automático — não sobrou nenhum disparo por relógio, e um
+	// campo de horas sem cron seria um controle que não faz nada (a mesma régua que tirou o
+	// `msg_confirmacao_auto` no doc 98).
 	import { untrack } from 'svelte';
 	import { enhance } from '$app/forms';
-	import SubmitButton from '$lib/components/SubmitButton.svelte';
 	import { envio } from '$lib/forms.svelte';
 	import Circle from '@lucide/svelte/icons/circle';
 	import Info from '@lucide/svelte/icons/info';
 	import SwitchToggle from '$lib/components/scheduling/SwitchToggle.svelte';
+	import MessageCircle from '@lucide/svelte/icons/message-circle';
 	import { canManageClinic } from '$lib/session';
 	import { toast } from '$lib/toast.svelte';
 	import type { PageData, ActionData } from './$types';
@@ -20,31 +24,25 @@
 
 	const canManage = $derived(canManageClinic(data.me.papel));
 
+	// O telefone da clínica é o que destrava o canal — a API recusa ligar sem ele
+	// (`WhatsappExigeTelefone`), porque ele é posicional OBRIGATÓRIA do template aprovado. Sem
+	// isso a mensagem sairia dizendo "Ligue para —".
+	const temTelefone = $derived((data.clinic.telefone ?? '').trim() !== '');
+
 	// Rascunho local, como nas outras telas de config: edita e só então salva.
-	let confirmacao = $state(untrack(() => data.clinic.msg_confirmacao_auto));
-	let lembrete = $state(untrack(() => data.clinic.msg_lembrete_horas != null));
-	let horas = $state(untrack(() => String(data.clinic.msg_lembrete_horas ?? 24)));
+	let whatsapp = $state(untrack(() => data.clinic.msg_whatsapp_ativo));
 	let silencio = $state(untrack(() => data.clinic.msg_silencio_inicio != null));
 	let inicio = $state(untrack(() => String(data.clinic.msg_silencio_inicio ?? 21)));
 	let fim = $state(untrack(() => String(data.clinic.msg_silencio_fim ?? 8)));
 
-	// O que de fato será enviado — o "desligado" do lembrete é `null`, não zero.
-	const horasEfetivas = $derived(lembrete ? Number(horas) : null);
-	const horasInvalidas = $derived(
-		lembrete && (!Number.isInteger(Number(horas)) || Number(horas) < 1 || Number(horas) > 168)
-	);
-
 	const dirty = $derived(
-		confirmacao !== data.clinic.msg_confirmacao_auto ||
-			horasEfetivas !== (data.clinic.msg_lembrete_horas ?? null) ||
+		whatsapp !== data.clinic.msg_whatsapp_ativo ||
 			(silencio ? Number(inicio) : null) !== (data.clinic.msg_silencio_inicio ?? null) ||
 			(silencio ? Number(fim) : null) !== (data.clinic.msg_silencio_fim ?? null)
 	);
 
 	function sync() {
-		confirmacao = data.clinic.msg_confirmacao_auto;
-		lembrete = data.clinic.msg_lembrete_horas != null;
-		horas = String(data.clinic.msg_lembrete_horas ?? 24);
+		whatsapp = data.clinic.msg_whatsapp_ativo;
 		silencio = data.clinic.msg_silencio_inicio != null;
 		inicio = String(data.clinic.msg_silencio_inicio ?? 21);
 		fim = String(data.clinic.msg_silencio_fim ?? 8);
@@ -63,69 +61,50 @@
 		}
 	});
 
-	const inputCls =
-		'h-[38px] w-[86px] rounded-lg border border-edge bg-surface px-2.5 text-[13.5px] text-ink';
+	const inputCls = `${CONTROL_CLASS} ${CONTROL_PX} ${CONTROL_H} w-[86px]`;
 </script>
 
 <svelte:head><title>Comunicação · Cinetra</title></svelte:head>
 
 <div class="mx-auto max-w-[760px] px-4 py-4 md:px-6">
-	<section class="mb-3 rounded-[10px] border border-edge bg-surface p-4">
+	<section class="mb-3 rounded-cartao border border-edge bg-surface p-4">
 		{#if canManage}
 			<form method="POST" action="?/save" use:enhance={save.submit} class="space-y-5">
-				<!-- Confirmação na criação -->
-				<div class="flex items-start justify-between gap-4">
-					<div>
-						<p class="text-[13.5px] font-semibold">Confirmar automaticamente</p>
-						<p class="mt-0.5 text-[12.5px] text-muted">
-							Ao marcar uma sessão, o paciente recebe a confirmação na hora.
-						</p>
-					</div>
-					<SwitchToggle
-						checked={confirmacao}
-						onchange={() => (confirmacao = !confirmacao)}
-						label="Confirmação automática"
-					/>
-					<input type="hidden" name="msg_confirmacao_auto" value={confirmacao ? 'on' : ''} />
-				</div>
-
-				<!-- Lembrete -->
-				<div class="border-t border-edge pt-5">
+				<!-- Canal de WhatsApp -->
+				<div>
 					<div class="flex items-start justify-between gap-4">
 						<div>
-							<p class="text-[13.5px] font-semibold">Lembrar antes da sessão</p>
-							<p class="mt-0.5 text-[12.5px] text-muted">
-								Uma segunda mensagem, algumas horas antes.
+							<p class="text-corpo font-semibold">Falar por WhatsApp</p>
+							<p class="mt-0.5 text-rotulo text-muted">
+								Vale para <strong>todas</strong> as mensagens ao paciente. Desligado, tudo continua
+								saindo por e-mail — e cada mensagem de WhatsApp é cobrada.
 							</p>
 						</div>
 						<SwitchToggle
-							checked={lembrete}
-							onchange={() => (lembrete = !lembrete)}
-							label="Lembrete antes da sessão"
+							checked={whatsapp}
+							disabled={!temTelefone}
+							onchange={() => (whatsapp = !whatsapp)}
+							label="Falar por WhatsApp"
 						/>
+						<!-- Mesmo motivo do `silencio` abaixo: `<button role="switch">` não entra no FormData. -->
+						<input type="hidden" name="whatsapp" value={whatsapp ? 'on' : ''} />
 					</div>
 
-					{#if lembrete}
-						<div class="mt-3 flex items-center gap-2 text-[13px]">
-							<input
-								id="horas"
-								name="msg_lembrete_horas"
-								bind:value={horas}
-								type="number"
-								min="1"
-								max="168"
-								aria-invalid={horasInvalidas}
-								class="{inputCls} {horasInvalidas ? 'border-danger' : ''}"
-							/>
-							<label for="horas" class="text-muted">horas antes</label>
-						</div>
-						{#if horasInvalidas}
-							<p class="mt-1 text-[12px] text-danger">Escolha entre 1 e 168 horas.</p>
-						{/if}
-					{:else}
-						<!-- Desligado é `null` no servidor, e o campo nem viaja: mandar 0 ligaria o
-						     lembrete para o instante da sessão. -->
-						<input type="hidden" name="msg_lembrete_horas" value="" />
+					{#if !temTelefone}
+						<!-- O bloqueio explica a causa E leva até ela. Um interruptor apagado sem dizer por
+						     quê manda a pessoa procurar em três telas. -->
+						<p
+							class="mt-3 flex items-start gap-2 rounded-controle bg-surface-2 px-3.5 py-3 text-rotulo text-muted"
+						>
+							<span class="mt-0.5 shrink-0 text-faint"><MessageCircle size={14} /></span>
+							<span>
+								Para ligar o WhatsApp, cadastre antes o <strong>telefone da clínica</strong> em
+								<a href="/configuracoes/clinica" class="font-semibold text-accent-text underline"
+									>Dados da clínica</a
+								>. Ele vai dentro da mensagem, porque quem responde pelo WhatsApp não é lido por
+								ninguém — o paciente precisa de um número para ligar.
+							</span>
+						</p>
 					{/if}
 				</div>
 
@@ -133,9 +112,10 @@
 				<div class="border-t border-edge pt-5">
 					<div class="flex items-start justify-between gap-4">
 						<div>
-							<p class="text-[13.5px] font-semibold">Não incomodar</p>
-							<p class="mt-0.5 text-[12.5px] text-muted">
-								Mensagem que cairia nesse intervalo é <strong>adiada</strong>, não descartada.
+							<p class="text-corpo font-semibold">Não incomodar</p>
+							<p class="mt-0.5 text-rotulo text-muted">
+								Mensagem que cairia nesse intervalo é <strong>adiada</strong>, não descartada — ela
+								sai no fim da janela.
 							</p>
 						</div>
 						<SwitchToggle
@@ -143,10 +123,14 @@
 							onchange={() => (silencio = !silencio)}
 							label="Janela de silêncio"
 						/>
+						<!-- O `SwitchToggle` é um `<button role="switch">`, e botão não entra no FormData. Sem
+						     este campo a action lê `silencio` como ausente e apaga as DUAS pontas da janela — o
+						     que acontecia em TODA gravação, mesmo a que não mexia na janela (doc 98 §6). -->
+						<input type="hidden" name="silencio" value={silencio ? 'on' : ''} />
 					</div>
 
 					{#if silencio}
-						<div class="mt-3 flex items-center gap-2 text-[13px]">
+						<div class="mt-3 flex items-center gap-2 text-corpo">
 							<label for="inicio" class="text-muted">das</label>
 							<input
 								id="inicio"
@@ -173,7 +157,7 @@
 				</div>
 
 				<div
-					class="flex items-start gap-2 rounded-lg bg-surface-2 px-3.5 py-3 text-[12.5px] text-muted"
+					class="flex items-start gap-2 rounded-controle bg-surface-2 px-3.5 py-3 text-rotulo text-muted"
 				>
 					<span class="mt-0.5 shrink-0 text-faint"><Info size={14} /></span>
 					<span>
@@ -184,7 +168,7 @@
 
 				<div class="flex items-center gap-2.5 border-t border-edge pt-3.5">
 					<div
-						class="flex flex-1 items-center gap-1.5 text-[12px] {dirty
+						class="flex flex-1 items-center gap-1.5 text-rotulo {dirty
 							? 'font-semibold text-warning'
 							: 'text-faint'}"
 					>
@@ -202,35 +186,28 @@
 								sync();
 								toast('Alterações descartadas');
 							}}
-							class="rounded-lg border border-edge bg-surface px-3.5 py-2 text-[13px] font-semibold text-muted hover:bg-surface-2"
+							class="rounded-controle border border-edge bg-surface px-3.5 py-2 text-corpo font-semibold text-muted hover:bg-surface-2"
 						>
 							Descartar
 						</button>
 					{/if}
 
-					<SubmitButton
+					<Button type="submit"
 						emVoo={save.emVoo}
-						disabled={!dirty || horasInvalidas}
-						class="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-[13px] font-semibold text-on-primary hover:bg-primary-hover disabled:opacity-60"
+						disabled={!dirty}
 					>
 						Salvar
-					</SubmitButton>
+					</Button>
 				</div>
 			</form>
 		{:else}
 			<!-- Leitura para não-gestores: o mesmo conteúdo, sem os controles. -->
-			<h2 class="mb-3 text-[14px] font-semibold">Comunicação com o paciente</h2>
-			<dl class="space-y-2.5 text-[13px]">
+			<h2 class="mb-3 text-leitura font-semibold">Comunicação com o paciente</h2>
+			<dl class="space-y-2.5 text-corpo">
 				<div class="flex gap-3">
-					<dt class="w-[190px] shrink-0 text-muted">Confirmação automática</dt>
-					<dd class="font-medium">{data.clinic.msg_confirmacao_auto ? 'Ligada' : 'Desligada'}</dd>
-				</div>
-				<div class="flex gap-3">
-					<dt class="w-[190px] shrink-0 text-muted">Lembrete antes da sessão</dt>
+					<dt class="w-[190px] shrink-0 text-muted">Falar por WhatsApp</dt>
 					<dd class="font-medium">
-						{data.clinic.msg_lembrete_horas
-							? `${data.clinic.msg_lembrete_horas} h antes`
-							: 'Desligado'}
+						{data.clinic.msg_whatsapp_ativo ? 'Ligado' : 'Desligado — tudo sai por e-mail'}
 					</dd>
 				</div>
 				<div class="flex gap-3">

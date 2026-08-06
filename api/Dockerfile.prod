@@ -3,7 +3,7 @@
 # ferramentas de build no runtime, como usuário não-root.
 
 # ---- build ----
-FROM elixir:1.18.4-otp-27 AS build
+FROM elixir:1.18.4-otp-27@sha256:1f8c9923c1c2ff2830e772852dd65e1263d424a50a2651ce757c03eedff3f56e AS build
 
 RUN apt-get update -y \
   && apt-get install -y --no-install-recommends build-essential git \
@@ -31,10 +31,15 @@ RUN mix compile
 RUN mix release
 
 # ---- runtime ----
-FROM debian:bookworm-slim AS app
+FROM debian:bookworm-slim@sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818 AS app
 
+# `curl` existe por um motivo só: o `healthcheck` do serviço `api` em `compose.dokploy.yml`
+# (R-A7). A imagem não tinha NENHUM cliente HTTP — e sem healthcheck de Docker o
+# `restart: unless-stopped` nunca dispara para um processo travado que não morreu, porque o
+# daemon segue reportando `Up`. A alternativa sem tocar na imagem seria `bin/api rpc`, que sobe
+# uma BEAM inteira a cada checagem; caro numa máquina de 2 vCPU onde o build já mede 90% (D-21).
 RUN apt-get update -y \
-  && apt-get install -y --no-install-recommends libstdc++6 openssl libncurses6 ca-certificates \
+  && apt-get install -y --no-install-recommends libstdc++6 openssl libncurses6 ca-certificates curl \
   && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 ENV LANG=C.UTF-8 \

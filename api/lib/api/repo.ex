@@ -116,6 +116,39 @@ defmodule Api.Repo do
     end)
   end
 
+  @doc """
+  Tira a **camada da transação** do retorno de `with_clinic/2`, `with_message/2` e
+  `with_provider_message/2`, preservando o que a função de dentro respondeu.
+
+      {:ok, {:ok, x}}     -> {:ok, x}
+      {:ok, {:error, e}}  -> {:error, e}
+      {:ok, x}            -> {:ok, x}
+      {:error, e}         -> {:error, e}
+
+  ## Por que isto existe (doc 96, E-2 / B-10 / R-4)
+
+  As três funções acima são `transaction/1`, então tudo o que passa por elas volta com uma casca a
+  mais. Onze pontos do projeto tiravam essa casca à mão, e **com semântica divergente**:
+
+    * `|> elem(1)` — o pior deles: sobre `{:error, motivo}` devolve o *motivo cru* como se fosse o
+      valor. Foi assim que o `SendJob` transformou erro de banco em "mensagem não existe", job
+      `completed` e nenhum retry (B-9/B-10);
+    * `{:ok, x} = ...` — levanta `MatchError` no rollback, sem dizer o que rolou;
+    * `case` de quatro ou cinco cláusulas, escrito de novo a cada uso, cada um cobrindo um
+      subconjunto diferente das formas possíveis.
+
+  Uma função só, com as quatro cláusulas escritas uma vez, faz o chamador voltar a decidir **o que
+  fazer com o erro** em vez de decidir, sem querer, **se ele existe**.
+
+  Não achata o caso legítimo de `{:ok, nil}` (leitura que não achou), que continua distinto de
+  `{:error, _}` — era exatamente essa distinção que os `elem(1)` apagavam.
+  """
+  @spec unwrap({:ok, term()} | {:error, term()}) :: {:ok, term()} | {:error, term()}
+  def unwrap({:ok, {:ok, _} = interno}), do: interno
+  def unwrap({:ok, {:error, _} = interno}), do: interno
+  def unwrap({:ok, valor}), do: {:ok, valor}
+  def unwrap({:error, motivo}), do: {:error, motivo}
+
   @impl true
   def installed_extensions do
     # Add extensions here, and the migration generator will install them.

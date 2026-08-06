@@ -1,11 +1,19 @@
 <script lang="ts">
-	// Pill do protótipo (renderToast :3491): flutua no bottom-center, cores do tema
-	// INVERTIDAS — que são exatamente os tokens primary/on-primary (#16181c/#fff no
-	// claro, #eceef0/#16181c no escuro) — com sombra própria. Quem decide o que mostrar e
-	// por quanto tempo é $lib/toast.svelte.ts.
+	// Pill do protótipo (renderToast :3491): flutua no bottom-center, pintada com os tokens
+	// primary/on-primary e com sombra própria. Quem decide o que mostrar e por quanto tempo
+	// é $lib/toast.svelte.ts.
 	//
-	// O ícone distingue a variante: sucesso = check teal; erro = alerta danger (o protótipo
+	// Antes da ADR-020 esse par era o do tema INVERTIDO (#16181c/#fff no claro, #eceef0/#16181c
+	// no escuro), e a inversão é que dava o contraste. Hoje `primary` é o sage da marca, igual
+	// nos dois temas: a pill não inverte mais — no tema escuro ela deixou de ser quase-branca.
+	//
+	// O ícone distingue a variante pela FORMA — check para sucesso, alerta para erro (o protótipo
 	// não distinguia, e por isso um "Dados inválidos" saía com o check verde de sucesso).
+	//
+	// A forma carrega isso sozinha porque a COR não pode mais: o antigo teal do check media 1,06:1
+	// sobre o sage de `primary` (quase a mesma luminância — o check sumia) e o danger, 1,20–2,13.
+	// Os dois passaram a `text-on-primary`, o mesmo branco do texto da pill. Cor nunca foi o
+	// único sinal aqui, então nada se perde em 1.4.1.
 	import Check from '@lucide/svelte/icons/check';
 	import CircleAlert from '@lucide/svelte/icons/circle-alert';
 	import { currentToast } from '$lib/toast.svelte';
@@ -29,16 +37,16 @@
 	role="status"
 	aria-live="polite"
 	aria-atomic="true"
-	class="pointer-events-none fixed inset-x-0 bottom-5.5 z-60 flex justify-center px-4"
+	class="pointer-events-none fixed inset-x-0 bottom-5.5 z-toast flex justify-center px-4"
 >
 	{#if active}
 		<div
-			class="flex animate-fade items-center gap-2 rounded-[10px] bg-primary px-4 py-2.5 text-[13px] font-semibold text-on-primary shadow-toast"
+			class="flex animate-fade items-center gap-2 rounded-cartao bg-primary px-4 py-2.5 text-corpo font-semibold text-on-primary shadow-toast"
 		>
 			{#if active.variant === 'error'}
-				<CircleAlert size={15} class="shrink-0 text-danger" />
+				<CircleAlert size={15} class="shrink-0 text-on-primary" />
 			{:else}
-				<Check size={15} class="shrink-0 text-teal" />
+				<Check size={15} class="shrink-0 text-on-primary" />
 			{/if}
 			{active.message}
 		</div>

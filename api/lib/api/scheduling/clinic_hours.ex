@@ -29,6 +29,16 @@ defmodule Api.Scheduling.ClinicHours do
       reference :clinic, on_delete: :delete
     end
 
+    check_constraints do
+      # 0=domingo … 6=sábado (doc 92, P2-7). Um `dow: 7` não estoura nada: vira uma linha de
+      # expediente que **nenhum dia da semana alcança**, e o sintoma é "a clínica não abre nesse
+      # dia" sem nada no log para explicar.
+      check_constraint :dow,
+        name: "clinic_hours_dow_range",
+        check: "dow BETWEEN 0 AND 6",
+        message: "Dia da semana precisa estar entre 0 (domingo) e 6 (sábado)."
+    end
+
     # Sem índice standalone em `clinic_id`: a identidade única `one_per_dow` é um índice
     # `(clinic_id, dow)` que já lidera por `clinic_id`, cobrindo todo lookup por tenant e o
     # cascade da FK. Um índice só de `clinic_id` seria peso morto (bate-volta F3).

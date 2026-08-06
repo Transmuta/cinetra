@@ -96,7 +96,7 @@
 	// "— → valor" seria ruído. Só as ATUALIZAÇÕES mostram o antes/depois.
 	const showDiff = $derived(entry.action_type !== 'create' && entry.diff.length > 0);
 
-	const linkClass = 'inline-flex items-center gap-1 font-medium text-teal-text hover:underline';
+	const linkClass = 'inline-flex items-center gap-1 font-medium text-accent-text hover:underline';
 </script>
 
 <article class="flex gap-3 px-3.5 py-3">
@@ -106,7 +106,7 @@
 
 	<div class="min-w-0 flex-1">
 		<div class="flex items-baseline justify-between gap-3">
-			<h3 class="min-w-0 text-[13px] font-semibold leading-snug text-ink">{headline}</h3>
+			<h3 class="min-w-0 text-corpo font-semibold leading-snug text-ink">{headline}</h3>
 			<!--
 				ACC-23 (doc 83): a linha mostra só a HORA, e a data completa vivia apenas no `title` —
 				hover de mouse. Numa trilha de auditoria "14:32" sem dia não localiza nada, e o
@@ -116,7 +116,7 @@
 				lado já a cobre) e a completa em `sr-only`. O `title` fica para o mouse.
 			-->
 			<time
-				class="shrink-0 whitespace-nowrap font-mono text-[11px] text-faint"
+				class="shrink-0 whitespace-nowrap font-mono text-meta text-faint"
 				datetime={entry.at}
 				title={formatAt(entry.at, timezone)}
 			>
@@ -126,14 +126,14 @@
 		</div>
 
 		{#if context}
-			<p class="mt-0.5 text-[12px] leading-snug text-muted">{context}</p>
+			<p class="mt-0.5 text-rotulo leading-snug text-muted">{context}</p>
 		{/if}
 
 		{#if showDiff}
 			<FieldDiff resource={entry.resource} diff={entry.diff} {timezone} />
 		{/if}
 
-		<div class="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px]">
+		<div class="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-meta">
 			<span class="text-faint">por {actorName}</span>
 			<span class="flex-1"></span>
 			{#if agendaHref}
