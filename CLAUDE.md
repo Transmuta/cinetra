@@ -26,7 +26,8 @@ Regras que essa prática carrega:
   que só aparece atravessando a fronteira (string do JSON vs `%Date{}` do domínio) → **teste
   que atravessa a fronteira**; teste de unidade do lado de dentro já provou que não pega.
 - **Bug de RLS/GUC/tenant não se prova com `mix test`** — a suíte roda como superusuário e é
-  cega para isso. Use o gate `mix test --only rls` (roda como `cinetra_app`) e/ou a
+  cega para isso. Use o gate `--only rls` **com as env vars de `DATABASE_USER=cinetra_app`**
+  (ver "Comandos" abaixo — sem elas o gate roda como `postgres` e não prova nada) e/ou a
   verificação ao vivo. Ver `.claude/rules/migrations.md` e as lições dos docs de bate-volta.
 - **Nunca "conserto agora e cubro depois".** O commit que entra na branch já traz o teste.
 - Se por algum motivo o bug for realmente intestável de forma automatizada, **diga isso
@@ -119,7 +120,10 @@ Tudo roda em container; do host use `docker.exe compose exec` (serviços `api`, 
 mix test                      # suíte
 mix test test/api/x_test.exs:42
 mix coveralls                 # suíte + gate de cobertura (o CI usa este)
-mix test --only rls           # gate de RLS, roda como cinetra_app
+# gate de RLS — as env vars NÃO são opcionais: sem elas o mix conecta como `postgres`
+# (o default de config/test.exs), que bypassa RLS, e a rodada dá verde sem exercitar
+# policy nenhuma. O próprio teste recusa rodar sob outro role desde então.
+DATABASE_USER=cinetra_app DATABASE_PASSWORD=cinetra_app SKIP_DB_SETUP=1 mix test --only rls
 mix format --check-formatted && mix compile --warnings-as-errors
 mix ash.codegen --dev         # iterar; no fim, mix ash.codegen <nome_da_mudanca>
 

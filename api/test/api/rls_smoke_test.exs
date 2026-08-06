@@ -19,10 +19,16 @@ defmodule Api.RlsSmokeTest do
   ## Como rodar
 
       # local (exige o role criado no banco de teste — ver priv/sql/setup_app_role.sql)
-      DATABASE_USER=cinetra_app DATABASE_PASSWORD=cinetra_app mix test --only rls
+      DATABASE_USER=cinetra_app DATABASE_PASSWORD=cinetra_app SKIP_DB_SETUP=1 mix test --only rls
 
   No CI é o job `api-rls`. Sob `postgres` estes testes também passam — só que sem provar
   nada; é rodando como `cinetra_app` que eles viram gate.
+
+  Por isso o `setup_all` abaixo **recusa** rodar sob outro role. Sem ele o comando errado dá
+  verde: `config/test.exs` usa `DATABASE_USER` com default `"postgres"`, e o CLAUDE.md mandava
+  rodar `mix test --only rls` puro — que conectava como superusuário e passava por bypass,
+  exatamente na classe de bug que este arquivo existe para pegar. Medido: 2060 testes, 0 falhas,
+  0 linhas de RLS realmente exercitadas.
 
   ## O que é asserção aqui
 
@@ -35,6 +41,41 @@ defmodule Api.RlsSmokeTest do
   require Ash.Query
 
   @moduletag :rls
+
+  # O gate se recusa a rodar decorativo: sob `postgres` (BYPASSRLS) todo teste aqui passa sem
+  # provar nada, e o verde é pior que a ausência do gate — ele afirma o que não mediu.
+  #
+  # Mora em `setup` e não em `setup_all` de propósito, por duas razões medidas: o `setup_all` roda
+  # **mesmo quando a tag `:rls` está excluída**, então um `raise` ali quebrava todo `mix test`
+  # normal (35 testes invalidados no `mix coveralls`); e lá não há conexão do sandbox — o
+  # `Api.Repo.query!` morria em ownership antes de chegar à checagem. Em `setup` as duas somem: o
+  # teste excluído nunca passa por aqui, e a conexão já está de pé.
+  setup do
+    if gate_pedido?() do
+      %{rows: [[role]]} = Api.Repo.query!("select current_user")
+
+      if role != "cinetra_app" do
+        raise """
+        O gate de RLS está rodando como `#{role}`, que bypassa RLS — não como `cinetra_app`.
+        Sob este role os testes passam sem exercitar policy nenhuma.
+
+        Rode assim:
+
+            docker compose exec -T -e MIX_ENV=test \\
+              -e DATABASE_USER=cinetra_app -e DATABASE_PASSWORD=cinetra_app -e SKIP_DB_SETUP=1 \\
+              api mix test --only rls
+        """
+      end
+    end
+
+    :ok
+  end
+
+  # Só recusa quando a rodada **pediu** o gate (`--only rls`). Estes testes não são excluídos por
+  # padrão: eles rodam junto com a suíte inteira no `mix coveralls`, como `postgres`, e ali passar
+  # sob bypass é o status quo — não o gate. Levantar erro incondicionalmente quebraria o job `api`
+  # do CI, que é exatamente o que aconteceu quando esta checagem nasceu em `setup_all`.
+  defp gate_pedido?, do: :rls in (ExUnit.configuration()[:include] || [])
 
   alias Api.Accounts
   alias Api.Directory
