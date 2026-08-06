@@ -35,7 +35,6 @@ defmodule Api.Audit.Acesso do
   histórico, uma leitura não auditada é uma linha faltando num log.
   """
 
-  require Ash.Query
   require Logger
 
   # 30 minutos. Mora aqui, num lugar só, pelo mesmo motivo da retenção.

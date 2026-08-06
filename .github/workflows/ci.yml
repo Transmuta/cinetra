@@ -58,8 +58,14 @@ jobs:
       - name: Setup Elixir/OTP
         uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
         with:
-          elixir-version: "1.18.4"
-          otp-version: "27"
+          # Tem de bater com o `FROM elixir:` do api/Dockerfile.prod, e `ci_workflow_test` trava
+          # isso. Ficaram divergentes em 2026-08-06 (CI em 1.18.4/27, imagem em 1.20.1-otp-29): o
+          # Dependabot bumpa o Dockerfile pelo ecossistema `docker`, mas estes dois campos são
+          # string solta no YAML — ele não os enxerga, e o gate passou a provar uma versão
+          # enquanto a imagem embarcava outra. A suíte foi rodada em 1.20.1/29 antes desta
+          # mudança: 2094 testes, 0 falhas.
+          elixir-version: "1.20.1"
+          otp-version: "29"
 
       - name: Cache deps e _build
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -67,8 +73,12 @@ jobs:
           path: |
             api/deps
             api/_build
-          key: ${{ runner.os }}-mix-${{ hashFiles('api/mix.lock') }}
-          restore-keys: ${{ runner.os }}-mix-
+          # A versão do OTP entra na chave DE PROPÓSITO. `_build` guarda BEAM compilado, que é
+          # específico do OTP; sem isso o `restore-keys` por prefixo devolveria artefato de OTP 27
+          # dentro de um runner OTP 29 — que é o modo de falha mais confuso possível, porque o
+          # erro aparece longe da causa.
+          key: ${{ runner.os }}-otp29-mix-${{ hashFiles('api/mix.lock') }}
+          restore-keys: ${{ runner.os }}-otp29-mix-
 
       - run: mix deps.get
 
@@ -161,8 +171,9 @@ jobs:
       - name: Setup Elixir/OTP
         uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
         with:
-          elixir-version: "1.18.4"
-          otp-version: "27"
+          # Mesma paridade do job `api` — ver a nota lá.
+          elixir-version: "1.20.1"
+          otp-version: "29"
 
       - name: Cache deps e _build
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -170,8 +181,8 @@ jobs:
           path: |
             api/deps
             api/_build
-          key: ${{ runner.os }}-mix-${{ hashFiles('api/mix.lock') }}
-          restore-keys: ${{ runner.os }}-mix-
+          key: ${{ runner.os }}-otp29-mix-${{ hashFiles('api/mix.lock') }}
+          restore-keys: ${{ runner.os }}-otp29-mix-
 
       - run: mix deps.get
 
@@ -214,11 +225,22 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: "22"
+          # Tem de bater com o `FROM node:` do web/Dockerfile.prod, e `ci_workflow_test` trava
+          # isso. Estavam divergentes em 2026-08-06 (CI no 22, imagem no 25) — o gate provava numa
+          # versão e a imagem embarcava outra, com 20 testes quebrados do lado que ninguém testava.
+          node-version: "24"
           cache: npm
           cache-dependency-path: web/package-lock.json
 
-      - run: npm ci
+      # `--ignore-scripts` fecha o vetor nº 1 de malware em dependência npm. `preinstall` e
+      # `postinstall` executam código arbitrário NESTE runner, antes de qualquer teste — e o
+      # `actions/checkout` acabou de deixar o `GITHUB_TOKEN` no `.git/config`. O R-A10 já limita o
+      # estrago (o token é `contents: read`), mas limitado não é nenhum.
+      #
+      # Medido em 2026-08-06, remedido depois da leva de bumps do Dependabot: dos 368 pacotes
+      # resolvidos, um só declara script de instalação (`protobufjs`, transitivo do
+      # OpenTelemetry). O mesmo vale no `web/Dockerfile.prod`.
+      - run: npm ci --ignore-scripts
 
       # R-M7, o lado do BFF. `--audit-level=high` de propósito: com `low` a árvore do Vite/Svelte
       # produz ruído constante em devDependency que não vai para a imagem, e um gate que grita

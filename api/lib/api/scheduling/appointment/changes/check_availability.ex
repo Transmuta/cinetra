@@ -110,8 +110,10 @@ defmodule Api.Scheduling.Appointment.Changes.CheckAvailability do
   defp mensagem_fechado(:sem_grade), do: "O profissional não tem horário definido neste dia."
   defp mensagem_fechado(_), do: "A clínica não atende neste dia."
 
-  defp descreve([]), do: "dia fechado"
-
+  # Sem cláusula para `[]` de propósito: `Availability.open_or_closed/2` devolve `{:closed, _}`
+  # para lista vazia, então `{:open, []}` não existe e o único chamador (acima) já está no ramo
+  # `:open`. A cláusula existia e o Elixir 1.20 a apontou como morta — ver o comentário em
+  # `availability.ex`, que é onde a invariante mora.
   defp descreve(periods) do
     Enum.map_join(periods, ", ", fn [ini, fim] -> "#{ini}–#{fim}" end)
   end

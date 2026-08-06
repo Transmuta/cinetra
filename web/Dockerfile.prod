@@ -2,12 +2,34 @@
 # Difere do Dockerfile.dev: `vite build` (não `vite dev`), sem devDeps no runtime, não-root.
 
 # ---- build ----
-FROM node:25@sha256:78839ac448c23517f8eab2e8f7943d9b4f73979eb7f8bed2c73dbf72ff869e7b AS build
+# node 24, e o número PAR não é detalhe: no Node só a linha par vira LTS. O 25 é "Current" e sai
+# de manutenção em meses. O Dependabot propôs 22 → 25 (PR #9, mergeado em 2026-08-06) e isso não é
+# só postura de suporte — foi medido quebrando 20 testes, todos em `TypeError: localStorage.clear
+# is not a function`: o Node 25 expõe um `localStorage` global nativo que atropela o stub do
+# ambiente de teste. Comparação com o MESMO lockfile, só trocando a base:
+#
+#   node 22 → AgendaLegend 7 passed     node 24 → 7 passed     node 25 → 7 FAILED
+#
+# E o CI não pegaria: `ci.yml` fixava `node-version: "22"`, então o gate ficava verde enquanto a
+# imagem de produção era construída no 25. É a razão do teste de paridade em `ci_workflow_test`.
+FROM node:24@sha256:934240a162082fd8b8a2f90cd5114446443f1eba1c5378f6687167ca405e6584 AS build
 
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-RUN npm ci
+
+# `--ignore-scripts` é o que fecha o vetor nº 1 de malware em dependência npm: `preinstall` e
+# `postinstall` executam código arbitrário aqui, antes de qualquer build, teste ou revisão — é
+# assim que praticamente todo worm do ecossistema se propaga.
+#
+# O custo é medido, não estimado (2026-08-06, remedido depois da leva de bumps do Dependabot): dos
+# 368 pacotes resolvidos, **um** declara script de instalação — `protobufjs`, transitivo do
+# OpenTelemetry, e que não precisa dele para rodar (o `otel.mjs` usa o exportador HTTP, não o gRPC).
+#
+# Tem de ser a FLAG, nunca `ignore-scripts=true` no `.npmrc`: a config valeria também para
+# `npm run build` da linha abaixo, que depende do `postbuild` para tirar os source maps de
+# `build/client`. A guarda logo adiante pegaria o estrago, mas o certo é não criá-lo.
+RUN npm ci --ignore-scripts
 
 COPY . .
 
@@ -51,7 +73,7 @@ RUN if find build/client -name '*.map' | grep -q .; then \
 RUN npm prune --omit=dev
 
 # ---- runtime ----
-FROM node:25-slim@sha256:81db02c4b671288a03915da9534dbd54f96d0e7c24d80ccc54f5b36b2e684370 AS app
+FROM node:24-slim@sha256:3638d9a6fe4030bd716be989438248074489337ba3275657f93595428be4fc03 AS app
 
 ENV NODE_ENV=production \
     PORT=3000

@@ -16,8 +16,6 @@ defmodule Api.Waitlist do
   alias Api.Scheduling.LocalTime
   alias Api.Waitlist.SlotFinder
 
-  require Ash.Query
-
   import Ash.Expr
 
   resources do

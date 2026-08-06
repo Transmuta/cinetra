@@ -12,6 +12,18 @@
 # Cadência semanal, não diária, e agrupada: o custo real de segurança de dependência não é
 # descobrir — é a fadiga de PR que faz a equipe parar de ler. Atualização de segurança do próprio
 # GitHub continua chegando fora deste agrupamento, como deve.
+#
+# `target-branch: develop` em TODAS as entradas, e é a linha mais importante deste arquivo.
+#
+# Sem ela o Dependabot abre contra a branch **default**, que aqui é `main` — e `ci.yml` dispara
+# `DOKPLOY_DEPLOY_WEBHOOK_PROD` em todo push para `main`. Cada merge de bump viraria um deploy de
+# PRODUÇÃO que nunca passou por HML, pulando o `develop` por onde todo o resto do repositório
+# passa. Medido na primeira varredura, em 2026-08-05: 18 PRs abertos, os 18 contra `main`.
+#
+# O preço, documentado pelo GitHub: as opções deste arquivo (`groups`, `commit-message`, `labels`…)
+# **deixam de valer para os PRs de atualização de SEGURANÇA** quando `target-branch` aponta para
+# fora da default. Os PRs de segurança continuam vindo — só que contra `main` e sem agrupamento.
+# Para CVE isso é o comportamento desejado: urgência vai pelo caminho curto, rotina vai por HML.
 version: 2
 
 updates:
@@ -19,6 +31,12 @@ updates:
   # a andar. O Dependabot entende `uses: org/acao@<sha> # v1.2.3` e atualiza os dois juntos.
   - package-ecosystem: github-actions
     directory: /
+    target-branch: develop
+    # `semver-*-days` não vale para github-actions (só para os ecossistemas semver: hex, npm e
+    # companhia), então aqui é o `default-days` sozinho. E é o ecossistema onde a carência mais
+    # importa: uma action comprometida roda no runner que faz checkout com o token.
+    cooldown:
+      default-days: 7
     schedule:
       interval: weekly
       day: monday
@@ -31,6 +49,15 @@ updates:
   # Hex. Complementa o `mix deps.audit` do CI: o audit acusa o que JÁ está lá, este propõe a saída.
   - package-ecosystem: mix
     directory: /api
+    target-branch: develop
+    # Hex não tem script de instalação — não existe o `postinstall` do npm. Mas `mix deps.compile`
+    # executa MACRO em tempo de compilação, o que é execução de código arbitrário do mesmo jeito.
+    # A vantagem do Elixir aqui é ecossistema menor e menos atacado, não desenho mais seguro.
+    cooldown:
+      default-days: 7
+      semver-patch-days: 3
+      semver-minor-days: 7
+      semver-major-days: 14
     schedule:
       interval: weekly
       day: monday
@@ -47,6 +74,17 @@ updates:
 
   - package-ecosystem: npm
     directory: /web
+    target-branch: develop
+    # O ecossistema onde o ataque de fato acontece, e por isso a carência mais longa da lista.
+    # `preinstall`/`postinstall` executa código arbitrário no `npm ci`, antes de qualquer build ou
+    # teste — é assim que praticamente todo worm de npm se propaga. Medido em 2026-08-06: dos 338
+    # pacotes resolvidos aqui, UM declara script de instalação (`protobufjs`, transitivo do
+    # OpenTelemetry), e é por isso que o CI e o `Dockerfile.prod` usam `npm ci --ignore-scripts`.
+    cooldown:
+      default-days: 10
+      semver-patch-days: 5
+      semver-minor-days: 10
+      semver-major-days: 14
     schedule:
       interval: weekly
       day: monday
@@ -68,18 +106,48 @@ updates:
     directories:
       - /api
       - /web
+    target-branch: develop
+    cooldown:
+      default-days: 7
+    # Major de runtime é decisão humana, não PR automático — e neste repositório isso já custou.
+    # O Dependabot propôs `node 22 → 25` (PR #9, mergeado em 2026-08-06). O 25 é ímpar, e no Node
+    # só a linha PAR vira LTS: ele sai de manutenção em meses. Pior que a postura, o efeito medido
+    # — 20 testes quebrados em `localStorage.clear is not a function`, invisíveis ao CI, que
+    # rodava node 22. Sem este `ignore` o mesmo PR volta na segunda seguinte.
+    #
+    # O preço: a subida para o próximo LTS (node 26, e o Elixir quando for a vez) também não vem
+    # sozinha. É o comportamento desejado — patch e minor continuam automáticos, e é onde mora o
+    # patch de segurança do sistema operacional que justifica esta entrada existir.
+    ignore:
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]
+      - dependency-name: elixir
+        update-types: ["version-update:semver-major"]
     schedule:
       interval: weekly
       day: monday
     commit-message:
       prefix: "deps"
 
-  # Os composes também trazem imagem por digest (`postgres:16@sha256:…` em compose.dokploy.yml, e
-  # os 7 serviços do stack de observabilidade).
+  # Os composes trazem imagem por digest — mas só em DOIS lugares, e a frase que estava aqui dizia
+  # o contrário. Auditado em 2026-08-06, imagem por imagem:
+  #
+  #   compose.dokploy.yml            postgres:16@sha256:…                    DIGEST
+  #   deploy/observability/…         tecnativa/docker-socket-proxy:0.3.0@…   DIGEST
+  #   deploy/observability/…         loki, grafana, prometheus, node-exporter,
+  #                                  cadvisor, tempo, alloy                  TAG FLUTUANTE
+  #
+  # Os 7 do stack de observabilidade estão por TAG, não por digest — ou seja, o pin de que a onda 3
+  # se orgulha não chegou até lá. Enquanto estiverem assim, o Dependabot só acompanha a subida de
+  # versão; quem controla a tag continua podendo movê-la por baixo. Fixar os 7 por digest é
+  # trabalho à parte, e é o que faz esta entrada valer o que ela promete.
   - package-ecosystem: docker-compose
     directories:
       - /
       - /deploy/observability
+    target-branch: develop
+    cooldown:
+      default-days: 7
     schedule:
       interval: weekly
       day: monday

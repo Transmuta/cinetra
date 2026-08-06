@@ -32,8 +32,6 @@ defmodule Api.Scheduling.Appointment.Changes.CascadeToAttendances do
   """
   use Ash.Resource.Change
 
-  require Ash.Query
-
   @impl true
   def change(changeset, opts, context) do
     Ash.Changeset.after_action(changeset, fn cs, appointment ->
