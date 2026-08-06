@@ -47,7 +47,7 @@
 		"@opentelemetry/instrumentation-http": "^0.221.0",
 		"@opentelemetry/instrumentation-undici": "^0.31.0",
 		"@opentelemetry/sdk-node": "^0.221.0",
-		"import-in-the-middle": "^3.3.2",
+		"import-in-the-middle": "^3.3.3",
 		"phoenix": "~1.8.0"
 	},
 	"overrides": {
