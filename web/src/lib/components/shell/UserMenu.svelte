@@ -2,6 +2,7 @@
 	import User from '@lucide/svelte/icons/user';
 	import Plus from '@lucide/svelte/icons/plus';
 	import LogOut from '@lucide/svelte/icons/log-out';
+	import CircleHelp from '@lucide/svelte/icons/circle-help';
 	import Check from '@lucide/svelte/icons/check';
 	import Building2 from '@lucide/svelte/icons/building-2';
 	import UserAvatar from '$lib/components/UserAvatar.svelte';
@@ -115,8 +116,20 @@
 				</a>
 			</div>
 
-			<!-- sair: POST (proteção CSRF do SvelteKit, doc 13 causa E) -->
+			<!-- Ajuda e sair, na mesma faixa: as duas são saídas da tela atual, e é aqui que quem
+			     não conhece o "?" da barra de topo procura socorro (doc 108 §6). -->
 			<div class="border-t border-edge p-1.5">
+				<a
+					href="/ajuda"
+					target="_blank"
+					rel="noopener"
+					onclick={close}
+					class="flex items-center gap-2.5 rounded-controle px-2.5 py-2 text-corpo font-medium text-muted hover:bg-surface-2 hover:text-ink"
+				>
+					<CircleHelp size={15} class="text-faint" />
+					Ajuda e suporte
+				</a>
+
 				<form method="POST" action="/auth/sign-out">
 					<button
 						type="submit"

@@ -1,0 +1,370 @@
+{
+  "gerado_em": "2026-08-06",
+  "prints": {
+    "agenda-cancelar-01": {
+      "arquivo": "agenda-cancelar-01.png",
+      "largura": 440,
+      "altura": 390
+    },
+    "agenda-conflito-01": {
+      "arquivo": "agenda-conflito-01.png",
+      "largura": 520,
+      "altura": 578
+    },
+    "agenda-dia-01": {
+      "arquivo": "agenda-dia-01.png",
+      "largura": 1440,
+      "altura": 900
+    },
+    "agenda-encaixe-01": {
+      "arquivo": "agenda-encaixe-01.png",
+      "largura": 484,
+      "altura": 31
+    },
+    "agenda-encaixe-02": {
+      "arquivo": "agenda-encaixe-02.png",
+      "largura": 404,
+      "altura": 900
+    },
+    "agenda-excluir-01": {
+      "arquivo": "agenda-excluir-01.png",
+      "largura": 440,
+      "altura": 248
+    },
+    "agenda-falta-01": {
+      "arquivo": "agenda-falta-01.png",
+      "largura": 440,
+      "altura": 320
+    },
+    "agenda-filtro-01": {
+      "arquivo": "agenda-filtro-01.png",
+      "largura": 256,
+      "altura": 900
+    },
+    "agenda-legenda-01": {
+      "arquivo": "agenda-legenda-01.png",
+      "largura": 1128,
+      "altura": 842
+    },
+    "agenda-link-01": {
+      "arquivo": "agenda-link-01.png",
+      "largura": 404,
+      "altura": 900
+    },
+    "agenda-lista-01": {
+      "arquivo": "agenda-lista-01.png",
+      "largura": 1440,
+      "altura": 900
+    },
+    "agenda-marcar-01": {
+      "arquivo": "agenda-marcar-01.png",
+      "largura": 1440,
+      "altura": 900
+    },
+    "agenda-marcar-02": {
+      "arquivo": "agenda-marcar-02.png",
+      "largura": 520,
+      "altura": 510
+    },
+    "agenda-marcar-03": {
+      "arquivo": "agenda-marcar-03.png",
+      "largura": 1440,
+      "altura": 900
+    },
+    "agenda-mes-01": {
+      "arquivo": "agenda-mes-01.png",
+      "largura": 1440,
+      "altura": 900
+    },
+    "agenda-painel-01": {
+      "arquivo": "agenda-painel-01.png",
+      "largura": 404,
+      "altura": 900
+    },
+    "agenda-presenca-01": {
+      "arquivo": "agenda-presenca-01.png",
+      "largura": 404,
+      "altura": 900
+    },
+    "agenda-presenca-tempo-real-01": {
+      "arquivo": "agenda-presenca-tempo-real-01.png",
+      "largura": 1128,
+      "altura": 53
+    },
+    "agenda-remarcar-01": {
+      "arquivo": "agenda-remarcar-01.png",
+      "largura": 460,
+      "altura": 480
+    },
+    "agenda-semana-01": {
+      "arquivo": "agenda-semana-01.png",
+      "largura": 1440,
+      "altura": 900
+    },
+    "agenda-turma-01": {
+      "arquivo": "agenda-turma-01.png",
+      "largura": 520,
+      "altura": 542
+    },
+    "agenda-turma-02": {
+      "arquivo": "agenda-turma-02.png",
+      "largura": 404,
+      "altura": 900
+    },
+    "auditoria-01": {
+      "arquivo": "auditoria-01.png",
+      "largura": 1440,
+      "altura": 900
+    },
+    "auditoria-detalhe-01": {
+      "arquivo": "auditoria-detalhe-01.png",
+      "largura": 622,
+      "altura": 85
+    },
+    "celular-agenda-01": {
+      "arquivo": "celular-agenda-01.png",
+      "largura": 390,
+      "altura": 844
+    },
+    "comunicacao-01": {
+      "arquivo": "comunicacao-01.png",
+      "largura": 1440,
+      "altura": 900
+    },
+    "comunicacao-timeline-01": {
+      "arquivo": "comunicacao-timeline-01.png",
+      "largura": 371,
+      "altura": 98
+    },
+    "config-clinica-01": {
+      "arquivo": "config-clinica-01.png",
+      "largura": 1440,
+      "altura": 900
+    },
+    "config-excecoes-01": {
+      "arquivo": "config-excecoes-01.png",
+      "largura": 1440,
+      "altura": 900
+    },
+    "config-horario-01": {
+      "arquivo": "config-horario-01.png",
+      "largura": 1440,
+      "altura": 900
+    },
+    "config-tipos-01": {
+      "arquivo": "config-tipos-01.png",
+      "largura": 1440,
+      "altura": 900
+    },
+    "config-tipos-02": {
+      "arquivo": "config-tipos-02.png",
+      "largura": 480,
+      "altura": 436
+    },
+    "config-tipos-grupo-01": {
+      "arquivo": "config-tipos-grupo-01.png",
+      "largura": 480,
+      "altura": 508
+    },
+    "conta-clinica-01": {
+      "arquivo": "conta-clinica-01.png",
+      "largura": 1440,
+      "altura": 900
+    },
+    "conta-criar-01": {
+      "arquivo": "conta-criar-01.png",
+      "largura": 1440,
+      "altura": 900
+    },
+    "conta-criar-02": {
+      "arquivo": "conta-criar-02.png",
+      "largura": 1440,
+      "altura": 900
+    },
+    "conta-entrar-01": {
+      "arquivo": "conta-entrar-01.png",
+      "largura": 1440,
+      "altura": 900
+    },
+    "equipe-acoes-01": {
+      "arquivo": "equipe-acoes-01.png",
+      "largura": 872,
+      "altura": 175
+    },
+    "equipe-convite-01": {
+      "arquivo": "equipe-convite-01.png",
+      "largura": 500,
+      "altura": 544
+    },
+    "equipe-lista-01": {
+      "arquivo": "equipe-lista-01.png",
+      "largura": 1440,
+      "altura": 900
+    },
+    "equipe-matriz-01": {
+      "arquivo": "equipe-matriz-01.png",
+      "largura": 872,
+      "altura": 999
+    },
+    "fila-adicionar-01": {
+      "arquivo": "fila-adicionar-01.png",
+      "largura": 560,
+      "altura": 768
+    },
+    "fila-adicionar-02": {
+      "arquivo": "fila-adicionar-02.png",
+      "largura": 524,
+      "altura": 594
+    },
+    "fila-lista-01": {
+      "arquivo": "fila-lista-01.png",
+      "largura": 1440,
+      "altura": 900
+    },
+    "fila-oferecer-01": {
+      "arquivo": "fila-oferecer-01.png",
+      "largura": 560,
+      "altura": 682
+    },
+    "notificacoes-01": {
+      "arquivo": "notificacoes-01.png",
+      "largura": 1440,
+      "altura": 900
+    },
+    "pacientes-anexos-01": {
+      "arquivo": "pacientes-anexos-01.png",
+      "largura": 554,
+      "altura": 237
+    },
+    "pacientes-arquivado-01": {
+      "arquivo": "pacientes-arquivado-01.png",
+      "largura": 1440,
+      "altura": 900
+    },
+    "pacientes-arquivar-01": {
+      "arquivo": "pacientes-arquivar-01.png",
+      "largura": 1440,
+      "altura": 900
+    },
+    "pacientes-busca-01": {
+      "arquivo": "pacientes-busca-01.png",
+      "largura": 1440,
+      "altura": 900
+    },
+    "pacientes-duplicado-01": {
+      "arquivo": "pacientes-duplicado-01.png",
+      "largura": 720,
+      "altura": 547
+    },
+    "pacientes-ficha-01": {
+      "arquivo": "pacientes-ficha-01.png",
+      "largura": 1440,
+      "altura": 900
+    },
+    "pacientes-lista-01": {
+      "arquivo": "pacientes-lista-01.png",
+      "largura": 1440,
+      "altura": 900
+    },
+    "pacientes-novo-01": {
+      "arquivo": "pacientes-novo-01.png",
+      "largura": 1440,
+      "altura": 900
+    },
+    "pacientes-novo-02": {
+      "arquivo": "pacientes-novo-02.png",
+      "largura": 1440,
+      "altura": 900
+    },
+    "pacotes-cartao-01": {
+      "arquivo": "pacotes-cartao-01.png",
+      "largura": 554,
+      "altura": 367
+    },
+    "pacotes-grade-01": {
+      "arquivo": "pacotes-grade-01.png",
+      "largura": 564,
+      "altura": 161
+    },
+    "pacotes-menu-01": {
+      "arquivo": "pacotes-menu-01.png",
+      "largura": 554,
+      "altura": 367
+    },
+    "pacotes-novo-01": {
+      "arquivo": "pacotes-novo-01.png",
+      "largura": 600,
+      "altura": 682
+    },
+    "pacotes-previa-01": {
+      "arquivo": "pacotes-previa-01.png",
+      "largura": 564,
+      "altura": 98
+    },
+    "pacotes-sessoes-01": {
+      "arquivo": "pacotes-sessoes-01.png",
+      "largura": 480,
+      "altura": 530
+    },
+    "perfil-01": {
+      "arquivo": "perfil-01.png",
+      "largura": 1440,
+      "altura": 900
+    },
+    "perfil-sessao-01": {
+      "arquivo": "perfil-sessao-01.png",
+      "largura": 712,
+      "altura": 101
+    },
+    "perfil-tema-01": {
+      "arquivo": "perfil-tema-01.png",
+      "largura": 1440,
+      "altura": 900
+    },
+    "profissionais-cor-01": {
+      "arquivo": "profissionais-cor-01.png",
+      "largura": 720,
+      "altura": 2129
+    },
+    "profissionais-horario-01": {
+      "arquivo": "profissionais-horario-01.png",
+      "largura": 720,
+      "altura": 410
+    },
+    "profissionais-inativar-01": {
+      "arquivo": "profissionais-inativar-01.png",
+      "largura": 678,
+      "altura": 53
+    },
+    "profissionais-lista-01": {
+      "arquivo": "profissionais-lista-01.png",
+      "largura": 1440,
+      "altura": 900
+    },
+    "profissionais-novo-01": {
+      "arquivo": "profissionais-novo-01.png",
+      "largura": 1440,
+      "altura": 900
+    },
+    "relatorios-01": {
+      "arquivo": "relatorios-01.png",
+      "largura": 1440,
+      "altura": 900
+    },
+    "relatorios-volume-01": {
+      "arquivo": "relatorios-volume-01.png",
+      "largura": 1092,
+      "altura": 250
+    },
+    "shell-01": {
+      "arquivo": "shell-01.png",
+      "largura": 1440,
+      "altura": 900
+    },
+    "shell-menu-01": {
+      "arquivo": "shell-menu-01.png",
+      "largura": 1440,
+      "altura": 900
+    }
+  }
+}

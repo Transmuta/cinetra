@@ -892,3 +892,49 @@ de pé na outra porta.
 
 **O que o paga.** Trocar a moldura e as classes: ~30 minutos, com o teste da tela seguindo o modelo
 de `confirmar/[token]/page.svelte.test.ts`. Não há decisão pendente — é só trabalho.
+
+---
+
+## D-27 · Treze prints da central de ajuda ainda não foram capturadas — **PAGO em 2026-08-06**
+
+**O que é.** A central de ajuda ([doc 108](108-central-de-ajuda.md)) cita 73 imagens de tela por id;
+60 foram capturadas e 13 não. As que faltam estão declaradas em `PENDENTES`, em
+[`web/src/lib/ajuda/prints.ts`](../web/src/lib/ajuda/prints.ts):
+
+- **fila de espera** (4): `fila-lista-01`, `fila-adicionar-01`, `fila-adicionar-02`, `fila-oferecer-01`;
+- **pacotes** (6): `pacotes-cartao-01`, `pacotes-novo-01`, `pacotes-grade-01`, `pacotes-previa-01`,
+  `pacotes-sessoes-01`, `pacotes-menu-01`;
+- **capturas condicionais** (3): `pacientes-novo-02`, `pacientes-duplicado-01`, `auditoria-detalhe-01`.
+
+**Por que virou débito.** Não é conteúdo faltando nem spec por escrever — o spec existe
+([`web/e2e/prints/fila-e-pacotes.prints.ts`](../web/e2e/prints/fila-e-prints.ts)). O que atrapalhou
+foi ambiente: no meio da leva o container do `web` reinstalou as dependências (a edição do
+`package.json` para acrescentar `npm run prints` disparou o install do entrypoint), o Playwright
+subiu de versão e o browser baixado deixou de servir. Depois disso, os dois cenários bateram no
+modo de falha clássico destes specs: **clique antes da hidratação**, que não levanta erro nenhum —
+o botão está visível no HTML do SSR e o clique simplesmente não faz nada.
+
+**O que custa hoje.** Os tópicos de fila e pacotes — justamente os dois que mais dependem de imagem,
+porque nenhum texto explica bem uma grade semanal ou uma lista de vagas compatíveis — mostram a nota
+"Imagem desta etapa em preparo" no lugar de cada foto. O texto está completo e correto; falta a
+ilustração.
+
+**O que o pagou (2026-08-06).** As 73 prints citadas existem e `PENDENTES` está vazia. O diagnóstico
+de "clique antes da hidratação" estava certo para parte dos casos, mas **quatro das oito falhas eram
+seletor errado** — e cada uma falhava de um jeito que não acusava a causa:
+
+- **"Adicionar à fila" é um `<a>`**, não um `<button>`: mora na sidebar e navega por `?novo=1`.
+  `getByRole('button', …)` nunca casa com um link e só estoura no timeout. O spec passou a ir
+  direto ao gatilho documentado, `/fila?novo=1`.
+- **"Oferecer" (linha do desktop) × "Oferecer vaga" (cartão do celular)**: as duas formas convivem
+  no mesmo DOM e só uma está visível por vez. A 1440px vale a primeira, com `exact: true`.
+- **O menu do pacote não fecha com `Esc`** — quem o fecha é o backdrop. Depois do `Esc` o menu
+  seguia aberto e o backdrop invisível interceptava o clique seguinte: seis minutos "tentando
+  clicar" num botão visível e aparentemente alcançável. O spec passou a reusar o menu já aberto.
+- **`getByRole('option').first()` pega a caixa vazia** enquanto a busca do paciente não volta do
+  servidor. Esperar a opção **pelo nome** é esperar o resultado, e não o elemento.
+
+Duas capturas também estavam dentro de `if (visível)` e falhavam em silêncio — o arquivo
+simplesmente não nascia, sem ninguém reprovar. Viraram asserção. E `pacientes-duplicado-01` exigia
+uma ficha com telefone **conhecido**: o da fixture é aleatório (`telUnico`, identidade `tel_unico`
+do doc 89), então o spec cria a sua antes de digitar.

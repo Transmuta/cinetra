@@ -23,7 +23,13 @@ const ISENTOS = [
 	'lib/components/AuthForm.svelte',
 	'lib/components/GoogleIcon.svelte',
 	'lib/components/Seo.svelte',
-	'lib/components/cinetra/'
+	'lib/components/cinetra/',
+	// A central de ajuda (doc 108) entrou aqui em 2026-08-06, quando ela passou a usar a casca das
+	// páginas públicas — mesmo topo, mesmo herói navy, mesmo rodapé da landing. Ela é uma página
+	// PÚBLICA, alcançável sem sessão e compartilhável por link; com os tokens do app ela destoava
+	// no meio do site. A isenção é a mesma da família `cinetra/` e pela mesma razão, não um
+	// contorno do gate: a central não tem tema escuro nem componente do design system interno.
+	'lib/components/ajuda/'
 ];
 
 function svelteDoAppInterno(dir: string, acc: string[] = []): string[] {

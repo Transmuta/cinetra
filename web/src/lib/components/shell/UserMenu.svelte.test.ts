@@ -87,4 +87,10 @@ describe('UserMenu', () => {
 		await fireEvent.click(getByTitle('Ana Paula'));
 		expect(container.querySelector('.left-full')).toBeInTheDocument();
 	});
+
+	it('o menu oferece a central de ajuda', async () => {
+		const { getByRole, getByTitle } = render(UserMenu, { props: { me } });
+		await fireEvent.click(getByTitle('Ana Paula'));
+		expect(getByRole('link', { name: 'Ajuda e suporte' })).toHaveAttribute('href', '/ajuda');
+	});
 });

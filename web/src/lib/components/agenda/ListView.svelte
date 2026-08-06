@@ -79,6 +79,14 @@
 	<EstadoVazio icone={CalendarOff} titulo="Nenhum agendamento neste dia" variante="inline">
 		{#snippet descricao()}
 			Use a visão Dia para marcar um horário clicando num espaço livre.
+			<!-- Estado vazio é onde a dúvida nasce (doc 108 §6): quem chega aqui e não sabe o que
+			     fazer está a um clique da explicação, em vez de a uma busca. -->
+			<a
+				href="/ajuda/marcar-um-atendimento"
+				target="_blank"
+				rel="noopener"
+				class="text-accent-text hover:underline">Como marcar um atendimento</a
+			>
 		{/snippet}
 	</EstadoVazio>
 {:else}
