@@ -50,7 +50,7 @@ defmodule Api.EnvExemploTest do
           String.ends_with?(chave, "_MEM_LIMIT"),
           valor = valores[chave],
           not is_nil(valor) do
-        assert bytes(valor) >= bytes(default),
+        assert Compose.bytes(valor) >= Compose.bytes(default),
                """
                `#{chave}` no `.env.exemplo` é **#{valor}**, menor que o default do compose (#{default}).
 
@@ -115,17 +115,9 @@ defmodule Api.EnvExemploTest do
     |> Map.new()
   end
 
-  # `512m`, `1500m`, `1g`, `128m` — as unidades que o Docker aceita em `mem_limit`.
-  defp bytes(valor) do
-    case Regex.run(~r/^(\d+)\s*([bkmg])?$/i, String.trim(valor)) do
-      [_todo, n] -> String.to_integer(n)
-      [_todo, n, unidade] -> String.to_integer(n) * multiplicador(String.downcase(unidade))
-      nil -> flunk("`#{valor}` não é um tamanho que o Docker aceite em mem_limit")
-    end
-  end
-
-  defp multiplicador("b"), do: 1
-  defp multiplicador("k"), do: 1024
-  defp multiplicador("m"), do: 1024 * 1024
-  defp multiplicador("g"), do: 1024 * 1024 * 1024
+  # `bytes/1` morava aqui e foi para `Api.ComposeDeProducao` em 2026-08-05, quando o segundo
+  # cliente apareceu (`Api.DeployContencaoTest`, comparando `mem_limit` com `shared_buffers`). É a
+  # mesma razão que o `.moduledoc` de lá dá para o recorte por serviço: duas cópias que leem
+  # tamanho de formas ligeiramente diferentes deixam de significar a mesma coisa — e aqui a
+  # diferença apareceria como um rebaixamento de teto passando batido.
 end

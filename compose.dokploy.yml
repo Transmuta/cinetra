@@ -79,7 +79,43 @@ services:
     # processo MAIOR — que aqui tende a ser justamente este. Um vazamento no BFF derrubava o banco.
     # E o container sem teto ficava fora do alerta `cinetra-container-no-teto` por construção: ele
     # filtra por `container_spec_memory_limit_bytes > 0`.
-    mem_limit: ${DB_MEM_LIMIT:-1g}
+    #
+    # 1g -> 2g em 2026-08-05, e o que pagou o aumento foi o build ter saído da máquina (R-M4, o
+    # bloco das imagens acima): o pico de 1–2 GB transitórios que o doc 87 §2 usava para justificar
+    # cautela não acontece mais aqui. A regra que o número respeita é que **cada teto isolado
+    # continua menor que a RAM livre** (medido: ≈4,5 GB de 8 GB) — é isso que faz um vazamento
+    # estourar o próprio cgroup ANTES de esgotar a máquina. Teto maior que a folga devolve a
+    # escolha da vítima ao kernel, que é exatamente o que estas linhas existem para impedir.
+    #
+    # O default daqui é o valor de PRODUÇÃO. O HML sobrescreve para baixo no Environment do stack
+    # (ver `.env.example`) — é o mesmo arquivo servindo os dois, então mexer no default mexe nos
+    # dois de uma vez.
+    mem_limit: ${DB_MEM_LIMIT:-2g}
+    # Sem esta linha o Postgres sobe nos defaults de FÁBRICA, e aí o `mem_limit` acima não governa
+    # nada do que ele faz: subir o teto vira só seguro, nunca desempenho.
+    #
+    # `effective_cache_size` é o que importa, e não porque aloque algo — ele não aloca nada. Ele
+    # INFORMA ao planner quanto de cache de SO existe. O default de fábrica é **4GB**, dentro de um
+    # container que tinha 1g: o planner acreditava num cache 4× maior que o teto do próprio cgroup
+    # (onde, em cgroup v2, o page cache do container é cobrado do container) e passava a preferir
+    # index scan onde seq scan ganharia. Falha sem sintoma — nada quebra, a query só fica mais
+    # lenta, e o EXPLAIN local não reproduz porque no local o número é verdade.
+    #
+    # `shared_buffers` é o número honesto e não o generoso: o banco tem **48 MB** medidos, então
+    # 128MB de fábrica já cabia inteiro e 256MB é margem de crescimento, não ganho de hoje. Ele é
+    # alocado de saída — pedir 512MB aqui viraria RSS de verdade, comendo a folga da máquina em
+    # troca de nada. Quando o banco crescer, este é o número a revisitar (junto com o
+    # `effective_cache_size`, que precisa continuar cabendo no teto — `Api.DeployContencaoTest`
+    # prende a relação).
+    #
+    # `work_mem` é POR NÓ de ordenação, não por conexão: 8MB × 16 do pool × alguns nós é o pior
+    # caso que cabe nos 2g ao lado dos 256MB acima.
+    command: >
+      postgres
+      -c shared_buffers=256MB
+      -c effective_cache_size=1GB
+      -c work_mem=8MB
+      -c maintenance_work_mem=128MB
     # R-M2 (onda 2). Sem isto, `/dev/shm` fica no default de **64 MB** do Docker. Uma query com
     # plano paralelo — os agregados das views `metrics_*` e os relatórios são os candidatos —
     # morre com `could not resize shared memory segment […] No space left on device`: um sintoma
@@ -149,10 +185,18 @@ services:
     # nenhum a respeitar). `Api.DeployCicloDeVidaTest` prende as duas.
     stop_grace_period: 25s
     logging: *logging
-    # Medido no dev ocioso: a BEAM residente em **232 MiB**. 768m é ~3× isso — folga para as 16
-    # conexões do pool, as duas filas do Oban e o pico de compactação, sem deixar um vazamento
+    # Medido no dev ocioso: a BEAM residente em **232 MiB**. 768m já era ~3× isso — folga para as
+    # 16 conexões do pool, as duas filas do Oban e o pico de compactação, sem deixar um vazamento
     # comer a máquina. Ver a nota sobre teto ≠ consumo no serviço `db`.
-    mem_limit: ${API_MEM_LIMIT:-768m}
+    #
+    # 768m -> 1.5g em 2026-08-05, pelo mesmo motivo do `db` (o build saiu da máquina). Aqui é
+    # honestamente só seguro: nada na BEAM cresce por ter teto maior — ela não pré-aloca contra o
+    # limite do cgroup, e não há sintonia equivalente à do Postgres a fazer. O que o número compra
+    # é o pior caso de um binário grande em `Api.Storage` ou de uma fila do Oban empoçada caber
+    # sem OOM kill; o consumo típico continua nos ~232 MiB.
+    # `1536m` e não `1.5g`: o Compose aceita o decimal, mas ele é a forma que menos gente lê igual
+    # — e o `Api.ComposeDeProducao.bytes/1`, que compara teto com tuning, só entende inteiro.
+    mem_limit: ${API_MEM_LIMIT:-1536m}
     # R-A7 (onda 2). Os labels do Traefik que este serviço tem decidem **roteamento**; este
     # healthcheck decide **reinício**. Com o processo travado sem morrer — pool esgotado, BEAM em
     # `run_queue` — o Traefik tirava da rotação e o Docker seguia reportando `Up`, então o
@@ -306,7 +350,10 @@ services:
     # truncado** — página quebrada, e não um erro que dê para tentar de novo.
     stop_grace_period: 35s
     logging: *logging
-    mem_limit: ${WEB_MEM_LIMIT:-512m}
+    # 512m -> 1g em 2026-08-05, junto do `NODE_OPTIONS` do `environment:` abaixo — e os dois
+    # andam juntos de propósito: subir o teto sem contar ao V8 aumenta a distância entre o que ele
+    # acha que pode usar e o que o cgroup mata. Ver a nota sobre teto ≠ consumo no serviço `db`.
+    mem_limit: ${WEB_MEM_LIMIT:-1g}
     # Mesma distinção do serviço `api`: o label do Traefik decide roteamento, este decide
     # reinício. E aqui o modo de falha é o clássico do Node — event loop bloqueado, processo vivo
     # e mudo.
@@ -363,6 +410,20 @@ services:
       OTEL_SERVICE_NAME: cinetra-web
       OTEL_RESOURCE_ATTRIBUTES: deployment.environment=${STACK}
       PORT: "3000"
+      # O V8 dimensiona o heap velho pela memória que ENXERGA — e o que ele enxerga é a RAM da
+      # MÁQUINA (8 GB), não o `mem_limit` do cgroup. Sem esta linha ele adia o GC major para muito
+      # além do teto do container: o processo é morto pelo kernel exatamente onde havia coleta a
+      # fazer, e o modo de falha é o pior de diagnosticar — sem exceção, sem stack, sem log; o
+      # container reinicia e some do histórico (o rastro fica na coluna "no ar há" do painel).
+      #
+      # 768 de 1024 (75%). O resto do teto não é folga inventada: fora do heap velho ficam o heap
+      # novo, os `Buffer` (que são memória EXTERNA ao heap, e o SSR streamed do
+      # `lib/server/compress.ts` vive deles), o código JIT e as pilhas. Cap colado no teto deixa o
+      # V8 crescendo com confiança até um número que o cgroup mata antes.
+      #
+      # Se `WEB_MEM_LIMIT` mudar, este número muda junto — `Api.DeployContencaoTest` prende a
+      # relação e reprova o cap acima de 80% do teto.
+      NODE_OPTIONS: "--max-old-space-size=768"
       # Em SEGUNDOS (o adapter-node multiplica por 1000). O `keepAliveTimeout` do Node é 5s por
       # default e o pool de saída do Traefik segura conexão ociosa por 90s
       # (`forwardingTimeouts.idleConnTimeout`): com o Node fechando primeiro, o proxy reaproveita

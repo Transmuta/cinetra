@@ -123,6 +123,80 @@ defmodule Api.DeployContencaoTest do
     end
   end
 
+  # 2026-08-05. Os dois testes abaixo são de uma classe que não existia aqui: os de cima provam que
+  # o teto **existe**; estes provam que ele é **usável**. Um teto que o processo lá dentro
+  # desconhece não é freio — é um número que só aparece no `docker inspect`.
+  describe "o teto do db precisa ser conhecido pelo Postgres" do
+    test "o db declara tuning coerente com o próprio teto", %{produto: compose} do
+      bloco = Compose.servico(compose, "db")
+      teto = Compose.bytes(Compose.default_de(bloco, "mem_limit"))
+      ajustes = ajustes_do_postgres(bloco)
+
+      for chave <- ~w(shared_buffers effective_cache_size work_mem) do
+        assert Map.has_key?(ajustes, chave),
+               """
+               O `db` não declara `#{chave}` no `command:`.
+
+               Sem `command:`, o Postgres sobe nos defaults de fábrica — `shared_buffers=128MB`, \
+               `work_mem=4MB`, `effective_cache_size=4GB` — e o `mem_limit` deixa de ter qualquer \
+               efeito sobre o que ele faz: subir o teto não vira desempenho, vira só seguro.
+
+               Ajustes declarados: #{inspect(Map.keys(ajustes))}
+               """
+      end
+
+      reservado =
+        Compose.bytes(ajustes["shared_buffers"]) + Compose.bytes(ajustes["effective_cache_size"])
+
+      assert reservado <= teto,
+             """
+             `shared_buffers` (#{ajustes["shared_buffers"]}) + `effective_cache_size` \
+             (#{ajustes["effective_cache_size"]}) passa do `mem_limit` do container \
+             (#{Compose.default_de(bloco, "mem_limit")}).
+
+             `effective_cache_size` não aloca nada — ele INFORMA o planner quanto de cache o SO \
+             tem. Dentro de um cgroup, esse cache é cobrado do próprio container: prometer mais \
+             do que o teto comporta é mentir para o planner, que passa a preferir index scan onde \
+             seq scan seria melhor. Era o estado de fábrica aqui — 4GB declarados dentro de 1g.
+
+             O plano fica errado sem nada quebrar, então não há sintoma: só query mais lenta que \
+             o EXPLAIN local não reproduz, porque no local o número é verdade.
+             """
+    end
+  end
+
+  describe "o teto do web precisa ser conhecido pelo V8" do
+    test "o web declara --max-old-space-size abaixo do próprio teto", %{produto: compose} do
+      bloco = Compose.servico(compose, "web")
+      teto = Compose.bytes(Compose.default_de(bloco, "mem_limit"))
+      heap = heap_do_node(bloco)
+
+      assert heap,
+             """
+             O `web` não declara `--max-old-space-size` em `NODE_OPTIONS`.
+
+             O V8 dimensiona o heap velho pela memória que ENXERGA, e o que ele enxerga é a RAM da \
+             máquina, não o `mem_limit` do cgroup. Num host de 8 GB dentro de um container de \
+             512m, ele adia o GC major para muito além do teto: o container morre por OOM kill \
+             exatamente onde havia coleta a fazer.
+
+             E o modo de falha engana — o processo é morto pelo kernel, sem exceção, sem stack e \
+             sem log: o container reinicia e some do histórico, do jeito que o `.moduledoc` de \
+             `Api.EnvExemploTest` descreve.
+             """
+
+      assert heap * 5 <= teto * 4,
+             """
+             `--max-old-space-size=#{div(heap, 1024 * 1024)}` é mais que 80% do `mem_limit` \
+             (#{Compose.default_de(bloco, "mem_limit")}).
+
+             O heap velho não é o processo inteiro: fora dele ficam o heap novo, os `Buffer` \
+             (que são externos), o código JIT e as pilhas. Um cap colado no teto deixa o V8 \
+             convencido de que pode crescer até um número que o cgroup mata antes.
+             """
+    end
+  end
+
   describe "rotação de log dos containers de observabilidade (R-A6)" do
     test "todo serviço da obs declara logging", %{obs: compose} do
       for nome <- @obs_servicos do
@@ -184,6 +258,21 @@ defmodule Api.DeployContencaoTest do
   # `^\s+chave:` dentro do bloco do serviço, e não `compose =~ chave`: os dois arquivos CITAM
   # essas chaves em comentários que explicam por que elas existem, e um comentário casaria com a
   # busca no texto inteiro. É a mesma lição que está escrita no `servico/2`.
+  # `-c shared_buffers=256MB` em qualquer forma do `command:` — lista YAML ou escalar dobrado.
+  defp ajustes_do_postgres(bloco) do
+    ~r/-c\s+([a-z_]+)=(\S+)/
+    |> Regex.scan(Enum.join(bloco, "\n"))
+    |> Map.new(fn [_todo, chave, valor] -> {chave, valor} end)
+  end
+
+  # Em bytes, para comparar com o `mem_limit`; o V8 recebe o número em MiB.
+  defp heap_do_node(bloco) do
+    case Regex.run(~r/--max-old-space-size=(\d+)/, Enum.join(bloco, "\n")) do
+      [_todo, mib] -> String.to_integer(mib) * 1024 * 1024
+      nil -> nil
+    end
+  end
+
   defp declara?(compose, servico, chave) do
     compose
     |> Compose.servico(servico)
