@@ -229,7 +229,10 @@ defmodule ApiWeb.Router do
     # e sair não tinha caminho. A coleção é `participants` do bloco, como as sub-rotas de presença
     # logo abaixo.
     post "/appointments/:id/participants", AppointmentsController, :add_participants
-    delete "/appointments/:id/participants/:patient_id", AppointmentsController, :remove_participant
+
+    delete "/appointments/:id/participants/:patient_id",
+           AppointmentsController,
+           :remove_participant
 
     # Presença por participante (Frente 6/A2, doc 41 / 09 §3.1.1). Sub-rota do bloco.
     post "/appointments/:id/participants/:patient_id/complete",
