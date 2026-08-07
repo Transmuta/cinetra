@@ -105,7 +105,7 @@ e é o preço de a leitura não mentir.
 | Estado | O que ela mostra |
 | --- | --- |
 | perguntando | clínica no topo (navy + régua + telefone discável), `10:00` em 34px, `segunda-feira, 10 de agosto`, selo `amanhã` quando cabe, dois botões a 14px de distância |
-| confirmou | caixa **verde** de desfecho + **Google Agenda** e **outro calendário** (`.ics`) + **falar com a clínica no WhatsApp** |
+| confirmou | caixa **verde** de desfecho + **adicionar ao Google Agenda** + **falar com a clínica no WhatsApp** |
 | quer remarcar | caixa **azul** de espera (não é desfecho: depende de a clínica responder) + **falar com a clínica no WhatsApp** |
 | sessão cancelada | "Esta sessão foi cancelada", sem botão de confirmar, com o WhatsApp |
 | sessão já passada | "Essa sessão já passou", idem |
@@ -123,22 +123,43 @@ Cinco decisões dentro disso:
    > Blob, mas errava no passo seguinte: dizia que o `.ics` "é aberto pelo app de calendário padrão
    > do aparelho". Não é o que acontece, por causa de dois detalhes que só aparecem no aparelho:
    >
-   > - **`Content-Disposition: attachment` quebra o iPhone.** Com ele, o Safari (iOS 13+) baixa o
-   >   arquivo para o app **Arquivos**; a pessoa precisa sair do navegador para achá-lo. Sem ele
-   >   (`inline`), o Safari abre a folha nativa de evento com "Adicionar ao Calendário" na hora.
+   > - **`Content-Disposition: attachment` manda o iPhone para o app Arquivos.** A pessoa precisa
+   >   sair do navegador para achar o que baixou. (A hipótese de que `inline` devolveria a folha
+   >   nativa de evento foi testada e **é falsa** — ver a segunda rodada, abaixo.)
    > - **No Android nenhuma disposição resolve.** O Chrome baixa `text/calendar` de qualquer forma;
    >   o arquivo cai em Downloads e **nada abre**. Quem toca no botão vê acontecer nada — foi assim
    >   que o problema foi relatado.
    >
-   > Daí as duas mudanças: a rota passou a servir `inline`, e a tela ganhou um **segundo** link, o
-   > template do Google Agenda, que é o que de fato abre o app no Android. O `.ics` continua ao
-   > lado, rotulado "outro calendário (iPhone, Outlook)".
+   > **Segunda rodada, no mesmo dia, com o produto na mão.** A primeira tentativa foi trocar a
+   > disposição para `inline` e pôr o link do Google **ao lado** do `.ics`. Medido no aparelho, os
+   > dois lados falharam:
    >
-   > O argumento original contra o Google — "metade dos pacientes não usa Google Agenda" — era
-   > contra ele ser a **única** opção, e segue valendo assim. O que ele custa, e é decisão
-   > consciente: a URL leva o título (`Sessão na <clínica>`) para um domínio do Google, coisa que o
-   > `.ics` no nosso domínio não fazia. Se incomodar, o conserto é passar `titulo: 'Sessão'` ao
-   > `linkGoogleAgenda` e deixar o nome da clínica só no `.ics`.
+   > - **`inline` é pior que `attachment` no iPhone.** O Safari não abre a folha de evento: ele
+   >   **renderiza o `.ics` como texto** ("BEGIN:VCALENDAR…") na tela do paciente. Não há o que
+   >   tocar. A previsão de que ele ofereceria "Adicionar ao Calendário" simplesmente não se
+   >   confirmou;
+   > - **o download não se salva em nenhum dos dois.** No Android o arquivo cai em Downloads sem
+   >   nada abrir; no iPhone, revertido para `attachment`, vira uma folha de download que não leva
+   >   a lugar nenhum.
+   >
+   > **Decisão de 2026-08-06: o `.ics` saiu inteiro** — o link, a rota `sessao.ics` e o
+   > `lib/server/ics.ts`, com os testes. Não é código a manter para uma saída que ninguém consegue
+   > percorrer no celular, e deixar a rota viva manteria a URL baixando o arquivo para quem a
+   > recebesse. Sobra **um** caminho: o Google Agenda, em duas formas (ver §7):
+   >
+   > | Onde | Forma do link | O que acontece |
+   > | --- | --- | --- |
+   > | Android | `intent://…;package=com.google.android.calendar;…` | abre o **aplicativo** |
+   > | iPhone, desktop | `https://calendar.google.com/calendar/render?…` | abre o Agenda web, já preenchido |
+   >
+   > O que essa decisão **custa**, e é consciente: quem tem iPhone e não usa Google Agenda fica sem
+   > caminho para o calendário. Não há conserto para esse caso — o app do Google no iOS não aceita
+   > evento por URL (o `comgooglecalendar://` abre o aplicativo **vazio**), e o Apple Calendar só
+   > entra por arquivo, que é justamente o que se mostrou impraticável. Para essa pessoa a tela
+   > ainda oferece o WhatsApp da clínica, e a sessão continua no lembrete.
+   >
+   > O segundo custo, mantido da rodada anterior: a URL leva o título (`Sessão na <clínica>`) a um
+   > domínio do Google. Se incomodar, é passar `titulo: 'Sessão'` ao `linkGoogleAgenda`.
 2. **Respondeu, acabou: os botões somem e não voltam** (decisão de 2026-08-04, revendo um primeiro
    desenho que oferecia "mudar minha resposta"). Qualquer afordância de responder de novo convida
    ao segundo toque sem a pessoa saber se o primeiro valeu — que é o motivo de os botões sumirem em
@@ -182,15 +203,15 @@ Cinco decisões dentro disso:
 | [`styles/cinetra.css`](../web/src/lib/styles/cinetra.css) | seção `.cn-paciente-*` — hex de marca em CSS, onde ganham media query e `:focus-visible` |
 | [`data-hora.ts`](../web/src/lib/data-hora.ts) | `quandoParaPaciente/3` — a quarta forma de dizer "quando", a única que não fala com a recepção |
 | [`telefone.ts`](../web/src/lib/telefone.ts) | `linkWhatsapp/2` — o `wa.me` com a mensagem já escrita, e `null` para quem não recebe WhatsApp |
-| [`server/ics.ts`](../web/src/lib/server/ics.ts) | `eventoIcs/1` e `uidDeSessao/1` (RFC 5545: CRLF, escape, dobra em 75 **octetos** sem partir multibyte) |
-| [`calendario.ts`](../web/src/lib/calendario.ts) | (2026-08-06) `linkGoogleAgenda/1`, mais `tituloDaSessao/1`, `descricaoDaSessao/2` e `utcCompacto/1` — o que o evento diz num lugar só, porque agora tem dois consumidores. **Não** é server-only: a tela monta o link do Google no browser |
+| [`calendario.ts`](../web/src/lib/calendario.ts) | (2026-08-06) `linkGoogleAgenda/2` nas duas formas (`https://` e `intent://` do Android), `ehAndroid/1`, `tituloDaSessao/1`, `descricaoDaSessao/2`, `utcCompacto/1`. Substituiu `lib/server/ics.ts` e a rota `sessao.ics`, ambos removidos |
+| [`confirmar/[token]/+page.server.ts`](../web/src/routes/confirmar/[token]/+page.server.ts) | (2026-08-06) devolve `android`, lido do `user-agent`: a forma do link é decidida no **servidor**, senão SSR e hidratação pintam `href` diferentes |
 | [`confirmar/[token]/resposta.ts`](../web/src/routes/confirmar/[token]/resposta.ts) | a chamada à API num lugar só — o `.ics` é o segundo consumidor, e o IP do paciente não pode divergir entre eles |
-| [`confirmar/[token]/sessao.ics/+server.ts`](../web/src/routes/confirmar/[token]/sessao.ics/+server.ts) | serve o evento; 404 sem instante ou com sessão cancelada |
 | [`confirmar/[token]/+page.svelte`](../web/src/routes/confirmar/[token]/+page.svelte) | a tela |
 | [`e2e/tema-auth-claro.spec.ts`](../web/e2e/tema-auth-claro.spec.ts) | `/confirmar/token-invalido` entra na varredura de tema |
 
 Testes novos: 6 no backend, ~90 no web nos arquivos tocados (`ics`, `data-hora`, `telefone`,
-`resposta`, `sessao.ics`, `CartaoPaciente`, a página).
+`resposta`, `CartaoPaciente`, a página). Em 2026-08-06 os de `ics`/`sessao.ics` saíram com o
+código, e entraram os de `calendario` (20) mais os do `android` no `load` e na tela.
 
 ## 8. Gates
 

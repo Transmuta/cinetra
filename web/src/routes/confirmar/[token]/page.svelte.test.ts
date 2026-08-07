@@ -3,9 +3,6 @@ import '@testing-library/jest-dom/vitest';
 import { render } from '@testing-library/svelte';
 
 vi.mock('$app/forms', () => ({ enhance: () => ({ destroy() {} }) }));
-vi.mock('$app/state', () => ({
-	page: { url: new URL('http://localhost/confirmar/tok-abc') }
-}));
 
 import Confirmar from './+page.svelte';
 
@@ -79,15 +76,24 @@ describe('/confirmar — a pergunta', () => {
 
 describe('/confirmar — o depois da resposta', () => {
 	it('confirmou: caixa de desfecho e o evento para a agenda do celular', () => {
-		// O `.ics` é a saída de quem NÃO é Google (iPhone, Outlook) — daí o rótulo dizer "outro
-		// calendário" em vez de "adicionar à agenda", que era ambíguo ao lado do botão do Google.
 		const { getByText, getByRole } = tela({ resposta: 'confirmou' });
 
 		expect(getByText(/Presença confirmada/)).toBeInTheDocument();
-		expect(getByRole('link', { name: /Outro calendário/ })).toHaveAttribute(
+		expect(getByRole('link', { name: /Google Agenda/ })).toHaveAttribute(
 			'href',
-			'/confirmar/tok-abc/sessao.ics'
+			expect.stringContaining('calendar.google.com')
 		);
+	});
+
+	it('NÃO oferece baixar `.ics` — download é inviável no celular, medido nos dois sistemas', () => {
+		// A rota `sessao.ics` foi removida junto com o link (2026-08-06). Este teste é o que
+		// impede o botão de voltar por engano: no Android o arquivo cai em Downloads sem nada
+		// abrir, e no iPhone vira uma folha de download que não leva a lugar nenhum.
+		const { container } = tela({ resposta: 'confirmou' });
+
+		const hrefs = [...container.querySelectorAll('a')].map((a) => a.getAttribute('href') ?? '');
+
+		expect(hrefs.some((h) => h.includes('.ics'))).toBe(false);
 	});
 
 	it('confirmou: oferece o Google Agenda, que é o que de fato abre no Android', () => {
@@ -107,13 +113,28 @@ describe('/confirmar — o depois da resposta', () => {
 		expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'));
 	});
 
+	it('no Android o link vira `intent://`, para abrir o APP e não o navegador', () => {
+		// O flag vem do `load`, decidido pelo `user-agent` do request — decidir no browser faria o
+		// SSR pintar um `href` e a hidratação trocá-lo por outro.
+		const { getByRole } = render(Confirmar, {
+			props: {
+				data: { resumo: { ...resumo, resposta: 'confirmou' }, status: 200, quando, android: true },
+				form: null
+			} as never
+		});
+
+		expect(getByRole('link', { name: /Google Agenda/ })).toHaveAttribute(
+			'href',
+			expect.stringContaining('intent://')
+		);
+	});
+
 	it('sem instante da API não oferece calendário nenhum — os dois links dariam em nada', () => {
 		// O `.ics` responde 404 sem `inicio`/`fim`, e o link do Google sairia sem horário. Botão
 		// que não leva a lugar nenhum é pior que a ausência dele.
 		const { queryByRole } = tela({ resposta: 'confirmou', inicio: null, fim: null });
 
 		expect(queryByRole('link', { name: /Google Agenda/ })).toBeNull();
-		expect(queryByRole('link', { name: /Outro calendário/ })).toBeNull();
 	});
 
 	it('quer remarcar: tom de espera (não de sucesso) e o WhatsApp na mão', () => {

@@ -9,14 +9,12 @@
 	// acrescenta é a **decisão**: o quando em destaque, as duas respostas, e o que vem depois de
 	// cada uma.
 	import { enhance } from '$app/forms';
-	import { page } from '$app/state';
 	import CartaoPaciente from '$lib/components/cinetra/CartaoPaciente.svelte';
 	import SubmitButton from '$lib/components/SubmitButton.svelte';
 	import { envioPorItem } from '$lib/forms.svelte';
 	import { canonizarTelefone, linkWhatsapp } from '$lib/telefone';
 	import { descricaoDaSessao, linkGoogleAgenda, tituloDaSessao } from '$lib/calendario';
 	import CalendarClock from '@lucide/svelte/icons/calendar-clock';
-	import CalendarDays from '@lucide/svelte/icons/calendar-days';
 	import CalendarPlus from '@lucide/svelte/icons/calendar-plus';
 	import Check from '@lucide/svelte/icons/check';
 	import Info from '@lucide/svelte/icons/info';
@@ -57,17 +55,23 @@
 	const zap = $derived(linkWhatsapp(resumo?.clinica_telefone, `Olá! ${euSou}${assunto}`));
 
 	// Levar a sessão para o calendário. São DOIS caminhos porque um só não atende os dois celulares
-	// (ver `$lib/calendario`): no Android o `.ics` cai em Downloads e nada abre — quem tocou no
-	// botão não vê acontecer nada —, e no iPhone é o `.ics` que resolve, direto na folha nativa.
-	// `null` quando a API não mandou instante: aí nenhum dos dois leva a lugar nenhum, e o `.ics`
-	// responderia 404.
+	// (ver `$lib/calendario`): no Android o `.ics` cai em Downloads e nada abre sozinho, e no
+	// iPhone o Google Agenda não aceita evento por link — lá o caminho é o `.ics`, que baixa e
+	// abre no Calendário do aparelho. `null` quando a API não mandou instante: aí nenhum dos dois
+	// leva a lugar nenhum, e o `.ics` responderia 404.
 	const google = $derived(
-		linkGoogleAgenda({
-			inicio: resumo?.inicio,
-			fim: resumo?.fim,
-			titulo: tituloDaSessao(resumo?.clinica),
-			descricao: descricaoDaSessao(resumo?.clinica, resumo?.clinica_telefone)
-		})
+		linkGoogleAgenda(
+			{
+				inicio: resumo?.inicio,
+				fim: resumo?.fim,
+				titulo: tituloDaSessao(resumo?.clinica),
+				descricao: descricaoDaSessao(resumo?.clinica, resumo?.clinica_telefone)
+			},
+			// No Android o link vira `intent://`, que abre o APLICATIVO do Google Agenda; o
+			// `https://` abriria o Agenda web dentro do Chrome. Vem do `load` (`user-agent`), não
+			// daqui, para o SSR e a hidratação pintarem o mesmo `href`.
+			{ android: data.android }
+		)
 	);
 
 	// Dois botões, um form: a chave do "em voo" é o `value` do botão clicado. Quem responde por
@@ -208,21 +212,23 @@
 		     quem confirmou não tinha o que fazer, e quem pediu remarcação — que é justamente quem
 		     tem um problema — ficava sem nenhuma saída na mão. -->
 		<div class="cn-paciente-secundarias">
-			<!-- `google` só é não-nulo quando há instante — e sem instante o `.ics` responde 404,
-			     então os dois caem juntos. -->
+			<!-- `google` é `null` sem instante, e aí não há evento a oferecer. -->
 			{#if respondeu && resumo.resposta === 'confirmou' && !encerrada && google}
-				<!-- O Google vem primeiro porque é o que resolve no Android, onde o `.ics` sozinho
-				     não abre nada: ele cai em Downloads e a pessoa fica achando que o botão quebrou. -->
-				<a class="cn-paciente-link" href={google} target="_blank" rel="noopener">
-					<CalendarPlus size={17} /> Adicionar ao Google Agenda
-				</a>
+				<!-- Caminho ÚNICO para o calendário desde 2026-08-06. O `.ics` que ficava ao lado
+				     foi retirado (com a rota que o servia): baixar arquivo é inviável no celular, e
+				     isso foi medido nos dois sistemas — no Android ele cai em Downloads sem nada
+				     abrir, e no iPhone vira uma folha de download que não leva a lugar nenhum. Ver
+				     doc 104 §6.
 
-				<!-- A saída de quem NÃO é Google — iPhone, Outlook. Caminho absoluto: relativo a
-				     `/confirmar/<token>` (sem barra no fim), um `sessao.ics` solto resolveria para
-				     `/confirmar/sessao.ics`. E `data-sveltekit-reload` porque o destino é um
-				     arquivo, não uma rota do app. -->
-				<a class="cn-paciente-link" href="{page.url.pathname}/sessao.ics" data-sveltekit-reload>
-					<CalendarDays size={17} /> Outro calendário (iPhone, Outlook)
+				     Sem `target="_blank"` no Android: o `intent://` sai da aba para o aplicativo, e
+				     abrir aba nova só deixaria uma em branco para trás. -->
+				<a
+					class="cn-paciente-link"
+					href={google}
+					target={data.android ? undefined : '_blank'}
+					rel="noopener"
+				>
+					<CalendarPlus size={17} /> Adicionar ao Google Agenda
 				</a>
 			{/if}
 
