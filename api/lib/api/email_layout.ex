@@ -70,11 +70,15 @@ defmodule Api.EmailLayout do
   atributo `style` do elemento ganha e nada muda. E é por isso que cada elemento colorido carrega
   uma classe `cn-*`: a classe é o único gancho que a folha tem para alcançar o inline.
 
-  **O cabeçalho fica `#212A37` também no escuro**, e isso é deliberado: o PNG do logo tem essa cor
-  como placa embutida (é RGB, sem canal alfa). Escurecer a faixa faria aparecer um retângulo
-  visível em volta do logo — que é justamente o defeito que o Gmail produz sozinho ao clarear a
-  faixa e deixar a imagem intacta. Enquanto o asset não tiver fundo transparente, a faixa não se
-  mexe.
+  **E o logo tem fundo vazado, o que não é detalhe de arte.** Ele já foi um PNG sem canal alfa,
+  com a cor da faixa achatada dentro da imagem — e aí quem clareava a faixa por conta própria
+  deixava a placa escura como um retângulo solto por cima dela. Com alfa, a faixa é a `<td>`: ela
+  muda de cor sem que a arte precise saber. O gate está em `web/src/lib/logo-do-email.test.ts`,
+  do lado onde o arquivo mora — quem regenerar a arte não vai rodar a suíte daqui.
+
+  O que sobra é o wordmark ser **branco**: se um cliente clarear a faixa sozinho, ele fica claro
+  sobre claro. Não é resolvível por CSS; resolve-se trocando a arte por uma que leia nos dois
+  fundos, e isso é decisão de marca, não de layout.
   """
 
   # A paleta, num lugar só. Os nomes descrevem o papel, não a cor: trocar o verde da marca é
@@ -103,8 +107,9 @@ defmodule Api.EmailLayout do
   @fundo_esc "#0E1116"
   @cartao_esc "#171D25"
   @borda_esc "#2B3441"
-  # A faixa do cabeçalho **não muda**: o PNG do logo tem esta cor de placa embutida (ver o
-  # moduledoc). Mexer nela é fazer aparecer o retângulo em volta do logo.
+  # A faixa do cabeçalho continua a mesma dos dois temas — agora por escolha, e não por amarra do
+  # asset (o logo tem fundo vazado, ver o moduledoc): o marinho já é escuro, e sobre o cartão mais
+  # fundo ele lê como faixa. Escurecê-la de novo apagaria a separação entre topo e corpo.
   @cabecalho_esc @escuro
   @titulo_esc "#F1F3F6"
   @texto_esc "#B7BDC6"
