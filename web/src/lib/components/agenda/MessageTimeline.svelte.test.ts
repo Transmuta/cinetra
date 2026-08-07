@@ -179,76 +179,37 @@ describe('MessageTimeline', () => {
 		expect(screen.getByText('João Lima')).toBeInTheDocument();
 	});
 
-	describe('reenviar', () => {
-		it('não aparece sem permissão de escrita', () => {
+	// A timeline é histórico, e SÓ (doc 109). O "Reenviar" que morava aqui mudou de lugar: foi
+	// para a linha do participante, no corpo do drawer, junto do resumo do estado de cada um.
+	// Estes testes prendem as duas metades da decisão — nenhuma ação aqui, e o silêncio continua
+	// sendo uma LINHA, que é a regra do §6 que este componente existe para cumprir.
+	describe('histórico, não ação', () => {
+		it('não oferece botão nenhum, nem depois de uma falha', () => {
 			render(
 				MessageTimeline,
-				props({ participantes: [p({ mensagens: [], sem_envio: null })], podeEnviar: false })
+				props({ participantes: [p({ mensagens: [msg({ status: 'falhou' })] })] })
 			);
 
 			expect(screen.queryByRole('button')).not.toBeInTheDocument();
 		});
 
-		it('chama o handler com o participante certo', async () => {
-			const onReenviar = vi.fn();
-			render(
-				MessageTimeline,
-				props({
-					participantes: [p({ mensagens: [msg({ status: 'falhou' })] })],
-					podeEnviar: true,
-					onReenviar
-				})
-			);
-
-			await userEvent.click(screen.getByRole('button', { name: 'Reenviar' }));
-
-			expect(onReenviar).toHaveBeenCalledWith('p1');
-		});
-
-		it('NÃO oferece reenvio a quem pediu para parar (§10.4)', async () => {
-			render(
-				MessageTimeline,
-				props({
-					participantes: [p({ mensagens: [], sem_envio: 'opt_out' })],
-					podeEnviar: true,
-					onReenviar: vi.fn()
-				})
-			);
-
-			expect(screen.getByText(/pediu para não receber/)).toBeInTheDocument();
-			expect(screen.queryByRole('button')).not.toBeInTheDocument();
-		});
-
-		it('some quando o envio é impossível — a linha explica, o botão não promete', () => {
-			// O motivo já está na tela; o botão só repetiria a mesma frase depois do 201. Pior no
-			// canal indisponível, onde o conserto nem é da recepção.
-			for (const sem_envio of ['canal_indisponivel', 'sem_contato', 'sem_consentimento'] as const) {
-				render(
-					MessageTimeline,
-					props({ participantes: [p({ mensagens: [], sem_envio })], podeEnviar: true, onReenviar: vi.fn() })
-				);
+		it('o motivo do silêncio continua escrito, mesmo sem ação a oferecer', () => {
+			// Tirar o botão não podia levar a explicação junto: sem ela, o participante fica com o
+			// nome e o vazio abaixo — e vazio na tela lê-se como "já resolvido" (§6).
+			for (const sem_envio of ['opt_out', 'canal_indisponivel', 'sem_contato'] as const) {
+				render(MessageTimeline, props({ participantes: [p({ mensagens: [], sem_envio })] }));
 
 				expect(screen.queryByRole('button')).not.toBeInTheDocument();
 				cleanup();
 			}
 		});
 
-		it('quem nunca recebeu nada não ganha botão — ganha a linha do silêncio', () => {
-			// O "Enviar agora" saiu: a timeline é histórico, e a primeira mensagem sai pelo
-			// "Enviar confirmação" do rodapé, que dispara para o bloco inteiro. O que NÃO pode
-			// sumir junto é a linha — participante sem nenhuma linha faria a recepção supor que
-			// alguma coisa saiu (§6), que é exatamente o erro que este componente existe para não
-			// cometer.
+		it('quem nunca recebeu nada ganha a linha do silêncio', () => {
 			render(
 				MessageTimeline,
-				props({
-					participantes: [p({ mensagens: [], sem_envio: null })],
-					podeEnviar: true,
-					onReenviar: vi.fn()
-				})
+				props({ participantes: [p({ mensagens: [], sem_envio: null })] })
 			);
 
-			expect(screen.queryByRole('button')).not.toBeInTheDocument();
 			expect(screen.getByText(SEM_COMUNICACAO)).toBeInTheDocument();
 		});
 

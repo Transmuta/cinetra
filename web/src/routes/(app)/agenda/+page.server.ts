@@ -10,7 +10,9 @@ import {
 	cancelAppointment,
 	reopenAppointment,
 	excludeAppointment,
-	transitionParticipant
+	transitionParticipant,
+	addParticipants,
+	removeParticipant
 } from '$lib/server/appointments';
 import { finish, parseIds, type MutationResult } from '$lib/server/mutate';
 import {
@@ -394,6 +396,62 @@ export const actions: Actions = {
 					? { motivo: String(form.get('motivo')).trim() }
 					: {})
 			})
+		);
+	},
+
+	// ---- composição da turma (doc 109) ----
+	//
+	// Quem ENTRA e quem SAI de uma turma que já existe. É o eixo que faltava no drawer: a presença
+	// diz o que aconteceu com quem estava marcado, e até aqui não havia como mudar QUEM está
+	// marcado — entrar só acontecia pelo merge do `criar` no mesmo slot, e sair não tinha caminho.
+	//
+	// As duas carregam `expected_version` porque as duas mudam a composição do bloco. Foi a
+	// assimetria que este trabalho encontrou no servidor: `add_participant` era a única mutação do
+	// bloco que não avançava a versão, o que deixava dois recepcionistas com o mesmo drawer aberto
+	// escreverem por cima um do outro sem nenhum 409.
+
+	adicionar_participante: async (event) => {
+		const s = await submission(event, 'adicionar_participante');
+		if (!('id' in s)) return s;
+		const { form, id } = s;
+
+		// Mesmo campo hidden com JSON do modal de criar, mesma leitura tolerante (`parseIds`):
+		// qualquer coisa fora da forma vira lista vazia, e quem dá a mensagem é esta action.
+		const patient_ids = parseIds(form.get('patient_ids'));
+		if (!patient_ids.length) {
+			return fail(400, {
+				action: 'adicionar_participante',
+				error: 'Escolha ao menos um paciente.'
+			});
+		}
+
+		return finish(
+			'adicionar_participante',
+			await addParticipants(event, id, {
+				patient_ids,
+				// Só quando a recepção reconfirmou depois do 422 `group_full`. O flag fura o teto da
+				// turma (A-D3) e é guardado por policy — mandá-lo sempre tornaria o teto decorativo.
+				...(form.get('encaixe') === 'on' || form.get('encaixe') === 'true'
+					? { encaixe: true }
+					: {}),
+				expected_version: expectedVersion(form)
+			})
+		);
+	},
+
+	remover_participante: async (event) => {
+		const s = await submission(event, 'remover_participante');
+		if (!('id' in s)) return s;
+		const { form, id } = s;
+
+		const patient_id = String(form.get('patient_id') ?? '');
+		if (!patient_id) {
+			return fail(400, { action: 'remover_participante', error: 'Participante não informado.' });
+		}
+
+		return finish(
+			'remover_participante',
+			await removeParticipant(event, id, patient_id, expectedVersion(form))
 		);
 	},
 

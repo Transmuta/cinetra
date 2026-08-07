@@ -14,6 +14,7 @@
 	import Send from '@lucide/svelte/icons/send';
 	import Check from '@lucide/svelte/icons/check';
 	import UserX from '@lucide/svelte/icons/user-x';
+	import UserMinus from '@lucide/svelte/icons/user-minus';
 	import X from '@lucide/svelte/icons/x';
 	import Trash2 from '@lucide/svelte/icons/trash-2';
 	import Link2 from '@lucide/svelte/icons/link-2';
@@ -32,6 +33,8 @@
 	import { envio, envioPorItem } from '$lib/forms.svelte';
 	import MessageTimeline from '$lib/components/agenda/MessageTimeline.svelte';
 	import ConflictErrorBox from '$lib/components/agenda/ConflictErrorBox.svelte';
+	import ParticipantCommunication from '$lib/components/agenda/ParticipantCommunication.svelte';
+	import AddParticipant from '$lib/components/agenda/AddParticipant.svelte';
 	import PriorityBadge from '$lib/components/fila/PriorityBadge.svelte';
 	import { algumPodeReceber, motivoDoBloqueio, type MessageParticipant } from '$lib/messages';
 	import type { Entry } from '$lib/waitlist';
@@ -58,7 +61,8 @@
 		type Participant,
 		type AgendaPatient,
 		type AgendaProfessional,
-		type AgendaAppointmentType
+		type AgendaAppointmentType,
+		type SearchResult
 	} from '$lib/agenda';
 	import type { Papel } from '$lib/session';
 
@@ -73,6 +77,7 @@
 		form = null,
 		mensagens = null,
 		candidatos = undefined,
+		search = undefined,
 		onClose,
 		onReschedule,
 		onToast
@@ -97,6 +102,12 @@
 		 * drawer abre num bloco cancelado/faltou, ver `agenda/candidatos/+server.ts`.
 		 */
 		candidatos?: Entry[] | null;
+		/**
+		 * A busca de paciente do "Adicionar paciente" da turma (doc 109) — injetada, como no modal
+		 * de novo agendamento: a rota passa o fetch para `/agenda/pacientes`, o teste passa um duplo.
+		 * Ausente = sem composição de turma (a caixa de adicionar simplesmente não aparece).
+		 */
+		search?: (q: string) => Promise<SearchResult>;
 		onClose: () => void;
 		onReschedule: () => void;
 		onToast: (msg: string) => void;
@@ -196,6 +207,13 @@
 	const resolvidas = $derived(resolvedCount(appt.participants));
 	const presencaSolo = $derived(soloPaciente ? presencas.get(soloPaciente.id) : undefined);
 
+	// A comunicação passou a ser lida NA LINHA de cada participante (doc 109), e não só na timeline
+	// do rodapé. O índice por paciente é o que liga as duas listas — a timeline vem chaveada por
+	// `attendance_id`, e quem a linha da turma conhece é o `patient_id`.
+	const comunicacaoPorPaciente = $derived(
+		new Map((mensagens ?? []).map((p) => [p.patient_id, p]))
+	);
+
 	// O form da presença é UM só, submetido com os campos preenchidos no clique (o mesmo padrão
 	// do cancelar): N participantes × 4 verbos como forms separados seriam 4N forms no DOM.
 	let presencaForm = $state<HTMLFormElement>();
@@ -260,6 +278,53 @@
 	}
 
 	const ICON_PRESENCA = { Check, UserX, RotateCcw } as const;
+
+	// ---- Tirar da turma (doc 109) ----------------------------------------------------------
+	//
+	// Pergunta antes, como o cancelar e o excluir: é destrutivo e o desfazer é re-adicionar (outra
+	// escrita, outra linha na trilha). O diálogo diz o que se perde, e o texto MUDA quando a
+	// presença já tem desfecho — tirar quem compareceu apaga a presença, e com ela o débito do
+	// pacote, que é `count :usadas, :attendances` no servidor. O servidor permite (decisão de
+	// 2026-08-06); quem avisa é a tela.
+	//
+	// Um form só para as N linhas, como o de presença: o participante entra no clique.
+	let removendo = $state<{ patientId: string; nome: string; resolvida: boolean } | null>(null);
+	let removerForm = $state<HTMLFormElement>();
+	let removerPatient = $state('');
+	const removerEnvio = envioPorItem<string>();
+
+	function abrirRemocao(p: AgendaPatient, presenca: Participant | undefined) {
+		removendo = {
+			patientId: p.id,
+			nome: p.nome,
+			resolvida: !!presenca && presenca.status !== 'prevista'
+		};
+	}
+
+	// Mesmo gotcha do `marcarPresenca`: sem o `tick`, o `requestSubmit` roda antes de o Svelte 5
+	// escrever o `value` do hidden e o `patient_id` sai VAZIO — que aqui seria um 400 depois de a
+	// pessoa já ter confirmado a remoção.
+	async function confirmarRemocao() {
+		const alvo = removendo;
+		removendo = null;
+		if (!alvo) return;
+		removerPatient = alvo.patientId;
+		await tick();
+		removerForm?.requestSubmit();
+	}
+
+	// O 422 do guard do último participante volta com `code` próprio, e a saída dele não é uma
+	// variação do mesmo gesto (como o encaixe é para o teto da turma): é OUTRA ação, cancelar o
+	// bloco. Por isso a mensagem aponta para o botão que já existe logo abaixo em vez de oferecer
+	// um atalho — dois caminhos para cancelar seriam duas respostas para a mesma pergunta.
+	const erroRemocao = $derived(
+		form?.action === 'remover_participante' ? form?.error : undefined
+	);
+
+	// O erro do adicionar fica DENTRO da caixa de adicionar (é lá que a saída de encaixe mora).
+	const erroAdicionar = $derived(
+		form?.action === 'adicionar_participante' ? form?.error : undefined
+	);
 
 	// Do trio do protótipo sobra o cancelar: concluir/faltar viraram presença por participante
 	// (A2). Continua saindo de `statusActions` para o estado (`on`) ter fonte única.
@@ -729,6 +794,24 @@
 			<input type="hidden" name="motivo" value={presencaMotivo} />
 		</form>
 
+		<!-- A comunicação DE UMA PESSOA, na linha dela (doc 109). A timeline do rodapé continua
+		     sendo o histórico; isto é o resumo ao lado de quem ele descreve. Vale igual para a
+		     turma e para a sessão individual — é a mesma pergunta ("esta pessoa já foi avisada?"),
+		     e responder em dois formatos seria a divergência que o `bloco_load` do servidor existe
+		     para evitar, só que na tela. -->
+		{#snippet comunicacaoDaLinha(p: AgendaPatient)}
+			<ParticipantCommunication
+				participante={comunicacaoPorPaciente.get(p.id)}
+				carregando={mensagens === null}
+				{timezone}
+				{agora}
+				podeEnviar={podeMexer && !terminal}
+				emVoo={confirmEnvio.emVoo(p.id)}
+				bloqueado={confirmEnvio.algumEmVoo}
+				onEnviar={(patientId) => enviarConfirmacao(patientId)}
+			/>
+		{/snippet}
+
 		<!-- Paciente(s) -->
 		{#if grupo}
 			<div class="rounded-controle border border-edge">
@@ -744,15 +827,65 @@
 						{@const presenca = presencas.get(p.id)}
 						<li class="px-3 py-2">
 							<div class="flex items-center gap-2">
-								<span class="truncate">{p.nome}</span>
+								<span class="min-w-0 truncate">{p.nome}</span>
 								{#if presenca}{@render selo(presenca)}{/if}
-								{#if p.faltas}<span class="ml-auto text-meta text-faint">{plural(p.faltas, 'falta')}</span>{/if}
+								{#if p.faltas}<span class="text-meta text-faint">{plural(p.faltas, 'falta')}</span>{/if}
+
+								{#if podeMexer && !terminal}
+									<!-- Tirar da turma. Ícone só e "fantasma" — só assume `danger` no hover/focus —,
+									     o mesmo tratamento do Excluir do rodapé: destrutiva não senta ao lado de uma
+									     benigna com o mesmo peso, senão vira erro de clique.
+
+									     Some no bloco terminal, como os controles de composição em geral: mexer em
+									     quem está numa sessão que já acabou é reescrever o passado, e o caminho para
+									     isso é reabrir primeiro. -->
+									<SubmitButton
+										type="button"
+										onclick={() => abrirRemocao(p, presenca)}
+										emVoo={removerEnvio.emVoo(p.id)}
+										disabled={removerEnvio.algumEmVoo}
+										ariaLabel="Tirar {p.nome} da turma"
+										title="Tirar {p.nome} da turma"
+										size={13}
+										class="ml-auto grid size-6.5 shrink-0 place-items-center rounded-controle text-faint transition-colors hover:bg-surface-2 hover:text-danger focus-visible:text-danger disabled:cursor-not-allowed disabled:opacity-55"
+									>
+										<UserMinus size={13} />
+									</SubmitButton>
+								{/if}
 							</div>
 							{#if presenca}{@render pacoteDaPresenca(presenca, p.id)}{/if}
+							{@render comunicacaoDaLinha(p)}
 							{#if presenca}{@render controlesPresenca(p, presenca)}{/if}
 						</li>
 					{/each}
 				</ul>
+
+				{#if erroRemocao}
+					<!-- O 422 do guard do último participante mora AQUI, e não na caixa de erro geral do
+					     drawer: ele fala da lista logo acima, e a saída ("cancele a sessão") é o botão
+					     que aparece mais abaixo no mesmo painel. -->
+					<div
+						class="flex items-start gap-2 border-t border-edge px-3 py-2.5 text-rotulo"
+						style="color:var(--color-danger)"
+					>
+						<TriangleAlert size={14} class="mt-0.5 shrink-0" />
+						<div>{erroRemocao}</div>
+					</div>
+				{/if}
+
+				{#if podeMexer && !terminal && search}
+					<AddParticipant
+						id={appt.id}
+						version={appt.version}
+						{capacidade}
+						atual={participantes.length}
+						{podeEncaixe}
+						{search}
+						erro={erroAdicionar}
+						code={form?.action === 'adicionar_participante' ? form?.code : undefined}
+						jaNoBloco={appt.patient_ids}
+					/>
+				{/if}
 			</div>
 		{:else if soloPaciente}
 			<div class="rounded-controle border border-edge px-3 py-2.5">
@@ -774,6 +907,7 @@
 					{/if}
 				</div>
 				{#if presencaSolo}{@render pacoteDaPresenca(presencaSolo, soloPaciente.id)}{/if}
+				{@render comunicacaoDaLinha(soloPaciente)}
 				{#if presencaSolo}{@render controlesPresenca(soloPaciente, presencaSolo)}{/if}
 				<a
 					href="/pacientes/{soloPaciente.id}"
@@ -942,9 +1076,26 @@
 				<input type="hidden" name="expected_version" value={appt.version} />
 			</form>
 
-			<!-- Confirmação ao paciente (doc 52 §6). Submetido pelo rodapé (todos) ou pelo
-			     "Reenviar" de uma linha da timeline (um participante). Sem `expected_version`: mandar
-			     mensagem não muda o bloco, então não disputa a versão dele. -->
+			<!-- Tirar da turma (doc 109). Um form para as N linhas, como o de presença; o participante
+			     entra no clique e o `expected_version` é o do BLOCO — a composição vive lá, e desde
+			     2026-08-06 entrar TAMBÉM avança a versão (era a única mutação que não avançava).
+			     Submetido pela confirmação, não pelo botão da linha. -->
+			<form
+				method="POST"
+				action="?/remover_participante"
+				use:enhance={removerEnvio.submitDinamico(() => removerPatient)}
+				bind:this={removerForm}
+				class="hidden"
+			>
+				<input type="hidden" name="id" value={appt.id} />
+				<input type="hidden" name="expected_version" value={appt.version} />
+				<input type="hidden" name="patient_id" value={removerPatient} />
+			</form>
+
+			<!-- Confirmação ao paciente (doc 52 §6). Submetido pelo rodapé (todos) ou pelo botão
+			     "Enviar"/"Reenviar" da linha de um participante — que saiu da timeline e passou a
+			     morar ao lado da pessoa (doc 109). Sem `expected_version`: mandar mensagem não muda o
+			     bloco, então não disputa a versão dele. -->
 			<form
 				method="POST"
 				action="?/confirmar"
@@ -974,15 +1125,13 @@
 	</div>
 
 	<!-- A timeline fecha o corpo do drawer: é histórico, não ação — quem abre o bloco quer ver o
-	     estado dele primeiro. Fica FORA do `podeMexer` porque ler o que já saiu não é escrita. -->
-	<MessageTimeline
-		participantes={mensagens ?? []}
-		carregando={mensagens === null}
-		{timezone}
-		{agora}
-		podeEnviar={podeMexer && !terminal}
-		onReenviar={(patientId) => enviarConfirmacao(patientId)}
-	/>
+	     estado dele primeiro. Fica FORA do `podeMexer` porque ler o que já saiu não é escrita.
+
+	     E agora é histórico **puro** (doc 109): o "Reenviar" saiu daqui e passou a morar na linha
+	     do participante, junto do resumo do estado. Não ganhou um irmão — mudou de lugar; dois
+	     botões para o mesmo POST dariam duas respostas para a mesma pergunta, que é exatamente o
+	     motivo pelo qual o antigo "Enviar agora" já tinha sido removido desta seção. -->
+	<MessageTimeline participantes={mensagens ?? []} carregando={mensagens === null} {timezone} {agora} />
 </Drawer>
 
 {#if cancelando}
@@ -1051,6 +1200,40 @@
 				class="w-full rounded-controle border border-edge bg-surface px-2.5 py-2 text-corpo text-ink placeholder:text-faint focus:border-accent focus:outline-none"
 			/>
 		</label>
+	</ConfirmDialog>
+{/if}
+
+{#if removendo}
+	<!-- Tirar da turma pergunta antes (doc 109), pelo mesmo motivo do cancelar e do excluir: é
+	     destrutivo e o desfazer é re-adicionar — outra escrita, outra linha na trilha.
+
+	     O texto MUDA quando a presença já tem desfecho, e essa é a metade que importa. A presença é
+	     DESTRUÍDA, não cancelada; como o consumo do pacote é `count :usadas, :attendances` no
+	     servidor, tirar quem compareceu **devolve a sessão ao pacote**. O servidor permite isso de
+	     propósito (é o caminho de desfazer um lançamento errado); quem não pode deixar acontecer em
+	     silêncio é a tela. -->
+	<ConfirmDialog
+		title="Tirar {removendo.nome} da turma"
+		confirmLabel="Tirar da turma"
+		cancelLabel="Voltar"
+		submitting={removerEnvio.algumEmVoo}
+		onConfirm={confirmarRemocao}
+		onClose={() => (removendo = null)}
+	>
+		{#if removendo.resolvida}
+			A presença de <strong>{removendo.nome}</strong> já tem desfecho e será
+			<strong>apagada</strong> junto — se ela consumia uma sessão de pacote, a sessão volta para o
+			pacote. Use isto para desfazer um lançamento errado; se a pessoa apenas não veio, o certo é
+			registrar a falta.
+		{:else}
+			<strong>{removendo.nome}</strong> sai desta turma. Os outros participantes não são afetados,
+			e o horário do bloco não muda.
+		{/if}
+
+		<span class="mt-3 block text-rotulo text-muted">
+			Nenhuma mensagem é enviada ao paciente por causa disto — se ele precisa ser avisado, fale com
+			ele antes de tirar.
+		</span>
 	</ConfirmDialog>
 {/if}
 

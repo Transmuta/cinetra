@@ -16,8 +16,24 @@ defmodule Api.Scheduling.Appointment.Changes.RemoveParticipants do
   Remover a última presença viva deixaria um bloco com zero participantes — um horário ocupado na
   agenda que não é sessão de ninguém, invisível para quem olha a coluna. Quem quer desmarcar a
   sessão inteira **cancela o bloco**; é o que `Api.Packages.Bulk` decide antes de chamar aqui.
+
+  ## Os dois erros ganharam forma de contrato (doc 109)
+
+  Eram os dois um `InvalidArgument` sem código, o que dava **422 genérico** para dois casos que a
+  tela precisa distinguir:
+
+    * *não está nesta turma* passou a ser `Ash.Error.Query.NotFound` → **404**. É a resposta certa
+      para `DELETE /appointments/:id/participants/:patient_id`: o recurso da URL não existe. Antes,
+      um id de paciente forjado devolvia 422 como se o pedido fosse malformado;
+    * *é o último* ganhou o código estável `last_participant` → **422 com `code`**, que é o canal
+      por onde o drawer oferece "cancele a sessão" em vez de repetir o texto do servidor (A10).
+
+  `Api.Packages.Bulk` decide `sozinho?` **antes** de chamar aqui e nunca cai em nenhum dos dois —
+  a mudança é de contrato da fronteira, não de comportamento da massa.
   """
   use Ash.Resource.Change
+
+  alias Api.Scheduling.CodedError
 
   require Ash.Query
 
@@ -32,16 +48,16 @@ defmodule Api.Scheduling.Appointment.Changes.RemoveParticipants do
       cond do
         alvos == [] ->
           {:error,
-           Ash.Error.Changes.InvalidArgument.exception(
-             field: :patient_ids,
-             message: "participante não encontrado neste agendamento"
+           Ash.Error.Query.NotFound.exception(
+             resource: Api.Scheduling.Attendance,
+             primary_key: %{appointment_id: appointment.id, patient_ids: ids}
            )}
 
         restantes == [] ->
           {:error,
-           Ash.Error.Changes.InvalidArgument.exception(
-             field: :patient_ids,
-             message: "não dá para tirar o último participante — cancele o agendamento"
+           CodedError.invalid_changes(
+             "Não dá para tirar o último participante — cancele o agendamento.",
+             "last_participant"
            )}
 
         true ->

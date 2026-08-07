@@ -10,9 +10,14 @@
 	//     motivo — ou, quando não há motivo, com o `SEM_COMUNICACAO`. Silêncio na tela faz a
 	//     recepção supor que a mensagem saiu, e isso é pior do que não ter a funcionalidade (§6).
 	//
-	// A timeline é **histórico, não ação**: o único botão que ela oferece é o "Reenviar" de uma
-	// tentativa que falhou. A primeira mensagem sai pelo "Enviar confirmação" do rodapé do drawer,
-	// que dispara para o bloco inteiro.
+	// A timeline é **histórico, e só** (doc 109): ela não oferece botão nenhum. O "Reenviar" morava
+	// aqui e mudou de lugar — foi para a linha do participante, no corpo do drawer, junto do resumo
+	// do estado de cada um (`ParticipantCommunication`). Não ganhou um irmão: dois botões para o
+	// mesmo POST dariam duas respostas para a mesma pergunta, que é a mesma razão pela qual o
+	// antigo "Enviar agora" já tinha saído desta seção.
+	//
+	// O que fica aqui é o que a linha resumida não cabe: cada tentativa, o canal de cada uma, a
+	// resposta do paciente e o instante de tudo.
 	import Check from '@lucide/svelte/icons/check';
 	import CircleAlert from '@lucide/svelte/icons/circle-alert';
 	import Clock from '@lucide/svelte/icons/clock';
@@ -21,7 +26,6 @@
 	import {
 		descarteTexto,
 		instanteDoStatus,
-		podeReenviar,
 		previsaoDeEnvio,
 		respostaTexto,
 		SEM_COMUNICACAO,
@@ -36,17 +40,13 @@
 		participantes,
 		carregando = false,
 		timezone,
-		agora = undefined,
-		podeEnviar = false,
-		onReenviar
+		agora = undefined
 	}: {
 		participantes: MessageParticipant[];
 		carregando?: boolean;
 		timezone: string;
 		/** O relógio do servidor (ADR-009). Decide se a previsão de envio ainda está no futuro. */
 		agora?: string;
-		podeEnviar?: boolean;
-		onReenviar?: (patient_id: string) => void;
 	} = $props();
 
 	// "ter 14:02" — dia da semana curto + hora, no fuso da clínica. Data cheia numa lista de 4
@@ -155,16 +155,6 @@
 							</li>
 						{/if}
 					</ul>
-
-					{#if podeEnviar && podeReenviar(p) && onReenviar}
-						<button
-							type="button"
-							onclick={() => onReenviar?.(p.patient_id)}
-							class="mt-1.5 text-rotulo font-semibold text-accent hover:underline"
-						>
-							Reenviar
-						</button>
-					{/if}
 				</li>
 			{/each}
 		</ul>

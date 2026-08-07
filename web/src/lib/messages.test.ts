@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
 	algumPodeReceber,
+	comunicacaoDaPessoa,
 	descarteTexto,
 	instanteDoStatus,
 	motivoDoBloqueio,
-	podeReenviar,
 	previsaoDeEnvio,
 	respostaTexto,
 	SEM_COMUNICACAO,
@@ -16,8 +16,8 @@ import {
 	type MessageParticipant
 } from './messages';
 
-// O vocabulário da timeline (doc 52 §6). O que precisa estar preso aqui é a regra do
-// `podeReenviar`: ela é a que decide se a recepção vê um botão que de fato envia algo.
+// O vocabulário da comunicação (doc 52 §6). O que precisa estar preso aqui é a regra do
+// `comunicacaoDaPessoa`: ela é a que decide se a recepção vê um botão que de fato envia algo.
 
 function msg(over: Partial<Message> = {}): Message {
 	return {
@@ -267,41 +267,165 @@ describe('descarteTexto', () => {
 	});
 });
 
-describe('podeReenviar', () => {
-	it('NÃO oferece nada a quem nunca recebeu — quem envia a primeira é o rodapé', () => {
-		// O "Enviar agora" por participante saiu da timeline: ela é histórico, não ação, e o
-		// "Enviar confirmação" do rodapé já dispara para todo mundo. Dois botões para o mesmo
-		// disparo davam à recepção duas respostas para a mesma pergunta.
-		expect(podeReenviar(participante({ sem_envio: null }))).toBe(false);
+// A comunicação **dentro da linha do participante** (doc 109). É a mesma informação que a
+// timeline já mostrava no rodapé do drawer, resumida numa frase e ao lado da pessoa de quem ela
+// fala — numa turma de quatro, decidir "quem ainda não foi avisado" era comparar duas listas
+// separadas por 300px de painel.
+//
+// A regra do botão é a do SERVIDOR, não a da timeline: ele aparece exatamente quando o
+// `Dispatch` aceitaria o disparo. Divergir faria a tela oferecer o que a API nega (ou esconder o
+// que ela aceita), que é o defeito que `algumPodeReceber` documenta para o botão do rodapé.
+describe('comunicacaoDaPessoa', () => {
+	const agora = '2026-08-10T12:00:00Z';
+
+	it('sem mensagem e sem trava: explica o silêncio e OFERECE o primeiro envio', () => {
+		const c = comunicacaoDaPessoa(participante(), agora);
+
+		expect(c.texto).toBe(SEM_COMUNICACAO);
+		expect(c.acao).toBe('Enviar');
+		expect(c.bloqueio).toBeNull();
 	});
 
-	it('NÃO oferece quando o envio é impossível agora', () => {
-		// Todo motivo aqui é um `{:skip, _}` do Dispatch: o clique voltaria com a MESMA frase que a
-		// linha acima já mostra. O opt-out é o §10.4 (não se contorna por insistência de botão); o
-		// canal indisponível nem é da recepção.
-		expect(podeReenviar(participante({ sem_envio: 'opt_out' }))).toBe(false);
-		expect(podeReenviar(participante({ sem_envio: 'sem_contato' }))).toBe(false);
-		expect(podeReenviar(participante({ sem_envio: 'sem_consentimento' }))).toBe(false);
-		expect(podeReenviar(participante({ sem_envio: 'canal_indisponivel' }))).toBe(false);
+	it('sem mensagem e com motivo: o motivo é o texto, e não há botão', () => {
+		const c = comunicacaoDaPessoa(participante({ sem_envio: 'sem_contato' }), agora);
+
+		expect(c.texto).toBe('Nada enviado · sem e-mail nem telefone cadastrado');
+		expect(c.acao).toBeNull();
+		// O `title` do que ficou sem botão — sem ele o silêncio vira um vazio inexplicado, que é
+		// exatamente o que o §6 proíbe.
+		expect(c.bloqueio).toBe('sem e-mail nem telefone cadastrado');
 	});
 
-	it('oferece reenvio quando a última tentativa falhou', () => {
-		expect(podeReenviar(participante({ mensagens: [msg({ status: 'falhou' })] }))).toBe(true);
+	it('entregue: diz o estado e ainda deixa reenviar (o servidor aceita)', () => {
+		const c = comunicacaoDaPessoa(
+			participante({ mensagens: [msg({ status: 'entregue', entregue_em: agora })] }),
+			agora
+		);
+
+		expect(c.texto).toBe('Confirmação por e-mail · Entregue');
+		expect(c.tone).toBe('success');
+		expect(c.acao).toBe('Reenviar');
+		expect(c.quando).toBe(agora);
 	});
 
-	it('não oferece quando já saiu ou está em trânsito', () => {
-		// Oferecer aqui convida a recepção a duplicar comunicação com o paciente.
-		expect(podeReenviar(participante({ mensagens: [msg({ status: 'enviado' })] }))).toBe(false);
-		expect(podeReenviar(participante({ mensagens: [msg({ status: 'entregue' })] }))).toBe(false);
-		expect(podeReenviar(participante({ mensagens: [msg({ status: 'pendente' })] }))).toBe(false);
+	it('falha traz o motivo em português, e o reenvio é o conserto', () => {
+		const c = comunicacaoDaPessoa(
+			participante({
+				mensagens: [
+					msg({ status: 'falhou', erro_texto: 'E-mail não existe', falhou_em: agora })
+				]
+			}),
+			agora
+		);
+
+		expect(c.texto).toBe('Confirmação por e-mail · Falhou · E-mail não existe');
+		expect(c.tone).toBe('danger');
+		expect(c.acao).toBe('Reenviar');
 	});
 
-	it('olha a ÚLTIMA tentativa, não a primeira', () => {
-		const p = participante({
-			mensagens: [msg({ id: 'm1', status: 'falhou' }), msg({ id: 'm2', status: 'entregue' })]
-		});
+	// A resposta do paciente ganha do estado da mensagem: "Entregue" é sobre o envio, "Confirmou
+	// presença" é sobre a sessão — e é a segunda que muda o que a recepção faz a seguir.
+	it('quem respondeu que vem aparece como confirmado, e não recebe botão', () => {
+		const c = comunicacaoDaPessoa(
+			participante({
+				mensagens: [msg({ status: 'entregue', resposta: 'confirmou', respondido_em: agora })]
+			}),
+			agora
+		);
 
-		expect(podeReenviar(p)).toBe(false);
+		expect(c.texto).toBe('Confirmou presença');
+		expect(c.tone).toBe('success');
+		expect(c.acao).toBeNull();
+		expect(c.bloqueio).toBe('o paciente já confirmou presença');
+	});
+
+	it('quem pediu remarcação também aparece, e continua alcançável', () => {
+		const c = comunicacaoDaPessoa(
+			participante({
+				mensagens: [msg({ status: 'entregue', resposta: 'quer_remarcar', respondido_em: agora })]
+			}),
+			agora
+		);
+
+		expect(c.texto).toBe('Pediu para remarcar');
+		expect(c.acao).toBe('Reenviar');
+	});
+
+	// A janela de silêncio ADIA (§7). O instante útil aqui é o futuro: "entrou na fila às 22h" não
+	// responde a pergunta de quem está lendo.
+	it('mensagem adiada mostra a PREVISÃO, não o instante em que entrou na fila', () => {
+		const c = comunicacaoDaPessoa(
+			participante({
+				mensagens: [
+					msg({
+						status: 'pendente',
+						agendado_para: '2026-08-11T11:00:00Z',
+						enviado_em: null,
+						enfileirado_em: '2026-08-10T01:00:00Z'
+					})
+				]
+			}),
+			agora
+		);
+
+		expect(c.quando).toBe('2026-08-11T11:00:00Z');
+		expect(c.previsao).toBe(true);
+		// Já há uma confirmação na fila: insistir agora só devolveria `ja_na_fila`.
+		expect(c.acao).toBeNull();
+		expect(c.bloqueio).toBe('a mensagem anterior ainda está na fila para este paciente');
+	});
+
+	it('o teto de confirmações fecha o botão, como no servidor', () => {
+		const c = comunicacaoDaPessoa(
+			participante({
+				mensagens: [
+					msg({ id: 'm1', status: 'entregue' }),
+					msg({ id: 'm2', status: 'entregue' })
+				]
+			}),
+			agora
+		);
+
+		expect(c.acao).toBeNull();
+		expect(c.bloqueio).toBe('já foram enviadas 2 confirmações para este paciente');
+	});
+
+	it('olha a ÚLTIMA mensagem, não a primeira', () => {
+		const c = comunicacaoDaPessoa(
+			participante({
+				mensagens: [
+					msg({ id: 'm1', status: 'falhou', falhou_em: '2026-08-09T10:00:00Z' }),
+					msg({ id: 'm2', kind: 'lembrete', status: 'entregue', entregue_em: agora })
+				]
+			}),
+			agora
+		);
+
+		expect(c.texto).toBe('Lembrete por e-mail · Entregue');
+		expect(c.tone).toBe('success');
+	});
+
+	// Descartada não falou com ninguém: o tom é o do silêncio, não o do sucesso — e o motivo diz
+	// que ela parou por uma DECISÃO, não por defeito.
+	it('descartada explica a retirada da fila', () => {
+		const c = comunicacaoDaPessoa(
+			participante({
+				mensagens: [
+					msg({
+						status: 'descartada',
+						descarte_motivo: 'sessao_cancelada',
+						descartada_em: agora
+					})
+				]
+			}),
+			agora
+		);
+
+		expect(c.texto).toBe(
+			'Confirmação por e-mail · Não enviada · a sessão foi cancelada antes de ela sair'
+		);
+		expect(c.tone).toBe('faint');
+		expect(c.acao).toBe('Reenviar');
 	});
 });
 
@@ -367,7 +491,6 @@ describe('algumPodeReceber', () => {
 		});
 
 		expect(algumPodeReceber([p])).toBe(false);
-		expect(podeReenviar(p)).toBe(false);
 	});
 
 	it('confirmar pelo LEMBRETE também barra — o link viaja nos dois', () => {
@@ -395,7 +518,6 @@ describe('algumPodeReceber', () => {
 		});
 
 		expect(algumPodeReceber([p])).toBe(false);
-		expect(podeReenviar(p)).toBe(false);
 	});
 
 	it('o que FALHOU ou foi DESCARTADO não gasta o teto', () => {

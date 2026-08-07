@@ -262,6 +262,58 @@ export function excludeAppointment(event: RequestEvent, id: string, expected_ver
 // PRESENÇA, e as rotas de bloco foram aposentadas no servidor.
 
 // ---------------------------------------------------------------------------
+// Composição da turma (doc 109) — quem ENTRA e quem SAI de uma turma que já existe.
+//
+// É o eixo que faltava. A presença abaixo responde "o que aconteceu com quem estava marcado";
+// esta dupla responde "quem está marcado" — e até aqui só tinha resposta de rabeira: entrar
+// acontecia pelo merge do `createAppointment` no mesmo slot (o servidor funde, A-D4) e sair não
+// tinha caminho nenhum pela tela.
+//
+// `expected_version` viaja nas duas, como no ciclo de vida: as duas mudam a composição do bloco,
+// e é disso que o locking otimista protege.
+// ---------------------------------------------------------------------------
+
+/**
+ * Acrescenta participantes a uma turma existente.
+ *
+ * `encaixe` fura o teto de capacidade (A-D3) e é guardado por policy (`owner`·`admin`·`recepcao`,
+ * A9). Só viaja quando alguém de fato pediu: mandá-lo `false` sempre apagaria a diferença entre
+ * "não pediu" e "pediu e não podia".
+ *
+ * Turma cheia volta 422 com `code: 'group_full'` — é por ele que a tela oferece o encaixe em vez
+ * de só mostrar o vermelho, a mesma mecânica do `schedule_conflict` no criar.
+ */
+export function addParticipants(
+	event: RequestEvent,
+	id: string,
+	input: { patient_ids: string[]; encaixe?: boolean; expected_version: number }
+): Promise<MutationResult> {
+	return mutate(event, `/api/appointments/${encodeURIComponent(id)}/participants`, 'POST', {
+		patient_ids: input.patient_ids,
+		...(input.encaixe ? { encaixe: true } : {}),
+		expected_version: input.expected_version
+	});
+}
+
+/**
+ * Tira UM participante da turma. Os colegas não são tocados — cancelar o bloco cancelaria a
+ * sessão de todo mundo, que é justamente o erro que esta rota existe para não obrigar.
+ *
+ * Duas recusas com `code` próprio: `last_participant` (422 — o bloco ficaria sem ninguém; o
+ * caminho é cancelar) e 404 quando o paciente não está neste bloco.
+ */
+export function removeParticipant(
+	event: RequestEvent,
+	id: string,
+	patientId: string,
+	expected_version: number
+): Promise<MutationResult> {
+	// Ids escapados, como em `transitionParticipant`: um id forjado não sai do caminho do recurso.
+	const path = `/api/appointments/${encodeURIComponent(id)}/participants/${encodeURIComponent(patientId)}`;
+	return mutate(event, path, 'DELETE', { expected_version });
+}
+
+// ---------------------------------------------------------------------------
 // Presença POR PARTICIPANTE (A2, doc 41) — as sub-rotas do bloco. Numa turma, concluir é de
 // cada um: o desfecho do bloco vira rollup no servidor. `expected_version` continua sendo a do
 // BLOCO (a versão vive lá), então o guard de 409 é o mesmo das ações de bloco.

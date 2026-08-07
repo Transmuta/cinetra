@@ -648,6 +648,7 @@
 		{form}
 		{mensagens}
 		candidatos={candidatosDoDrawer}
+		{search}
 		onClose={fecharDrawer}
 		onReschedule={() => (remarcando = true)}
 		onToast={(m) => toast(m)}

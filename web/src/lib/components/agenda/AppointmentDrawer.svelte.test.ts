@@ -407,7 +407,7 @@ describe('AppointmentDrawer', () => {
 			props: { appt: appt({ status: 'cancelado', cancel_reason: 'paciente pediu' }), ...base }
 		});
 		expect(screen.getByText(/paciente pediu/)).toBeInTheDocument();
-		expect(screen.queryByRole('button', { name: /Enviar confirmação/ })).not.toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: 'Enviar confirmação' })).not.toBeInTheDocument();
 	});
 
 	// O botão do rodapé promete disparo para o bloco inteiro. Com todo mundo barrado, o clique
@@ -447,7 +447,7 @@ describe('AppointmentDrawer', () => {
 				props: { appt: appt(), ...base, mensagens: timeline('canal_indisponivel') }
 			});
 
-			const botao = screen.getByRole('button', { name: /Enviar confirmação/ });
+			const botao = screen.getByRole('button', { name: 'Enviar confirmação' });
 			expect(botao).toBeDisabled();
 			// O motivo por extenso, e não mais "o motivo está em Comunicação": com um só motivo em
 			// jogo, mandar a pessoa procurar a explicação em outro lugar é trabalho sem ganho.
@@ -474,7 +474,7 @@ describe('AppointmentDrawer', () => {
 				}
 			});
 
-			const botao = screen.getByRole('button', { name: /Enviar confirmação/ });
+			const botao = screen.getByRole('button', { name: 'Enviar confirmação' });
 			expect(botao).toBeDisabled();
 			expect(botao).toHaveAttribute('title', expect.stringMatching(/Comunicação/));
 		});
@@ -482,14 +482,14 @@ describe('AppointmentDrawer', () => {
 		it('segue habilitado com alguém alcançável', () => {
 			render(AppointmentDrawer, { props: { appt: appt(), ...base, mensagens: timeline(null) } });
 
-			expect(screen.getByRole('button', { name: /Enviar confirmação/ })).toBeEnabled();
+			expect(screen.getByRole('button', { name: 'Enviar confirmação' })).toBeEnabled();
 		});
 
 		it('a timeline em voo não desabilita nada', () => {
 			// `mensagens` chega `null` até a busca do drawer voltar; desabilitar ali piscaria o botão.
 			render(AppointmentDrawer, { props: { appt: appt(), ...base, mensagens: null } });
 
-			expect(screen.getByRole('button', { name: /Enviar confirmação/ })).toBeEnabled();
+			expect(screen.getByRole('button', { name: 'Enviar confirmação' })).toBeEnabled();
 		});
 
 		// As duas travas de repetição (2026-07-29). Aqui o `title` diz QUAL é o motivo, e não o
@@ -510,7 +510,7 @@ describe('AppointmentDrawer', () => {
 				}
 			});
 
-			const botao = screen.getByRole('button', { name: /Enviar confirmação/ });
+			const botao = screen.getByRole('button', { name: 'Enviar confirmação' });
 			expect(botao).toBeDisabled();
 			expect(botao).toHaveAttribute('title', 'o paciente já confirmou presença');
 		});
@@ -527,7 +527,7 @@ describe('AppointmentDrawer', () => {
 				}
 			});
 
-			const botao = screen.getByRole('button', { name: /Enviar confirmação/ });
+			const botao = screen.getByRole('button', { name: 'Enviar confirmação' });
 			expect(botao).toBeDisabled();
 			expect(botao).toHaveAttribute('title', 'já foram enviadas 2 confirmações para este paciente');
 		});
@@ -541,7 +541,7 @@ describe('AppointmentDrawer', () => {
 				}
 			});
 
-			expect(screen.getByRole('button', { name: /Enviar confirmação/ })).toBeEnabled();
+			expect(screen.getByRole('button', { name: 'Enviar confirmação' })).toBeEnabled();
 		});
 	});
 
@@ -621,7 +621,7 @@ describe('AppointmentDrawer', () => {
 		it('um CANCELADO ainda pode ser excluído (é o caso comum "foi engano")', () => {
 			render(AppointmentDrawer, { props: { appt: appt({ status: 'cancelado' }), ...base } });
 			// Terminal: sem "Enviar confirmação", mas com o excluir (agora com rótulo).
-			expect(screen.queryByRole('button', { name: /Enviar confirmação/ })).not.toBeInTheDocument();
+			expect(screen.queryByRole('button', { name: 'Enviar confirmação' })).not.toBeInTheDocument();
 			expect(screen.getByRole('button', { name: /Excluir/ })).toBeInTheDocument();
 		});
 
@@ -1117,5 +1117,352 @@ describe('cancelar pergunta antes de avisar o paciente', () => {
 		expect(
 			container.querySelector<HTMLInputElement>('input[name="avisar_paciente"]')?.value
 		).toBe('');
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Composição da turma e comunicação por pessoa (doc 109)
+// ---------------------------------------------------------------------------
+//
+// O buraco que esta fatia fecha: dava para marcar a presença de quem estava na turma e NÃO dava
+// para mudar quem está nela. Entrar acontecia de rabeira (criar um agendamento no mesmo slot para
+// o servidor fundir) e sair não tinha caminho nenhum pela tela.
+//
+// Junto veio a comunicação para dentro da linha de cada participante: ela existia só na timeline
+// do rodapé, e responder "quem ainda não foi avisado?" numa turma de quatro era comparar duas
+// listas das mesmas quatro pessoas, separadas pelo painel inteiro.
+describe('composição da turma (doc 109)', () => {
+	const turma: AgendaAppointmentType = { ...tipo, nome: 'Pilates', grupo: true, capacidade: 4 };
+
+	const doisPacientes: AgendaPatient[] = [
+		{ id: 'pac1', nome: 'João Silva', tel: '11999', ativo: true, faltas: 0 },
+		{ id: 'pac2', nome: 'Maria Souza', tel: '11888', ativo: true, faltas: 0 }
+	];
+
+	const presenca = (patient_id: string, status: 'prevista' | 'concluida' = 'prevista') => ({
+		patient_id,
+		status,
+		falta_justificada: false,
+		motivo: null,
+		package_id: null,
+		package: null,
+		resposta: null
+	});
+
+	function turmaDeDois(over: Partial<Appointment> = {}) {
+		return appt({
+			patient_ids: ['pac1', 'pac2'],
+			participants: [presenca('pac1'), presenca('pac2')],
+			...over
+		});
+	}
+
+	const comTurma = { ...base, tipo: turma, patients: doisPacientes, search: async () => ({ patients: [], total: 0 }) };
+
+	describe('tirar da turma', () => {
+		it('cada participante tem o seu botão, nomeado', () => {
+			render(AppointmentDrawer, { props: { appt: turmaDeDois(), ...comTurma } });
+
+			expect(screen.getByRole('button', { name: 'Tirar João Silva da turma' })).toBeInTheDocument();
+			expect(screen.getByRole('button', { name: 'Tirar Maria Souza da turma' })).toBeInTheDocument();
+		});
+
+		it('quem não pode mexer na agenda não vê o botão', () => {
+			render(AppointmentDrawer, {
+				props: { appt: turmaDeDois(), ...comTurma, papel: 'profissional' as const }
+			});
+
+			expect(screen.queryByRole('button', { name: /Tirar .* da turma/ })).not.toBeInTheDocument();
+		});
+
+		// Mexer na composição de uma sessão que já acabou é reescrever o passado — o caminho é
+		// reabrir primeiro, e é por isso que o botão some junto com o de adicionar.
+		it('bloco terminal não compõe turma', () => {
+			render(AppointmentDrawer, {
+				props: { appt: turmaDeDois({ status: 'concluido' }), ...comTurma }
+			});
+
+			expect(screen.queryByRole('button', { name: /Tirar .* da turma/ })).not.toBeInTheDocument();
+			expect(screen.queryByRole('button', { name: /Adicionar paciente/ })).not.toBeInTheDocument();
+		});
+
+		it('pergunta antes, e o form leva participante + versão do BLOCO', async () => {
+			const { container } = render(AppointmentDrawer, {
+				props: { appt: turmaDeDois(), ...comTurma }
+			});
+
+			await fireEvent.click(screen.getByRole('button', { name: 'Tirar Maria Souza da turma' }));
+			expect(screen.getByText(/Tirar Maria Souza da turma/)).toBeInTheDocument();
+
+			await fireEvent.click(screen.getByRole('button', { name: 'Tirar da turma' }));
+
+			const form = container.querySelector<HTMLFormElement>('form[action="?/remover_participante"]')!;
+			expect(form.querySelector<HTMLInputElement>('input[name="patient_id"]')?.value).toBe('pac2');
+			// A versão é a do bloco: a composição vive lá, e desde 2026-08-06 entrar também a avança.
+			expect(form.querySelector<HTMLInputElement>('input[name="expected_version"]')?.value).toBe('3');
+		});
+
+		// A presença é DESTRUÍDA, não cancelada — e o consumo do pacote é contagem de presenças no
+		// servidor. Tirar quem compareceu devolve a sessão ao pacote; o servidor permite (é o
+		// caminho de desfazer lançamento errado) e quem não pode deixar isso acontecer calado é a
+		// tela.
+		it('avisa o que se perde quando a presença já tem desfecho', async () => {
+			render(AppointmentDrawer, {
+				props: {
+					appt: turmaDeDois({
+						participants: [presenca('pac1'), presenca('pac2', 'concluida')]
+					}),
+					...comTurma
+				}
+			});
+
+			await fireEvent.click(screen.getByRole('button', { name: 'Tirar Maria Souza da turma' }));
+
+			expect(screen.getByText(/já tem desfecho/)).toBeInTheDocument();
+			expect(screen.getByText(/volta para o pacote/)).toBeInTheDocument();
+		});
+
+		it('sem desfecho, o diálogo diz que os colegas não são afetados', async () => {
+			render(AppointmentDrawer, { props: { appt: turmaDeDois(), ...comTurma } });
+
+			await fireEvent.click(screen.getByRole('button', { name: 'Tirar Maria Souza da turma' }));
+
+			expect(screen.getByText(/não são afetados/)).toBeInTheDocument();
+			expect(screen.queryByText(/já tem desfecho/)).not.toBeInTheDocument();
+		});
+
+		// O guard do último participante volta como 422 e a saída dele é OUTRA ação (cancelar o
+		// bloco), não uma variação da mesma — por isso a mensagem fica ao lado da lista, apontando
+		// para o botão que já existe, em vez de virar um atalho novo.
+		it('o 422 do último participante aparece junto da lista', () => {
+			render(AppointmentDrawer, {
+				props: {
+					appt: turmaDeDois(),
+					...comTurma,
+					form: {
+						action: 'remover_participante',
+						code: 'last_participant',
+						error: 'Não dá para tirar o último participante — cancele o agendamento.'
+					}
+				}
+			});
+
+			expect(screen.getByText(/cancele o agendamento/)).toBeInTheDocument();
+		});
+	});
+
+	describe('adicionar à turma', () => {
+		it('a busca fica atrás de um clique — a turma é lida mais do que composta', async () => {
+			render(AppointmentDrawer, { props: { appt: turmaDeDois(), ...comTurma } });
+
+			expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+
+			await fireEvent.click(screen.getByRole('button', { name: /Adicionar paciente/ }));
+
+			expect(screen.getByRole('combobox')).toBeInTheDocument();
+			expect(screen.getByText('2 vagas')).toBeInTheDocument();
+		});
+
+		it('o form leva o bloco e a versão, e nasce sem ninguém escolhido', async () => {
+			const { container } = render(AppointmentDrawer, {
+				props: { appt: turmaDeDois(), ...comTurma }
+			});
+
+			await fireEvent.click(screen.getByRole('button', { name: /Adicionar paciente/ }));
+
+			const form = container.querySelector<HTMLFormElement>(
+				'form[action="?/adicionar_participante"]'
+			)!;
+			expect(form.querySelector<HTMLInputElement>('input[name="id"]')?.value).toBe('a1');
+			expect(form.querySelector<HTMLInputElement>('input[name="expected_version"]')?.value).toBe('3');
+			expect(form.querySelector<HTMLInputElement>('input[name="patient_ids"]')?.value).toBe('[]');
+			// Sem ninguém escolhido não há o que enviar.
+			expect(screen.getByRole('button', { name: 'Adicionar' })).toBeDisabled();
+		});
+
+		// O teto é operacional, não físico: a tela não desabilita por antecipação — deixa tentar, e
+		// o 422 vira a oferta de encaixe, como o `schedule_conflict` faz no criar e no remarcar.
+		it('turma cheia continua deixando tentar, e diz que está cheia', async () => {
+			render(AppointmentDrawer, {
+				props: {
+					appt: appt({
+						patient_ids: ['pac1', 'pac2', 'pac3', 'pac4'],
+						participants: ['pac1', 'pac2', 'pac3', 'pac4'].map((id) => presenca(id))
+					}),
+					...comTurma,
+					patients: ['pac1', 'pac2', 'pac3', 'pac4'].map((id, i) => ({
+						id,
+						nome: `Paciente ${i}`,
+						tel: null,
+						ativo: true,
+						faltas: 0
+					}))
+				}
+			});
+
+			await fireEvent.click(screen.getByRole('button', { name: /Adicionar paciente/ }));
+
+			expect(screen.getByText('turma cheia (4/4)')).toBeInTheDocument();
+			expect(screen.getByRole('combobox')).toBeInTheDocument();
+		});
+
+		it('o 422 group_full oferece o encaixe, e o hidden só arma depois de reconfirmado', async () => {
+			const { container } = render(AppointmentDrawer, {
+				props: {
+					appt: turmaDeDois(),
+					...comTurma,
+					form: {
+						action: 'adicionar_participante',
+						code: 'group_full',
+						error: 'A turma está cheia (4 vagas).'
+					}
+				}
+			});
+
+			await fireEvent.click(screen.getByRole('button', { name: /Adicionar paciente/ }));
+
+			const hidden = () =>
+				container.querySelector<HTMLInputElement>(
+					'form[action="?/adicionar_participante"] input[name="encaixe"]'
+				)?.value;
+
+			expect(hidden()).toBe('');
+			await fireEvent.click(screen.getByRole('button', { name: 'Marcar como encaixe' }));
+			expect(hidden()).toBe('on');
+			// E o furo fica VISÍVEL — sem isto a segunda tentativa é indistinguível da primeira.
+			expect(screen.getByText('ENCAIXE')).toBeInTheDocument();
+		});
+
+		it('quem não pode marcar encaixe recebe o erro sem a saída', async () => {
+			render(AppointmentDrawer, {
+				props: {
+					appt: turmaDeDois(),
+					...comTurma,
+					papel: 'admin' as const,
+					form: { action: 'adicionar_participante', code: 'group_full', error: 'A turma está cheia (4 vagas).' }
+				}
+			});
+
+			await fireEvent.click(screen.getByRole('button', { name: /Adicionar paciente/ }));
+			expect(screen.getByText('A turma está cheia (4 vagas).')).toBeInTheDocument();
+		});
+	});
+
+	describe('comunicação na linha do participante', () => {
+		const linha = (over: Partial<MessageParticipant> = {}): MessageParticipant => ({
+			attendance_id: 'att1',
+			patient_id: 'pac1',
+			paciente: 'João Silva',
+			mensagens: [],
+			sem_envio: null,
+			...over
+		});
+
+		const mensagem = (over: Partial<Message> = {}): Message => ({
+			id: 'm1',
+			canal: 'email',
+			kind: 'confirmacao',
+			status: 'entregue',
+			destino: 'j@x.com',
+			erro: null,
+			erro_texto: null,
+			resposta: null,
+			automatico: false,
+			enfileirado_em: '2026-07-20T16:00:00Z',
+			agendado_para: null,
+			enviado_em: '2026-07-20T16:00:05Z',
+			entregue_em: '2026-07-20T16:00:09Z',
+			lido_em: null,
+			falhou_em: null,
+			descartada_em: null,
+			descarte_motivo: null,
+			respondido_em: null,
+			titulo: 'Sua sessão',
+			...over
+		});
+
+		it('cada participante diz o próprio estado, ao lado do próprio nome', () => {
+			render(AppointmentDrawer, {
+				props: {
+					appt: turmaDeDois(),
+					...comTurma,
+					mensagens: [
+						linha({ mensagens: [mensagem()] }),
+						linha({ attendance_id: 'att2', patient_id: 'pac2', paciente: 'Maria Souza', sem_envio: 'sem_contato' })
+					]
+				}
+			});
+
+			// Um entregue, o outro barrado — e os dois na lista de participantes, não só lá embaixo.
+			expect(screen.getAllByText('Confirmação por e-mail · Entregue').length).toBeGreaterThan(0);
+			expect(screen.getAllByText(/sem e-mail nem telefone/).length).toBeGreaterThan(0);
+		});
+
+		it('o disparo é POR PESSOA, e o form recorta o participante', async () => {
+			const { container } = render(AppointmentDrawer, {
+				props: {
+					appt: turmaDeDois(),
+					...comTurma,
+					mensagens: [
+						linha(),
+						linha({ attendance_id: 'att2', patient_id: 'pac2', paciente: 'Maria Souza' })
+					]
+				}
+			});
+
+			await fireEvent.click(
+				screen.getByRole('button', { name: 'Enviar confirmação para Maria Souza' })
+			);
+
+			const form = container.querySelector<HTMLFormElement>('form[action="?/confirmar"]')!;
+			expect(form.querySelector<HTMLInputElement>('input[name="patient_id"]')?.value).toBe('pac2');
+		});
+
+		it('quem está barrado não ganha botão — ganha o motivo', () => {
+			render(AppointmentDrawer, {
+				props: {
+					appt: turmaDeDois(),
+					...comTurma,
+					mensagens: [linha({ sem_envio: 'opt_out' }), linha({ attendance_id: 'att2', patient_id: 'pac2', paciente: 'Maria Souza' })]
+				}
+			});
+
+			expect(
+				screen.queryByRole('button', { name: /confirmação para João Silva/ })
+			).not.toBeInTheDocument();
+			expect(
+				screen.getByRole('button', { name: 'Enviar confirmação para Maria Souza' })
+			).toBeInTheDocument();
+		});
+
+		// A timeline do rodapé perdeu o "Reenviar": ele mudou de lugar, não ganhou um irmão.
+		it('a ação existe UMA vez por pessoa', () => {
+			render(AppointmentDrawer, {
+				props: {
+					appt: turmaDeDois(),
+					...comTurma,
+					mensagens: [linha({ mensagens: [mensagem({ status: 'falhou', erro_texto: 'E-mail não existe' })] })]
+				}
+			});
+
+			expect(screen.getAllByRole('button', { name: /confirmação para João Silva/ })).toHaveLength(1);
+		});
+
+		it('a sessão individual também lê a comunicação na linha', () => {
+			render(AppointmentDrawer, {
+				props: {
+					appt: appt(),
+					...base,
+					mensagens: [linha({ mensagens: [mensagem({ status: 'falhou', erro_texto: 'E-mail não existe' })] })]
+				}
+			});
+
+			expect(
+				screen.getAllByText(/Confirmação por e-mail · Falhou · E-mail não existe/).length
+			).toBeGreaterThan(0);
+			expect(
+				screen.getByRole('button', { name: 'Reenviar confirmação para João Silva' })
+			).toBeInTheDocument();
+		});
 	});
 });

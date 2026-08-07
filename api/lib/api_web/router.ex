@@ -223,6 +223,14 @@ defmodule ApiWeb.Router do
     get "/appointments/:appointment_id/messages", MessagesController, :index
     post "/appointments/:appointment_id/messages", MessagesController, :create
 
+    # Composição da turma (doc 109). Entrar e sair de uma turma que já existe — as ações
+    # `:add_participant`/`:remove_participant` viviam no domínio desde a A-D4 (doc 41) **sem rota
+    # nenhuma**: entrar só acontecia de rabeira, pelo merge do `POST /appointments` no mesmo slot,
+    # e sair não tinha caminho. A coleção é `participants` do bloco, como as sub-rotas de presença
+    # logo abaixo.
+    post "/appointments/:id/participants", AppointmentsController, :add_participants
+    delete "/appointments/:id/participants/:patient_id", AppointmentsController, :remove_participant
+
     # Presença por participante (Frente 6/A2, doc 41 / 09 §3.1.1). Sub-rota do bloco.
     post "/appointments/:id/participants/:patient_id/complete",
          AppointmentsController,

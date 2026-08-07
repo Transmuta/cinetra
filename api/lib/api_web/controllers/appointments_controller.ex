@@ -147,6 +147,47 @@ defmodule ApiWeb.AppointmentsController do
     )
   end
 
+  # ---- composição da turma (doc 109) ----
+  #
+  # Quem entra e quem sai de uma turma que já existe. As duas ações são do BLOCO (é lá que moram
+  # as policies A8/A9, a `version` e o `AgendaNotifier`), então passam pelo mesmo
+  # `transition_appointment/5` do ciclo de vida — e herdam de graça o guard de 409 e o 404 do
+  # bloco que o papel `profissional` não enxerga.
+
+  # POST /api/appointments/:id/participants — `patient_ids` + `encaixe` opcional (fura o teto).
+  def add_participants(conn, %{"id" => id} = params) do
+    with_member_scope(conn, fn scope ->
+      case Enum.filter(List.wrap(params["patient_ids"]), &is_binary/1) do
+        # 400, e não 422: "sem `patient_ids`" é corpo malformado, não regra de negócio violada.
+        # O 422 desta rota é reservado para `group_full` e `last_participant`, que são os dois
+        # códigos que a tela lê para oferecer uma saída.
+        [] ->
+          bad_request(conn)
+
+        ids ->
+          transition(
+            conn,
+            scope,
+            id,
+            :add_participant,
+            %{patient_ids: ids, encaixe: Api.Params.truthy?(params["encaixe"])},
+            params
+          )
+      end
+    end)
+  end
+
+  # DELETE /api/appointments/:id/participants/:patient_id
+  #
+  # Um por vez, de propósito: o `patient_ids` da ação aceita lista, mas a URL de um DELETE nomeia
+  # **um** recurso — e é assim que a tela usa (uma linha, um X). Tirar o último devolve 422
+  # `last_participant`; tirar quem não está, 404.
+  def remove_participant(conn, %{"id" => id, "patient_id" => patient_id} = params) do
+    with_member_scope(conn, fn scope ->
+      transition(conn, scope, id, :remove_participant, %{patient_ids: [patient_id]}, params)
+    end)
+  end
+
   # ---- presença por participante (Frente 6/A2, doc 41) ----
   #
   # Sub-rotas do bloco: `POST /appointments/:id/participants/:patient_id/{complete,no_show,reopen,
