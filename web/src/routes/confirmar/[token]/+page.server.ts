@@ -1,6 +1,7 @@
 import { fail } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { chamar, quandoDo } from './resposta';
+import { ehAndroid } from '$lib/calendario';
 
 // A página que o **paciente** abre pelo link do e-mail (doc 52 §5).
 //
@@ -20,7 +21,16 @@ export const load: PageServerLoad = async (event) => {
 	// Não usa `error()`: a página de erro padrão fala com um usuário do sistema ("volte ao
 	// painel"), e quem está aqui não tem painel. O estado vira dado e a página escreve uma frase
 	// que faz sentido para um paciente.
-	return { resumo, status, quando: quandoDo(resumo, agora()) };
+	//
+	// O `android` decide qual das duas formas do link do Google a tela vai mandar. Decidido aqui, e
+	// não no componente, porque o que é calculado na hidratação diverge do que o SSR pintou — e a
+	// divergência seria o `href` do botão trocando debaixo do dedo de quem já ia tocar nele.
+	return {
+		resumo,
+		status,
+		quando: quandoDo(resumo, agora()),
+		android: ehAndroid(event.request.headers.get('user-agent'))
+	};
 };
 
 export const actions: Actions = {

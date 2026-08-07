@@ -938,3 +938,50 @@ Duas capturas também estavam dentro de `if (visível)` e falhavam em silêncio 
 simplesmente não nascia, sem ninguém reprovar. Viraram asserção. E `pacientes-duplicado-01` exigia
 uma ficha com telefone **conhecido**: o da fixture é aleatório (`telUnico`, identidade `tel_unico`
 do doc 89), então o spec cria a sua antes de digitar.
+
+---
+
+## D-28 · Entrar numa turma pelo drawer entra sempre **avulso**, nunca debitando pacote
+
+**O que é.** A composição da turma ganhou rota e tela em 2026-08-06
+([doc 109](109-composicao-da-turma-e-comunicacao-por-pessoa.md)), e o "Adicionar paciente" do drawer
+manda `package_id: nil`. A ação [`:add_participant`](../api/lib/api/scheduling/appointment.ex)
+**aceita** o campo — é por ele que a materialização de pacote carimba a presença que entra numa turma
+existente (doc 41 etapa 2) —, mas a tela não o preenche.
+
+**O que custa.** Um paciente com pacote ativo do mesmo tipo que a recepção encaixa numa turma pelo
+drawer consome a sessão **fora** do pacote: o `count :usadas, :attendances` não a conta, o saldo não
+anda, e a divergência só aparece quando alguém confere a ficha. É silencioso — nada na tela diz que
+aquela sessão era para ter saído do pacote.
+
+**Por que ficou de fora.** Oferecer a escolha exige ler os pacotes ativos daquele paciente **de
+dentro do drawer** — rota nova, contrato novo e uma decisão de UX que não é óbvia (perguntar sempre?
+só quando há exatamente um pacote compatível?). O caminho de vincular continua existindo e é o
+normal: a materialização pela ficha, que já carimba certo.
+
+**Quem for pagar** mexe em `AddParticipant.svelte` (o campo), na action `adicionar_participante` e
+numa leitura de pacotes ativos por paciente — o `package_id` já atravessa BFF, controller e ação sem
+nenhuma mudança de contrato.
+
+---
+
+## D-29 · Tirar alguém da turma não avisa o paciente, e não há `kind` de mensagem para isso
+
+**O que é.** O `?/remover_participante` ([doc 109](109-composicao-da-turma-e-comunicacao-por-pessoa.md))
+não dispara comunicação nenhuma — **decisão explícita** de 2026-08-06, e o diálogo de confirmação diz
+isso em uma linha para a recepção não supor o contrário. O cancelar e o remarcar perguntam "avisar o
+paciente?"; o tirar-da-turma não pergunta porque não teria o que mandar.
+
+**Por que não é só ligar um switch.** `Api.Messaging.MessageKind` tem `confirmacao`, `lembrete`,
+`remarcacao` e `cancelamento`. Nenhum serve: `cancelamento` fala do **bloco** ("sua sessão de terça
+foi cancelada"), e numa turma de quatro o bloco não foi cancelado — três continuam marcados. Mandar
+`cancelamento` para quem saiu diria uma verdade sobre a pessoa com uma frase sobre o grupo, que é a
+mesma classe de mentira que a A2 cobrou com a falta e o §3 com a confirmação.
+
+**O que custa hoje.** Nada de errado sai; o que falta é conveniência. Quem tira alguém da turma
+precisa avisar por fora (telefone, WhatsApp da clínica). Para uma remoção — que é rara e quase sempre
+combinada por telefone **antes** — isso é aceitável.
+
+**Quem for pagar** acrescenta o `kind` (`saiu_da_turma` ou equivalente), o template, a entrada em
+`Api.Messaging.Templates`, o switch no diálogo e o campo na action. É fatia de comunicação, não de
+agenda.

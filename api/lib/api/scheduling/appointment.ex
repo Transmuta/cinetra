@@ -257,6 +257,17 @@ defmodule Api.Scheduling.Appointment do
       validate Api.Scheduling.Appointment.Validations.GroupCapacity
 
       change Api.Scheduling.Appointment.Changes.ManageParticipants
+
+      # Era a ÚNICA mutação do bloco que não avançava a versão (achado de 2026-08-06, doc 109) —
+      # `:remove_participant` avança logo abaixo, e o moduledoc dele já diz por quê: *"a `version`
+      # bumpa, invalidando o cliente que tinha a composição antiga"*. Entrar na turma muda a
+      # composição exatamente como sair dela, então a assimetria era acidental, não uma decisão.
+      #
+      # O que ela custava: dois recepcionistas com o mesmo bloco aberto, um adiciona P3 e o outro
+      # remove P2 com o `expected_version` de antes — a segunda escrita passava, sem 409, e quem a
+      # fez nunca ficava sabendo que a turma tinha mudado. O locking otimista existe para esse caso
+      # e estava desligado justamente na ação que a composição da turma mais usa.
+      change Api.Scheduling.Appointment.Changes.BumpVersion
     end
 
     # O outro lado do `:add_participant` (doc 41 etapa 3, contrato 09 §3.1.1 ponto 3): tira um

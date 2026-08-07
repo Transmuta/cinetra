@@ -72,6 +72,20 @@ describe('documentos legais', () => {
 		expect(EMPRESA.cnpj).not.toMatch(/\d/);
 	});
 
+	// 2026-08-06, achado ao investigar por que TODO e-mail estava caindo no spam. Os dois contatos
+	// eram `@cinetra.app` — domínio que NUNCA foi registrado (NXDOMAIN, sem SOA nem NS). Num
+	// documento que o art. 9º da LGPD obriga a trazer um canal com o controlador, isso é um canal
+	// que não existe: quem exercesse um direito escreveria para o vazio.
+	//
+	// O par no backend é `Api.Accounts.Emails.@contato`, com o teste gêmeo em
+	// `api/test/api/accounts/emails_test.exs` ("endereço de contato").
+	it('os contatos são de um domínio que existe e recebe e-mail', () => {
+		for (const email of [EMPRESA.emailPrivacidade, EMPRESA.emailContato]) {
+			expect(email).toMatch(/@cinetra\.com\.br$/);
+			expect(email).not.toContain('cinetra.app');
+		}
+	});
+
 	it('a política de privacidade separa os dois papéis (controladora e operadora)', () => {
 		const texto = textoDe(PRIVACIDADE).toLowerCase();
 		expect(texto).toContain('operadora');

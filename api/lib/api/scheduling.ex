@@ -319,9 +319,25 @@ defmodule Api.Scheduling do
     # `Api.Tenancy.in_clinic/2` avisa; a escrita seta a própria GUC via `SetTenantGuc`.
     with {:ok, appt} <- fetch_for_transition(scope, id, expected_version),
          {:ok, updated} <- dispatch_transition(kind, appt, input, scope) do
-      {:ok, com_attendances(updated, appt, scope)}
+      {:ok, presencas_do_resultado(kind, updated, appt, scope)}
     end
   end
+
+  # A composição da turma (doc 109) é o caso em que as presenças do resultado **não servem**, e as
+  # duas pontas falham pelo mesmo motivo: `ManageParticipants` devolve o que o
+  # `manage_relationship` acabou de gravar e `RemoveParticipants` devolve o que sobrou de uma
+  # leitura própria — nenhuma das duas passa pelo `bloco_load/0`. Aproveitá-las faria o bloco sair
+  # da fronteira sem os campos de pacote, e o cartão da agenda **perderia o pacote de todo mundo**
+  # no primeiro participante que entrasse ou saísse — exatamente o defeito que o `bloco_load/0`
+  # existe para evitar, só que pela porta nova.
+  #
+  # Custa uma leitura a mais numa ação que é clicada uma vez por participante, não por sessão.
+  defp presencas_do_resultado(kind, updated, _appt, scope)
+       when kind in [:add_participant, :remove_participant],
+       do: in_clinic(scope, fn -> Ash.load!(updated, bloco_load(), scope: scope) end)
+
+  defp presencas_do_resultado(_kind, updated, appt, scope),
+    do: com_attendances(updated, appt, scope)
 
   defp fetch_for_transition(scope, id, expected_version) do
     case in_clinic(scope, fn ->
@@ -360,6 +376,16 @@ defmodule Api.Scheduling do
 
   defp version_ok?(_appt, nil), do: true
   defp version_ok?(%{version: version}, expected), do: version == expected
+
+  # A composição da turma (doc 109) entra aqui, e não numa porta própria, para herdar de graça as
+  # três coisas que toda escrita de bloco já tem: o fetch sob `in_clinic`, o guard de `version`
+  # (409) e o 404 do bloco que o `profissional` não enxerga. Elas continuam sendo escrita **do
+  # bloco** — é lá que moram as policies A8/A9 e o `AgendaNotifier`.
+  defp dispatch_transition(:add_participant, appt, input, scope),
+    do: add_appointment_participants(appt, input, scope: scope)
+
+  defp dispatch_transition(:remove_participant, appt, input, scope),
+    do: remove_appointment_participants(appt, input, scope: scope)
 
   defp dispatch_transition(:reschedule, appt, input, scope),
     do: reschedule_appointment_slot(appt, input, scope: scope)

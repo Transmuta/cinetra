@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { descricaoDaSessao, linkGoogleAgenda, tituloDaSessao, utcCompacto } from './calendario';
+import {
+	descricaoDaSessao,
+	ehAndroid,
+	linkGoogleAgenda,
+	tituloDaSessao,
+	utcCompacto
+} from './calendario';
 
 /**
  * O link de "adicionar ao Google Agenda", irmão do `.ics`.
@@ -38,6 +44,29 @@ describe('o texto do evento', () => {
 	});
 });
 
+describe('ehAndroid', () => {
+	// A decisão é tomada no SERVIDOR, com o `user-agent` do request: decidir no browser faria o
+	// SSR pintar um `href` e a hidratação trocá-lo por outro.
+	it('reconhece o Chrome do Android', () => {
+		const ua =
+			'Mozilla/5.0 (Linux; Android 14; SM-S911B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36';
+
+		expect(ehAndroid(ua)).toBe(true);
+	});
+
+	it('não confunde o iPhone com Android — lá o `intent://` não existe', () => {
+		const ua =
+			'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
+
+		expect(ehAndroid(ua)).toBe(false);
+	});
+
+	it('sem `user-agent` assume o caminho seguro (o link normal)', () => {
+		expect(ehAndroid(null)).toBe(false);
+		expect(ehAndroid(undefined)).toBe(false);
+	});
+});
+
 describe('utcCompacto', () => {
 	it('escreve o instante na única forma que dispensa declarar fuso', () => {
 		expect(utcCompacto('2026-08-05T11:30:00Z')).toBe('20260805T113000Z');
@@ -70,6 +99,33 @@ describe('linkGoogleAgenda', () => {
 		expect(linkGoogleAgenda({ ...EVENTO, inicio: null })).toBeNull();
 		expect(linkGoogleAgenda({ ...EVENTO, fim: null })).toBeNull();
 		expect(linkGoogleAgenda(null)).toBeNull();
+	});
+
+	it('no Android, envelopa em `intent://` para abrir o APP em vez do navegador', () => {
+		// Medido no celular: o link `https://` normal abre o Google Agenda **web** no Chrome, não o
+		// aplicativo. O `intent://` do Chrome for Android endereça o pacote direto.
+		const url = linkGoogleAgenda(EVENTO, { android: true })!;
+
+		expect(url.startsWith('intent://calendar.google.com/calendar/render?')).toBe(true);
+		expect(url).toContain('package=com.google.android.calendar');
+		expect(url).toContain('scheme=https');
+		expect(url.endsWith(';end')).toBe(true);
+	});
+
+	it('o `intent://` leva a URL de volta como fallback — sem o app, o navegador resolve', () => {
+		// Sem `browser_fallback_url`, quem não tem o app instalado (ou não usa Chrome) recebe uma
+		// página de erro. Com ela, o pior caso é exatamente o comportamento de hoje.
+		const url = linkGoogleAgenda(EVENTO, { android: true })!;
+
+		const fallback = decodeURIComponent(url.match(/S\.browser_fallback_url=([^;]+);/)![1]);
+
+		expect(fallback).toBe(linkGoogleAgenda(EVENTO));
+		expect(fallback.startsWith('https://calendar.google.com/')).toBe(true);
+	});
+
+	it('fora do Android continua `https://` — `intent://` no iPhone é lixo na barra', () => {
+		expect(linkGoogleAgenda(EVENTO, { android: false })!.startsWith('https://')).toBe(true);
+		expect(linkGoogleAgenda(EVENTO)!.startsWith('https://')).toBe(true);
 	});
 
 	it('instante que não é data devolve null em vez de explodir a tela', () => {

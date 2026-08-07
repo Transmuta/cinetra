@@ -64,6 +64,10 @@
 	// bloco aberto é do dia que estava na tela. Sem isto o id sobreviveria à navegação e o
 	// drawer tentaria abrir um bloco que não está mais na janela.
 	function navigate(patch: Record<string, string | null>) {
+		// A navegação de verdade devolve a palavra à URL — e ela vai sem `agendamento`. Deixar a
+		// intenção do clique de pé aqui manteria o painel aberto num dia que não é mais o da tela.
+		intencao = undefined;
+
 		goto(urlCom({ ...patch, agendamento: null }), {
 			keepFocus: true,
 			noScroll: true,
@@ -275,14 +279,36 @@
 	// Então as duas fontes têm papéis distintos, e é a diferença entre `undefined` e `null` que as
 	// combina:
 	//
-	//   * `undefined` — o shallow routing nunca falou deste bloco: vale a URL (o link recebido, e
-	//     também o que o back/forward restaura, porque o popstate devolve o estado do histórico);
+	//   * `undefined` — nada foi dito sobre este bloco: vale a URL (o link recebido);
 	//   * um id — foi aberto por clique;
 	//   * `null` — foi FECHADO por clique. Precisa ser explícito: a URL "velha" que sobra em
 	//     `page.url` ainda tem o parâmetro, e sem o `null` o drawer reabriria sozinho.
+	//
+	// ## E por que a intenção do clique NÃO mora em `page.state`
+	//
+	// Porque **`page.state` é volátil**: qualquer `invalidate`/`invalidateAll` o reescreve do zero.
+	// Medido no browser em 2026-08-06 — depois de um `invalidate('agenda:dados')`, o
+	// `history.state` continua com `{agendamento: <id>}` e a barra de endereço também; só o espelho
+	// em memória volta a `{}`.
+	//
+	// Isso fechava o drawer **a cada ação feita dentro dele**, e não num caso de borda: toda mutação
+	// do painel termina em `invalidateAll` (o default do `use:enhance`), e o tempo real ainda
+	// recarrega sozinho 400ms depois de qualquer evento da clínica. Marcar presença, adicionar
+	// alguém à turma, cancelar — o painel sumia no meio do trabalho.
+	//
+	// Daí `intencao`: um `$state` local, que é o que ESTA aba abriu ou fechou por clique e sobrevive
+	// à recarga. Ela ganha das outras duas fontes; quem a zera é o **popstate** (abaixo), porque no
+	// back/forward é o histórico que sabe se aquela entrada tinha painel aberto — e é justamente
+	// aí que `page.state` volta a ser confiável, porque o Kit o restaura da entrada.
+	let intencao = $state<string | null | undefined>(undefined);
+
 	const noEstado = $derived((pageState.state as { agendamento?: string | null }).agendamento);
 	const selectedId = $derived(
-		noEstado !== undefined ? noEstado : pageState.url.searchParams.get('agendamento')
+		intencao !== undefined
+			? intencao
+			: noEstado !== undefined
+				? noEstado
+				: pageState.url.searchParams.get('agendamento')
 	);
 	let remarcando = $state(false);
 
@@ -290,6 +316,11 @@
 
 	function selecionar(id: string) {
 		remarcando = false;
+
+		// Lido ANTES de mexer na intenção: é ele que distingue abrir de trocar de bloco, logo
+		// abaixo. Escrever primeiro faria todo clique parecer uma troca.
+		const jaAberto = !!selectedId;
+		intencao = id;
 
 		// `date` viaja junto do id, e não é redundância: é o que FIXA o dia. Sem ele, uma
 		// remarcação para outro dia reexecutaria o load, que resolveria o dia pelo bloco — e a
@@ -300,7 +331,7 @@
 		// Abrir EMPILHA: o back fecha o drawer, que é o que se espera de um painel. Trocar de
 		// bloco com ele já aberto REFINA a mesma tela, e empilhar aí faria o back passear pelos
 		// blocos visitados antes de fechar — o I68 da paginação, em `querystring.ts`.
-		if (selectedId) replaceState(url, { agendamento: id });
+		if (jaAberto) replaceState(url, { agendamento: id });
 		else pushState(url, { agendamento: id });
 	}
 
@@ -308,7 +339,21 @@
 	// está na tela — e sem ela um F5 depois de fechar cairia no hoje da clínica, não no dia aberto.
 	function fecharDrawer() {
 		remarcando = false;
+		intencao = null;
 		replaceState(urlCom({ agendamento: null, date: data.date }), { agendamento: null });
+	}
+
+	// Back/forward: o histórico volta a mandar.
+	//
+	// O popstate raso do Kit restaura `page.state` E `page.url` da entrada visitada — as duas
+	// fontes voltam a dizer a verdade sobre ela, e a intenção desta aba deixa de valer (era ela
+	// que mantinha o painel aberto através das recargas). Sem isto, o back mudaria a URL e o
+	// drawer ficaria aberto, que é exatamente o bug espelhado.
+	//
+	// Não dá para usar `beforeNavigate`/`afterNavigate`: o Kit trata o popstate raso sem
+	// navegação nenhuma (`client.js`), então nenhum dos dois dispara.
+	function aoVoltarNoHistorico() {
+		intencao = undefined;
 	}
 
 	// O bloco pode sair da janela com o drawer aberto (remarcado para outro dia, excluído por
@@ -536,6 +581,8 @@
 
 <svelte:head><title>Agenda · Cinetra</title></svelte:head>
 
+<svelte:window onpopstate={aoVoltarNoHistorico} />
+
 <!-- Anúncio das mudanças que chegam por WebSocket (ACC-06). Invisível: a mudança já está desenhada
      na grade — a região existe para que ela também chegue a quem não a vê. -->
 <p class="sr-only" role="status" aria-live="polite">{anunciante.texto()}</p>
@@ -648,6 +695,7 @@
 		{form}
 		{mensagens}
 		candidatos={candidatosDoDrawer}
+		{search}
 		onClose={fecharDrawer}
 		onReschedule={() => (remarcando = true)}
 		onToast={(m) => toast(m)}

@@ -52,19 +52,38 @@ beforeEach(() => {
 });
 
 // O evento do SvelteKit como ele chega de verdade: com `getClientAddress`, que é o que carrega o
-// IP do paciente até a API.
-function evento(token: string, resposta?: string) {
+// IP do paciente até a API, e com `request.headers` — de onde sai o `user-agent` que decide a
+// forma do link do Google.
+function evento(token: string, resposta?: string, userAgent?: string) {
 	return {
 		params: { token },
 		fetch: fetchMock,
 		getClientAddress: () => '203.0.113.77',
 		request: {
+			headers: new Headers(userAgent ? { 'user-agent': userAgent } : {}),
 			formData: async () => new Map([['resposta', resposta ?? '']]) as unknown as FormData
 		}
 	} as never;
 }
 
+const UA_ANDROID =
+	'Mozilla/5.0 (Linux; Android 14; SM-S911B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36';
+
 describe('load', () => {
+	it('marca o Android pelo `user-agent`, que é quem escolhe a forma do link do Google', async () => {
+		// A escolha é do SERVIDOR: feita no browser, o SSR pintaria um `href` e a hidratação
+		// trocaria por outro, debaixo do dedo de quem já ia tocar no botão.
+		fetchMock.mockResolvedValueOnce(res(200, resumo));
+
+		expect((await carregar(evento('tk', undefined, UA_ANDROID))).android).toBe(true);
+	});
+
+	it('sem `user-agent` de Android o link fica na forma normal', async () => {
+		fetchMock.mockResolvedValueOnce(res(200, resumo));
+
+		expect((await carregar(evento('tk'))).android).toBe(false);
+	});
+
 	it('200 → devolve o resumo da sessão', async () => {
 		fetchMock.mockResolvedValueOnce(res(200, resumo));
 
@@ -82,7 +101,7 @@ describe('load', () => {
 
 		const out = await carregar(evento('tk'));
 
-		expect(out).toEqual({ resumo: null, status: 410, quando: null });
+		expect(out).toEqual({ resumo: null, status: 410, quando: null, android: false });
 	});
 
 	it('token com caractere especial é escapado na URL', async () => {
@@ -133,7 +152,7 @@ describe('load', () => {
 
 		const out = await carregar(evento('tk'));
 
-		expect(out).toEqual({ resumo: null, status: 0, quando: null });
+		expect(out).toEqual({ resumo: null, status: 0, quando: null, android: false });
 	});
 });
 

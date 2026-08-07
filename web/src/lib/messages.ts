@@ -277,31 +277,108 @@ export function respostaTexto(m: Message): string | null {
 	return m.resposta ? RESPOSTA_TEXTO[m.resposta] : null;
 }
 
+/** O tom do resumo — os mesmos tokens que o drawer já usa para presença e pacote. */
+export type ComunicacaoTom = 'success' | 'danger' | 'muted' | 'faint';
+
+export interface ComunicacaoDaPessoa {
+	/** Uma frase só, o estado atual da comunicação com esta pessoa. */
+	texto: string;
+	tone: ComunicacaoTom;
+	/** Rótulo do botão de disparo, ou `null` quando não há o que disparar agora. */
+	acao: 'Enviar' | 'Reenviar' | null;
+	/** Por que não há botão — vai no `title`. `null` quando há botão. */
+	bloqueio: string | null;
+	/** O instante a exibir ao lado do texto (ISO), ou `null`. */
+	quando: string | null;
+	/** `quando` é PREVISÃO (a janela de silêncio adiou), não fato consumado. */
+	previsao: boolean;
+}
+
 /**
- * O reenvio faz sentido para este participante?
+ * A comunicação com **uma** pessoa, resumida para caber na linha dela (doc 109).
  *
- * Sim **só** quando a última tentativa falhou. Uma mensagem em trânsito ou já entregue não precisa
- * de reenvio — e oferecê-lo convida a recepção a duplicar comunicação com o paciente.
+ * A timeline do rodapé continua sendo o histórico completo; isto é o que a recepção precisa ler
+ * sem sair de onde está decidindo. Numa turma de quatro, responder "quem ainda não foi avisado?"
+ * era comparar a lista de participantes com a lista de comunicação, separadas pelo painel inteiro
+ * — duas listas das mesmas quatro pessoas, e nenhuma das duas respondendo sozinha.
  *
- * Quem nunca recebeu nada também não ganha botão aqui, e isso é uma decisão sobre o papel da
- * timeline: ela é **histórico**, e a primeira mensagem sai pelo "Enviar confirmação" do rodapé,
- * que dispara para o bloco inteiro. Dois botões para o mesmo disparo davam duas respostas à mesma
- * pergunta — e o do rodapé é o que a recepção já procura. O que fica no lugar do antigo "Enviar
- * agora" é a linha do `SEM_COMUNICACAO`: o silêncio continua explicado, sem virar oferta de ação.
+ * ## O botão segue o SERVIDOR
  *
- * `sem_envio` preenchido é exatamente o `{:skip, motivo}` do `Dispatch.avaliar/2` (o BFF só o
- * devolve quando não há mensagem), e agora cai na mesma regra: sem mensagem, sem botão.
+ * Há botão exatamente quando o `Dispatch` aceitaria o disparo: sem `sem_envio` e sem trava de
+ * repetição. Divergir faria a tela oferecer o que a API nega, ou esconder o que ela aceita — é a
+ * mesma regra que `algumPodeReceber/1` aplica ao botão do rodapé, e ela é única de propósito.
  *
- * O `opt_out` era o único caso barrado aqui (§10.4) — continua barrado, agora pela regra geral.
+ * Esta função **substituiu** o antigo `podeReenviar/1`, que era mais estreito (só depois de uma
+ * falha) porque governava um botão pendurado no histórico. Com a ação morando na linha da pessoa,
+ * duas regras para "posso mandar?" na mesma tela seriam a divergência que este módulo passa o
+ * tempo todo alertando contra.
+ *
+ * O rótulo muda com o histórico ("Enviar" na primeira vez, "Reenviar" depois) porque as duas
+ * coisas são diferentes para quem clica, ainda que sejam o mesmo POST.
+ *
+ * ## A resposta do paciente ganha do estado da mensagem
+ *
+ * "Entregue" é um fato sobre o envio; "Confirmou presença" é um fato sobre a **sessão** — e é o
+ * segundo que muda o que a recepção faz a seguir (§5). Por isso ele é o texto quando existe.
  */
-export function podeReenviar(p: MessageParticipant): boolean {
-	if (p.mensagens.length === 0) return false;
-	// As duas travas de repetição valem mesmo depois de uma falha: não se insiste com quem já
-	// respondeu que vem, nem se estoura o teto porque a última tentativa foi a que falhou.
-	if (travaDeRepeticao(p)) return false;
+export function comunicacaoDaPessoa(
+	p: MessageParticipant,
+	agora: string | number = Date.now()
+): ComunicacaoDaPessoa {
+	const bloqueio = p.sem_envio ?? travaDeRepeticao(p);
+	const acao: ComunicacaoDaPessoa['acao'] = bloqueio
+		? null
+		: p.mensagens.length === 0
+			? 'Enviar'
+			: 'Reenviar';
+
+	const base = {
+		acao,
+		bloqueio: bloqueio ? motivoTexto(bloqueio) : null
+	};
 
 	const ultima = p.mensagens[p.mensagens.length - 1];
-	return ultima.status === 'falhou';
+
+	if (!ultima) {
+		return {
+			...base,
+			// Com motivo, a frase JÁ diz "Nada enviado · <motivo>"; sem motivo, nada está errado e o
+			// texto é o do §6 — o silêncio é uma linha, nunca ausência de linha.
+			texto: semEnvioTexto(p.sem_envio) ?? SEM_COMUNICACAO,
+			tone: 'faint',
+			quando: null,
+			previsao: false
+		};
+	}
+
+	// A resposta pode ter vindo por qualquer mensagem (o link viaja em todas), então ela é
+	// procurada na lista inteira — não só na última.
+	const respondida = p.mensagens.find((m) => m.resposta);
+	const previsto = previsaoDeEnvio(ultima, agora);
+
+	return {
+		...base,
+		texto: respondida ? respostaTexto(respondida)! : textoDaMensagem(ultima),
+		tone: respondida ? (respondida.resposta === 'confirmou' ? 'success' : 'muted') : tom(ultima),
+		quando: previsto ?? instanteDoStatus(ultima),
+		previsao: previsto !== null
+	};
+}
+
+// "Confirmação por e-mail · Entregue", mais a explicação quando ela existe: o motivo em português
+// da falha, ou a decisão que tirou a mensagem da fila. Sem elas, "Falhou" e "Não enviada" mandam a
+// recepção procurar defeito sem dizer onde — ou onde não há nenhum.
+function textoDaMensagem(m: Message): string {
+	const cauda = m.erro_texto ?? descarteTexto(m);
+	return `${tituloDaLinha(m)} · ${statusTexto(m)}${cauda ? ` · ${cauda}` : ''}`;
+}
+
+function tom(m: Message): ComunicacaoTom {
+	if (m.status === 'falhou') return 'danger';
+	if (m.status === 'entregue' || m.status === 'lido') return 'success';
+	// Descartada não falou com ninguém: é o tom do silêncio, não o do sucesso.
+	if (m.status === 'descartada') return 'faint';
+	return 'muted';
 }
 
 /**

@@ -6,7 +6,9 @@ const m = vi.hoisted(() => ({
 	fetchAvailability: vi.fn(),
 	fetchCounts: vi.fn(),
 	createAppointment: vi.fn(),
-	transitionParticipant: vi.fn()
+	transitionParticipant: vi.fn(),
+	addParticipants: vi.fn(),
+	removeParticipant: vi.fn()
 }));
 vi.mock('$lib/server/appointments', () => m);
 
@@ -641,6 +643,111 @@ describe('action presenca', () => {
 		);
 
 		expect(r).toMatchObject({ status: 409 });
+	});
+});
+
+// Composição da turma (doc 109): quem entra e quem sai de uma turma que já existe. Os ids chegam
+// no mesmo campo hidden com JSON que o modal de criar usa (`parseIds`), então a action tem de
+// recusar lixo sem tocar na API — o mesmo contrato do `criar`.
+describe('action adicionar_participante', () => {
+	it('repassa bloco, ids e a versão do bloco', async () => {
+		m.addParticipants.mockResolvedValueOnce({ ok: true, status: 200 });
+
+		const r = await actions.adicionar_participante(
+			formEvent({ id: 'a1', patient_ids: '["pac1","pac2"]', expected_version: '4' })
+		);
+
+		expect(r).toEqual({ ok: true, action: 'adicionar_participante' });
+		const [, id, input] = m.addParticipants.mock.calls[0];
+		expect(id).toBe('a1');
+		expect(input).toEqual({ patient_ids: ['pac1', 'pac2'], expected_version: 4 });
+	});
+
+	// O encaixe é a SAÍDA do 422 `group_full` — a recepção reconfirma, e é só então que o flag
+	// viaja. Mandá-lo sempre transformaria o teto da turma em decoração.
+	it('encaixe só viaja quando marcado', async () => {
+		m.addParticipants.mockResolvedValueOnce({ ok: true, status: 200 });
+
+		await actions.adicionar_participante(
+			formEvent({ id: 'a1', patient_ids: '["pac1"]', encaixe: 'on', expected_version: '4' })
+		);
+
+		expect(m.addParticipants.mock.calls[0][2]).toEqual({
+			patient_ids: ['pac1'],
+			encaixe: true,
+			expected_version: 4
+		});
+	});
+
+	it('sem paciente → 400 sem tocar a API', async () => {
+		const r = await actions.adicionar_participante(
+			formEvent({ id: 'a1', patient_ids: '[]', expected_version: '4' })
+		);
+
+		expect(r).toMatchObject({ status: 400 });
+		expect(m.addParticipants).not.toHaveBeenCalled();
+	});
+
+	it('sem bloco → 400', async () => {
+		const r = await actions.adicionar_participante(formEvent({ patient_ids: '["pac1"]' }));
+		expect(r).toMatchObject({ status: 400 });
+		expect(m.addParticipants).not.toHaveBeenCalled();
+	});
+
+	it('turma cheia sobe com o code group_full (é o que oferece o encaixe)', async () => {
+		m.addParticipants.mockResolvedValueOnce({
+			ok: false,
+			status: 422,
+			error: 'A turma está cheia (4 vagas).',
+			code: 'group_full'
+		});
+
+		const r = (await actions.adicionar_participante(
+			formEvent({ id: 'a1', patient_ids: '["pac5"]', expected_version: '4' })
+		)) as { status: number; data: { code: string } };
+
+		expect(r.status).toBe(422);
+		expect(r.data.code).toBe('group_full');
+	});
+});
+
+describe('action remover_participante', () => {
+	it('repassa bloco, participante e versão', async () => {
+		m.removeParticipant.mockResolvedValueOnce({ ok: true, status: 200 });
+
+		const r = await actions.remover_participante(
+			formEvent({ id: 'a1', patient_id: 'pac2', expected_version: '4' })
+		);
+
+		expect(r).toEqual({ ok: true, action: 'remover_participante' });
+		expect(m.removeParticipant.mock.calls[0].slice(1)).toEqual(['a1', 'pac2', 4]);
+	});
+
+	it('sem participante → 400 sem tocar a API', async () => {
+		const r = await actions.remover_participante(
+			formEvent({ id: 'a1', expected_version: '4' })
+		);
+
+		expect(r).toMatchObject({ status: 400 });
+		expect(m.removeParticipant).not.toHaveBeenCalled();
+	});
+
+	// O guard do último participante volta com `code` próprio para o drawer poder apontar a
+	// saída certa ("cancele a sessão") em vez de repetir o texto do servidor.
+	it('último participante sobe com o code last_participant', async () => {
+		m.removeParticipant.mockResolvedValueOnce({
+			ok: false,
+			status: 422,
+			error: 'Não dá para tirar o último participante — cancele o agendamento.',
+			code: 'last_participant'
+		});
+
+		const r = (await actions.remover_participante(
+			formEvent({ id: 'a1', patient_id: 'pac1', expected_version: '4' })
+		)) as { status: number; data: { code: string } };
+
+		expect(r.status).toBe(422);
+		expect(r.data.code).toBe('last_participant');
 	});
 });
 

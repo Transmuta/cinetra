@@ -123,7 +123,10 @@ groups:
             datasourceUid: loki
             model:
               refId: consulta
-              expr: sum(count_over_time({env="prod", level="error"} [5m]))
+              # `sum by (env)` e não `sum`: agregação sem `by` colapsa numa série SEM rótulo, e o
+              # `{{ $labels.env }}` do summary acima renderiza como `[no value]`. Ver o comentário
+              # de `cinetra-coleta-de-metrica-parada`, onde essa classe foi descoberta.
+              expr: sum by (env) (count_over_time({env="prod", level="error"} [5m]))
               queryType: instant
           - refId: alerta
             datasourceUid: __expr__
@@ -148,7 +151,12 @@ groups:
         # `NoData` = pergunta sem resposta, que aqui é exatamente o sintoma: sem log, sem série.
         noDataState: Alerting
         annotations:
-          summary: "{{ $labels.env }}: nenhum log chegou nos últimos 10 minutos"
+          # SEM `{{ $labels.env }}`, diferente das regras irmãs deste grupo — e é a consulta que
+          # decide isso, não gosto. Esta regra dispara pelo caminho `NoData` (ver `noDataState`
+          # logo acima): LogQL não emite série ZERADA para stream que parou, ele não emite série
+          # nenhuma. E instância de `NoData` não carrega rótulo de consulta, venha a consulta com
+          # `by (env)` ou sem. Prometer o ambiente aqui só produziria `[no value]`.
+          summary: "Nenhum log chegou de ambiente nenhum nos últimos 10 minutos"
           description: >
             Ou o tráfego parou (o app caiu — confira o monitor externo), ou o caminho do log
             quebrou. Para distinguir, compare os três contadores:
@@ -201,7 +209,9 @@ groups:
             datasourceUid: loki
             model:
               refId: consulta
-              expr: quantile_over_time(0.95, {env="prod", service=~".*api.*"} | json | unwrap duration_ms [10m]) by ()
+              # `by (env)` e não `by ()`: a lista vazia agrega TUDO numa série sem rótulo, e o
+              # `{{ $labels.env }}` do summary vira `[no value]`.
+              expr: quantile_over_time(0.95, {env="prod", service=~".*api.*"} | json | unwrap duration_ms [10m]) by (env)
               queryType: instant
           - refId: alerta
             datasourceUid: __expr__
@@ -236,7 +246,7 @@ groups:
             datasourceUid: loki
             model:
               refId: consulta
-              expr: sum(count_over_time({env="prod"} |= "erro no browser" [15m]))
+              expr: sum by (env) (count_over_time({env="prod"} |= "erro no browser" [15m]))
               queryType: instant
           - refId: alerta
             datasourceUid: __expr__
@@ -269,7 +279,7 @@ groups:
             datasourceUid: loki
             model:
               refId: consulta
-              expr: sum(count_over_time({env="prod", service=~".*api.*"} |= "job:exception" [10m]))
+              expr: sum by (env) (count_over_time({env="prod", service=~".*api.*"} |= "job:exception" [10m]))
               queryType: instant
           - refId: alerta
             datasourceUid: __expr__
@@ -480,7 +490,21 @@ groups:
             model:
               refId: consulta
               instant: true
-              expr: min(up)
+              # `min by (job, instance)` e NÃO `min(up)`. Medido em produção, 2026-08-06: o e-mail
+              # chegou dizendo **"[no value] ([no value]) parou de responder à raspagem"**. A
+              # agregação sem `by` colapsa os alvos numa série única e apaga TODOS os rótulos —
+              # então o `{{ $labels.job }}` do summary acima nunca teve o que renderizar. O alerta
+              # acordava alguém às 3h para dizer que algo caiu, sem dizer o quê: exatamente o
+              # oposto do que esta pasta inteira tenta fazer.
+              #
+              # De brinde, o alerta passa a ser uma instância POR ALVO caído em vez de uma só. O
+              # `group_by: ['grafana_folder', 'alertname']` com `singleEmail: true` junta todas
+              # num e-mail — a lista dos alvos, não a soma deles.
+              #
+              # Continua havendo um caminho em que o rótulo vem vazio, e ele é irredutível: se o
+              # PRÓPRIO Prometheus estiver inalcançável, a regra dispara por `NoData` (ver
+              # `noDataState` acima), e instância de `NoData` não carrega rótulo de consulta.
+              expr: min by (job, instance) (up)
           - refId: alerta
             datasourceUid: __expr__
             model:

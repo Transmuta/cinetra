@@ -50,6 +50,35 @@ defmodule Api.EmailLayout do
   Só que **imagem bloqueada é o estado padrão** de boa parte das caixas: o `alt` do logo vai
   estilizado (branco, bold, espaçado) justamente para que o cabeçalho continue dizendo "Cinetra"
   quando a imagem não carregar. É o mesmo motivo de nenhum texto do corpo viver dentro de imagem.
+
+  ## Tema escuro: ou a gente escolhe as cores, ou o cliente escolhe por nós
+
+  Um e-mail claro numa caixa em tema escuro não é deixado em paz. Cada família de cliente faz uma
+  coisa diferente, e as três precisam de resposta própria:
+
+    * **Apple Mail / iOS** lê `color-scheme` e `prefers-color-scheme`. É o único grupo que aceita
+      "não inverta" — mas aceitar isso é entregar um cartão branco ofuscante no meio de uma caixa
+      escura. Aqui a gente declara `light dark` e **entrega uma paleta escura de verdade**;
+    * **Outlook.com** (web e app) ignora media query: ele repinta sozinho e marca cada elemento
+      que mexeu com `data-ogsc` (cor) e `data-ogsb` (fundo). Por isso as mesmas regras saem duas
+      vezes — uma na media query, outra prefixada por esses atributos;
+    * **Gmail no telefone** inverte tudo por algoritmo e não oferece gancho nenhum. Contra ele não
+      há CSS: o que dá para fazer é não piorar (ver o logo, abaixo).
+
+  Como a folha é opcional (o `<style>` some no app do Gmail com conta de outro provedor) e o
+  estilo que precisa valer é inline, **toda regra escura vem com `!important`** — sem isso o
+  atributo `style` do elemento ganha e nada muda. E é por isso que cada elemento colorido carrega
+  uma classe `cn-*`: a classe é o único gancho que a folha tem para alcançar o inline.
+
+  **E o logo tem fundo vazado, o que não é detalhe de arte.** Ele já foi um PNG sem canal alfa,
+  com a cor da faixa achatada dentro da imagem — e aí quem clareava a faixa por conta própria
+  deixava a placa escura como um retângulo solto por cima dela. Com alfa, a faixa é a `<td>`: ela
+  muda de cor sem que a arte precise saber. O gate está em `web/src/lib/logo-do-email.test.ts`,
+  do lado onde o arquivo mora — quem regenerar a arte não vai rodar a suíte daqui.
+
+  O que sobra é o wordmark ser **branco**: se um cliente clarear a faixa sozinho, ele fica claro
+  sobre claro. Não é resolvível por CSS; resolve-se trocando a arte por uma que leia nos dois
+  fundos, e isso é decisão de marca, não de layout.
   """
 
   # A paleta, num lugar só. Os nomes descrevem o papel, não a cor: trocar o verde da marca é
@@ -71,6 +100,34 @@ defmodule Api.EmailLayout do
   @caixa_texto "#3F5A50"
   @caixa_link "#28453B"
   @claro "#C3CBD2"
+
+  # A mesma paleta lida no escuro. Não é a de cima invertida: `@escuro` é fundo de faixa **e** cor
+  # de título, e as duas leituras vão para lados opostos aqui — a faixa continua escura, o título
+  # vira quase branco. Por isso os nomes daqui são os do papel no escuro, não o par de cada cor.
+  @fundo_esc "#0E1116"
+  @cartao_esc "#171D25"
+  @borda_esc "#2B3441"
+  # A faixa do cabeçalho continua a mesma dos dois temas — agora por escolha, e não por amarra do
+  # asset (o logo tem fundo vazado, ver o moduledoc): o marinho já é escuro, e sobre o cartão mais
+  # fundo ele lê como faixa. Escurecê-la de novo apagaria a separação entre topo e corpo.
+  @cabecalho_esc @escuro
+  @titulo_esc "#F1F3F6"
+  @texto_esc "#B7BDC6"
+  @texto_alt_esc "#D3D8DE"
+  @texto_fraco_esc "#8F97A2"
+  # O verde da marca precisa clarear para continuar legível: `#4E7468` sobre `#171D25` fica em
+  # ~1,9:1, abaixo de qualquer piso de contraste.
+  @sage_esc "#9BC4B6"
+  @linha_esc "#2B3441"
+  @rodape_fundo_esc "#12171E"
+  @caixa_fundo_esc "#16211E"
+  @caixa_borda_esc "#2B3A34"
+  @caixa_texto_esc "#B4C6BF"
+  # O botão inverte o par: no claro é marinho com texto branco; no escuro, marinho sobre cartão
+  # escuro sumiria, então ele vira o verde da marca com texto escuro.
+  @botao_fundo_esc @sage
+  @botao_texto_esc "#101A16"
+  @claro_esc "#A7B1BC"
 
   # Arial e nada de webfont: o Word não carrega `@font-face`, e uma fonte que só metade das
   # caixas enxerga produz dois e-mails diferentes. A pilha é a mesma do desenho.
@@ -117,8 +174,8 @@ defmodule Api.EmailLayout do
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <meta name="x-apple-disable-message-reformatting" />
     <meta name="format-detection" content="telephone=no,date=no,address=no,email=no" />
-    <meta name="color-scheme" content="light" />
-    <meta name="supported-color-schemes" content="light" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="supported-color-schemes" content="light dark" />
     <title>#{escapar(opts[:titulo])}</title>
     <!--[if mso]>
     <xml><o:OfficeDocumentSettings><o:AllowPNG/><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml>
@@ -126,6 +183,7 @@ defmodule Api.EmailLayout do
     <style>
       /* Só melhorias: o que precisa valer está inline (ver o moduledoc — o app do Gmail com conta
          de outro provedor descarta esta folha inteira). */
+      :root{color-scheme:light dark;supported-color-schemes:light dark}
       body{margin:0!important;padding:0!important;width:100%!important;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%}
       table{#{@reset_tabela}}
       img{border:0;outline:none;text-decoration:none;-ms-interpolation-mode:bicubic}
@@ -137,19 +195,66 @@ defmodule Api.EmailLayout do
         .cn-h1{font-size:26px!important;line-height:32px!important}
         .cn-stack,.cn-stack td{display:block!important;width:100%!important}
       }
+    #{css_escuro()}
     </style>
     </head>
-    <body bgcolor="#{@fundo}" style="margin:0;padding:0;width:100%;background-color:#{@fundo};">
-    <div style="display:none;font-size:1px;color:#{@fundo};line-height:1px;mso-line-height-rule:exactly;max-height:0;max-width:0;opacity:0;overflow:hidden;mso-hide:all;">#{escapar(opts[:preheader])}#{@espacador_preheader}</div>
-    <table #{@tabela} width="100%" bgcolor="#{@fundo}" style="#{@reset_tabela}background-color:#{@fundo};">
+    <body class="cn-body" bgcolor="#{@fundo}" style="margin:0;padding:0;width:100%;background-color:#{@fundo};">
+    <div class="cn-pre" style="display:none;font-size:1px;color:#{@fundo};line-height:1px;mso-line-height-rule:exactly;max-height:0;max-width:0;opacity:0;overflow:hidden;mso-hide:all;">#{escapar(opts[:preheader])}#{@espacador_preheader}</div>
+    <table #{@tabela} class="cn-body" width="100%" bgcolor="#{@fundo}" style="#{@reset_tabela}background-color:#{@fundo};">
     <tr><td align="center" style="padding:28px 12px;">
-      <table #{@tabela} width="600" class="cn-wrap" bgcolor="#{@cartao}" style="#{@reset_tabela}width:600px;max-width:600px;background-color:#{@cartao};border-radius:16px;overflow:hidden;border:1px solid #{@borda};">
+      <table #{@tabela} width="600" class="cn-wrap cn-card" bgcolor="#{@cartao}" style="#{@reset_tabela}width:600px;max-width:600px;background-color:#{@cartao};border-radius:16px;overflow:hidden;border:1px solid #{@borda};">
     #{opts[:blocos]}
       </table>
     </td></tr>
     </table>
     </body>
     </html>
+    """
+  end
+
+  # O tema escuro inteiro, uma classe por papel. A lista existe **uma vez** e é impressa duas
+  # (media query + Outlook.com) porque as duas cópias divergiriam na primeira correção de cor — e
+  # divergência entre os dois é invisível aqui e visível só na caixa de quem usa Outlook.com.
+  #
+  # Toda declaração leva `!important`: a folha está competindo com o atributo `style` do próprio
+  # elemento, e sem isso o inline ganha e a media query não faz nada.
+  defp regras_escuras do
+    [
+      {".cn-body", "background-color:#{@fundo_esc}!important"},
+      {".cn-pre", "color:#{@fundo_esc}!important"},
+      {".cn-card",
+       "background-color:#{@cartao_esc}!important;border-color:#{@borda_esc}!important"},
+      {".cn-head", "background-color:#{@cabecalho_esc}!important"},
+      {".cn-on-head", "color:#FFFFFF!important"},
+      {".cn-on-head-soft", "color:#{@claro_esc}!important"},
+      {".cn-title", "color:#{@titulo_esc}!important"},
+      {".cn-text", "color:#{@texto_esc}!important"},
+      {".cn-text-alt", "color:#{@texto_alt_esc}!important"},
+      {".cn-muted", "color:#{@texto_fraco_esc}!important"},
+      {".cn-strong", "color:#{@titulo_esc}!important"},
+      {".cn-accent", "color:#{@sage_esc}!important"},
+      # O filete verde é o único que fica igual nos dois temas — e está na lista para dizer que
+      # isso foi decidido, não esquecido.
+      {".cn-sage", "background-color:#{@sage}!important"},
+      {".cn-rule", "border-color:#{@linha_esc}!important"},
+      {".cn-btn", "background-color:#{@botao_fundo_esc}!important"},
+      {".cn-btn-a", "color:#{@botao_texto_esc}!important"},
+      {".cn-box",
+       "background-color:#{@caixa_fundo_esc}!important;border-color:#{@caixa_borda_esc}!important"},
+      {".cn-box-text", "color:#{@caixa_texto_esc}!important"},
+      {".cn-box-a", "color:#{@sage_esc}!important"},
+      {".cn-foot",
+       "background-color:#{@rodape_fundo_esc}!important;border-color:#{@borda_esc}!important"}
+    ]
+  end
+
+  defp css_escuro do
+    """
+      @media (prefers-color-scheme:dark){
+    #{Enum.map_join(regras_escuras(), "\n", fn {sel, dec} -> "        #{sel}{#{dec}}" end)}
+      }
+      /* O Outlook.com não aplica media query: ele repinta e marca o que mexeu. */
+    #{Enum.map_join(regras_escuras(), "\n", fn {sel, dec} -> "      [data-ogsc] #{sel},[data-ogsb] #{sel}{#{dec}}" end)}\
     """
   end
 
@@ -162,8 +267,8 @@ defmodule Api.EmailLayout do
   def cabecalho_marca do
     """
         <tr>
-          <td class="cn-pad" bgcolor="#{@escuro}" style="background-color:#{@escuro};padding:22px 40px;" align="center">
-            <img src="#{logo_url()}" alt="Cinetra" width="150" height="44" style="display:block;border:0;outline:none;text-decoration:none;-ms-interpolation-mode:bicubic;font-family:#{@fonte};font-size:22px;line-height:44px;mso-line-height-rule:exactly;letter-spacing:5px;font-weight:bold;color:#FFFFFF;" />
+          <td class="cn-pad cn-head" bgcolor="#{@escuro}" style="background-color:#{@escuro};padding:22px 40px;" align="center">
+            <img src="#{logo_url()}" alt="Cinetra" class="cn-on-head" width="150" height="44" style="display:block;border:0;outline:none;text-decoration:none;-ms-interpolation-mode:bicubic;font-family:#{@fonte};font-size:22px;line-height:44px;mso-line-height-rule:exactly;letter-spacing:5px;font-weight:bold;color:#FFFFFF;" />
           </td>
         </tr>
     """
@@ -179,10 +284,10 @@ defmodule Api.EmailLayout do
   def cabecalho_clinica(nome, telefone) do
     """
         <tr>
-          <td class="cn-pad" bgcolor="#{@escuro}" style="background-color:#{@escuro};padding:32px 40px 30px 40px;">
+          <td class="cn-pad cn-head" bgcolor="#{@escuro}" style="background-color:#{@escuro};padding:32px 40px 30px 40px;">
             <table #{@tabela} width="100%" style="#{@reset_tabela}">
-              <tr><td class="cn-h1" style="font-family:#{@fonte};font-size:28px;line-height:34px;letter-spacing:-0.5px;mso-line-height-rule:exactly;font-weight:bold;color:#FFFFFF;padding-bottom:14px;">#{escapar(nome)}</td></tr>
-              <tr><td#{if telefone_visivel?(telefone), do: ~s( style="padding-bottom:14px;")}><table #{@tabela} width="52" style="#{@reset_tabela}"><tr><td height="3" bgcolor="#{@sage}" style="height:3px;line-height:3px;font-size:0;mso-line-height-rule:exactly;border-radius:2px;">&nbsp;</td></tr></table></td></tr>
+              <tr><td class="cn-h1 cn-on-head" style="font-family:#{@fonte};font-size:28px;line-height:34px;letter-spacing:-0.5px;mso-line-height-rule:exactly;font-weight:bold;color:#FFFFFF;padding-bottom:14px;">#{escapar(nome)}</td></tr>
+              <tr><td#{if telefone_visivel?(telefone), do: ~s( style="padding-bottom:14px;")}><table #{@tabela} width="52" style="#{@reset_tabela}"><tr><td class="cn-sage" height="3" bgcolor="#{@sage}" style="height:3px;line-height:3px;font-size:0;mso-line-height-rule:exactly;border-radius:2px;">&nbsp;</td></tr></table></td></tr>
     #{linha_telefone(telefone)}
             </table>
           </td>
@@ -193,7 +298,7 @@ defmodule Api.EmailLayout do
   defp linha_telefone(telefone) do
     if telefone_visivel?(telefone) do
       """
-              <tr><td style="font-family:#{@fonte};font-size:14px;line-height:22px;mso-line-height-rule:exactly;color:#{@claro};">#{escapar(telefone)}</td></tr>
+              <tr><td class="cn-on-head-soft" style="font-family:#{@fonte};font-size:14px;line-height:22px;mso-line-height-rule:exactly;color:#{@claro};">#{escapar(telefone)}</td></tr>
       """
     else
       ""
@@ -208,8 +313,8 @@ defmodule Api.EmailLayout do
         <tr>
           <td class="cn-pad" style="padding:40px 40px 8px 40px;">
             <table #{@tabela} width="100%" style="#{@reset_tabela}">
-              <tr><td class="cn-h1" style="font-family:#{@fonte};font-size:30px;line-height:38px;letter-spacing:-0.5px;mso-line-height-rule:exactly;font-weight:bold;color:#{@escuro};padding-bottom:16px;">#{escapar(titulo)}</td></tr>
-              <tr><td style="font-family:#{@fonte};font-size:16px;line-height:26px;mso-line-height-rule:exactly;color:#{@texto};padding-bottom:28px;">#{paragrafo}</td></tr>
+              <tr><td class="cn-h1 cn-title" style="font-family:#{@fonte};font-size:30px;line-height:38px;letter-spacing:-0.5px;mso-line-height-rule:exactly;font-weight:bold;color:#{@escuro};padding-bottom:16px;">#{escapar(titulo)}</td></tr>
+              <tr><td class="cn-text" style="font-family:#{@fonte};font-size:16px;line-height:26px;mso-line-height-rule:exactly;color:#{@texto};padding-bottom:28px;">#{paragrafo}</td></tr>
             </table>
           </td>
         </tr>
@@ -255,8 +360,8 @@ defmodule Api.EmailLayout do
             <!--[if !mso]><!-- -->
             <table #{@tabela} width="100%" style="#{@reset_tabela}">
               <tr>
-                <td align="center" bgcolor="#{@escuro}" style="background-color:#{@escuro};border-radius:#{@raio_botao}px;padding:17px 24px;">
-                  <a href="#{url}" style="display:inline-block;font-family:#{@fonte};font-size:16px;line-height:22px;mso-line-height-rule:exactly;font-weight:bold;color:#FFFFFF;text-decoration:none;">#{rotulo}</a>
+                <td class="cn-btn" align="center" bgcolor="#{@escuro}" style="background-color:#{@escuro};border-radius:#{@raio_botao}px;padding:17px 24px;">
+                  <a href="#{url}" class="cn-btn-a" style="display:inline-block;font-family:#{@fonte};font-size:16px;line-height:22px;mso-line-height-rule:exactly;font-weight:bold;color:#FFFFFF;text-decoration:none;">#{rotulo}</a>
                 </td>
               </tr>
             </table>
@@ -272,7 +377,7 @@ defmodule Api.EmailLayout do
         <tr>
           <td class="cn-pad" style="padding:0 40px 28px 40px;" align="center">
             <table #{@tabela} width="100%" style="#{@reset_tabela}">
-              <tr><td align="center" style="font-family:#{@fonte};font-size:13px;line-height:20px;mso-line-height-rule:exactly;color:#{@texto_fraco};">#{escapar(texto)}</td></tr>
+              <tr><td class="cn-muted" align="center" style="font-family:#{@fonte};font-size:13px;line-height:20px;mso-line-height-rule:exactly;color:#{@texto_fraco};">#{escapar(texto)}</td></tr>
             </table>
           </td>
         </tr>
@@ -294,11 +399,11 @@ defmodule Api.EmailLayout do
     """
         <tr>
           <td class="cn-pad" style="padding:0 40px 28px 40px;">
-            <table #{@tabela} width="100%" bgcolor="#{@caixa_fundo}" style="#{@reset_tabela}table-layout:fixed;background-color:#{@caixa_fundo};border:1px solid #{@caixa_borda};border-radius:10px;">
+            <table #{@tabela} class="cn-box" width="100%" bgcolor="#{@caixa_fundo}" style="#{@reset_tabela}table-layout:fixed;background-color:#{@caixa_fundo};border:1px solid #{@caixa_borda};border-radius:10px;">
               <tr>
-                <td style="padding:16px 18px;font-family:#{@fonte};font-size:13px;line-height:21px;mso-line-height-rule:exactly;color:#{@caixa_texto};word-break:break-all;word-wrap:break-word;">
+                <td class="cn-box-text" style="padding:16px 18px;font-family:#{@fonte};font-size:13px;line-height:21px;mso-line-height-rule:exactly;color:#{@caixa_texto};word-break:break-all;word-wrap:break-word;">
                   O botão não funcionou? Copie e cole este endereço no navegador:<br />
-                  <a href="#{escapar(url)}" style="color:#{@caixa_link};text-decoration:underline;word-break:break-all;word-wrap:break-word;">#{escapar(url)}</a>
+                  <a href="#{escapar(url)}" class="cn-box-a" style="color:#{@caixa_link};text-decoration:underline;word-break:break-all;word-wrap:break-word;">#{escapar(url)}</a>
                 </td>
               </tr>
             </table>
@@ -317,7 +422,7 @@ defmodule Api.EmailLayout do
     """
         <tr>
           <td class="cn-pad" style="padding:0 40px 28px 40px;">
-            <table #{@tabela} width="100%" style="#{@reset_tabela}border-top:1px solid #{@linha_forte};">
+            <table #{@tabela} class="cn-rule" width="100%" style="#{@reset_tabela}border-top:1px solid #{@linha_forte};">
     #{Enum.map_join(linhas, &linha_detalhe/1)}
             </table>
           </td>
@@ -328,8 +433,8 @@ defmodule Api.EmailLayout do
   defp linha_detalhe({rotulo, valor}) do
     """
               <tr>
-                <td width="42%" valign="top" style="padding:14px 0;border-bottom:1px solid #{@linha_forte};font-family:#{@fonte};font-size:12px;line-height:18px;mso-line-height-rule:exactly;letter-spacing:1px;text-transform:uppercase;color:#{@texto_fraco};">#{escapar(rotulo)}</td>
-                <td valign="top" style="padding:14px 0;border-bottom:1px solid #{@linha_forte};font-family:#{@fonte};font-size:16px;line-height:22px;mso-line-height-rule:exactly;color:#{@escuro};font-weight:bold;" align="right">#{escapar(valor)}</td>
+                <td class="cn-rule cn-muted" width="42%" valign="top" style="padding:14px 0;border-bottom:1px solid #{@linha_forte};font-family:#{@fonte};font-size:12px;line-height:18px;mso-line-height-rule:exactly;letter-spacing:1px;text-transform:uppercase;color:#{@texto_fraco};">#{escapar(rotulo)}</td>
+                <td class="cn-rule cn-strong" valign="top" style="padding:14px 0;border-bottom:1px solid #{@linha_forte};font-family:#{@fonte};font-size:16px;line-height:22px;mso-line-height-rule:exactly;color:#{@escuro};font-weight:bold;" align="right">#{escapar(valor)}</td>
               </tr>
     """
   end
@@ -346,9 +451,9 @@ defmodule Api.EmailLayout do
         <tr>
           <td class="cn-pad" style="padding:0 40px 10px 40px;">
             <table #{@tabela} width="100%" style="#{@reset_tabela}">
-              <tr><td style="font-family:#{@fonte};font-size:12px;line-height:18px;mso-line-height-rule:exactly;letter-spacing:1.5px;text-transform:uppercase;color:#{@sage_escuro};padding-bottom:18px;">#{escapar(rotulo)}</td></tr>
+              <tr><td class="cn-accent" style="font-family:#{@fonte};font-size:12px;line-height:18px;mso-line-height-rule:exactly;letter-spacing:1.5px;text-transform:uppercase;color:#{@sage_escuro};padding-bottom:18px;">#{escapar(rotulo)}</td></tr>
             </table>
-            <table #{@tabela} width="100%" style="#{@reset_tabela}border-top:1px solid #{@linha};">
+            <table #{@tabela} class="cn-rule" width="100%" style="#{@reset_tabela}border-top:1px solid #{@linha};">
     #{itens |> Enum.with_index(1) |> Enum.map_join(fn {item, i} -> passo(item, i) end)}
             </table>
           </td>
@@ -359,18 +464,36 @@ defmodule Api.EmailLayout do
   defp passo(%{titulo: titulo, texto: texto} = item, numero) do
     """
               <tr>
-                <td width="44" valign="top" style="padding:16px 0;border-bottom:1px solid #{@linha};font-family:#{@fonte};font-size:14px;line-height:22px;mso-line-height-rule:exactly;color:#{@sage_escuro};font-weight:bold;">#{String.pad_leading(to_string(numero), 2, "0")}</td>
-                <td valign="top" style="padding:16px 0;border-bottom:1px solid #{@linha};font-family:#{@fonte};font-size:15px;line-height:23px;mso-line-height-rule:exactly;color:#{@texto_alt};">#{titulo_do_passo(titulo, item[:url])} #{escapar(texto)}</td>
+                <td class="cn-rule cn-accent" width="44" valign="top" style="padding:16px 0;border-bottom:1px solid #{@linha};font-family:#{@fonte};font-size:14px;line-height:22px;mso-line-height-rule:exactly;color:#{@sage_escuro};font-weight:bold;">#{String.pad_leading(to_string(numero), 2, "0")}</td>
+                <td class="cn-rule cn-text-alt" valign="top" style="padding:16px 0;border-bottom:1px solid #{@linha};font-family:#{@fonte};font-size:15px;line-height:23px;mso-line-height-rule:exactly;color:#{@texto_alt};">#{titulo_do_passo(titulo, item[:url])} #{escapar(texto)}</td>
               </tr>
     """
   end
 
-  defp titulo_do_passo(titulo, nil),
-    do: ~s(<strong style="color:#{@escuro};">#{escapar(titulo)}</strong>)
+  defp titulo_do_passo(titulo, nil), do: forte(titulo)
 
   defp titulo_do_passo(titulo, url),
     do:
-      ~s(<a href="#{escapar(url)}" style="color:#{@escuro};font-weight:bold;text-decoration:underline;">#{escapar(titulo)}</a>)
+      ~s(<a href="#{escapar(url)}" class="cn-strong" style="color:#{@escuro};font-weight:bold;text-decoration:underline;">#{escapar(titulo)}</a>)
+
+  @doc """
+  O trecho em negrito escuro dentro de um parágrafo — o nome da clínica, a pergunta que abre o
+  destaque.
+
+  Existe como função, e não como `<strong style="color:#212A37;">` escrito na chamada, porque essa
+  cor precisa virar quase-branca no tema escuro: sem a classe `cn-strong` o trecho continuaria
+  marinho sobre fundo marinho, e sumiria justamente a palavra que estava em destaque.
+  """
+  def forte(texto),
+    do: ~s(<strong class="cn-strong" style="color:#{@escuro};">#{escapar(texto)}</strong>)
+
+  @doc """
+  Um link no meio de um parágrafo, no verde da marca. Mesmo motivo do `forte/1`: `#4E7468` sobre o
+  cartão escuro fica em ~1,9:1, e a classe é o que permite clareá-lo lá.
+  """
+  def link(url, rotulo),
+    do:
+      ~s(<a href="#{escapar(url)}" class="cn-accent" style="color:#{@sage_escuro};">#{escapar(rotulo)}</a>)
 
   @doc "O bloco de destaque com filete verde à esquerda."
   def destaque(html) do
@@ -379,9 +502,9 @@ defmodule Api.EmailLayout do
           <td class="cn-pad" style="padding:26px 40px 34px 40px;">
             <table #{@tabela} width="100%" style="#{@reset_tabela}">
               <tr>
-                <td width="4" bgcolor="#{@sage}" style="width:4px;background-color:#{@sage};font-size:0;line-height:0;mso-line-height-rule:exactly;">&nbsp;</td>
+                <td class="cn-sage" width="4" bgcolor="#{@sage}" style="width:4px;background-color:#{@sage};font-size:0;line-height:0;mso-line-height-rule:exactly;">&nbsp;</td>
                 <td width="16" style="width:16px;font-size:0;line-height:0;mso-line-height-rule:exactly;">&nbsp;</td>
-                <td style="font-family:#{@fonte};font-size:14px;line-height:22px;mso-line-height-rule:exactly;color:#{@texto};">#{html}</td>
+                <td class="cn-text" style="font-family:#{@fonte};font-size:14px;line-height:22px;mso-line-height-rule:exactly;color:#{@texto};">#{html}</td>
               </tr>
             </table>
           </td>
@@ -394,11 +517,11 @@ defmodule Api.EmailLayout do
     """
         <tr>
           <td class="cn-pad" style="padding:0 40px 34px 40px;">
-            <table #{@tabela} width="100%" style="#{@reset_tabela}border-top:1px solid #{@linha};">
+            <table #{@tabela} class="cn-rule" width="100%" style="#{@reset_tabela}border-top:1px solid #{@linha};">
               <tr>
-                <td style="padding-top:24px;font-family:#{@fonte};font-size:15px;line-height:24px;mso-line-height-rule:exactly;color:#{@texto};">
+                <td class="cn-text" style="padding-top:24px;font-family:#{@fonte};font-size:15px;line-height:24px;mso-line-height-rule:exactly;color:#{@texto};">
                   Até breve,<br />
-                  <strong style="color:#{@escuro};">Equipe #{escapar(clinica)}</strong>#{telefone_da_assinatura(telefone)}
+                  #{forte("Equipe " <> clinica)}#{telefone_da_assinatura(telefone)}
                 </td>
               </tr>
             </table>
@@ -409,7 +532,7 @@ defmodule Api.EmailLayout do
 
   defp telefone_da_assinatura(telefone) do
     if telefone_visivel?(telefone) do
-      ~s(<br /><a href="tel:#{escapar(so_digitos(telefone))}" style="color:#{@sage_escuro};text-decoration:none;">#{escapar(telefone)}</a>)
+      ~s(<br /><a href="tel:#{escapar(so_digitos(telefone))}" class="cn-accent" style="color:#{@sage_escuro};text-decoration:none;">#{escapar(telefone)}</a>)
     else
       ""
     end
@@ -430,11 +553,11 @@ defmodule Api.EmailLayout do
   def rodape_conta do
     """
         <tr>
-          <td class="cn-pad" bgcolor="#{@rodape_fundo}" style="background-color:#{@rodape_fundo};border-top:1px solid #{@borda};padding:26px 40px 30px 40px;" align="center">
+          <td class="cn-pad cn-foot" bgcolor="#{@rodape_fundo}" style="background-color:#{@rodape_fundo};border-top:1px solid #{@borda};padding:26px 40px 30px 40px;" align="center">
             <table #{@tabela} width="100%" style="#{@reset_tabela}">
-              <tr><td align="center" style="font-family:#{@fonte};font-size:13px;line-height:20px;mso-line-height-rule:exactly;color:#{@texto};padding-bottom:6px;"><a href="#{escapar(site_url())}" style="color:#{@escuro};text-decoration:none;font-weight:bold;letter-spacing:1px;">CINETRA</a></td></tr>
-              <tr><td align="center" style="font-family:#{@fonte};font-size:12px;line-height:19px;mso-line-height-rule:exactly;color:#{@texto_fraco};padding-bottom:12px;">A plataforma de agenda para clínicas de fisioterapia</td></tr>
-              <tr><td align="center" style="font-family:#{@fonte};font-size:12px;line-height:19px;mso-line-height-rule:exactly;color:#{@texto_fraco};">Você recebeu este e-mail porque tem uma conta na Cinetra.</td></tr>
+              <tr><td class="cn-text" align="center" style="font-family:#{@fonte};font-size:13px;line-height:20px;mso-line-height-rule:exactly;color:#{@texto};padding-bottom:6px;"><a href="#{escapar(site_url())}" class="cn-strong" style="color:#{@escuro};text-decoration:none;font-weight:bold;letter-spacing:1px;">CINETRA</a></td></tr>
+              <tr><td class="cn-muted" align="center" style="font-family:#{@fonte};font-size:12px;line-height:19px;mso-line-height-rule:exactly;color:#{@texto_fraco};padding-bottom:12px;">A plataforma de agenda para clínicas de fisioterapia</td></tr>
+              <tr><td class="cn-muted" align="center" style="font-family:#{@fonte};font-size:12px;line-height:19px;mso-line-height-rule:exactly;color:#{@texto_fraco};">Você recebeu este e-mail porque tem uma conta na Cinetra.</td></tr>
             </table>
           </td>
         </tr>
@@ -456,11 +579,11 @@ defmodule Api.EmailLayout do
   def rodape_paciente(clinica, url_descadastro) do
     """
         <tr>
-          <td class="cn-pad" bgcolor="#{@rodape_fundo}" style="background-color:#{@rodape_fundo};border-top:1px solid #{@borda};padding:26px 40px 30px 40px;" align="center">
+          <td class="cn-pad cn-foot" bgcolor="#{@rodape_fundo}" style="background-color:#{@rodape_fundo};border-top:1px solid #{@borda};padding:26px 40px 30px 40px;" align="center">
             <table #{@tabela} width="100%" style="#{@reset_tabela}">
-              <tr><td align="center" style="font-family:#{@fonte};font-size:13px;line-height:20px;mso-line-height-rule:exactly;color:#{@texto};padding-bottom:6px;">Agenda e confirmações por <a href="#{escapar(site_url())}" style="color:#{@escuro};text-decoration:none;font-weight:bold;letter-spacing:0.5px;">CINETRA</a></td></tr>
-              <tr><td align="center" style="font-family:#{@fonte};font-size:12px;line-height:19px;mso-line-height-rule:exactly;color:#{@texto_fraco};padding-bottom:12px;">A plataforma de agenda para clínicas de fisioterapia</td></tr>
-              <tr><td align="center" style="font-family:#{@fonte};font-size:12px;line-height:19px;mso-line-height-rule:exactly;color:#{@texto_fraco};">Você recebeu este e-mail porque tem um atendimento agendado na #{escapar(clinica)}.#{linha_descadastro(url_descadastro)}</td></tr>
+              <tr><td class="cn-text" align="center" style="font-family:#{@fonte};font-size:13px;line-height:20px;mso-line-height-rule:exactly;color:#{@texto};padding-bottom:6px;">Agenda e confirmações por <a href="#{escapar(site_url())}" class="cn-strong" style="color:#{@escuro};text-decoration:none;font-weight:bold;letter-spacing:0.5px;">CINETRA</a></td></tr>
+              <tr><td class="cn-muted" align="center" style="font-family:#{@fonte};font-size:12px;line-height:19px;mso-line-height-rule:exactly;color:#{@texto_fraco};padding-bottom:12px;">A plataforma de agenda para clínicas de fisioterapia</td></tr>
+              <tr><td class="cn-muted" align="center" style="font-family:#{@fonte};font-size:12px;line-height:19px;mso-line-height-rule:exactly;color:#{@texto_fraco};">Você recebeu este e-mail porque tem um atendimento agendado na #{escapar(clinica)}.#{linha_descadastro(url_descadastro)}</td></tr>
             </table>
           </td>
         </tr>
@@ -470,7 +593,7 @@ defmodule Api.EmailLayout do
   defp linha_descadastro(nil), do: ""
 
   defp linha_descadastro(url) do
-    ~s(<br /><a href="#{escapar(url)}" style="color:#{@texto};text-decoration:underline;">Não quero mais receber estes avisos</a>)
+    ~s(<br /><a href="#{escapar(url)}" class="cn-text" style="color:#{@texto};text-decoration:underline;">Não quero mais receber estes avisos</a>)
   end
 
   @doc "A URL do logo. Servida pelo próprio app (ver o moduledoc), não por CDN de terceiro."

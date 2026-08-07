@@ -60,6 +60,27 @@ defmodule Api.EmailLayoutTest do
 
   defp tags(html, palavra), do: ~r/<[^>]*#{palavra}[^>]*>/ |> Regex.scan(html) |> List.flatten()
 
+  # O trecho da folha que trata do tema escuro: da primeira menção a `prefers-color-scheme` até o
+  # fim do `<style>`. É onde moram a media query e a cópia prefixada do Outlook.com.
+  defp folha_escura(html) do
+    case Regex.run(~r/prefers-color-scheme(.*?)<\/style>/s, html) do
+      [_, trecho] -> trecho
+      nil -> ""
+    end
+  end
+
+  # As classes de um `class="a b c"`.
+  defp classes(tag) do
+    case Regex.run(~r/class="([^"]*)"/, tag) do
+      [_, valor] -> String.split(valor, " ", trim: true)
+      nil -> []
+    end
+  end
+
+  # O bloco condicional do Outlook sai antes de qualquer varredura de cor: o VML tem cor em
+  # atributo (`fillcolor`) e um `<center>` próprio, e o Word nem enxerga media query.
+  defp sem_mso(html), do: String.replace(html, ~r/<!--\[if mso\]>.*?<!\[endif\]-->/s, "")
+
   describe "Outlook — o motor do Word" do
     test "nenhum <a> carrega padding: o Word ignora, e o botão chega colado nas bordas" do
       # A pegadinha que estraga botão de e-mail. O espaçamento mora no `<td>`, que o Word respeita.
@@ -163,6 +184,59 @@ defmodule Api.EmailLayoutTest do
         assert tag =~ ~r/alt="[^"]+"/, "#{nome}: imagem sem alt"
         assert tag =~ ~r/width="\d+"/, "#{nome}: imagem sem width"
         assert tag =~ ~r/height="\d+"/, "#{nome}: imagem sem height"
+      end
+    end
+  end
+
+  describe "tema escuro" do
+    # O e-mail chegava repintado pelo cliente: o cartão claro virava cinza, o cabeçalho escuro
+    # virava claro e o logo — que carrega a placa #212A37 embutida no PNG — ficava um retângulo
+    # solto por cima dele. A folha declarava `light` e nada mais, então quem inverte por conta
+    # própria (Gmail no telefone, Outlook.com) escolhia as cores sozinho. Achado de 2026-08-06.
+
+    test "o documento diz que sabe se virar nos dois esquemas" do
+      for {nome, html} <- documentos() do
+        assert html =~ ~s(<meta name="color-scheme" content="light dark" />),
+               "#{nome}: ainda declara só `light` — o cliente inverte por conta própria"
+
+        assert html =~ ~s(<meta name="supported-color-schemes" content="light dark" />),
+               "#{nome}: sem supported-color-schemes com dark"
+
+        # O meta sozinho não basta: Apple Mail e iOS leem a propriedade CSS.
+        assert html =~ "color-scheme:light dark", "#{nome}: sem color-scheme na folha"
+      end
+    end
+
+    test "toda cor inline tem classe, e toda classe dessas tem regra no tema escuro" do
+      # É esta a invariante que impede a volta do defeito: um elemento novo com cor escrita no
+      # `style` e sem gancho de classe é um elemento que o tema escuro não alcança — e que some
+      # (ou berra) na caixa de quem lê no escuro.
+      for {nome, html} <- documentos(), tag <- tags(sem_mso(html), "color:") do
+        ganchos = tag |> classes() |> Enum.filter(&(folha_escura(html) =~ ".#{&1}"))
+
+        assert ganchos != [],
+               "#{nome}: cor inline sem regra escura em #{String.slice(tag, 0, 110)}"
+      end
+    end
+
+    test "as regras escuras vêm com !important — sem ele o estilo inline ganha" do
+      html = documentos()["boas-vindas"]
+
+      for [_, bloco] <- Regex.scan(~r/\{([^{}]+)\}/, folha_escura(html)),
+          declaracao <- String.split(bloco, ";", trim: true) do
+        assert declaracao =~ "!important",
+               "regra escura sem !important (#{declaracao}) — o inline vence e nada muda"
+      end
+    end
+
+    test "o Outlook.com recebe as mesmas regras, que ele não aplica media query" do
+      # Ele não lê `prefers-color-scheme`: ele repinta e marca o que repintou com `data-ogsc`
+      # (cor) e `data-ogsb` (fundo). Sem a cópia prefixada, o tema escuro passa longe dele.
+      for {nome, html} <- documentos() do
+        assert folha_escura(html) =~ "[data-ogsc]", "#{nome}: sem as regras do Outlook.com"
+
+        assert folha_escura(html) =~ "[data-ogsb]",
+               "#{nome}: sem as regras de fundo do Outlook.com"
       end
     end
   end

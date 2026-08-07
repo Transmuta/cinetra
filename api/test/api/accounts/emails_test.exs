@@ -116,7 +116,7 @@ defmodule Api.Accounts.EmailsTest do
         refute mail.html_body =~ "embrete"
         # E o remetente é `nao-responda@`: convidar a responder mandaria a mensagem para o vazio.
         refute mail.html_body =~ "Responda este e-mail"
-        assert mail.html_body =~ "contato@cinetra.app"
+        assert mail.html_body =~ "contato@cinetra.com.br"
       end)
     end
 
@@ -145,6 +145,50 @@ defmodule Api.Accounts.EmailsTest do
       assert_email_sent(fn mail ->
         assert mail.text_body =~ "Olá!"
         assert mail.html_body =~ "Boas-vindas à Cinetra<"
+      end)
+    end
+  end
+
+  # 2026-08-06, achado ao investigar por que TODO e-mail estava caindo no spam. O corpo mandava
+  # escrever para `contato@cinetra.app` — e `cinetra.app` **não existe**: NXDOMAIN, sem SOA, sem
+  # NS, não está registrado. Dois estragos de uma vez:
+  #
+  #   * o cliente que responde ao convite escreve para o vazio e nunca é respondido;
+  #   * filtro de spam **resolve os domínios citados no corpo**, e domínio inexistente ali é
+  #     sinal negativo — somado ao null MX e ao `v=spf1 -all` que o DNS publicava na época, era
+  #     parte do porquê de a caixa de entrada recusar tudo.
+  #
+  # O endereço agora é do MESMO domínio que assina o e-mail. Não é preferência estética: é o
+  # único que o DNS conhece, que o DKIM assina e que o Email Routing do Cloudflare entrega.
+  # O par no web é `web/src/lib/legal.ts` (`EMPRESA.emailContato`/`emailPrivacidade`), com o
+  # teste gêmeo em `legal.test.ts`.
+  describe "endereço de contato" do
+    test "os três e-mails só citam domínio que existe" do
+      Emails.send_magic_link_email("ana@example.com", "tok-123")
+      Emails.send_welcome_email(%{email: "marina@example.com", nome: "Marina"}, "Clínica X")
+      Emails.send_access_revoked_email(%{email: "ana@example.com"}, "Clínica X")
+
+      for _ <- 1..3 do
+        assert_email_sent(fn mail ->
+          for corpo <- [mail.text_body, mail.html_body] do
+            refute corpo =~ "cinetra.app"
+            refute corpo =~ "cinetra.local"
+          end
+
+          true
+        end)
+      end
+    end
+
+    test "as boas-vindas dizem para escrever a uma caixa do domínio de envio" do
+      Emails.send_welcome_email(%{email: "marina@example.com", nome: "Marina"}, "Clínica X")
+
+      assert_email_sent(fn mail ->
+        for corpo <- [mail.text_body, mail.html_body] do
+          assert corpo =~ "contato@cinetra.com.br"
+        end
+
+        true
       end)
     end
   end

@@ -1371,6 +1371,279 @@ defmodule ApiWeb.AppointmentsControllerTest do
     end
   end
 
+  # Um paciente novo da clínica do `ctx`, para entrar (ou não caber) na turma.
+  defp novo_paciente(ctx, nome \\ "Extra") do
+    Records.create_patient!(
+      "#{nome} #{System.unique_integer([:positive])}",
+      %{tel: Api.Generators.telefone_unico()},
+      tenant: ctx.clinic.id,
+      actor: ctx.owner
+    )
+  end
+
+  # A composição da turma pela fronteira (doc 109). As ações `:add_participant` e
+  # `:remove_participant` existiam no domínio desde a A-D4/doc 41 e **não tinham rota**: dava para
+  # entrar numa turma só de rabeira, criando um agendamento no mesmo slot que o merge funde, e não
+  # dava para sair de jeito nenhum. Estes testes são o contrato das duas rotas novas.
+  describe "composição da turma (doc 109)" do
+    test "POST participants adiciona e avança a versão do bloco", %{conn: conn} do
+      ctx = fixture()
+      {id, version, _p2} = create_turma(conn, ctx)
+      p3 = novo_paciente(ctx)
+
+      resp =
+        conn
+        |> authed(ctx.owner)
+        |> post("/api/appointments/#{id}/participants", %{
+          "patient_ids" => [p3.id],
+          "expected_version" => version
+        })
+
+      appt = json_response(resp, 200)["appointment"]
+      assert p3.id in appt["patient_ids"]
+      assert appt["version"] == version + 1
+
+      # O participante novo nasce `prevista` — entrar na turma não é desfecho de ninguém, e o
+      # drawer desenha os controles de presença a partir daqui.
+      assert %{"status" => "prevista"} =
+               Enum.find(appt["participants"], &(&1["patient_id"] == p3.id))
+    end
+
+    # O teto é o mesmo da criação (`Validations.GroupCapacity`), e o `code` estável é o que
+    # permite à tela OFERECER o encaixe em vez de só mostrar o erro — a mesma mecânica de
+    # `schedule_conflict` no criar (A10).
+    test "turma cheia → 422 com code group_full", %{conn: conn} do
+      ctx = fixture()
+      {id, version, _p2} = create_turma(conn, ctx)
+
+      # A turma nasce com 2 de 4: mais dois a enchem.
+      lotar =
+        conn
+        |> authed(ctx.owner)
+        |> post("/api/appointments/#{id}/participants", %{
+          "patient_ids" => [novo_paciente(ctx).id, novo_paciente(ctx).id],
+          "expected_version" => version
+        })
+
+      cheia = json_response(lotar, 200)["appointment"]
+      assert length(cheia["patient_ids"]) == 4
+
+      resp =
+        conn
+        |> authed(ctx.owner)
+        |> post("/api/appointments/#{id}/participants", %{
+          "patient_ids" => [novo_paciente(ctx).id],
+          "expected_version" => cheia["version"]
+        })
+
+      assert json_response(resp, 422)["code"] == "group_full"
+    end
+
+    test "turma cheia + encaixe fura o teto (A-D3)", %{conn: conn} do
+      ctx = fixture()
+      {id, version, _p2} = create_turma(conn, ctx)
+
+      lotar =
+        conn
+        |> authed(ctx.owner)
+        |> post("/api/appointments/#{id}/participants", %{
+          "patient_ids" => [novo_paciente(ctx).id, novo_paciente(ctx).id],
+          "expected_version" => version
+        })
+
+      cheia = json_response(lotar, 200)["appointment"]
+      quinto = novo_paciente(ctx)
+
+      resp =
+        conn
+        |> authed(ctx.owner)
+        |> post("/api/appointments/#{id}/participants", %{
+          "patient_ids" => [quinto.id],
+          "encaixe" => true,
+          "expected_version" => cheia["version"]
+        })
+
+      appt = json_response(resp, 200)["appointment"]
+      assert quinto.id in appt["patient_ids"]
+      assert length(appt["patient_ids"]) == 5
+
+      # `encaixe` no add SÓ fura o teto: marcar o bloco inteiro como encaixe por causa de um
+      # participante extra o isentaria da exclusion constraint (A5) — o argumento não vira
+      # atributo, e este assert é o que prende isso.
+      refute appt["encaixe"]
+    end
+
+    test "expected_version obsoleto no add → 409 version_conflict", %{conn: conn} do
+      ctx = fixture()
+      {id, version, _p2} = create_turma(conn, ctx)
+
+      resp =
+        conn
+        |> authed(ctx.owner)
+        |> post("/api/appointments/#{id}/participants", %{
+          "patient_ids" => [novo_paciente(ctx).id],
+          "expected_version" => version + 5
+        })
+
+      assert json_response(resp, 409)["code"] == "version_conflict"
+    end
+
+    test "profissional NÃO compõe turma (A8, doc 103)", %{conn: conn} do
+      ctx = fixture()
+      {id, version, _p2} = create_turma(conn, ctx)
+      prof_user = sessao_de_membro!(ctx.owner, ctx.clinic, :profissional, ctx.prof.id)
+
+      resp =
+        conn
+        |> authed(prof_user)
+        |> post("/api/appointments/#{id}/participants", %{
+          "patient_ids" => [novo_paciente(ctx).id],
+          "expected_version" => version
+        })
+
+      assert json_response(resp, 403)
+    end
+
+    test "recepção compõe turma (A8)", %{conn: conn} do
+      ctx = fixture()
+      {id, version, _p2} = create_turma(conn, ctx)
+      recepcao = sessao_de_membro!(ctx.owner, ctx.clinic, :recepcao)
+
+      resp =
+        conn
+        |> authed(recepcao)
+        |> post("/api/appointments/#{id}/participants", %{
+          "patient_ids" => [novo_paciente(ctx).id],
+          "expected_version" => version
+        })
+
+      assert json_response(resp, 200)
+    end
+
+    test "sem patient_ids → 400", %{conn: conn} do
+      ctx = fixture()
+      {id, version, _p2} = create_turma(conn, ctx)
+
+      resp =
+        conn
+        |> authed(ctx.owner)
+        |> post("/api/appointments/#{id}/participants", %{"expected_version" => version})
+
+      assert json_response(resp, 400)
+    end
+
+    test "DELETE participants tira um sem tocar no colega", %{conn: conn} do
+      ctx = fixture()
+      {id, version, p2} = create_turma(conn, ctx)
+
+      resp =
+        conn
+        |> authed(ctx.owner)
+        |> delete("/api/appointments/#{id}/participants/#{p2}", %{
+          "expected_version" => version
+        })
+
+      appt = json_response(resp, 200)["appointment"]
+      assert appt["patient_ids"] == [ctx.paciente.id]
+      assert appt["version"] == version + 1
+    end
+
+    # O guard do último participante (`Changes.RemoveParticipants`): um bloco com zero
+    # participantes é horário ocupado que não é sessão de ninguém. Quem quer desmarcar cancela.
+    test "tirar o ÚLTIMO participante → 422", %{conn: conn} do
+      ctx = fixture()
+      {id, version, p2} = create_turma(conn, ctx)
+
+      primeira =
+        conn
+        |> authed(ctx.owner)
+        |> delete("/api/appointments/#{id}/participants/#{p2}", %{"expected_version" => version})
+
+      restou = json_response(primeira, 200)["appointment"]
+
+      resp =
+        conn
+        |> authed(ctx.owner)
+        |> delete("/api/appointments/#{id}/participants/#{ctx.paciente.id}", %{
+          "expected_version" => restou["version"]
+        })
+
+      body = json_response(resp, 422)
+      assert body["code"] == "last_participant"
+    end
+
+    # Decisão de 2026-08-06: tirar quem já tem desfecho é permitido, sem cerimônia no servidor —
+    # a tela é que avisa o que se perde. A presença é DESTRUÍDA (não cancelada), então o débito
+    # do pacote, que é `count :usadas, :attendances`, volta junto. É consequência, não bug: quem
+    # tira da turma quem compareceu está desfazendo um lançamento.
+    test "tirar quem já concluiu é permitido", %{conn: conn} do
+      ctx = fixture()
+      {id, version, p2} = create_turma(conn, ctx)
+
+      concluida =
+        part_post(conn, ctx, id, p2, "complete", %{"expected_version" => version})
+
+      appt = json_response(concluida, 200)["appointment"]
+
+      resp =
+        conn
+        |> authed(ctx.owner)
+        |> delete("/api/appointments/#{id}/participants/#{p2}", %{
+          "expected_version" => appt["version"]
+        })
+
+      refute p2 in json_response(resp, 200)["appointment"]["patient_ids"]
+    end
+
+    test "tirar quem não está no bloco → 404", %{conn: conn} do
+      ctx = fixture()
+      {id, version, _p2} = create_turma(conn, ctx)
+      forasteiro = novo_paciente(ctx)
+
+      resp =
+        conn
+        |> authed(ctx.owner)
+        |> delete("/api/appointments/#{id}/participants/#{forasteiro.id}", %{
+          "expected_version" => version
+        })
+
+      assert json_response(resp, 404)
+    end
+
+    test "profissional NÃO tira participante (A8, doc 103)", %{conn: conn} do
+      ctx = fixture()
+      {id, version, p2} = create_turma(conn, ctx)
+      prof_user = sessao_de_membro!(ctx.owner, ctx.clinic, :profissional, ctx.prof.id)
+
+      resp =
+        conn
+        |> authed(prof_user)
+        |> delete("/api/appointments/#{id}/participants/#{p2}", %{
+          "expected_version" => version
+        })
+
+      assert json_response(resp, 403)
+    end
+
+    test "sem sessão → 401 nas duas rotas", %{conn: conn} do
+      ctx = fixture()
+      {id, version, p2} = create_turma(conn, ctx)
+
+      assert conn
+             |> post("/api/appointments/#{id}/participants", %{
+               "patient_ids" => [p2],
+               "expected_version" => version
+             })
+             |> json_response(401)
+
+      assert conn
+             |> delete("/api/appointments/#{id}/participants/#{p2}", %{
+               "expected_version" => version
+             })
+             |> json_response(401)
+    end
+  end
+
   describe "sessão de pacote no bloco (o cartão da agenda)" do
     test "o participante diz o pacote, a sessão e o total", %{conn: conn} do
       ctx = fixture()

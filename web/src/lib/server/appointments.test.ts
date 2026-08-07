@@ -17,7 +17,9 @@ import {
 	excludeAppointment,
 	fetchAppointment,
 	agendaQuery,
-	availabilityQuery
+	availabilityQuery,
+	addParticipants,
+	removeParticipant
 } from './appointments';
 
 function res(status: number, body?: unknown): Response {
@@ -354,6 +356,84 @@ describe('ciclo de vida (Entrega 4)', () => {
 			expect(call[2].method).toBe('POST');
 			expect(JSON.parse(call[2].body).expected_version).toBe(7);
 		}
+	});
+});
+
+// A composição da turma (doc 109). Entrar e sair de uma turma que já existe: duas rotas novas na
+// API, e as duas carregam `expected_version` como todo o resto do ciclo de vida — porque as duas
+// mudam a composição do bloco, e é isso que o locking otimista guarda.
+describe('composição da turma (doc 109)', () => {
+	it('addParticipants: POST na coleção do bloco, com ids e expected_version', async () => {
+		m.apiFetch.mockResolvedValueOnce(res(200, { appointment: { id: 'a1' } }));
+		const r = await addParticipants(event, 'a1', {
+			patient_ids: ['p1', 'p2'],
+			expected_version: 4
+		});
+
+		expect(r.ok).toBe(true);
+		const [, path, init] = m.apiFetch.mock.calls[0];
+		expect(path).toBe('/api/appointments/a1/participants');
+		expect(init.method).toBe('POST');
+		const body = JSON.parse(init.body);
+		expect(body.patient_ids).toEqual(['p1', 'p2']);
+		expect(body.expected_version).toBe(4);
+		// `encaixe` ausente é `false` no servidor. Ele só viaja quando alguém pediu para furar o
+		// teto — mandar `false` sempre não muda nada, mas apaga a diferença entre "não pediu" e
+		// "pediu e não podia".
+		expect(body.encaixe).toBeUndefined();
+	});
+
+	it('addParticipants com encaixe manda o flag que fura o teto', async () => {
+		m.apiFetch.mockResolvedValueOnce(res(200, { appointment: { id: 'a1' } }));
+		await addParticipants(event, 'a1', {
+			patient_ids: ['p3'],
+			encaixe: true,
+			expected_version: 4
+		});
+
+		expect(JSON.parse(m.apiFetch.mock.calls[0][2].body).encaixe).toBe(true);
+	});
+
+	it('turma cheia propaga o code group_full (é o que faz a tela OFERECER o encaixe)', async () => {
+		m.apiFetch.mockResolvedValueOnce(
+			res(422, {
+				error: 'invalid',
+				code: 'group_full',
+				details: [{ field: null, message: 'A turma está cheia (4 vagas).' }]
+			})
+		);
+
+		const r = await addParticipants(event, 'a1', { patient_ids: ['p5'], expected_version: 4 });
+		expect(r.ok).toBe(false);
+		expect(r.code).toBe('group_full');
+		expect(r.error).toBe('A turma está cheia (4 vagas).');
+	});
+
+	it('removeParticipant: DELETE no recurso, com o id escapado na URL', async () => {
+		m.apiFetch.mockResolvedValueOnce(res(200, { appointment: { id: 'a1' } }));
+		const r = await removeParticipant(event, 'a1', 'p 2/x', 5);
+
+		expect(r.ok).toBe(true);
+		const [, path, init] = m.apiFetch.mock.calls[0];
+		expect(path).toBe('/api/appointments/a1/participants/p%202%2Fx');
+		expect(init.method).toBe('DELETE');
+		expect(JSON.parse(init.body).expected_version).toBe(5);
+	});
+
+	it('o último participante propaga o code last_participant', async () => {
+		m.apiFetch.mockResolvedValueOnce(
+			res(422, {
+				error: 'invalid',
+				code: 'last_participant',
+				details: [
+					{ field: null, message: 'Não dá para tirar o último participante — cancele o agendamento.' }
+				]
+			})
+		);
+
+		const r = await removeParticipant(event, 'a1', 'p1', 5);
+		expect(r.ok).toBe(false);
+		expect(r.code).toBe('last_participant');
 	});
 });
 

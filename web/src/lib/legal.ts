@@ -48,8 +48,11 @@ export const EMPRESA = {
 	cnpj: '[CNPJ]',
 	endereco: '[ENDEREÇO COMPLETO]',
 	encarregado: '[NOME DO ENCARREGADO]',
-	emailPrivacidade: 'privacidade@cinetra.app',
-	emailContato: 'contato@cinetra.app',
+	// Do domínio de envio, e isso é regra: já foram `@cinetra.app`, domínio nunca registrado
+	// (NXDOMAIN), o que fazia o canal do art. 9º da LGPD apontar para o vazio. Ver o teste
+	// "os contatos são de um domínio que existe" e o par em `Api.Accounts.Emails`.
+	emailPrivacidade: 'privacidade@cinetra.com.br',
+	emailContato: 'contato@cinetra.com.br',
 	foro: '[COMARCA/UF]'
 } as const;
 
