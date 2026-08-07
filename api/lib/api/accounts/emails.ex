@@ -97,7 +97,7 @@ defmodule Api.Accounts.Emails do
         EmailLayout.nota("Este link #{validade()}."),
         EmailLayout.caixa_url(link),
         EmailLayout.destaque(
-          "<strong style=\"color:#212A37;\">Não foi você?</strong> Ignore este e-mail. O link só funciona para quem o abrir, e ele expira sozinho."
+          "#{EmailLayout.forte("Não foi você?")} Ignore este e-mail. O link só funciona para quem o abrir, e ele expira sozinho."
         ),
         EmailLayout.rodape_conta()
       ]
@@ -166,7 +166,7 @@ defmodule Api.Accounts.Emails do
         EmailLayout.cabecalho_marca(),
         EmailLayout.abertura(
           com_nome("Boas-vindas à #{@marca}", primeiro_nome(user)),
-          "A sua clínica <strong style=\"color:#212A37;\">#{EmailLayout.escapar(clinic_nome)}</strong> está criada e já dá para usar. Abaixo, o caminho mais curto até a primeira semana de agenda no lugar."
+          "A sua clínica #{EmailLayout.forte(clinic_nome)} está criada e já dá para usar. Abaixo, o caminho mais curto até a primeira semana de agenda no lugar."
         ),
         EmailLayout.botao(app, "Abrir a minha agenda"),
         EmailLayout.passos("Seus três primeiros passos", [
@@ -188,7 +188,7 @@ defmodule Api.Accounts.Emails do
           }
         ]),
         EmailLayout.destaque(
-          "<strong style=\"color:#212A37;\">Precisa de ajuda para configurar?</strong> Escreva para <a href=\"mailto:#{@contato}\" style=\"color:#4E7468;\">#{@contato}</a> que a gente ajuda a montar a sua agenda."
+          "#{EmailLayout.forte("Precisa de ajuda para configurar?")} Escreva para #{EmailLayout.link("mailto:" <> @contato, @contato)} que a gente ajuda a montar a sua agenda."
         ),
         EmailLayout.rodape_conta()
       ]
@@ -226,8 +226,6 @@ defmodule Api.Accounts.Emails do
   end
 
   defp html_acesso_removido(clinic_nome) do
-    nome = EmailLayout.escapar(clinic_nome)
-
     EmailLayout.documento(
       titulo: "Seu acesso a #{clinic_nome} foi removido",
       preheader: "Você não verá mais a agenda nem os dados da #{clinic_nome}.",
@@ -235,7 +233,7 @@ defmodule Api.Accounts.Emails do
         EmailLayout.cabecalho_marca(),
         EmailLayout.abertura(
           "Seu acesso foi removido",
-          "Seu acesso à clínica <strong style=\"color:#212A37;\">#{nome}</strong> no #{@marca} foi removido, e você não verá mais a agenda nem os dados dela."
+          "Seu acesso à clínica #{EmailLayout.forte(clinic_nome)} no #{@marca} foi removido, e você não verá mais a agenda nem os dados dela."
         ),
         EmailLayout.destaque(
           "Se você é membro de outras clínicas, elas continuam disponíveis normalmente ao entrar. Se isso parecer um engano, fale com quem administra a clínica."

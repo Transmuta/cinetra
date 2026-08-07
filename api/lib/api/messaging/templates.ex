@@ -545,7 +545,7 @@ defmodule Api.Messaging.Templates do
 
   defp e_primeiro_nome(vars), do: EmailLayout.escapar(primeiro_nome(vars))
 
-  defp forte(vars, chave), do: ~s(<strong style="color:#212A37;">#{e(vars, chave)}</strong>)
+  defp forte(vars, chave), do: EmailLayout.forte(nome(vars, chave))
 
   # "Olá, Maria!" e não "Olá, Maria Aparecida da Silva Santos!". O primeiro nome é como se fala
   # com alguém; o nome completo num cumprimento soa a cobrança.
