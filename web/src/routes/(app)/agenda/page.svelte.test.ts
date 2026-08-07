@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import '@testing-library/jest-dom/vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/svelte';
+import { tick } from 'svelte';
 
 // O drawer da agenda é LINKÁVEL: `?agendamento=<id>` na URL diz qual bloco está aberto. O que se
 // prova aqui é o mecanismo — e ele tem uma sutileza que custou uma versão inteira.
@@ -222,6 +223,45 @@ describe('drawer na URL', () => {
 		expect(drawer()).not.toBeInTheDocument();
 		expect(nav.replaceState).not.toHaveBeenCalled();
 		expect(nav.pushState).not.toHaveBeenCalled();
+	});
+
+	// **`page.state` é VOLÁTIL.** Medido no browser (2026-08-06): `invalidate`/`invalidateAll`
+	// reescrevem `page.state` do zero — o `history.state` continua com o id, a barra de endereço
+	// também, e só o espelho em memória é zerado.
+	//
+	// Isso não é um caso de borda: TODA mutação do drawer termina em `invalidateAll` (o default do
+	// `use:enhance`), e o tempo real ainda recarrega sozinho 400ms depois de qualquer evento. Com o
+	// id morando só em `page.state`, o painel fechava sozinho a cada ação feita dentro dele —
+	// marcar presença, adicionar à turma, cancelar.
+	it('o drawer sobrevive ao invalidate que toda ação dispara', async () => {
+		render(Page, { props: { data: data(), form: null } });
+
+		await fireEvent.click(screen.getByRole('button', { name: /João Silva/ }));
+		expect(drawer()).toBeInTheDocument();
+
+		// O que o Kit faz ao recarregar o load: `page.state` volta a ser `{}`.
+		fake.estado = {};
+		await tick();
+
+		expect(drawer()).toBeInTheDocument();
+	});
+
+	// O contrapeso do teste acima: sobreviver ao `invalidate` não pode virar sobreviver ao BACK.
+	// O popstate devolve a palavra ao histórico — que é quem sabe se aquela entrada tinha painel
+	// aberto ou não.
+	it('mas o back continua fechando o painel', async () => {
+		render(Page, { props: { data: data(), form: null } });
+
+		await fireEvent.click(screen.getByRole('button', { name: /João Silva/ }));
+		expect(drawer()).toBeInTheDocument();
+
+		// Como o Kit no popstate raso: restaura o estado daquela entrada (aqui, a de antes de
+		// abrir) e a URL dela.
+		fake.estado = {};
+		window.dispatchEvent(new PopStateEvent('popstate'));
+		await tick();
+
+		expect(drawer()).not.toBeInTheDocument();
 	});
 
 	// Trocar de dia/visão FECHA o drawer: o bloco aberto é do dia que estava na tela. Se o id

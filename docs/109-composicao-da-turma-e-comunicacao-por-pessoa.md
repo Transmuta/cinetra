@@ -138,6 +138,41 @@ botão pendurado no histórico. Com a ação morando na linha da pessoa, manter 
 mandar?" na mesma tela seria a divergência contra a qual o próprio `$lib/messages.ts` alerta em três
 lugares.
 
+### 7. O segundo bug encontrado no caminho: o drawer fechava a cada ação
+
+Relatado ao vivo: *"quando faço alguma ação no drawer de agendamento, ele fecha"*. Não era da
+composição da turma — era de **todas** as ações do painel desde sempre; a turma só o tornou óbvio,
+porque adicionar e tirar gente são duas ações seguidas no mesmo painel e a segunda não tinha painel
+para acontecer.
+
+**A causa: `page.state` é volátil.** Qual bloco está aberto viajava só ali (shallow routing, para o
+`goto` não refazer a busca do dia inteiro a cada bloco aberto). Medido no browser em 2026-08-06:
+depois de um `invalidate('agenda:dados')`, `history.state` continua com `{agendamento: <id>}` e a
+barra de endereço também — só o espelho em memória do Kit volta a `{}`. E o `page.url` que sobra é o
+da última navegação **real**, que nunca teve o parâmetro; então a segunda fonte (a URL, que serve o
+link recebido) também dizia "nenhum bloco aberto".
+
+A frequência é o que fazia doer: toda mutação do drawer termina em `invalidateAll` (o default do
+`use:enhance`) e o tempo real ainda recarrega sozinho 400ms depois do evento da própria escrita.
+
+**O conserto** é uma terceira fonte, acima das duas: `intencao`, um `$state` local com o que **esta
+aba** abriu ou fechou por clique — que sobrevive à recarga porque não é o Kit quem a escreve. Quem a
+zera é o `popstate`, porque no back/forward é o histórico que sabe se aquela entrada tinha painel
+aberto, e é exatamente aí que `page.state` volta a ser confiável (o Kit o restaura da entrada).
+`navigate` (trocar de dia/visão) também a zera: a navegação de verdade devolve a palavra à URL.
+
+Duas medições fecham o caso, e a segunda importa tanto quanto a primeira:
+
+```
+invalidate('agenda:dados') com o painel aberto → page.state {} → drawer fechado   (antes)
+o mesmo, depois do conserto                     → drawer aberto                    (depois)
+back com o painel aberto                        → drawer fechado                   (antes e depois)
+```
+
+O primeiro teste e2e escrito para isto **passava com o bug de pé**: ele afirmava logo depois do
+clique, e o painel só fechava na janela dos 400ms do `recarregar`. Daí a espera explícita
+(`DEPOIS_DA_RECARGA`) no arquivo — sem ela o teste não prova o que o nome dele diz.
+
 ## Testes
 
 | Camada | Onde |
@@ -147,6 +182,8 @@ lugares.
 | Actions | `web/src/routes/(app)/agenda/page.server.test.ts` — `adicionar_participante` e `remover_participante` |
 | Lógica pura | `web/src/lib/messages.test.ts` — `comunicacaoDaPessoa` (11 testes) |
 | Componentes | `AppointmentDrawer.svelte.test.ts` (composição + comunicação), `AddParticipant.svelte.test.ts`, `ParticipantCommunication.svelte.test.ts` |
+| Página (drawer × recarga) | `web/src/routes/(app)/agenda/page.svelte.test.ts` — sobreviver ao `invalidate`, e o back continuar fechando |
+| e2e | `web/e2e/drawer-permanece-aberto.spec.ts` — cancelar e compor a turma, no browser de verdade |
 
 ### E a leitura nova, que `mix test` é cego para provar
 
